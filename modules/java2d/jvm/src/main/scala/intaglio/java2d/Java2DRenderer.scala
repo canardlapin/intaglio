@@ -1,0 +1,373 @@
+package intaglio.java2d
+
+import java.awt.{AlphaComposite, BasicStroke, Color, Font, Graphics2D, RenderingHints, Shape}
+import java.awt.geom.{AffineTransform, Ellipse2D, Path2D, Rectangle2D}
+import java.awt.image.BufferedImage
+import scala.collection.mutable
+import intaglio.*
+
+final case class Java2DOptions private (width: Int, height: Int)
+
+object Java2DOptions:
+  val default: Java2DOptions =
+    unsafe()
+
+  def apply(width: Int = 640, height: Int = 480): Either[Java2DRenderError, Java2DOptions] =
+    if width <= 0 || height <= 0 then Left(Java2DRenderError.InvalidImageSize(width, height))
+    else Right(new Java2DOptions(width, height))
+
+  def unsafe(width: Int = 640, height: Int = 480): Java2DOptions =
+    apply(width, height).orThrow
+
+enum Java2DRenderError:
+  case InvalidImageSize(width: Int, height: Int)
+  case Graphics(error: GraphicsError)
+
+  def message: String =
+    this match
+      case InvalidImageSize(width, height) =>
+        s"Java2D image size must be positive: ${width}x$height"
+      case Graphics(error) =>
+        error.message
+
+object Java2DRenderError:
+  extension [A](either: Either[Java2DRenderError, A])
+    def orThrow: A =
+      either match
+        case Right(value) => value
+        case Left(error)  => throw new IllegalArgumentException(error.message)
+
+final case class Java2DColor(red: Int, green: Int, blue: Int, alpha: Double):
+  private[java2d] def awt(opacity: Double): Color =
+    val combined = math.round(alpha * opacity * 255.0).toInt.max(0).min(255)
+    new Color(red, green, blue, combined)
+
+object Java2DColor:
+  def fromRgba(color: Rgba): Java2DColor =
+    Java2DColor(color.red, color.green, color.blue, color.alpha)
+
+enum Java2DLineDash:
+  case Solid
+  case Pattern(values: Vector[Float])
+
+object Java2DLineDash:
+  def fromLineType(lineType: LineType): Java2DLineDash =
+    lineType match
+      case LineType.Solid  => Java2DLineDash.Solid
+      case LineType.Dashed => Java2DLineDash.Pattern(Vector(6.0f, 4.0f))
+      case LineType.Dotted => Java2DLineDash.Pattern(Vector(1.0f, 3.0f))
+
+final case class Java2DPaint(
+    stroke: Option[Java2DColor],
+    fill: Option[Java2DColor],
+    lineWidth: Double,
+    dash: Java2DLineDash,
+    lineCap: LineCap,
+    lineJoin: LineJoin,
+    opacity: Double
+)
+
+object Java2DPaint:
+  def fromGraphicParams(gp: GraphicParams): Java2DPaint =
+    Java2DPaint(
+      gp.stroke.map(Java2DColor.fromRgba),
+      gp.fill.map(Java2DColor.fromRgba),
+      gp.lineWidth,
+      Java2DLineDash.fromLineType(gp.lineType),
+      gp.lineCap,
+      gp.lineJoin,
+      gp.alpha
+    )
+
+  def text(gp: GraphicParams): Java2DPaint =
+    val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
+    Java2DPaint(None, Some(Java2DColor.fromRgba(color)), 0.0, Java2DLineDash.Solid, gp.lineCap, gp.lineJoin, gp.alpha)
+
+enum Java2DCommand:
+  case Save(name: Option[GraphicsName])
+  case Rotate(degrees: Double, pivotX: Double, pivotY: Double)
+  case ClipRect(x: Double, y: Double, width: Double, height: Double)
+  case Disc(centerX: Double, centerY: Double, radius: Double, paint: Java2DPaint, name: Option[GraphicsName])
+  case Polyline(points: Vector[DevicePoint], closed: Boolean, paint: Java2DPaint, name: Option[GraphicsName])
+  case CompoundPolygon(rings: Vector[Vector[DevicePoint]], paint: Java2DPaint, name: Option[GraphicsName])
+  case Rectangle(
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double,
+      paint: Java2DPaint,
+      name: Option[GraphicsName]
+  )
+  case Text(
+      label: String,
+      x: Double,
+      y: Double,
+      horizontal: HJust,
+      vertical: VJust,
+      rotationDegrees: Double,
+      fontSizePx: Double,
+      fontFamily: Option[String],
+      paint: Java2DPaint,
+      name: Option[GraphicsName]
+  )
+  case Image(
+      image: RasterImage,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double,
+      interpolation: RasterInterpolation,
+      alpha: Double,
+      name: Option[GraphicsName]
+  )
+  case Restore(name: Option[GraphicsName])
+
+final case class Java2DProgram private (
+    width: Int,
+    height: Int,
+    commands: Vector[Java2DCommand]
+)
+
+object Java2DProgram:
+  private[java2d] def fromDevice(scene: DeviceScene): Java2DProgram =
+    val out = Vector.newBuilder[Java2DCommand]
+    scene.elements.foreach(appendElement(_, out))
+    new Java2DProgram(scene.width.toInt, scene.height.toInt, out.result())
+
+  def validate(program: Java2DProgram): Option[String] =
+    var stack = List.empty[Option[GraphicsName]]
+    var idx = 0
+    var problem: Option[String] = None
+    while idx < program.commands.length && problem.isEmpty do
+      val command = program.commands(idx)
+      command match
+        case Java2DCommand.Save(name) =>
+          stack = name :: stack
+        case Java2DCommand.Restore(name) =>
+          stack match
+            case expected :: rest if expected == name => stack = rest
+            case expected :: _ => problem = Some(s"restore marker $name does not match save marker $expected")
+            case Nil           => problem = Some("restore without a matching save")
+        case other =>
+          problem = firstInvalidNumber(other)
+      idx += 1
+    problem.orElse(if stack.nonEmpty then Some(s"${stack.length} Java2D save operations were not restored") else None)
+
+  private def appendElement(
+      element: DeviceElement,
+      out: scala.collection.mutable.Builder[Java2DCommand, Vector[Java2DCommand]]
+  ): Unit =
+    element match
+      case DeviceElement.Mark(primitive) =>
+        out += fromPrimitive(primitive)
+      case DeviceElement.Group(name, clip, rotation, children) =>
+        out += Java2DCommand.Save(name)
+        rotation.foreach(value => out += Java2DCommand.Rotate(value.degrees, value.pivotX, value.pivotY))
+        clip.foreach(value => out += Java2DCommand.ClipRect(value.x, value.y, value.width, value.height))
+        children.foreach(appendElement(_, out))
+        out += Java2DCommand.Restore(name)
+
+  private def fromPrimitive(primitive: DevicePrimitive): Java2DCommand =
+    primitive match
+      case DevicePrimitive.Disc(centerX, centerY, radius, gp, name) =>
+        Java2DCommand.Disc(centerX, centerY, radius, Java2DPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.Polyline(points, closed, gp, name) =>
+        Java2DCommand.Polyline(points, closed, Java2DPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
+        Java2DCommand.CompoundPolygon(rings, Java2DPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
+        Java2DCommand.Rectangle(x, y, width, height, Java2DPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.TextRun(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, gp, name) =>
+        Java2DCommand.Text(
+          label,
+          x,
+          y,
+          horizontal,
+          vertical,
+          rotation,
+          fontSize,
+          fontFamily,
+          Java2DPaint.text(gp),
+          name
+        )
+      case DevicePrimitive.Image(image, x, y, width, height, interpolation, alpha, name) =>
+        Java2DCommand.Image(image, x, y, width, height, interpolation, alpha, name)
+
+  private def firstInvalidNumber(command: Java2DCommand): Option[String] =
+    val values = command match
+      case Java2DCommand.Rotate(degrees, pivotX, pivotY) =>
+        Vector(degrees, pivotX, pivotY)
+      case Java2DCommand.ClipRect(x, y, width, height) =>
+        Vector(x, y, width, height)
+      case Java2DCommand.Disc(centerX, centerY, radius, paint, _) =>
+        Vector(centerX, centerY, radius, paint.lineWidth, paint.opacity)
+      case Java2DCommand.Polyline(points, _, paint, _) =>
+        points.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
+      case Java2DCommand.CompoundPolygon(rings, paint, _) =>
+        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
+      case Java2DCommand.Rectangle(x, y, width, height, paint, _) =>
+        Vector(x, y, width, height, paint.lineWidth, paint.opacity)
+      case Java2DCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
+        Vector(x, y, rotation, fontSize, paint.opacity)
+      case Java2DCommand.Image(_, x, y, width, height, _, alpha, _) =>
+        Vector(x, y, width, height, alpha)
+      case Java2DCommand.Save(_) | Java2DCommand.Restore(_) =>
+        Vector.empty
+    if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
+
+object Java2DRenderer:
+  def compile(scene: Scene, options: Java2DOptions = Java2DOptions.default): Either[Java2DRenderError, Java2DProgram] =
+    for
+      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left.map(Java2DRenderError.Graphics(_))
+      resolved <- DeviceScene.fromScene(scene, device).left.map(Java2DRenderError.Graphics(_))
+    yield Java2DProgram.fromDevice(resolved)
+
+  def render(
+      scene: Scene,
+      graphics: Graphics2D,
+      options: Java2DOptions = Java2DOptions.default
+  ): Either[Java2DRenderError, Java2DProgram] =
+    compile(scene, options).map { program =>
+      draw(program, graphics)
+      program
+    }
+
+  def draw(program: Java2DProgram, graphics: Graphics2D): Unit =
+    var stack = List(graphics)
+    val images = mutable.HashMap.empty[RasterImage, BufferedImage]
+    try
+      program.commands.foreach {
+        case Java2DCommand.Save(_) =>
+          stack = stack.head.create().asInstanceOf[Graphics2D] :: stack
+        case Java2DCommand.Restore(_) =>
+          stack.head.dispose()
+          stack = stack.tail
+        case command =>
+          execute(command, stack.head, images)
+      }
+    finally
+      stack.takeWhile(_ ne graphics).foreach(_.dispose())
+
+  private def execute(
+      command: Java2DCommand,
+      graphics: Graphics2D,
+      images: mutable.Map[RasterImage, BufferedImage]
+  ): Unit =
+    command match
+      case Java2DCommand.Rotate(degrees, pivotX, pivotY) =>
+        graphics.rotate(degrees * math.Pi / 180.0, pivotX, pivotY)
+      case Java2DCommand.ClipRect(x, y, width, height) =>
+        graphics.clip(new Rectangle2D.Double(x, y, width, height))
+      case Java2DCommand.Disc(centerX, centerY, radius, paint, _) =>
+        paintShape(
+          graphics,
+          new Ellipse2D.Double(centerX - radius, centerY - radius, radius * 2.0, radius * 2.0),
+          paint
+        )
+      case Java2DCommand.Polyline(points, closed, paint, _) =>
+        val path = new Path2D.Double()
+        path.moveTo(points.head.x, points.head.y)
+        points.tail.foreach(point => path.lineTo(point.x, point.y))
+        if closed then path.closePath()
+        paintShape(graphics, path, paint)
+      case Java2DCommand.CompoundPolygon(rings, paint, _) =>
+        val path = new Path2D.Double(Path2D.WIND_NON_ZERO)
+        rings.foreach { ring =>
+          path.moveTo(ring.head.x, ring.head.y)
+          ring.tail.foreach(point => path.lineTo(point.x, point.y))
+          path.closePath()
+        }
+        paintShape(graphics, path, paint)
+      case Java2DCommand.Rectangle(x, y, width, height, paint, _) =>
+        paintShape(graphics, new Rectangle2D.Double(x, y, width, height), paint)
+      case Java2DCommand.Text(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, paint, _) =>
+        withCopy(graphics) { copy =>
+          antialias(copy)
+          val family = fontFamily.getOrElse(Font.SANS_SERIF)
+          val font = new Font(family, Font.PLAIN, 1).deriveFont(fontSize.toFloat)
+          copy.setFont(font)
+          val bounds = font.getStringBounds(label, copy.getFontRenderContext)
+          val drawX = horizontal match
+            case HJust.Left   => x
+            case HJust.Center => x - bounds.getWidth / 2.0
+            case HJust.Right  => x - bounds.getWidth
+          val baseline = vertical match
+            case VJust.Top    => y - bounds.getY
+            case VJust.Center => y - (bounds.getY + bounds.getHeight / 2.0)
+            case VJust.Bottom => y - (bounds.getY + bounds.getHeight)
+          if rotation != 0.0 then copy.rotate(rotation * math.Pi / 180.0, x, y)
+          val color = paint.fill.getOrElse(Java2DColor.fromRgba(Rgba.Black))
+          copy.setColor(color.awt(paint.opacity))
+          copy.drawString(label, drawX.toFloat, baseline.toFloat)
+        }
+      case Java2DCommand.Image(image, x, y, width, height, interpolation, alpha, _) =>
+        withCopy(graphics) { copy =>
+          val hint = interpolation match
+            case RasterInterpolation.Nearest => RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR
+            case RasterInterpolation.Smooth  => RenderingHints.VALUE_INTERPOLATION_BILINEAR
+          copy.setRenderingHint(RenderingHints.KEY_INTERPOLATION, hint)
+          copy.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha.toFloat))
+          val source = images.getOrElseUpdate(image, buffered(image))
+          val transform = new AffineTransform()
+          transform.translate(x, y)
+          transform.scale(width / image.width.toDouble, height / image.height.toDouble)
+          copy.drawImage(source, transform, null)
+        }
+      case Java2DCommand.Save(_) | Java2DCommand.Restore(_) =>
+        ()
+
+  private def paintShape(graphics: Graphics2D, shape: Shape, paint: Java2DPaint): Unit =
+    withCopy(graphics) { copy =>
+      antialias(copy)
+      paint.fill.foreach { color =>
+        copy.setColor(color.awt(paint.opacity))
+        copy.fill(shape)
+      }
+      paint.stroke.foreach { color =>
+        copy.setColor(color.awt(paint.opacity))
+        copy.setStroke(stroke(paint))
+        copy.draw(shape)
+      }
+    }
+
+  private def stroke(paint: Java2DPaint): BasicStroke =
+    val cap = paint.lineCap match
+      case LineCap.Butt   => BasicStroke.CAP_BUTT
+      case LineCap.Round  => BasicStroke.CAP_ROUND
+      case LineCap.Square => BasicStroke.CAP_SQUARE
+    val join = paint.lineJoin match
+      case LineJoin.Miter => BasicStroke.JOIN_MITER
+      case LineJoin.Round => BasicStroke.JOIN_ROUND
+      case LineJoin.Bevel => BasicStroke.JOIN_BEVEL
+    paint.dash match
+      case Java2DLineDash.Solid =>
+        new BasicStroke(paint.lineWidth.toFloat, cap, join)
+      case Java2DLineDash.Pattern(values) =>
+        new BasicStroke(
+          paint.lineWidth.toFloat,
+          cap,
+          join,
+          10.0f,
+          values.toArray,
+          0.0f
+        )
+
+  private def antialias(graphics: Graphics2D): Unit =
+    graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+    graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+
+  private def buffered(image: RasterImage): BufferedImage =
+    val output = new BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
+    val pixels = new Array[Int](image.dimensions.pixelCount)
+    var idx = 0
+    while idx < pixels.length do
+      val pixel = image.packedAt(idx)
+      pixels(idx) = (pixel.alpha << 24) | (pixel.red << 16) | (pixel.green << 8) | pixel.blue
+      idx += 1
+    output.setRGB(0, 0, image.width, image.height, pixels, 0, image.width)
+    output
+
+  private def withCopy(graphics: Graphics2D)(body: Graphics2D => Unit): Unit =
+    val copy = graphics.create().asInstanceOf[Graphics2D]
+    try body(copy)
+    finally copy.dispose()
