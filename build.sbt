@@ -5,13 +5,22 @@ import scalajscrossproject.ScalaJSCrossPlugin.autoImport.*
 ThisBuild / organization := "io.github.canardlapin"
 ThisBuild / scalaVersion := "3.4.2"
 ThisBuild / version      := "0.1.0-SNAPSHOT"
+ThisBuild / versionScheme := Some("early-semver")
 
 ThisBuild / homepage := Some(url("https://github.com/canardlapin/intaglio"))
-ThisBuild / licenses := Seq("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
+ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / scmInfo := Some(
   ScmInfo(
     url("https://github.com/canardlapin/intaglio"),
-    "scm:git:https://github.com/canardlapin/intaglio.git"
+    "scm:git:git@github.com:canardlapin/intaglio.git"
+  )
+)
+ThisBuild / developers := List(
+  Developer(
+    "canardlapin",
+    "canardlapin",
+    "307091466+canardlapin@users.noreply.github.com",
+    url("https://github.com/canardlapin")
   )
 )
 
@@ -50,7 +59,8 @@ lazy val core =
     .in(file("modules/core"))
     .settings(commonSettings)
     .settings(
-      name := "intaglio-core"
+      name := "intaglio-core",
+      description := "Renderer-neutral grammar-of-graphics core for Scala 3, cross-compiled to JVM and Scala.js."
     )
     .jsSettings(jsSettingsBase)
 
@@ -64,7 +74,8 @@ lazy val svg =
     .dependsOn(core)
     .settings(commonSettings)
     .settings(
-      name := "intaglio-svg"
+      name := "intaglio-svg",
+      description := "SVG renderer for Intaglio scenes."
     )
     .jsSettings(jsSettingsBase)
 
@@ -78,7 +89,8 @@ lazy val canvas =
     .dependsOn(core)
     .settings(commonSettings)
     .settings(
-      name := "intaglio-canvas"
+      name := "intaglio-canvas",
+      description := "HTML Canvas renderer for Intaglio scenes (Scala.js)."
     )
     .jsSettings(jsSettingsBase)
 
@@ -91,7 +103,8 @@ lazy val java2d =
     .dependsOn(core)
     .settings(commonSettings)
     .settings(
-      name := "intaglio-java2d"
+      name := "intaglio-java2d",
+      description := "Java2D renderer for Intaglio scenes (JVM)."
     )
 
 lazy val java2dJVM = java2d.jvm
@@ -104,6 +117,7 @@ lazy val javafx =
     .settings(commonSettings)
     .settings(
       name := "intaglio-javafx",
+      description := "JavaFX renderer for Intaglio scenes (JVM).",
       libraryDependencies ++= Seq(
         "org.openjfx" % "javafx-base" % "21.0.5" % Provided classifier javafxPlatformClassifier,
         "org.openjfx" % "javafx-graphics" % "21.0.5" % Provided classifier javafxPlatformClassifier
