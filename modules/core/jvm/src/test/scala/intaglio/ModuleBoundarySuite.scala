@@ -9,7 +9,7 @@ import scala.jdk.CollectionConverters.*
   * let the library be consumed a module at a time — a portable consumer must
   * never acquire a platform renderer or toolkit transitively.
   */
-class GraphicsExtractionGuardSuite extends munit.FunSuite:
+class ModuleBoundarySuite extends munit.FunSuite:
   private val modules = Vector("core", "svg", "canvas", "java2d", "javafx")
 
   private lazy val root: Path =
