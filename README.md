@@ -16,18 +16,28 @@ libraryDependencies += "io.github.canardlapin" %%% "intaglio-svg"  % "0.1.0"
 
 ```scala
 import intaglio.*
+import intaglio.svg.*
 
 final case class Point(x: Double, y: Double, condition: String)
 
-val result =
-  Plot(observations)
-    .withScale(ScaleBinding[Point, Double, Double](Aesthetic.X, _.x, xScale))
-    .flatMap(_.addLayer(Layer.point[Point](_.x, _.y)))
-    .flatMap(plot => PlotCompiler.compile(plot, PlotCompilerOptions(
-      policy = Some(LayoutPolicy()),
-      guides = GuidePolicy.Derived()
-    )))
-    .flatMap(scene => SvgRenderer.render(scene, SvgOptions.unsafe(640, 480)))
+val observations = Vector(
+  Point(1.0, 1.0, "A"),
+  Point(2.0, 1.8, "B"),
+  Point(3.0, 2.6, "A")
+)
+
+val svg =
+  for
+    xScale  <- ContinuousScale.train("x", observations.map(_.x), Palette.numeric)
+    bound   <- Plot(observations)
+                 .withScale(ScaleBinding[Point, Double, Double](Aesthetic.X, _.x, xScale))
+    layered <- bound.addLayer(Layer.point[Point](_.x, _.y))
+    scene   <- PlotCompiler.compile(
+                 layered,
+                 PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
+               )
+    document <- SvgRenderer.render(scene, SvgOptions.unsafe(640, 480))
+  yield document.value
 ```
 
 ## Artifacts

@@ -310,19 +310,19 @@ The same distinction governs position adjustment. Intaglio adopts the useful
 layout semantics of ggplot2—band-aware dodge, sign-separated stack, and seeded
 jitter—without importing `ggproto`, stringly configuration, or ambient random
 state. `DodgePreserve.Total` and `DodgePreserve.Single`, for example, are
-exhaustive Scala alternatives and can be inspected before compilation. Run
-`tools/render_position_adjustment_qa.sh` to generate a paired Java2D and
-ggplot2 gallery covering scatter, line, statistical layers, bounded geoms,
-count, facets, and position adjustment, plus numeric layer-data fixtures; see
-`docs/visual-qa/graphics-position-adjustments.md` for the comparison contract.
+exhaustive Scala alternatives and can be inspected before compilation. The
+`intaglio.java2d.PositionVisualQa` runner in the `intaglio-java2d` test sources
+generates a paired Java2D and ggplot2 gallery covering scatter, line,
+statistical layers, bounded geoms, count, facets, and position adjustment.
 
 ## Backends
 
 A backend implements `RendererHarness` and runs `RendererConformance.check`
 in its test suite; the shared `DeviceScene` lowering is the reference
-implementation. `graphics-svg` inspects serialized markup while
-`graphics-canvas` records deterministic Canvas commands; both must satisfy the
+implementation. `intaglio-svg` inspects serialized markup while
+`intaglio-canvas` records deterministic Canvas commands; both must satisfy the
 same primitive, style, text-placement, raster-image, clipping, and rotation
 requirements.
-`graphics-java2d` independently adopts the same contract and adds raster-level
-`BufferedImage` assertions for JVM rendering behavior.
+`intaglio-java2d` and `intaglio-javafx` independently adopt the same contract,
+and `intaglio-java2d` adds raster-level `BufferedImage` assertions for JVM
+rendering behavior.

@@ -1,7 +1,7 @@
 # intaglio-canvas
 
-`graphics-canvas` is the Scala.js Canvas 2D backend for the renderer-neutral
-`graphics` device scene. It compiles a `Scene` into a deterministic
+`intaglio-canvas` is the Scala.js Canvas 2D backend for the renderer-neutral
+Intaglio scene. It compiles a `Scene` into a deterministic
 `CanvasProgram`, then interprets that program against a browser
 `CanvasRenderingContext2D`.
 

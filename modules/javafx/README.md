@@ -1,7 +1,7 @@
 # intaglio-javafx
 
-`graphics-javafx` is the JVM JavaFX backend for the renderer-neutral
-`graphics` device scene. It compiles scenes into deterministic JavaFX Canvas
+`intaglio-javafx` is the JVM JavaFX backend for the renderer-neutral
+Intaglio scene. It compiles scenes into deterministic JavaFX Canvas
 commands and interprets them against a toolkit-free drawing contract
 (`JavaFxGraphicsContext`); `JavaFxCanvasContext` adapts that contract onto a
 live `javafx.scene.canvas.GraphicsContext`.
@@ -31,7 +31,7 @@ dash, font, text-anchor, clipping, transform, and alpha behavior; it contains
 no plot, scale, guide, or layout semantics.
 
 JavaFX applications that want installed-font-aware layout can also depend on
-`graphics-java2d` and inject `Java2DTextMetrics()` into `LayoutPolicy`. Font
+`intaglio-java2d` and inject `Java2DTextMetrics()` into `LayoutPolicy`. Font
 measurement is a caller-selected JVM capability; the JavaFX renderer itself
 does not change the deterministic shared `TextMetrics.estimate` default.
 
