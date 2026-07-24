@@ -1,6 +1,6 @@
 package intaglio
 
-enum DisplayError:
+enum DisplayError extends IntaglioError:
   case InvalidWindow(lower: Double, upper: Double)
   case InvalidThresholdBand(lower: Double, upper: Double)
   case InvalidOpacity(value: Double)

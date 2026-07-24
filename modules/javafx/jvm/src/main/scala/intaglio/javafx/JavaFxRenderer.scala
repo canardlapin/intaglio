@@ -16,7 +16,7 @@ object JavaFxOptions:
   def unsafe(width: Int = 640, height: Int = 480): JavaFxOptions =
     apply(width, height).orThrow
 
-enum JavaFxRenderError:
+enum JavaFxRenderError extends IntaglioError:
   case InvalidCanvasSize(width: Int, height: Int)
   case Graphics(error: GraphicsError)
 

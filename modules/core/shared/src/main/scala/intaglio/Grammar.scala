@@ -839,6 +839,17 @@ final case class Plot[Row] private (
   def withScale[In, A](binding: ScaleBinding[Row, In, A]): Either[GraphicsError, Plot[Row]] =
     mapping.bindScale(binding).flatMap(withMapping)
 
+  /** Bind a prepared scale to an aesthetic through a row accessor. The plot
+    * already fixes `Row`, so callers never spell the `ScaleBinding` type
+    * parameters: `encode(Aesthetic.X, _.x, xScale)`.
+    */
+  def encode[In, Out](
+      aesthetic: Aesthetic[Out],
+      value: Row => In,
+      scale: Scale[In, Out]
+  ): Either[GraphicsError, Plot[Row]] =
+    withScale(ScaleBinding(aesthetic, value, scale))
+
   def withCoord(coord: Coord): Plot[Row] =
     copy(coord = coord)
 

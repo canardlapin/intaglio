@@ -18,7 +18,7 @@ object CanvasOptions:
   def unsafe(width: Int = 640, height: Int = 480): CanvasOptions =
     apply(width, height).orThrow
 
-enum CanvasRenderError:
+enum CanvasRenderError extends IntaglioError:
   case InvalidCanvasSize(width: Int, height: Int)
   case InvalidRasterCacheCapacity(value: Int)
   case Graphics(error: GraphicsError)

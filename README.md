@@ -26,18 +26,30 @@ val observations = Vector(
   Point(3.0, 2.6, "A")
 )
 
-val svg =
+val svg: Either[IntaglioError, String] =
+  plot(observations)
+    .aes(_.x, _.y)
+    .scaleColorDiscrete(_.condition)
+    .geomPoint()
+    .scene
+    .flatMap(SvgRenderer.render(_))
+    .map(_.value)
+```
+
+Position scales train themselves. When you want a particular one — a log axis,
+a fixed domain, a bespoke palette — build it and `encode` it onto an aesthetic;
+the plot already fixes the row type, so no scale-binding boilerplate appears:
+
+```scala
+val logScaled =
   for
-    xScale  <- ContinuousScale.train("x", observations.map(_.x), Palette.numeric)
-    bound   <- Plot(observations)
-                 .withScale(ScaleBinding[Point, Double, Double](Aesthetic.X, _.x, xScale))
-    layered <- bound.addLayer(Layer.point[Point](_.x, _.y))
-    scene   <- PlotCompiler.compile(
-                 layered,
-                 PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
-               )
-    document <- SvgRenderer.render(scene, SvgOptions.unsafe(640, 480))
-  yield document.value
+    xScale <- ContinuousScale.train("x", observations.map(_.x), Palette.numeric, Transform.log10)
+    scene  <- plot(observations)
+                .aes(_.x, _.y)
+                .encode(Aesthetic.X, _.x, xScale)
+                .geomPoint()
+                .scene
+  yield scene
 ```
 
 ## Artifacts
@@ -88,7 +100,10 @@ Rows a renderer must skip are reported as `DroppedRow` values carrying a typed
 
 **Illegal states unrepresentable.** Domain scalars are opaque types with smart
 constructors, errors are a sealed ADT rather than exceptions or stringly
-failures, and public entry points return `Either`.
+failures, and public entry points return `Either`. Core validation and each
+backend keep their own precise error enum, but all of them extend a shared
+`IntaglioError` root, so a pipeline that compiles a `Scene` and then renders it
+carries one typed error channel instead of a union of unrelated types.
 
 ## Building
 

@@ -1,8 +1,8 @@
 package intaglio.svg
 
-import intaglio.GraphicsError
+import intaglio.{GraphicsError, IntaglioError}
 
-enum SvgRenderError:
+enum SvgRenderError extends IntaglioError:
   case InvalidDocumentSize(width: Int, height: Int)
   case InvalidXmlCharacter(field: String, codePoint: Int)
   case Graphics(error: GraphicsError)

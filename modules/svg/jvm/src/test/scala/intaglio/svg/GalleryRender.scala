@@ -81,8 +81,8 @@ object GalleryRender:
         DiscretePalette.valuesUnsafe(Vector(Rgba.unsafe(40, 80, 120), Rgba.unsafe(210, 120, 40)))
       )
       plot <- Plot(observations)
-        .withScale(ScaleBinding[LogObservation, Double, Double](Aesthetic.X, _.x, xScale))
-        .flatMap(_.withScale(ScaleBinding[LogObservation, String, Rgba](Aesthetic.Color, _.condition, colorScale)))
+        .encode(Aesthetic.X, _.x, xScale)
+        .flatMap(_.encode(Aesthetic.Color, _.condition, colorScale))
         .flatMap(_.addLayer(Layer.point[LogObservation](_.x, _.y)))
       scene <- PlotCompiler.compile(
         plot,

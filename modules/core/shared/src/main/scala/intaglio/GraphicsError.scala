@@ -1,6 +1,6 @@
 package intaglio
 
-enum GraphicsError:
+enum GraphicsError extends IntaglioError:
   case BlankName(kind: String)
   case InvalidInterval(lower: Double, upper: Double)
   case EmptyContinuousRange

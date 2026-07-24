@@ -19,7 +19,7 @@ object Java2DOptions:
   def unsafe(width: Int = 640, height: Int = 480): Java2DOptions =
     apply(width, height).orThrow
 
-enum Java2DRenderError:
+enum Java2DRenderError extends IntaglioError:
   case InvalidImageSize(width: Int, height: Int)
   case Graphics(error: GraphicsError)
 

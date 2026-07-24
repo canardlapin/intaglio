@@ -157,6 +157,18 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   ): PlotBuilder[Row, Position] =
     bindContinuous(Aesthetic.Fill, value, name, palette, transform, oob)
 
+  /** Bind a scale you built yourself — a log transform, a fixed domain, a
+    * bespoke palette — without dropping to the low-level `Plot` API. The
+    * builder fixes `Row`, so no `ScaleBinding` type parameters appear:
+    * `encode(Aesthetic.X, _.x, xScale)`.
+    */
+  def encode[In, Out](
+      aesthetic: Aesthetic[Out],
+      value: Row => In,
+      scale: Scale[In, Out]
+  ): PlotBuilder[Row, Position] =
+    updateResult(result.flatMap(_.encode(aesthetic, value, scale)))
+
   def geomPoint(
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None
