@@ -33,5 +33,8 @@ sbt 'java2dJVM / Test / runMain intaglio.java2d.GalleryRender target/graphics-ja
 sbt 'java2dJVM / Test / runMain intaglio.java2d.PositionVisualQa target/graphics-position-qa'
 ```
 
+`tools/render_position_adjustment_qa.sh` also generates the independent ggplot2
+references and writes the paired comparison gallery in one step.
+
 Both outputs are review artifacts; the semantic laws remain the automated
 JVM/Scala.js gate.

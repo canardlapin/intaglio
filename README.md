@@ -119,6 +119,12 @@ Render the visual gallery:
 sbt 'svgJVM / Test / runMain intaglio.svg.GalleryRender target/gallery'
 ```
 
+Render the paired Intaglio/Java2D and ggplot2 visual QA gallery:
+
+```sh
+tools/render_position_adjustment_qa.sh
+```
+
 ## Status
 
 `0.1.0-SNAPSHOT`, unpublished. The core and all four backends are green on both
