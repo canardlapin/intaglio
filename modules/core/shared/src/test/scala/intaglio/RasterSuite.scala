@@ -23,7 +23,26 @@ class RasterSuite extends munit.FunSuite:
     assertEquals(pixel.green, 34)
     assertEquals(pixel.blue, 56)
     assertEquals(pixel.alpha, 78)
+    assertEquals(pixel.toPackedInt, 0x0c22384e)
+    assertEquals(Rgba32.fromPackedInt(pixel.toPackedInt), pixel)
     assertEquals(Rgba32(red = -1, green = 0, blue = 0).left.toOption, Some(GraphicsError.InvalidColorChannel("red", -1)))
+  }
+
+  test("unsafe packed-array construction is an explicit zero-copy ownership transfer") {
+    val dimensions = RasterDimensions.unsafe(2, 1)
+    val pixels = Array(
+      Rgba32.unsafe(1, 2, 3, 4).toPackedInt,
+      Rgba32.unsafe(5, 6, 7, 8).toPackedInt
+    )
+    val image = RasterImage.unsafeFromOwnedPackedArray(dimensions, pixels)
+
+    assertEquals(image.pixelUnsafe(0, 0), Rgba32.unsafe(1, 2, 3, 4))
+    assertEquals(image.pixelUnsafe(1, 0), Rgba32.unsafe(5, 6, 7, 8))
+    // Deliberately violate the ownership contract to prove this path does not copy.
+    pixels(0) = Rgba32.unsafe(9, 10, 11, 12).toPackedInt
+    assertEquals(image.pixelUnsafe(0, 0), Rgba32.unsafe(9, 10, 11, 12))
+    intercept[IllegalArgumentException]:
+      RasterImage.unsafeFromOwnedPackedArray(dimensions, Array.emptyIntArray)
   }
 
   test("raster images own their packed storage and compare by pixel value") {

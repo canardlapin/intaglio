@@ -20,6 +20,12 @@ object Rgba32:
   def fromRgba(color: Rgba): Rgba32 =
     pack(color.red, color.green, color.blue, math.round(color.alpha * 255.0).toInt)
 
+  /** Interpret one packed `0xRRGGBBAA` word. Every 32-bit value is a valid
+    * pixel; the named conversion keeps packed-buffer boundaries explicit.
+    */
+  inline def fromPackedInt(value: Int): Rgba32 =
+    value
+
   /** Internal hot-path constructor. Callers must prove every channel is in
     * `[0, 255]`; public and trust-boundary code must use `apply` or `unsafe`.
     */
@@ -28,9 +34,6 @@ object Rgba32:
 
   private def pack(red: Int, green: Int, blue: Int, alpha: Int): Rgba32 =
     (red << 24) | (green << 16) | (blue << 8) | alpha
-
-  private[intaglio] def fromPackedInt(value: Int): Rgba32 =
-    value
 
 extension (pixel: Rgba32)
   def red: Int =
@@ -48,7 +51,8 @@ extension (pixel: Rgba32)
   def toRgba: Rgba =
     Rgba.unsafe(pixel.red, pixel.green, pixel.blue, pixel.alpha.toDouble / 255.0)
 
-  private[intaglio] def packedInt: Int =
+  /** Return this pixel's exact `0xRRGGBBAA` packed word. */
+  inline def toPackedInt: Int =
     pixel
 
 final case class RasterDimensions private (width: Int, height: Int):
@@ -125,8 +129,12 @@ final class RasterImage private (
     s"RasterImage(${width}x$height)"
 
 object RasterImage:
-  /** Internal ownership-transfer constructor for freshly allocated buffers. */
-  private[intaglio] def unsafeFromPackedArray(
+  /** Wrap a freshly allocated packed buffer without copying it.
+    *
+    * The caller transfers exclusive ownership of `pixels` to the returned
+    * image and must never read or mutate the array afterward.
+    */
+  def unsafeFromOwnedPackedArray(
       dimensions: RasterDimensions,
       pixels: Array[Int]
   ): RasterImage =
@@ -145,7 +153,7 @@ object RasterImage:
       var x = 0
       val rowOffset = y * dimensions.width
       while x < dimensions.width do
-        data(rowOffset + x) = pixelAt(x, y).packedInt
+        data(rowOffset + x) = pixelAt(x, y).toPackedInt
         x += 1
       y += 1
     new RasterImage(dimensions, data)
@@ -160,7 +168,7 @@ object RasterImage:
       val data = new Array[Int](pixels.length)
       var idx = 0
       while idx < pixels.length do
-        data(idx) = pixels(idx).packedInt
+        data(idx) = pixels(idx).toPackedInt
         idx += 1
       Right(new RasterImage(dimensions, data))
 
@@ -174,12 +182,12 @@ object RasterImage:
       val data = new Array[Int](pixels.length)
       var idx = 0
       while idx < pixels.length do
-        data(idx) = Rgba32.fromRgba(pixels(idx)).packedInt
+        data(idx) = Rgba32.fromRgba(pixels(idx)).toPackedInt
         idx += 1
       Right(new RasterImage(dimensions, data))
 
   def solid(dimensions: RasterDimensions, pixel: Rgba32): RasterImage =
-    val data = Array.fill(dimensions.pixelCount)(pixel.packedInt)
+    val data = Array.fill(dimensions.pixelCount)(pixel.toPackedInt)
     new RasterImage(dimensions, data)
 
   def unsafePacked(dimensions: RasterDimensions, pixels: IndexedSeq[Rgba32]): RasterImage =

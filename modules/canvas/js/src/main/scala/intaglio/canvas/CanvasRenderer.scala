@@ -289,7 +289,7 @@ object CanvasRasterFactory:
       val words = new Uint32Array(bytes.buffer, bytes.byteOffset, image.dimensions.pixelCount)
       var idx = 0
       while idx < image.dimensions.pixelCount do
-        words(idx) = rgbaToLittleEndianWord(image.packedAt(idx).packedInt)
+        words(idx) = rgbaToLittleEndianWord(image.packedAt(idx).toPackedInt)
         idx += 1
     else
       var idx = 0

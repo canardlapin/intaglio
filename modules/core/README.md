@@ -168,7 +168,9 @@ scale declarations over observations from every layer.
   and immutable `RasterImage` storage. Pixel rows are top-to-bottom; image
   placement still follows the scene's y-up `Point`/`Anchor` rules. Nearest and
   smooth interpolation are explicit, and file IO or platform image objects
-  never enter the shared grammar.
+  never enter the shared grammar. Explicit `Rgba32.fromPackedInt` /
+  `toPackedInt` conversions and `RasterImage.unsafeFromOwnedPackedArray`
+  provide allocation-free packed-buffer interop at performance boundaries.
 - Regular scalar fields use checked `RegularGridAxis` values with explicit
   cell- or vertex-centered sampling and immutable x-fastest row-major storage.
   `plot(field).geomHeatmap()` derives coordinates, tile extents, a continuous
