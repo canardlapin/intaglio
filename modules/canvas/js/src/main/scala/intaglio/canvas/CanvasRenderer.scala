@@ -75,9 +75,43 @@ final case class CanvasPaint(
     lineJoin: LineJoin,
     opacity: Double,
     fillPattern: Option[PatternPaint] = None
-)
+):
+  /** Binary bridge for callers compiled before pattern fills were added. */
+  def this(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double
+  ) = this(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
+
+  /** Binary bridge for the former seven-field case-class copy descriptor. */
+  def copy(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double
+  ): CanvasPaint =
+    new CanvasPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
 
 object CanvasPaint:
+  /** Binary bridge for the former seven-field case-class apply descriptor. */
+  def apply(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double
+  ): CanvasPaint =
+    new CanvasPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
+
   def fromGraphicParams(gp: GraphicParams): CanvasPaint =
     CanvasPaint(
       gp.stroke.map(CanvasColor.fromRgba),
@@ -387,10 +421,32 @@ final case class CanvasDrawProfile(
   patternCacheHits: Int = 0,
   patternCacheMisses: Int = 0
 ):
+  /** Binary bridge for callers compiled before pattern cache metrics were added. */
+  def this(imageRequests: Int, cacheHits: Int, cacheMisses: Int, uploadedBytes: Long) =
+    this(imageRequests, cacheHits, cacheMisses, uploadedBytes, 0, 0, 0)
+
+  /** Binary bridge for the former four-field case-class copy descriptor. */
+  def copy(
+      imageRequests: Int,
+      cacheHits: Int,
+      cacheMisses: Int,
+      uploadedBytes: Long
+  ): CanvasDrawProfile =
+    new CanvasDrawProfile(imageRequests, cacheHits, cacheMisses, uploadedBytes, 0, 0, 0)
+
   def hitRate: Double =
     if imageRequests == 0 then 1.0 else cacheHits.toDouble / imageRequests
 
 object CanvasDrawProfile:
+  /** Binary bridge for the former four-field case-class apply descriptor. */
+  def apply(
+      imageRequests: Int,
+      cacheHits: Int,
+      cacheMisses: Int,
+      uploadedBytes: Long
+  ): CanvasDrawProfile =
+    new CanvasDrawProfile(imageRequests, cacheHits, cacheMisses, uploadedBytes, 0, 0, 0)
+
   val Zero: CanvasDrawProfile =
     CanvasDrawProfile(0, 0, 0, 0L, 0, 0, 0)
 

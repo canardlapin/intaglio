@@ -220,3 +220,38 @@ class Java2DRendererSuite extends munit.FunSuite:
     assertEquals(new Color(target.getRGB(30, 30), true), new Color(20, 40, 220, 255))
     assertEquals(new Color(target.getRGB(10, 10), true), new Color(220, 30, 30, 255))
   }
+
+  test("pre-pattern Java2D paint apply and copy descriptors remain callable") {
+    val legacyApply: (
+        Option[Java2DColor],
+        Option[Java2DColor],
+        Double,
+        Java2DLineDash,
+        LineCap,
+        LineJoin,
+        Double
+    ) => Java2DPaint = Java2DPaint.apply
+    val paint = legacyApply(
+      None,
+      Some(Java2DColor.fromRgba(Rgba.Black)),
+      2.0,
+      Java2DLineDash.Solid,
+      LineCap.Round,
+      LineJoin.Bevel,
+      0.75
+    )
+    val legacyCopy: (
+        Option[Java2DColor],
+        Option[Java2DColor],
+        Double,
+        Java2DLineDash,
+        LineCap,
+        LineJoin,
+        Double
+    ) => Java2DPaint = paint.copy
+
+    assertEquals(
+      legacyCopy(None, paint.fill, 3.0, paint.dash, paint.lineCap, paint.lineJoin, 0.5).fillPattern,
+      None
+    )
+  }

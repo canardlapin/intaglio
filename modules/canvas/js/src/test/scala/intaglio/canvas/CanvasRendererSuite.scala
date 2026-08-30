@@ -345,3 +345,41 @@ class CanvasRendererSuite extends munit.FunSuite:
     assertEquals(cache.size, 1)
     assert(CanvasRasterCache.make(-1).isLeft)
   }
+
+  test("pre-pattern Canvas case-class apply and copy descriptors remain callable") {
+    val legacyPaintApply: (
+        Option[CanvasColor],
+        Option[CanvasColor],
+        Double,
+        CanvasLineDash,
+        LineCap,
+        LineJoin,
+        Double
+    ) => CanvasPaint = CanvasPaint.apply
+    val paint = legacyPaintApply(
+      None,
+      Some(CanvasColor.fromRgba(Rgba.Black)),
+      2.0,
+      CanvasLineDash.Solid,
+      LineCap.Round,
+      LineJoin.Bevel,
+      0.75
+    )
+    val legacyPaintCopy: (
+        Option[CanvasColor],
+        Option[CanvasColor],
+        Double,
+        CanvasLineDash,
+        LineCap,
+        LineJoin,
+        Double
+    ) => CanvasPaint = paint.copy
+    assertEquals(legacyPaintCopy(None, paint.fill, 3.0, paint.dash, paint.lineCap, paint.lineJoin, 0.5).fillPattern, None)
+
+    val legacyProfileApply: (Int, Int, Int, Long) => CanvasDrawProfile =
+      CanvasDrawProfile.apply
+    val profile = legacyProfileApply(4, 3, 1, 96L)
+    val legacyProfileCopy: (Int, Int, Int, Long) => CanvasDrawProfile = profile.copy
+    assertEquals(legacyProfileCopy(5, 4, 1, 128L), CanvasDrawProfile(5, 4, 1, 128L, 0, 0, 0))
+    assertEquals((profile.patternRequests, profile.patternCacheHits, profile.patternCacheMisses), (0, 0, 0))
+  }

@@ -280,3 +280,38 @@ class JavaFxRendererSuite extends munit.FunSuite:
     assertEqualsDouble(context.globalAlpha, 0.8, 1e-9)
     assertEquals(context.imageSmoothing, false)
   }
+
+  test("pre-pattern JavaFX paint apply and copy descriptors remain callable") {
+    val legacyApply: (
+        Option[JavaFxColor],
+        Option[JavaFxColor],
+        Double,
+        JavaFxLineDash,
+        LineCap,
+        LineJoin,
+        Double
+    ) => JavaFxPaint = JavaFxPaint.apply
+    val paint = legacyApply(
+      None,
+      Some(JavaFxColor.fromRgba(Rgba.Black)),
+      2.0,
+      JavaFxLineDash.Solid,
+      LineCap.Round,
+      LineJoin.Bevel,
+      0.75
+    )
+    val legacyCopy: (
+        Option[JavaFxColor],
+        Option[JavaFxColor],
+        Double,
+        JavaFxLineDash,
+        LineCap,
+        LineJoin,
+        Double
+    ) => JavaFxPaint = paint.copy
+
+    assertEquals(
+      legacyCopy(None, paint.fill, 3.0, paint.dash, paint.lineCap, paint.lineJoin, 0.5).fillPattern,
+      None
+    )
+  }

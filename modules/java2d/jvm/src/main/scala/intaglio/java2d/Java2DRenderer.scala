@@ -66,9 +66,43 @@ final case class Java2DPaint(
     lineJoin: LineJoin,
     opacity: Double,
     fillPattern: Option[PatternPaint] = None
-)
+):
+  /** Binary bridge for callers compiled before pattern fills were added. */
+  def this(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double
+  ) = this(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
+
+  /** Binary bridge for the former seven-field case-class copy descriptor. */
+  def copy(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double
+  ): Java2DPaint =
+    new Java2DPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
 
 object Java2DPaint:
+  /** Binary bridge for the former seven-field case-class apply descriptor. */
+  def apply(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double
+  ): Java2DPaint =
+    new Java2DPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
+
   def fromGraphicParams(gp: GraphicParams): Java2DPaint =
     Java2DPaint(
       gp.stroke.map(Java2DColor.fromRgba),
