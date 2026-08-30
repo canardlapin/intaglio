@@ -6,18 +6,76 @@ import scala.collection.mutable
 import scala.util.control.NonFatal
 import intaglio.*
 
-final case class CanvasOptions private (width: Int, height: Int)
+final case class CanvasOptions private (
+    width: Int,
+    height: Int,
+    pixelsPerInch: Double,
+    deviceScale: Double,
+    logicalWidth: Double,
+    logicalHeight: Double
+)
 
 object CanvasOptions:
   val default: CanvasOptions =
     unsafe()
 
-  def apply(width: Int = 640, height: Int = 480): Either[CanvasRenderError, CanvasOptions] =
+  def apply(
+      width: Int = 640,
+      height: Int = 480,
+      pixelsPerInch: Double = 96.0,
+      deviceScale: Double = 1.0
+  ): Either[CanvasRenderError, CanvasOptions] =
     if width <= 0 || height <= 0 then Left(CanvasRenderError.InvalidCanvasSize(width, height))
-    else Right(new CanvasOptions(width, height))
+    else
+      RenderContext(width, height, pixelsPerInch, deviceScale = deviceScale).left
+        .map(CanvasRenderError.Graphics(_))
+        .map(context =>
+          new CanvasOptions(
+            width,
+            height,
+            pixelsPerInch,
+            deviceScale,
+            context.logicalWidth,
+            context.logicalHeight
+          )
+        )
 
-  def unsafe(width: Int = 640, height: Int = 480): CanvasOptions =
-    apply(width, height).orThrow
+  def unsafe(
+      width: Int = 640,
+      height: Int = 480,
+      pixelsPerInch: Double = 96.0,
+      deviceScale: Double = 1.0
+  ): CanvasOptions =
+    apply(width, height, pixelsPerInch, deviceScale).orThrow
+
+  def hidpi(
+      logicalWidth: Int,
+      logicalHeight: Int,
+      devicePixelRatio: Double,
+      logicalPixelsPerInch: Double = 96.0
+  ): Either[CanvasRenderError, CanvasOptions] =
+    RenderContext
+      .hidpi(logicalWidth, logicalHeight, devicePixelRatio, logicalPixelsPerInch)
+      .left
+      .map(CanvasRenderError.Graphics(_))
+      .map(context =>
+        new CanvasOptions(
+          context.width,
+          context.height,
+          context.pixelsPerInch,
+          context.deviceScale,
+          context.logicalWidth,
+          context.logicalHeight
+        )
+      )
+
+  def hidpiUnsafe(
+      logicalWidth: Int,
+      logicalHeight: Int,
+      devicePixelRatio: Double,
+      logicalPixelsPerInch: Double = 96.0
+  ): CanvasOptions =
+    hidpi(logicalWidth, logicalHeight, devicePixelRatio, logicalPixelsPerInch).orThrow
 
 enum CanvasRenderError extends IntaglioError:
   case InvalidCanvasSize(width: Int, height: Int)
@@ -198,14 +256,26 @@ enum CanvasCommand:
 final case class CanvasProgram private (
     width: Int,
     height: Int,
+    pixelsPerInch: Double,
+    deviceScale: Double,
+    logicalWidth: Double,
+    logicalHeight: Double,
     commands: Vector[CanvasCommand]
 )
 
 object CanvasProgram:
-  private[canvas] def fromDevice(scene: DeviceScene): CanvasProgram =
+  private[canvas] def fromDevice(scene: DeviceScene, context: RenderContext): CanvasProgram =
     val out = Vector.newBuilder[CanvasCommand]
     scene.elements.foreach(appendElement(_, out))
-    new CanvasProgram(scene.width.toInt, scene.height.toInt, out.result())
+    new CanvasProgram(
+      scene.width.toInt,
+      scene.height.toInt,
+      context.pixelsPerInch,
+      context.deviceScale,
+      context.logicalWidth,
+      context.logicalHeight,
+      out.result()
+    )
 
   def validate(program: CanvasProgram): Option[String] =
     var stack = List.empty[Option[GraphicsName]]
@@ -580,14 +650,23 @@ object CanvasRenderer:
     for
       resolved <- plan.deviceScene.left.map(CanvasRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(CanvasRenderError.Graphics(_))
-    yield CanvasProgram.fromDevice(resolved)
+    yield CanvasProgram.fromDevice(resolved, plan.context)
 
   def compile(
       scene: Scene,
       options: CanvasOptions = CanvasOptions.default
   ): Either[CanvasRenderError, CanvasProgram] =
     for
-      context <- RenderContext(options.width, options.height).left
+      context <- RenderContext
+        .actual(
+          options.width,
+          options.height,
+          options.pixelsPerInch,
+          options.deviceScale,
+          options.logicalWidth,
+          options.logicalHeight
+        )
+        .left
         .map(CanvasRenderError.Graphics(_))
       program <- compile(RenderPlan(scene, context))
     yield program

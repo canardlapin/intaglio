@@ -8,7 +8,8 @@ class Java2DRenderContextSuite extends munit.FunSuite:
       width = 321,
       height = 123,
       pixelsPerInch = 144.0,
-      fontRegistry = FontRegistry(_ => Some("Resolved Backend Sans"))
+      fontRegistry = FontRegistry(_ => Some("Resolved Backend Sans")),
+      deviceScale = 1.5
     )
     val text = Grob.textUnsafe(
       "context",
@@ -21,6 +22,10 @@ class Java2DRenderContextSuite extends munit.FunSuite:
 
     assertEquals(program.width, 321)
     assertEquals(program.height, 123)
+    assertEquals(program.pixelsPerInch, 144.0)
+    assertEquals(program.deviceScale, 1.5)
+    assertEquals(program.logicalWidth, 214.0)
+    assertEquals(program.logicalHeight, 82.0)
     program.commands.headOption match
       case Some(Java2DCommand.Text(_, _, _, _, _, _, fontSize, family, _, _)) =>
         assertEqualsDouble(fontSize, 24.0, 1e-9)

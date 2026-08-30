@@ -55,6 +55,8 @@ class RenderContextSuite extends munit.FunSuite:
     assert(RenderContext(width = 0, height = 480).isLeft)
     assert(RenderContext(width = 640, height = -1).isLeft)
     assert(RenderContext(width = 640, height = 480, pixelsPerInch = 0.0).isLeft)
+    assert(RenderContext(width = 640, height = 480, lineHeightPt = 0.0).isLeft)
+    assert(RenderContext(width = 640, height = 480, deviceScale = 0.0).isLeft)
 
     val metrics = new TextMetrics:
       override def widthPt(text: String, fontSizePt: Double): Double =
@@ -88,6 +90,21 @@ class RenderContextSuite extends munit.FunSuite:
     assertEquals(policy.plotSubtitleFontFamily, Some("resolved-plot-subtitle"))
     assertEquals(policy.legendFontFamily, Some("resolved-legend"))
     assertEquals(policy.legendTitleFontFamily, Some("resolved-legend-title"))
+  }
+
+  test("HiDPI construction preserves logical size and records actual target density") {
+    val context = RenderContext
+      .hidpi(320, 240, devicePixelRatio = 2.0, logicalPixelsPerInch = 96.0)
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(context.width, 640)
+    assertEquals(context.height, 480)
+    assertEquals(context.pixelsPerInch, 192.0)
+    assertEquals(context.deviceScale, 2.0)
+    assertEquals(context.logicalWidth, 320.0)
+    assertEquals(context.logicalHeight, 240.0)
+    assertEquals(context.logicalPixelsPerInch, 96.0)
+    assert(RenderContext.hidpi(320, 240, devicePixelRatio = 0.0).isLeft)
   }
 
   test("font registry and target text metrics enter before layout and device lowering") {

@@ -80,8 +80,11 @@ private object DeviceValue:
 final class LengthResolver(
     device: DeviceContext,
     val frame: DeviceFrame,
-    fontRegistry: FontRegistry = FontRegistry.passthrough
+    fontRegistry: FontRegistry = FontRegistry.passthrough,
+    lineHeightPt: Double = 12.0
 ):
+  private val lineHeightPx = lineHeightPt * device.pixelsPerInch / 72.0
+
   def x(expr: LengthExpr): Either[GraphicsError, Double] =
     eval(expr, horizontal = true, location = true).map(frame.x + _).flatMap(checked)
 
@@ -115,12 +118,25 @@ final class LengthResolver(
       h <- height(value)
     yield math.min(w, h)
 
-  /** Font sizes must be absolute; relative units have no meaning for glyphs. */
+  /** Font sizes accept physical units and the context-bound line unit; frame-relative units do not
+    * describe glyph size.
+    */
   def fontSize(length: Length): Either[GraphicsError, Double] =
-    device.pxPerUnit(length.unit) match
-      case Some(px) => DeviceValue.checked("font size", length.value * px)
-      case None     =>
-        Left(GraphicsError.UnresolvableLength(s"font size in unit '${length.unit}'"))
+    length.unit match
+      case LengthUnit.Line => DeviceValue.checked("font size", length.value * lineHeightPx)
+      case unit            =>
+        device.pxPerUnit(unit) match
+          case Some(px) => DeviceValue.checked("font size", length.value * px)
+          case None     =>
+            Left(GraphicsError.UnresolvableLength(s"font size in unit '${length.unit}'"))
+
+  def graphicParams(gp: GraphicParams): Either[GraphicsError, GraphicParams] =
+    val pixels = gp.lineWidthUnit match
+      case StrokeUnit.DevicePixel => gp.lineWidth
+      case StrokeUnit.Point       => gp.lineWidth * device.pixelsPerInch / 72.0
+    DeviceValue
+      .checked("line width", pixels)
+      .map(value => gp.withStrokeWidth(StrokeWidth.devicePixelsUnsafe(value)))
 
   def fontFamily(requested: Option[String]): Option[String] =
     fontRegistry.resolve(requested)
@@ -190,7 +206,7 @@ final class LengthResolver(
         else if scale.width == 0.0 then Right(0.0)
         else Right(length.value / scale.width * span)
       case LengthUnit.Line =>
-        Left(GraphicsError.UnresolvableLength("length unit 'Line' has no device size"))
+        Right(length.value * lineHeightPx)
       case other =>
         device.pxPerUnit(other) match
           case Some(px) => Right(length.value * px)
@@ -271,18 +287,25 @@ final case class DeviceScene(width: Double, height: Double, elements: Vector[Dev
 
 object DeviceScene:
   def fromScene(scene: Scene, device: DeviceContext): Either[GraphicsError, DeviceScene] =
-    fromScene(scene, device, FontRegistry.passthrough)
+    fromScene(scene, device, FontRegistry.passthrough, lineHeightPt = 12.0)
 
   def fromScene(scene: Scene, context: RenderContext): Either[GraphicsError, DeviceScene] =
-    fromScene(scene, context.deviceContext, context.fontRegistry)
+    fromScene(scene, context.deviceContext, context.fontRegistry, context.lineHeightPt)
 
   private def fromScene(
       scene: Scene,
       device: DeviceContext,
-      fontRegistry: FontRegistry
+      fontRegistry: FontRegistry,
+      lineHeightPt: Double
   ): Either[GraphicsError, DeviceScene] =
     for
-      elements <- lowerAll(scene.grobs, device, DeviceFrame.root(device), fontRegistry)
+      elements <- lowerAll(
+        scene.grobs,
+        device,
+        DeviceFrame.root(device),
+        fontRegistry,
+        lineHeightPt
+      )
       resolved <- validate(DeviceScene(device.width, device.height, elements))
     yield resolved
 
@@ -438,13 +461,14 @@ object DeviceScene:
       grobs: Vector[Grob],
       device: DeviceContext,
       frame: DeviceFrame,
-      fontRegistry: FontRegistry
+      fontRegistry: FontRegistry,
+      lineHeightPt: Double
   ): Either[GraphicsError, Vector[DeviceElement]] =
     val out = Vector.newBuilder[DeviceElement]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < grobs.length && result.isRight do
-      result = lower(grobs(idx), device, frame, fontRegistry).map { elements =>
+      result = lower(grobs(idx), device, frame, fontRegistry, lineHeightPt).map { elements =>
         out ++= elements
         ()
       }
@@ -463,45 +487,49 @@ object DeviceScene:
       grob: Grob,
       device: DeviceContext,
       frame: DeviceFrame,
-      fontRegistry: FontRegistry
+      fontRegistry: FontRegistry,
+      lineHeightPt: Double
   ): Either[GraphicsError, Vector[DeviceElement]] =
     grob.viewport match
       case Some(viewport) =>
-        LengthResolver(device, frame, fontRegistry).childFrame(viewport).flatMap { child =>
-          contents(grob, device, child, fontRegistry).map { children =>
-            val clip = viewport.clip match
-              case Clip.On  => Some(DeviceClip(child.x, child.y, child.width, child.height))
-              case Clip.Off => None
-            val rotation =
-              if viewport.angleDegrees == 0.0 then None
-              else
-                val pivotY = frame.yDirection match
-                  case YDirection.Up   => child.y + child.height
-                  case YDirection.Down => child.y
-                Some(DeviceRotation(deviceDegrees(viewport.angleDegrees, frame), child.x, pivotY))
-            Vector(DeviceElement.Group(grob.name, clip, rotation, children))
-          }
+        LengthResolver(device, frame, fontRegistry, lineHeightPt).childFrame(viewport).flatMap {
+          child =>
+            contents(grob, device, child, fontRegistry, lineHeightPt).map { children =>
+              val clip = viewport.clip match
+                case Clip.On  => Some(DeviceClip(child.x, child.y, child.width, child.height))
+                case Clip.Off => None
+              val rotation =
+                if viewport.angleDegrees == 0.0 then None
+                else
+                  val pivotY = frame.yDirection match
+                    case YDirection.Up   => child.y + child.height
+                    case YDirection.Down => child.y
+                  Some(DeviceRotation(deviceDegrees(viewport.angleDegrees, frame), child.x, pivotY))
+              Vector(DeviceElement.Group(grob.name, clip, rotation, children))
+            }
         }
       case None =>
         grob match
           case group: Grob.Group =>
-            lowerAll(group.children, device, frame, fontRegistry).map { children =>
+            lowerAll(group.children, device, frame, fontRegistry, lineHeightPt).map { children =>
               Vector(DeviceElement.Group(group.name, None, None, children))
             }
           case other =>
-            contents(other, device, frame, fontRegistry)
+            contents(other, device, frame, fontRegistry, lineHeightPt)
 
   private def contents(
       grob: Grob,
       device: DeviceContext,
       frame: DeviceFrame,
-      fontRegistry: FontRegistry
+      fontRegistry: FontRegistry,
+      lineHeightPt: Double
   ): Either[GraphicsError, Vector[DeviceElement]] =
     grob match
       case group: Grob.Group =>
-        lowerAll(group.children, device, frame, fontRegistry)
+        lowerAll(group.children, device, frame, fontRegistry, lineHeightPt)
       case other =>
-        marks(other, LengthResolver(device, frame, fontRegistry)).map(_.map(DeviceElement.Mark(_)))
+        marks(other, LengthResolver(device, frame, fontRegistry, lineHeightPt))
+          .map(_.map(DeviceElement.Mark(_)))
 
   private def marks(
       grob: Grob,
@@ -511,17 +539,20 @@ object DeviceScene:
       case points: Grob.Points =>
         pointMarks(points, resolver)
       case lines: Grob.Lines =>
-        resolvePoints(lines.points, resolver).map { resolved =>
-          Vector(DevicePrimitive.Polyline(resolved, closed = false, lines.gp, lines.name))
-        }
+        for
+          resolved <- resolvePoints(lines.points, resolver)
+          gp <- resolver.graphicParams(lines.gp)
+        yield Vector(DevicePrimitive.Polyline(resolved, closed = false, gp, lines.name))
       case polygon: Grob.Polygon =>
-        resolvePoints(polygon.points, resolver).map { resolved =>
-          Vector(DevicePrimitive.Polyline(resolved, closed = true, polygon.gp, polygon.name))
-        }
+        for
+          resolved <- resolvePoints(polygon.points, resolver)
+          gp <- resolver.graphicParams(polygon.gp)
+        yield Vector(DevicePrimitive.Polyline(resolved, closed = true, gp, polygon.name))
       case polygon: Grob.CompoundPolygon =>
-        resolvePointGroups(polygon.rings, resolver).map { resolved =>
-          Vector(DevicePrimitive.CompoundPolygon(resolved, polygon.gp, polygon.name))
-        }
+        for
+          resolved <- resolvePointGroups(polygon.rings, resolver)
+          gp <- resolver.graphicParams(polygon.gp)
+        yield Vector(DevicePrimitive.CompoundPolygon(resolved, gp, polygon.name))
       case segments: Grob.Segments =>
         segmentMarks(segments, resolver)
       case rect: Grob.Rect =>
@@ -531,12 +562,14 @@ object DeviceScene:
           cx <- resolver.x(circle.center.x)
           cy <- resolver.y(circle.center.y)
           radius <- resolver.extent(circle.radius)
-        yield Vector(DevicePrimitive.Disc(cx, cy, radius, circle.gp, circle.name))
+          gp <- resolver.graphicParams(circle.gp)
+        yield Vector(DevicePrimitive.Disc(cx, cy, radius, gp, circle.name))
       case text: Grob.Text =>
         for
           x <- resolver.x(text.at.x)
           y <- resolver.y(text.at.y)
           fontPx <- resolver.fontSize(text.gp.fontSize)
+          gp <- resolver.graphicParams(text.gp)
         yield
           val fontFamily = resolver.fontFamily(text.gp.fontFamily)
           Vector(
@@ -549,7 +582,7 @@ object DeviceScene:
               deviceDegrees(text.rotationDegrees, resolver.frame),
               fontPx,
               fontFamily,
-              text.gp,
+              gp,
               text.name
             )
           )
@@ -562,20 +595,21 @@ object DeviceScene:
       points: Grob.Points,
       resolver: LengthResolver
   ): Either[GraphicsError, Vector[DevicePrimitive]] =
-    resolver.extent(points.size).flatMap { radius =>
-      resolvePoints(points.points, resolver).map { resolved =>
-        resolved.flatMap(point => shapeMarks(points, point, radius))
-      }
-    }
+    for
+      radius <- resolver.extent(points.size)
+      resolved <- resolvePoints(points.points, resolver)
+      gp <- resolver.graphicParams(points.gp)
+    yield resolved.flatMap(point => shapeMarks(points, point, radius, gp))
 
   private def shapeMarks(
       points: Grob.Points,
       at: DevicePoint,
-      radius: Double
+      radius: Double,
+      gp: GraphicParams
   ): Vector[DevicePrimitive] =
     points.shape match
       case PointShape.Circle =>
-        Vector(DevicePrimitive.Disc(at.x, at.y, radius, points.gp, points.name))
+        Vector(DevicePrimitive.Disc(at.x, at.y, radius, gp, points.name))
       case PointShape.Square =>
         Vector(
           DevicePrimitive.RectShape(
@@ -583,7 +617,7 @@ object DeviceScene:
             at.y - radius,
             radius * 2.0,
             radius * 2.0,
-            points.gp,
+            gp,
             points.name
           )
         )
@@ -596,7 +630,7 @@ object DeviceScene:
               DevicePoint(at.x - radius, at.y + radius)
             ),
             closed = true,
-            points.gp,
+            gp,
             points.name
           )
         )
@@ -605,13 +639,13 @@ object DeviceScene:
           DevicePrimitive.Polyline(
             Vector(DevicePoint(at.x - radius, at.y), DevicePoint(at.x + radius, at.y)),
             closed = false,
-            points.gp,
+            gp,
             points.name
           ),
           DevicePrimitive.Polyline(
             Vector(DevicePoint(at.x, at.y - radius), DevicePoint(at.x, at.y + radius)),
             closed = false,
-            points.gp,
+            gp,
             points.name
           )
         )
@@ -620,36 +654,40 @@ object DeviceScene:
       segments: Grob.Segments,
       resolver: LengthResolver
   ): Either[GraphicsError, Vector[DevicePrimitive]] =
-    val out = Vector.newBuilder[DevicePrimitive]
-    var idx = 0
-    var result: Either[GraphicsError, Unit] = Right(())
-    while idx < segments.segments.length && result.isRight do
-      val (from, to) = segments.segments(idx)
-      result =
-        for
-          x0 <- resolver.x(from.x)
-          y0 <- resolver.y(from.y)
-          x1 <- resolver.x(to.x)
-          y1 <- resolver.y(to.y)
-        yield
-          out += DevicePrimitive.Polyline(
-            Vector(DevicePoint(x0, y0), DevicePoint(x1, y1)),
-            closed = false,
-            segments.gp,
-            segments.name
-          )
-          ()
-      idx += 1
-    result.map(_ => out.result())
+    resolver.graphicParams(segments.gp).flatMap { gp =>
+      val out = Vector.newBuilder[DevicePrimitive]
+      var idx = 0
+      var result: Either[GraphicsError, Unit] = Right(())
+      while idx < segments.segments.length && result.isRight do
+        val (from, to) = segments.segments(idx)
+        result =
+          for
+            x0 <- resolver.x(from.x)
+            y0 <- resolver.y(from.y)
+            x1 <- resolver.x(to.x)
+            y1 <- resolver.y(to.y)
+          yield
+            out += DevicePrimitive.Polyline(
+              Vector(DevicePoint(x0, y0), DevicePoint(x1, y1)),
+              closed = false,
+              gp,
+              segments.name
+            )
+            ()
+        idx += 1
+      result.map(_ => out.result())
+    }
 
   private def rectMark(
       rect: Grob.Rect,
       resolver: LengthResolver
   ): Either[GraphicsError, Vector[DevicePrimitive]] =
-    anchoredBounds(rect.center, rect.size, rect.anchor, resolver).map {
-      case (x, y, width, height) =>
-        Vector(DevicePrimitive.RectShape(x, y, width, height, rect.gp, rect.name))
-    }
+    for
+      bounds <- anchoredBounds(rect.center, rect.size, rect.anchor, resolver)
+      gp <- resolver.graphicParams(rect.gp)
+    yield
+      val (x, y, width, height) = bounds
+      Vector(DevicePrimitive.RectShape(x, y, width, height, gp, rect.name))
 
   private def imageMark(
       image: Grob.Image,

@@ -2,7 +2,15 @@ package intaglio.svg
 
 import intaglio.*
 
-final case class SvgOptions private (width: Int, height: Int, title: Option[String])
+final case class SvgOptions private (
+    width: Int,
+    height: Int,
+    title: Option[String],
+    pixelsPerInch: Double,
+    deviceScale: Double
+):
+  def logicalWidth: Double = width.toDouble / deviceScale
+  def logicalHeight: Double = height.toDouble / deviceScale
 
 object SvgOptions:
   val default: SvgOptions =
@@ -11,15 +19,35 @@ object SvgOptions:
   def apply(
       width: Int = 640,
       height: Int = 480,
-      title: Option[String] = None
+      title: Option[String] = None,
+      pixelsPerInch: Double = 96.0,
+      deviceScale: Double = 1.0
   ): Either[SvgRenderError, SvgOptions] =
     if width <= 0 || height <= 0 then Left(SvgRenderError.InvalidDocumentSize(width, height))
-    else Right(new SvgOptions(width, height, title))
+    else
+      RenderContext(width, height, pixelsPerInch, deviceScale = deviceScale).left
+        .map(SvgRenderError.Graphics(_))
+        .map(_ => new SvgOptions(width, height, title, pixelsPerInch, deviceScale))
 
-  def unsafe(width: Int = 640, height: Int = 480, title: Option[String] = None): SvgOptions =
-    apply(width, height, title).orThrow
+  def unsafe(
+      width: Int = 640,
+      height: Int = 480,
+      title: Option[String] = None,
+      pixelsPerInch: Double = 96.0,
+      deviceScale: Double = 1.0
+  ): SvgOptions =
+    apply(width, height, title, pixelsPerInch, deviceScale).orThrow
 
-final case class SvgDocument(value: String):
+final case class SvgDocument(
+    value: String,
+    width: Int = 640,
+    height: Int = 480,
+    pixelsPerInch: Double = 96.0,
+    deviceScale: Double = 1.0,
+    logicalWidth: Double = 640.0,
+    logicalHeight: Double = 480.0
+):
+
   override def toString: String =
     value
 
@@ -32,17 +60,36 @@ object SvgRenderer:
 
   def render(plan: RenderPlan, title: Option[String]): Either[SvgRenderError, SvgDocument] =
     for
-      options <- SvgOptions(plan.context.width, plan.context.height, title)
+      options <- SvgOptions(
+        plan.context.width,
+        plan.context.height,
+        title,
+        plan.context.pixelsPerInch,
+        plan.context.deviceScale
+      )
       deviceScene <- plan.deviceScene.left.map(SvgRenderError.Graphics(_))
       serialized <- serialize(deviceScene, options)
-    yield SvgDocument(serialized)
+    yield SvgDocument(
+      serialized,
+      plan.context.width,
+      plan.context.height,
+      plan.context.pixelsPerInch,
+      plan.context.deviceScale,
+      plan.context.logicalWidth,
+      plan.context.logicalHeight
+    )
 
   def render(
       scene: Scene,
       options: SvgOptions = SvgOptions.default
   ): Either[SvgRenderError, SvgDocument] =
     for
-      context <- RenderContext(options.width, options.height).left
+      context <- RenderContext(
+        options.width,
+        options.height,
+        options.pixelsPerInch,
+        deviceScale = options.deviceScale
+      ).left
         .map(SvgRenderError.Graphics(_))
       document <- render(RenderPlan(scene, context), options.title)
     yield document

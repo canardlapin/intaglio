@@ -38,6 +38,12 @@ object Length:
   def pointsUnsafe(value: Double): Length =
     points(value).orThrow
 
+  def lines(value: Double): Either[GraphicsError, Length] =
+    apply(value, LengthUnit.Line)
+
+  def linesUnsafe(value: Double): Length =
+    lines(value).orThrow
+
 sealed trait LengthExpr:
   def +(that: LengthExpr): LengthExpr =
     LengthExpr.Add(this, that)
@@ -86,6 +92,12 @@ object LengthExpr:
   def nativeUnsafe(value: Double): LengthExpr =
     native(value).orThrow
 
+  def lines(value: Double): Either[GraphicsError, LengthExpr] =
+    Length.lines(value).map(Const(_))
+
+  def linesUnsafe(value: Double): LengthExpr =
+    lines(value).orThrow
+
 final case class ExtentExpr private (expr: LengthExpr):
   def +(that: ExtentExpr): ExtentExpr =
     ExtentExpr.unsafe(expr + that.expr)
@@ -126,6 +138,12 @@ object ExtentExpr:
 
   def pointsUnsafe(value: Double): ExtentExpr =
     points(value).orThrow
+
+  def lines(value: Double): Either[GraphicsError, ExtentExpr] =
+    Length.lines(value).flatMap(apply)
+
+  def linesUnsafe(value: Double): ExtentExpr =
+    lines(value).orThrow
 
   private def isProvablyNonNegative(expr: LengthExpr): Boolean =
     expr match
@@ -346,6 +364,38 @@ final case class PatternPaint(
     background: Option[Rgba] = None
 )
 
+/** Unit carried by a stroke width until device lowering. */
+enum StrokeUnit:
+  /** A literal device pixel, independent of DPI and device scale. */
+  case DevicePixel
+
+  /** A physical point, converted at the render context's actual pixels per inch. */
+  case Point
+
+/** Checked stroke-width value whose unit cannot be confused at a backend boundary. */
+final case class StrokeWidth private (value: Double, unit: StrokeUnit):
+  require(value.isFinite && value >= 0.0, "`value` must be finite and >= 0")
+
+object StrokeWidth:
+  def checked(value: Double, unit: StrokeUnit): Either[GraphicsError, StrokeWidth] =
+    if !value.isFinite || value < 0.0 then Left(GraphicsError.InvalidLineWidth(value))
+    else Right(new StrokeWidth(value, unit))
+
+  def unsafe(value: Double, unit: StrokeUnit): StrokeWidth =
+    checked(value, unit).orThrow
+
+  def devicePixels(value: Double): Either[GraphicsError, StrokeWidth] =
+    checked(value, StrokeUnit.DevicePixel)
+
+  def devicePixelsUnsafe(value: Double): StrokeWidth =
+    devicePixels(value).orThrow
+
+  def points(value: Double): Either[GraphicsError, StrokeWidth] =
+    checked(value, StrokeUnit.Point)
+
+  def pointsUnsafe(value: Double): StrokeWidth =
+    points(value).orThrow
+
 final case class GraphicParams private (
     stroke: Option[Rgba] = Some(Rgba.Black),
     fill: Option[Rgba] = None,
@@ -356,7 +406,8 @@ final case class GraphicParams private (
     alpha: Double = 1.0,
     fontFamily: Option[String] = None,
     fontSize: Length = Length.pointsUnsafe(12.0),
-    fillPattern: Option[PatternPaint] = None
+    fillPattern: Option[PatternPaint] = None,
+    lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel
 ):
   /** Retains the pre-pattern JVM constructor descriptor for compiled callers; Scala callers still
     * enter through the checked companion constructors.
@@ -372,10 +423,56 @@ final case class GraphicParams private (
       fontFamily: Option[String],
       fontSize: Length
   ) =
-    this(stroke, fill, lineWidth, lineType, lineCap, lineJoin, alpha, fontFamily, fontSize, None)
+    this(
+      stroke,
+      fill,
+      lineWidth,
+      lineType,
+      lineCap,
+      lineJoin,
+      alpha,
+      fontFamily,
+      fontSize,
+      None,
+      StrokeUnit.DevicePixel
+    )
+
+  /** Retains the pattern-era constructor descriptor while adding typed stroke units. */
+  private[intaglio] def this(
+      stroke: Option[Rgba],
+      fill: Option[Rgba],
+      lineWidth: Double,
+      lineType: LineType,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      alpha: Double,
+      fontFamily: Option[String],
+      fontSize: Length,
+      fillPattern: Option[PatternPaint]
+  ) =
+    this(
+      stroke,
+      fill,
+      lineWidth,
+      lineType,
+      lineCap,
+      lineJoin,
+      alpha,
+      fontFamily,
+      fontSize,
+      fillPattern,
+      StrokeUnit.DevicePixel
+    )
 
   require(lineWidth.isFinite && lineWidth >= 0.0, "`lineWidth` must be finite and >= 0")
   require(alpha.isFinite && alpha >= 0.0 && alpha <= 1.0, "`alpha` must be in [0, 1]")
+
+  def strokeWidth: StrokeWidth =
+    StrokeWidth.unsafe(lineWidth, lineWidthUnit)
+
+  /** Replace the legacy device-pixel width with an explicitly typed stroke width. */
+  def withStrokeWidth(value: StrokeWidth): GraphicParams =
+    copy(lineWidth = value.value, lineWidthUnit = value.unit)
 
   /** Apply row-mapped style channels while preserving every other parameter. `None` means that the
     * corresponding aesthetic is not mapped for this row.
@@ -418,7 +515,8 @@ object GraphicParams:
       lineJoin: LineJoin = LineJoin.Miter,
       alpha: Double = 1.0,
       fontFamily: Option[String] = None,
-      fontSize: Length = Length.pointsUnsafe(12.0)
+      fontSize: Length = Length.pointsUnsafe(12.0),
+      lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel
   ): Either[GraphicsError, GraphicParams] =
     if !lineWidth.isFinite || lineWidth < 0.0 then Left(GraphicsError.InvalidLineWidth(lineWidth))
     else if !alpha.isFinite || alpha < 0.0 || alpha > 1.0 then
@@ -435,7 +533,8 @@ object GraphicParams:
           alpha,
           fontFamily,
           fontSize,
-          None
+          None,
+          lineWidthUnit
         )
       )
 
@@ -448,7 +547,8 @@ object GraphicParams:
       lineJoin: LineJoin = LineJoin.Miter,
       alpha: Double = 1.0,
       fontFamily: Option[String] = None,
-      fontSize: Length = Length.pointsUnsafe(12.0)
+      fontSize: Length = Length.pointsUnsafe(12.0),
+      lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel
   ): GraphicParams =
     checked(
       stroke,
@@ -459,7 +559,8 @@ object GraphicParams:
       lineJoin,
       alpha,
       fontFamily,
-      fontSize
+      fontSize,
+      lineWidthUnit
     ).orThrow
 
 final case class Viewport private (

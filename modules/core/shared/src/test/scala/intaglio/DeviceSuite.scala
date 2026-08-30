@@ -110,17 +110,88 @@ class DeviceSuite extends munit.FunSuite:
     assertEqualsDouble(r.x(LengthExpr.nativeUnsafe(3.0)).toOption.get, 50.0, tol)
   }
 
-  test("line units and relative font sizes are unresolvable") {
-    val r = rootResolver
-    assert(r.x(LengthExpr(Length.unsafe(1.0, LengthUnit.Line))).left.toOption.exists {
-      case GraphicsError.UnresolvableLength(_) => true
-      case _                                   => false
-    })
+  test("line units resolve from contextual line height while npc font sizes remain invalid") {
+    val r = LengthResolver(device, DeviceFrame.root(device), lineHeightPt = 18.0)
+    assertEqualsDouble(r.x(LengthExpr.linesUnsafe(1.0)).toOption.get, 24.0, tol)
+    assertEqualsDouble(r.width(ExtentExpr.linesUnsafe(1.5)).toOption.get, 36.0, tol)
+    assertEqualsDouble(r.fontSize(Length.linesUnsafe(0.5)).toOption.get, 12.0, tol)
     assert(r.fontSize(Length.unsafe(0.5, LengthUnit.Npc)).left.toOption.exists {
       case GraphicsError.UnresolvableLength(_) => true
       case _                                   => false
     })
     assertEqualsDouble(r.fontSize(Length.pointsUnsafe(12.0)).toOption.get, 16.0, tol)
+  }
+
+  test("device lowering distinguishes literal-pixel and physical-point stroke widths") {
+    val points = Vector(Point.npcUnsafe(0.1, 0.25), Point.npcUnsafe(0.9, 0.25))
+    val pixelLine = Grob
+      .lines(
+        points,
+        gp = GraphicParams.unsafe(lineWidth = 2.0),
+        name = Some(GraphicsName.unsafe("pixel-stroke"))
+      )
+      .fold(error => fail(error.message), identity)
+    val pointLine = Grob
+      .lines(
+        points,
+        gp = GraphicParams
+          .unsafe(lineWidth = 2.0)
+          .withStrokeWidth(StrokeWidth.pointsUnsafe(2.0)),
+        name = Some(GraphicsName.unsafe("point-stroke"))
+      )
+      .fold(error => fail(error.message), identity)
+    val context = RenderContext.unsafe(200, 100, pixelsPerInch = 144.0)
+    val scene = DeviceScene
+      .fromScene(Scene(Vector(pixelLine, pointLine)), context)
+      .fold(error => fail(error.message), identity)
+    val widths = scene.elements.collect {
+      case DeviceElement.Mark(DevicePrimitive.Polyline(_, _, gp, name)) =>
+        (name.map(_.value), gp.lineWidth, gp.lineWidthUnit)
+    }
+
+    assertEquals(
+      widths,
+      Vector(
+        (Some("pixel-stroke"), 2.0, StrokeUnit.DevicePixel),
+        (Some("point-stroke"), 4.0, StrokeUnit.DevicePixel)
+      )
+    )
+  }
+
+  test("DeviceScene receives the render context's line height for extents and fonts") {
+    val circle = Grob.circleUnsafe(
+      Point.npcUnsafe(0.25, 0.5),
+      ExtentExpr.linesUnsafe(1.0),
+      name = Some(GraphicsName.unsafe("line-radius"))
+    )
+    val text = Grob.textUnsafe(
+      "line font",
+      Point.npcUnsafe(0.75, 0.5),
+      gp = GraphicParams.unsafe(fontSize = Length.linesUnsafe(0.5)),
+      name = Some(GraphicsName.unsafe("line-font"))
+    )
+    val context = RenderContext.unsafe(
+      200,
+      100,
+      pixelsPerInch = 144.0,
+      lineHeightPt = 18.0
+    )
+    val scene = DeviceScene
+      .fromScene(Scene(Vector(circle, text)), context)
+      .fold(error => fail(error.message), identity)
+
+    val radius = scene.elements.collectFirst {
+      case DeviceElement.Mark(DevicePrimitive.Disc(_, _, value, _, name))
+          if name.exists(_.value == "line-radius") =>
+        value
+    }
+    val fontSize = scene.elements.collectFirst {
+      case DeviceElement.Mark(DevicePrimitive.TextRun(_, _, _, _, _, _, value, _, _, name))
+          if name.exists(_.value == "line-font") =>
+        value
+    }
+    assertEquals(radius, Some(36.0))
+    assertEquals(fontSize, Some(18.0))
   }
 
   test("child frames resolve with lower-left origins in y-up parents") {

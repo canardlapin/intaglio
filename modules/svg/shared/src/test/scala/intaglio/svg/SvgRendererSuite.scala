@@ -585,7 +585,7 @@ class SvgRendererSuite extends munit.FunSuite:
     )
   }
 
-  test("returns typed errors for unresolvable length units") {
+  test("default render context resolves public line units") {
     val grob =
       Grob
         .circle(
@@ -595,10 +595,8 @@ class SvgRendererSuite extends munit.FunSuite:
         .toOption
         .get
 
-    assert(SvgRenderer.render(Scene(Vector(grob))).left.toOption.exists {
-      case SvgRenderError.Graphics(GraphicsError.UnresolvableLength(_)) => true
-      case _                                                            => false
-    })
+    val svg = SvgRenderer.render(Scene(Vector(grob))).fold(error => fail(error.message), _.value)
+    assert(svg.contains(" r=\"16\""))
   }
 
   test("returns typed errors for relative font sizes") {

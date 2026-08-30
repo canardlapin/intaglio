@@ -3,18 +3,38 @@ package intaglio.javafx
 import scala.collection.mutable
 import intaglio.*
 
-final case class JavaFxOptions private (width: Int, height: Int)
+final case class JavaFxOptions private (
+    width: Int,
+    height: Int,
+    pixelsPerInch: Double,
+    deviceScale: Double
+):
+  def logicalWidth: Double = width.toDouble / deviceScale
+  def logicalHeight: Double = height.toDouble / deviceScale
 
 object JavaFxOptions:
   val default: JavaFxOptions =
     unsafe()
 
-  def apply(width: Int = 640, height: Int = 480): Either[JavaFxRenderError, JavaFxOptions] =
+  def apply(
+      width: Int = 640,
+      height: Int = 480,
+      pixelsPerInch: Double = 96.0,
+      deviceScale: Double = 1.0
+  ): Either[JavaFxRenderError, JavaFxOptions] =
     if width <= 0 || height <= 0 then Left(JavaFxRenderError.InvalidCanvasSize(width, height))
-    else Right(new JavaFxOptions(width, height))
+    else
+      RenderContext(width, height, pixelsPerInch, deviceScale = deviceScale).left
+        .map(JavaFxRenderError.Graphics(_))
+        .map(_ => new JavaFxOptions(width, height, pixelsPerInch, deviceScale))
 
-  def unsafe(width: Int = 640, height: Int = 480): JavaFxOptions =
-    apply(width, height).orThrow
+  def unsafe(
+      width: Int = 640,
+      height: Int = 480,
+      pixelsPerInch: Double = 96.0,
+      deviceScale: Double = 1.0
+  ): JavaFxOptions =
+    apply(width, height, pixelsPerInch, deviceScale).orThrow
 
 enum JavaFxRenderError extends IntaglioError:
   case InvalidCanvasSize(width: Int, height: Int)
@@ -204,14 +224,26 @@ enum JavaFxCommand:
 final case class JavaFxProgram private (
     width: Int,
     height: Int,
+    pixelsPerInch: Double,
+    deviceScale: Double,
+    logicalWidth: Double,
+    logicalHeight: Double,
     commands: Vector[JavaFxCommand]
 )
 
 object JavaFxProgram:
-  private[javafx] def fromDevice(scene: DeviceScene): JavaFxProgram =
+  private[javafx] def fromDevice(scene: DeviceScene, context: RenderContext): JavaFxProgram =
     val out = Vector.newBuilder[JavaFxCommand]
     scene.elements.foreach(appendElement(_, out))
-    new JavaFxProgram(scene.width.toInt, scene.height.toInt, out.result())
+    new JavaFxProgram(
+      scene.width.toInt,
+      scene.height.toInt,
+      context.pixelsPerInch,
+      context.deviceScale,
+      context.logicalWidth,
+      context.logicalHeight,
+      out.result()
+    )
 
   def validate(program: JavaFxProgram): Option[String] =
     var stack = List.empty[Option[GraphicsName]]
@@ -371,14 +403,19 @@ object JavaFxRenderer:
     for
       resolved <- plan.deviceScene.left.map(JavaFxRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(JavaFxRenderError.Graphics(_))
-    yield JavaFxProgram.fromDevice(resolved)
+    yield JavaFxProgram.fromDevice(resolved, plan.context)
 
   def compile(
       scene: Scene,
       options: JavaFxOptions = JavaFxOptions.default
   ): Either[JavaFxRenderError, JavaFxProgram] =
     for
-      context <- RenderContext(options.width, options.height).left
+      context <- RenderContext(
+        options.width,
+        options.height,
+        options.pixelsPerInch,
+        deviceScale = options.deviceScale
+      ).left
         .map(JavaFxRenderError.Graphics(_))
       program <- compile(RenderPlan(scene, context))
     yield program

@@ -15,18 +15,38 @@ import java.awt.image.BufferedImage
 import scala.collection.mutable
 import intaglio.*
 
-final case class Java2DOptions private (width: Int, height: Int)
+final case class Java2DOptions private (
+    width: Int,
+    height: Int,
+    pixelsPerInch: Double,
+    deviceScale: Double
+):
+  def logicalWidth: Double = width.toDouble / deviceScale
+  def logicalHeight: Double = height.toDouble / deviceScale
 
 object Java2DOptions:
   val default: Java2DOptions =
     unsafe()
 
-  def apply(width: Int = 640, height: Int = 480): Either[Java2DRenderError, Java2DOptions] =
+  def apply(
+      width: Int = 640,
+      height: Int = 480,
+      pixelsPerInch: Double = 96.0,
+      deviceScale: Double = 1.0
+  ): Either[Java2DRenderError, Java2DOptions] =
     if width <= 0 || height <= 0 then Left(Java2DRenderError.InvalidImageSize(width, height))
-    else Right(new Java2DOptions(width, height))
+    else
+      RenderContext(width, height, pixelsPerInch, deviceScale = deviceScale).left
+        .map(Java2DRenderError.Graphics(_))
+        .map(_ => new Java2DOptions(width, height, pixelsPerInch, deviceScale))
 
-  def unsafe(width: Int = 640, height: Int = 480): Java2DOptions =
-    apply(width, height).orThrow
+  def unsafe(
+      width: Int = 640,
+      height: Int = 480,
+      pixelsPerInch: Double = 96.0,
+      deviceScale: Double = 1.0
+  ): Java2DOptions =
+    apply(width, height, pixelsPerInch, deviceScale).orThrow
 
 enum Java2DRenderError extends IntaglioError:
   case InvalidImageSize(width: Int, height: Int)
@@ -213,14 +233,26 @@ enum Java2DCommand:
 final case class Java2DProgram private (
     width: Int,
     height: Int,
+    pixelsPerInch: Double,
+    deviceScale: Double,
+    logicalWidth: Double,
+    logicalHeight: Double,
     commands: Vector[Java2DCommand]
 )
 
 object Java2DProgram:
-  private[java2d] def fromDevice(scene: DeviceScene): Java2DProgram =
+  private[java2d] def fromDevice(scene: DeviceScene, context: RenderContext): Java2DProgram =
     val out = Vector.newBuilder[Java2DCommand]
     scene.elements.foreach(appendElement(_, out))
-    new Java2DProgram(scene.width.toInt, scene.height.toInt, out.result())
+    new Java2DProgram(
+      scene.width.toInt,
+      scene.height.toInt,
+      context.pixelsPerInch,
+      context.deviceScale,
+      context.logicalWidth,
+      context.logicalHeight,
+      out.result()
+    )
 
   def validate(program: Java2DProgram): Option[String] =
     var stack = List.empty[Option[GraphicsName]]
@@ -329,14 +361,19 @@ object Java2DRenderer:
     for
       resolved <- plan.deviceScene.left.map(Java2DRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(Java2DRenderError.Graphics(_))
-    yield Java2DProgram.fromDevice(resolved)
+    yield Java2DProgram.fromDevice(resolved, plan.context)
 
   def compile(
       scene: Scene,
       options: Java2DOptions = Java2DOptions.default
   ): Either[Java2DRenderError, Java2DProgram] =
     for
-      context <- RenderContext(options.width, options.height).left
+      context <- RenderContext(
+        options.width,
+        options.height,
+        options.pixelsPerInch,
+        deviceScale = options.deviceScale
+      ).left
         .map(Java2DRenderError.Graphics(_))
       program <- compile(RenderPlan(scene, context))
     yield program

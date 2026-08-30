@@ -34,14 +34,17 @@ artifact matrix and design commitments are in the [root README](../../README.md)
 Use `RenderContext` when plot layout must match a concrete output target. It
 binds device-pixel width and height, pixel density, text metrics, and immutable
 font-family resolution before `PlotCompiler` allocates any panel, axis, guide,
-or title region. Compilation returns a `RenderPlan`, which carries the same
-context through device lowering and into the backend:
+or title region. It also records the contextual line height and device scale.
+Compilation returns a `RenderPlan`, which carries the same context through
+device lowering and into the backend:
 
 ```scala
 val context = RenderContext.unsafe(
   width = 1280,
   height = 960,
   pixelsPerInch = 192.0,
+  lineHeightPt = 14.0,
+  deviceScale = 2.0,
   textMetrics = platformMetrics,
   fontRegistry = FontRegistry {
     case Some(requested) => installedFamilyFor(requested)
@@ -60,6 +63,43 @@ by family-aware `TextMetrics` during layout and by `DeviceScene` during text
 lowering. Recompile when the target changes; targets with the same physical
 size but proportionally scaled pixels and DPI preserve physical typography and
 spacing.
+
+`Length.lines`, `LengthExpr.lines`, and `ExtentExpr.lines` are the public
+checked constructors for line units. One line resolves to
+`RenderContext.lineHeightPt` at the target DPI; line-valued font sizes use the
+same conversion. NPC and native font sizes remain invalid because they do not
+describe physical typography.
+
+Legacy `GraphicParams.unsafe(lineWidth = 1.0)` continues to mean one literal
+device pixel. Use a typed value when the stroke is physical:
+
+```scala
+val hairline = GraphicParams.unsafe(lineWidth = 1.0)
+val onePoint = GraphicParams.unsafe().withStrokeWidth(StrokeWidth.pointsUnsafe(1.0))
+```
+
+`DeviceScene` converts point strokes once and normalizes them to
+`StrokeUnit.DevicePixel`, so SVG, Canvas, Java2D, and JavaFX receive the same
+numeric width. Fill-pattern spacing, hatch line width, and stipple radius remain
+literal device pixels.
+
+For high-density Canvas backing stores, construct options from logical pixels
+and device-pixel ratio instead of multiplying dimensions by hand:
+
+```scala
+val options = CanvasOptions.hidpiUnsafe(
+  logicalWidth = 640,
+  logicalHeight = 480,
+  devicePixelRatio = 2.0
+)
+// width = 1280, height = 960, pixelsPerInch = 192, deviceScale = 2
+```
+
+Every backend result exposes `width`, `height`, `pixelsPerInch`,
+`deviceScale`, `logicalWidth`, and `logicalHeight` consistently. Width, height,
+and DPI are actual backing-target values. Ordinary options derive logical size
+by dividing by `deviceScale`; `CanvasOptions.hidpi` preserves the exact requested
+logical size when a fractional ratio requires integer backing-pixel rounding.
 
 The older `PlotCompiler.compile(plot)` and backend `(Scene, Options)` methods
 remain 96-DPI compatibility entry points. They create a default render context

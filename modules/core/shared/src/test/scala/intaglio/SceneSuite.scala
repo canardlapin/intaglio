@@ -67,6 +67,10 @@ class SceneSuite extends munit.FunSuite:
       GraphicParams.checked(lineWidth = -1.0).left.toOption,
       Some(GraphicsError.InvalidLineWidth(-1.0))
     )
+    assertEquals(
+      StrokeWidth.points(-1.0).left.toOption,
+      Some(GraphicsError.InvalidLineWidth(-1.0))
+    )
     assert(Length(Double.NaN, LengthUnit.Npc).left.toOption.exists {
       case GraphicsError.InvalidLength(value) => value.isNaN
       case _                                  => false
@@ -87,9 +91,19 @@ class SceneSuite extends munit.FunSuite:
 
   test("graphic parameters define backend-neutral stroke geometry defaults") {
     val gp = GraphicParams.unsafe()
+    val physical = gp.withStrokeWidth(StrokeWidth.pointsUnsafe(0.75))
 
     assertEquals(gp.lineCap, LineCap.Butt)
     assertEquals(gp.lineJoin, LineJoin.Miter)
+    assertEquals(gp.strokeWidth, StrokeWidth.devicePixelsUnsafe(1.0))
+    assertEquals(physical.strokeWidth, StrokeWidth.pointsUnsafe(0.75))
+    assertEquals(physical.lineWidthUnit, StrokeUnit.Point)
+  }
+
+  test("line lengths have public checked constructors at every expression layer") {
+    assertEquals(Length.lines(1.5).map(_.unit), Right(LengthUnit.Line))
+    assertEquals(LengthExpr.lines(1.5), Right(LengthExpr(Length.linesUnsafe(1.5))))
+    assertEquals(ExtentExpr.lines(1.5), ExtentExpr(Length.linesUnsafe(1.5)))
   }
 
   test("pattern recipes reject non-finite and non-positive geometry") {
