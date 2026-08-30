@@ -1,0 +1,74 @@
+{
+  "schema": "intaglio.pattern-fill-source-courts.v1",
+  "observedOn": "2026-08-30",
+  "candidateSha": "b4cc376379b12dc199f49cc61f3c6c77a2eaa0c9",
+  "courts": [
+    {
+      "consumer": "image4s",
+      "consumerSha": "3fb9fd6dc385a1cd7021f7d8a7157efb7e1c78a3",
+      "state": "passed",
+      "tasks": ["image4s-intaglioJVM/test", "image4s-intaglioJS/test"],
+      "testCounts": {"jvm": 19, "scalaJs": 17}
+    },
+    {
+      "consumer": "StoryAtlas4s",
+      "consumerSha": "003f12b21e1b9793fea479e104c2e2eff3e55fe5",
+      "dependencyShas": {
+        "storymodel4s": "79bf33106711590178f4656a8aee24f0e4106cdb",
+        "grakern": "d736dc565d97f617726bad0a9d1ba2fdeae58dd2"
+      },
+      "state": "passed",
+      "tasks": ["compileAll", "testAll", "app/fastLinkJS"],
+      "testCounts": {
+        "layoutJVM": 22,
+        "layoutScalaJs": 26,
+        "intaglioJVMIncludingConsumerCourt": 15,
+        "intaglioScalaJsIncludingConsumerCourt": 15,
+        "cliJVM": 15,
+        "appScalaJs": 22
+      },
+      "realConsumerCourt": {
+        "fixture": "storyatlas-consumer-court.scala",
+        "states": ["selected", "focused", "selectionProxy", "focusProxy"],
+        "recipes": ["angledHatch", "crossHatch", "stipple", "parallelRules"],
+        "sameInkAndBackground": true,
+        "devicePolygonsUnchanged": true,
+        "semanticNamesUniqueAndComplete": true,
+        "navigationAndTextualTwinsPreserved": true,
+        "provenancePreserved": true,
+        "patternDefinitions": 4,
+        "patternReferences": 4,
+        "byteDeterministic": true
+      }
+    },
+    {
+      "consumer": "ScalaFIM",
+      "consumerSha": "fd992a0c85001eb50ba2e78d29c497693ca494dc",
+      "state": "passed",
+      "tasks": [
+        "designJVM/test", "designJS/test", "imageViewJVM/test", "imageViewJS/test",
+        "imageViewCanvasJS/test", "imageViewJava2dJVM/test", "imageViewJavafxJVM/test",
+        "surfaceViewJVM/test", "surfaceViewJS/test", "surfaceViewRasterJVM/test",
+        "surfaceViewRasterJS/test", "surfaceViewJavafxJVM/test", "surfaceViewThreeJS/test",
+        "surfaceViewExamplesJVM/test", "surfaceViewExamplesJS/test"
+      ],
+      "testCounts": {
+        "designJVM": 229,
+        "designScalaJs": 229,
+        "imageViewJVM": 28,
+        "imageViewScalaJs": 28,
+        "canvasScalaJs": 5,
+        "java2dJVM": 2,
+        "javafxJVM": 2,
+        "surfaceViewJVM": 49,
+        "surfaceViewScalaJs": 49,
+        "surfaceRasterJVM": 11,
+        "surfaceRasterScalaJs": 11,
+        "surfaceJavafxJVM": 15,
+        "surfaceThreeScalaJs": 12,
+        "examplesJVM": 12,
+        "examplesScalaJs": 11
+      }
+    }
+  ]
+}

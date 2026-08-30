@@ -1,0 +1,53 @@
+{
+  "schema": "intaglio.pattern-fill-assurance.v1",
+  "observedOn": "2026-08-30",
+  "candidate": {
+    "repository": "intaglio",
+    "codeSha": "b4cc376379b12dc199f49cc61f3c6c77a2eaa0c9",
+    "baselineSha": "596b398af380079e4b251535230d0bc03cd88c51"
+  },
+  "toolchain": {
+    "java": "Oracle JDK 22",
+    "headless": true,
+    "sbtCommand": "compileAll testAll"
+  },
+  "localGate": {
+    "state": "passed",
+    "testCounts": {
+      "coreJVM": 232,
+      "coreScalaJS": 228,
+      "svgJVM": 32,
+      "svgScalaJS": 28,
+      "canvasScalaJS": 16,
+      "java2dJVM": 15,
+      "javafxJVM": 10
+    }
+  },
+  "structuralBudget": {
+    "state": "passed",
+    "namedMarks": 2300,
+    "semanticNames": 2300,
+    "uniqueSemanticNames": 2300,
+    "patternDefinitions": 1,
+    "svgElements": 2306,
+    "maxSvgElementsExclusive": 10000,
+    "serializedAsciiBytes": 492331,
+    "maxSerializedBytesExclusive": 2097152,
+    "sha256": "30390d0a6ada0e693ae58d264356ae8d4bdb848f5eff498b5763fd40be6f5031",
+    "jvmScalaJsDigestParity": true,
+    "byteDeterministic": true
+  },
+  "formatter": {
+    "state": "not_configured",
+    "commandAttempted": "scalafmtCheckAll",
+    "result": "Not a valid command: scalafmtCheckAll",
+    "pluginConfigured": false,
+    "configPresent": false
+  },
+  "hostedCI": {
+    "state": "not_run"
+  },
+  "publishedArtifact": {
+    "state": "not_run"
+  }
+}
