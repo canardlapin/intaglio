@@ -243,6 +243,28 @@ final case class GraphicParams private (
   require(lineWidth.isFinite && lineWidth >= 0.0, "`lineWidth` must be finite and >= 0")
   require(alpha.isFinite && alpha >= 0.0 && alpha <= 1.0, "`alpha` must be in [0, 1]")
 
+  /** Apply row-mapped style channels while preserving every other parameter.
+    * `None` means that the corresponding aesthetic is not mapped for this row.
+    */
+  private[intaglio] def withAestheticOverrides(
+      stroke: Option[Rgba] = None,
+      fill: Option[Rgba] = None,
+      alpha: Option[Double] = None
+  ): Either[GraphicsError, GraphicParams] =
+    alpha match
+      case Some(value) if !value.isFinite || value < 0.0 || value > 1.0 =>
+        Left(GraphicsError.InvalidAlpha(value))
+      case _ if stroke.isEmpty && fill.isEmpty && alpha.isEmpty =>
+        Right(this)
+      case _ =>
+        Right(
+          copy(
+            stroke = stroke.orElse(this.stroke),
+            fill = fill.orElse(this.fill),
+            alpha = alpha.getOrElse(this.alpha)
+          )
+        )
+
 object GraphicParams:
   def checked(
       stroke: Option[Rgba] = Some(Rgba.Black),

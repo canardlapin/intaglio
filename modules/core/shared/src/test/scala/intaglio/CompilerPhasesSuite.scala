@@ -28,6 +28,34 @@ class CompilerPhasesSuite extends munit.FunSuite:
       .flatMap(_.addLayer(Layer.line[Obs](_.x, _.y)))
       .fold(e => fail(e.message), identity)
 
+  private val nonDefaultGraphicParams =
+    GraphicParams.unsafe(
+      stroke = Some(Rgba.unsafe(11, 22, 33)),
+      fill = Some(Rgba.unsafe(44, 55, 66)),
+      lineWidth = 2.75,
+      lineType = LineType.Dashed,
+      lineCap = LineCap.Round,
+      lineJoin = LineJoin.Bevel,
+      alpha = 0.65,
+      fontFamily = Some("CompilerPhasesSuite"),
+      fontSize = Length.pointsUnsafe(17.0)
+    )
+
+  private def resolvePointLayer(mapping: AesSpec[Obs]): TrainedLayer =
+    val plot =
+      Plot(data.take(1))
+        .addLayer(
+          Layer.point[Obs](
+            _.x,
+            _.y,
+            mapping = mapping,
+            inheritMapping = false,
+            params = Some(nonDefaultGraphicParams)
+          )
+        )
+        .fold(error => fail(error.message), identity)
+    PlotCompiler.resolve(plot).fold(error => fail(error.message), identity).layers.head
+
   test("mapping phase produces per-layer plans with one canonical effective mapping") {
     val plot = groupedLinePlot
     val plans = MappingPhase.plan(plot).fold(e => fail(e.message), identity)
@@ -111,6 +139,67 @@ class CompilerPhasesSuite extends munit.FunSuite:
 
     assertEquals(dropped, Vector.empty)
     assertEquals(rows.map(_.group), Vector(Some("A"), Some("A"), Some("B"), Some("B"), Some("A")))
+  }
+
+  test("row style resolution preserves the complete base GraphicParams value") {
+    val layer = resolvePointLayer(AesSpec.empty[Obs])
+
+    assertEquals(layer.droppedRows, Vector.empty)
+    assertEquals(layer.rows.map(_.gp), Vector(nonDefaultGraphicParams))
+  }
+
+  test("row style resolution changes only explicitly mapped GraphicParams channels") {
+    val mappedStroke = Rgba.unsafe(101, 102, 103)
+    val mappedFill = Rgba.unsafe(201, 202, 203)
+
+    val colorOnly = resolvePointLayer(AesSpec.empty[Obs].withColor(mappedStroke)).rows.head.gp
+    assertEquals(colorOnly.stroke, Some(mappedStroke))
+    assertEquals(colorOnly.fill, nonDefaultGraphicParams.fill)
+    assertEqualsDouble(colorOnly.alpha, nonDefaultGraphicParams.alpha, 1e-12)
+
+    val fillOnly = resolvePointLayer(AesSpec.empty[Obs].withFill(mappedFill)).rows.head.gp
+    assertEquals(fillOnly.stroke, nonDefaultGraphicParams.stroke)
+    assertEquals(fillOnly.fill, Some(mappedFill))
+    assertEqualsDouble(fillOnly.alpha, nonDefaultGraphicParams.alpha, 1e-12)
+
+    val alphaOnly = resolvePointLayer(AesSpec.empty[Obs].withAlpha(0.25)).rows.head.gp
+    assertEquals(alphaOnly.stroke, nonDefaultGraphicParams.stroke)
+    assertEquals(alphaOnly.fill, nonDefaultGraphicParams.fill)
+    assertEqualsDouble(alphaOnly.alpha, 0.25, 1e-12)
+
+    val expectedUnmappedFields = (
+      nonDefaultGraphicParams.lineWidth,
+      nonDefaultGraphicParams.lineType,
+      nonDefaultGraphicParams.lineCap,
+      nonDefaultGraphicParams.lineJoin,
+      nonDefaultGraphicParams.fontFamily,
+      nonDefaultGraphicParams.fontSize
+    )
+    Vector(colorOnly, fillOnly, alphaOnly).foreach { params =>
+      assertEquals(
+        (
+          params.lineWidth,
+          params.lineType,
+          params.lineCap,
+          params.lineJoin,
+          params.fontFamily,
+          params.fontSize
+        ),
+        expectedUnmappedFields
+      )
+    }
+  }
+
+  test("invalid mapped alpha remains a typed compiler drop") {
+    val layer = resolvePointLayer(AesSpec.empty[Obs].withAlpha(Double.NaN))
+
+    assertEquals(layer.rows, Vector.empty)
+    assertEquals(layer.droppedRows.length, 1)
+    layer.droppedRows.head.reason match
+      case PlotDropReason.InvalidAesthetic("gp", message) =>
+        assertEquals(message, GraphicsError.InvalidAlpha(Double.NaN).message)
+      case other =>
+        fail(s"unexpected drop reason: $other")
   }
 
   test("geom lowering emits one line grob per group with that group's params") {

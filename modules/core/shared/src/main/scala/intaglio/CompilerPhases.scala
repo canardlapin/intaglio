@@ -715,17 +715,11 @@ private[intaglio] object RowPhase:
       stroke <- optionalAes(Aesthetic.Color, mapping.get(Aesthetic.Color), row)
       fill <- optionalAes(Aesthetic.Fill, mapping.get(Aesthetic.Fill), row)
       alpha <- optionalAes(Aesthetic.Alpha, mapping.get(Aesthetic.Alpha), row)
-      gp <- GraphicParams
-        .checked(
-          stroke = stroke.orElse(base.stroke),
-          fill = fill.orElse(base.fill),
-          lineWidth = base.lineWidth,
-          lineType = base.lineType,
-          lineCap = base.lineCap,
-          lineJoin = base.lineJoin,
-          alpha = alpha.getOrElse(base.alpha),
-          fontFamily = base.fontFamily,
-          fontSize = base.fontSize
+      gp <- base
+        .withAestheticOverrides(
+          stroke = stroke,
+          fill = fill,
+          alpha = alpha
         )
         .left
         .map(error => PlotDropReason.InvalidAesthetic("gp", error.message))
