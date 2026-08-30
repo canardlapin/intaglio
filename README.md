@@ -57,6 +57,7 @@ val logScaled =
 | Artifact | JVM | Scala.js | Depends on |
 |---|:---:|:---:|---|
 | `intaglio-core` | yes | yes | nothing |
+| `intaglio-laws` | yes | yes | core |
 | `intaglio-svg` | yes | yes | core |
 | `intaglio-canvas` | no | yes | core |
 | `intaglio-java2d` | yes | no | core |
@@ -64,6 +65,19 @@ val logScaled =
 
 The backends are separately selectable, so a portable consumer never acquires a
 platform renderer or toolkit transitively. A boundary test enforces this.
+
+Extension authors can add the framework-neutral law artifact in test scope:
+
+```scala
+libraryDependencies +=
+  "io.github.canardlapin" %%% "intaglio-laws" % "0.1.0" % Test
+```
+
+`ScaleLaws`, `StatLaws`, `GeomLaws`, `CoordLaws`, `PlotRecipeLaws`,
+`AestheticLaws`, and `BackendLaws` exercise the public ecosystem seams. Each
+returns structured `LawFailure` values, so it works with MUnit, ScalaTest,
+Weaver, or a project-specific runner without making one of them transitive.
+Complete examples live in [`modules/laws`](modules/laws/README.md).
 
 ## What the core owns
 
@@ -109,7 +123,7 @@ carries one typed error channel instead of a union of unrelated types.
 
 ```sh
 sbt compileAll   # every module, both platforms
-sbt testAll      # 511 tests
+sbt testAll      # every module, both platforms
 sbt coreJVM/test svgJS/test   # or one at a time
 ```
 

@@ -9,7 +9,7 @@ import scala.jdk.CollectionConverters.*
   * consumer must never acquire a platform renderer or toolkit transitively.
   */
 class ModuleBoundarySuite extends munit.FunSuite:
-  private val modules = Vector("core", "svg", "canvas", "java2d", "javafx")
+  private val modules = Vector("core", "laws", "svg", "canvas", "java2d", "javafx")
 
   private lazy val root: Path =
     var candidate = Path.of(sys.props("user.dir")).toAbsolutePath.normalize
@@ -72,10 +72,31 @@ class ModuleBoundarySuite extends munit.FunSuite:
     }
   }
 
+  test("the published laws module depends only on public core") {
+    val build = Files.readString(root.resolve("build.sbt"))
+    val lawsBlock = projectBlock(build, "laws", "lawsJS")
+    assertEquals(dependencies(lawsBlock), Vector("core"))
+    assert(lawsBlock.contains("crossProject(JSPlatform, JVMPlatform)"))
+
+    val lawsMain =
+      root.resolve("modules").resolve("laws").resolve("shared").resolve("src").resolve("main")
+    val testFrameworkImport = """(?m)^\s*import\s+(munit\.|org\.scalatest\.|weaver\.)""".r
+    val violations = productionSources
+      .filter(_.startsWith(lawsMain))
+      .flatMap { path =>
+        testFrameworkImport.findAllMatchIn(Files.readString(path)).map { found =>
+          s"${root.relativize(path)}: ${found.matched.trim}"
+        }
+      }
+
+    assertEquals(violations, Vector.empty)
+  }
+
   test("only the JavaFX backend carries a toolkit dependency") {
     val build = Files.readString(root.resolve("build.sbt"))
     Vector(
       ("core", "coreJS"),
+      ("laws", "lawsJS"),
       ("svg", "svgJS"),
       ("canvas", "canvasJS"),
       ("java2d", "java2dJVM")

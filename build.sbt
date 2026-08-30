@@ -67,6 +67,21 @@ lazy val core =
 lazy val coreJS  = core.js
 lazy val coreJVM = core.jvm
 
+lazy val laws =
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/laws"))
+    .dependsOn(core)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-laws",
+      description := "Framework-neutral extension law kits for Intaglio ecosystem authors."
+    )
+    .jsSettings(jsSettingsBase)
+
+lazy val lawsJS  = laws.js
+lazy val lawsJVM = laws.jvm
+
 lazy val svg =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Full)
@@ -132,6 +147,8 @@ lazy val root =
     .aggregate(
       coreJS,
       coreJVM,
+      lawsJS,
+      lawsJVM,
       svgJS,
       svgJVM,
       canvasJS,
@@ -145,10 +162,10 @@ lazy val root =
 
 addCommandAlias(
   "compileAll",
-  ";coreJVM/compile;coreJS/compile;svgJVM/compile;svgJS/compile;canvasJS/compile;java2dJVM/compile;javafxJVM/compile"
+  ";coreJVM/compile;coreJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;canvasJS/compile;java2dJVM/compile;javafxJVM/compile"
 )
 
 addCommandAlias(
   "testAll",
-  ";coreJVM/test;coreJS/test;svgJVM/test;svgJS/test;canvasJS/test;java2dJVM/test;javafxJVM/test"
+  ";coreJVM/test;coreJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;canvasJS/test;java2dJVM/test;javafxJVM/test"
 )
