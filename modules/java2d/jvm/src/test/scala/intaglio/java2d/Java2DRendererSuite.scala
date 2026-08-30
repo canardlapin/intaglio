@@ -52,7 +52,8 @@ class Java2DRendererSuite extends munit.FunSuite:
       )
     )
     val options = Java2DOptions.unsafe(width = 80, height = 60)
-    val program = Java2DRenderer.compile(Scene(Vector(rect)), options).fold(e => fail(e.message), identity)
+    val program =
+      Java2DRenderer.compile(Scene(Vector(rect)), options).fold(e => fail(e.message), identity)
     val image = new BufferedImage(options.width, options.height, BufferedImage.TYPE_INT_ARGB)
     val graphics = image.createGraphics()
     try Java2DRenderer.draw(program, graphics)
@@ -67,7 +68,8 @@ class Java2DRendererSuite extends munit.FunSuite:
   }
 
   test("pattern resources are reused across every fill-bearing primitive") {
-    val recipe = PatternRecipe.crossHatch(30.0, 10.0, 1.5).fold(error => fail(error.message), identity)
+    val recipe =
+      PatternRecipe.crossHatch(30.0, 10.0, 1.5).fold(error => fail(error.message), identity)
     val pattern = PatternPaint(recipe, Rgba.Black, Some(Rgba.White))
     val params = GraphicParams.unsafe(stroke = None, alpha = 0.8).withPatternFill(pattern)
     val grobs = Vector(
@@ -89,13 +91,16 @@ class Java2DRendererSuite extends munit.FunSuite:
         name = Some(GraphicsName.unsafe("pattern-polygon"))
       ),
       Grob.compoundPolygonUnsafe(
-        Vector(Vector(Point.npcUnsafe(0.1, 0.6), Point.npcUnsafe(0.9, 0.6), Point.npcUnsafe(0.5, 0.9))),
+        Vector(
+          Vector(Point.npcUnsafe(0.1, 0.6), Point.npcUnsafe(0.9, 0.6), Point.npcUnsafe(0.5, 0.9))
+        ),
         gp = params,
         name = Some(GraphicsName.unsafe("pattern-compound"))
       )
     )
     val options = Java2DOptions.unsafe(width = 100, height = 80)
-    val program = Java2DRenderer.compile(Scene(grobs), options).fold(error => fail(error.message), identity)
+    val program =
+      Java2DRenderer.compile(Scene(grobs), options).fold(error => fail(error.message), identity)
     val image = new BufferedImage(options.width, options.height, BufferedImage.TYPE_INT_ARGB)
     val graphics = image.createGraphics()
     val profile =
@@ -104,10 +109,10 @@ class Java2DRendererSuite extends munit.FunSuite:
 
     assertEquals(profile, Java2DDrawProfile(4, 3, 1))
     val paints = program.commands.collect {
-      case Java2DCommand.Disc(_, _, _, paint, _)             => paint
-      case Java2DCommand.Polyline(_, true, paint, _)         => paint
-      case Java2DCommand.CompoundPolygon(_, paint, _)        => paint
-      case Java2DCommand.Rectangle(_, _, _, _, paint, _)     => paint
+      case Java2DCommand.Disc(_, _, _, paint, _)         => paint
+      case Java2DCommand.Polyline(_, true, paint, _)     => paint
+      case Java2DCommand.CompoundPolygon(_, paint, _)    => paint
+      case Java2DCommand.Rectangle(_, _, _, _, paint, _) => paint
     }
     assertEquals(paints.length, 4)
     assert(paints.forall(_.fillPattern.contains(pattern)))
@@ -127,7 +132,9 @@ class Java2DRendererSuite extends munit.FunSuite:
     def pixels(params: GraphicParams): Vector[Int] =
       val rect = Grob.rectUnsafe(Point.npcUnsafe(0.5, 0.5), Size.npcUnsafe(0.75, 0.75), gp = params)
       val options = Java2DOptions.unsafe(width = 64, height = 64)
-      val program = Java2DRenderer.compile(Scene(Vector(rect)), options).fold(error => fail(error.message), identity)
+      val program = Java2DRenderer
+        .compile(Scene(Vector(rect)), options)
+        .fold(error => fail(error.message), identity)
       val image = new BufferedImage(options.width, options.height, BufferedImage.TYPE_INT_ARGB)
       val graphics = image.createGraphics()
       try Java2DRenderer.draw(program, graphics)
@@ -135,13 +142,19 @@ class Java2DRendererSuite extends munit.FunSuite:
       (8 until 56).flatMap(y => (8 until 56).map(x => image.getRGB(x, y))).toVector
 
     val patterned = recipes.map { recipe =>
-      pixels(GraphicParams.unsafe(stroke = None).withPatternFill(PatternPaint(recipe, Rgba.Black, Some(Rgba.White))))
+      pixels(
+        GraphicParams
+          .unsafe(stroke = None)
+          .withPatternFill(PatternPaint(recipe, Rgba.Black, Some(Rgba.White)))
+      )
     }
     val solid = pixels(GraphicParams.unsafe(stroke = None, fill = Some(Rgba.White)))
 
     patterned.foreach(result => assertNotEquals(result, solid))
     patterned.indices.foreach { left =>
-      ((left + 1) until patterned.length).foreach(right => assertNotEquals(patterned(left), patterned(right)))
+      ((left + 1) until patterned.length).foreach(right =>
+        assertNotEquals(patterned(left), patterned(right))
+      )
     }
   }
 
@@ -156,8 +169,10 @@ class Java2DRendererSuite extends munit.FunSuite:
     )
 
     assert(Java2DRenderer.compile(Scene(Vector(rect))).left.toOption.exists {
-      case Java2DRenderError.Graphics(GraphicsError.InvalidPatternParameter("raster", "spacing", _, _)) => true
-      case _                                                                                               => false
+      case Java2DRenderError
+            .Graphics(GraphicsError.InvalidPatternParameter("raster", "spacing", _, _)) =>
+        true
+      case _ => false
     })
   }
 
@@ -171,7 +186,8 @@ class Java2DRendererSuite extends munit.FunSuite:
   test("raster rendering preserves top-left pixel order, source alpha, and grob alpha") {
     val scene = RendererConformance.imageCase.fold(error => fail(error.message), identity).scene
     val options = Java2DOptions.unsafe(width = 100, height = 80)
-    val program = Java2DRenderer.compile(scene, options).fold(error => fail(error.message), identity)
+    val program =
+      Java2DRenderer.compile(scene, options).fold(error => fail(error.message), identity)
     val target = new BufferedImage(options.width, options.height, BufferedImage.TYPE_INT_ARGB)
     val graphics = target.createGraphics()
     try Java2DRenderer.draw(program, graphics)
@@ -211,7 +227,9 @@ class Java2DRendererSuite extends munit.FunSuite:
       gp = GraphicParams.unsafe(stroke = None, fill = Some(Rgba.unsafe(20, 40, 220)))
     )
     val options = Java2DOptions.unsafe(width = 60, height = 60)
-    val program = Java2DRenderer.compile(Scene(Vector(image, overlay)), options).fold(error => fail(error.message), identity)
+    val program = Java2DRenderer
+      .compile(Scene(Vector(image, overlay)), options)
+      .fold(error => fail(error.message), identity)
     val target = new BufferedImage(options.width, options.height, BufferedImage.TYPE_INT_ARGB)
     val graphics = target.createGraphics()
     try Java2DRenderer.draw(program, graphics)

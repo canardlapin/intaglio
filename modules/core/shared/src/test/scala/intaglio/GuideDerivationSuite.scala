@@ -44,18 +44,25 @@ class GuideDerivationSuite extends munit.FunSuite:
 
   test("derived guides produce x/y axes and a legend from the discrete color scale") {
     val trained = PlotCompiler
-      .resolve(coloredPlot, PlotCompilerOptions(frame = Some(frame), guides = GuidePolicy.Derived()))
+      .resolve(
+        coloredPlot,
+        PlotCompilerOptions(frame = Some(frame), guides = GuidePolicy.Derived())
+      )
       .fold(e => fail(e.message), identity)
 
     val names = trained.guides.flatMap(_.spec.name).map(_.value)
     assertEquals(names, Vector("x-axis", "y-axis", "condition-color-legend"))
 
-    val axisTitles = trained.guides.collect { case ResolvedGuide(axis: GuideSpec.Axis, _) => axis.title }
+    val axisTitles = trained.guides.collect { case ResolvedGuide(axis: GuideSpec.Axis, _) =>
+      axis.title
+    }
     assertEquals(axisTitles, Vector(Some("x"), Some("y")))
 
-    val legend = trained.guides.collectFirst {
-      case ResolvedGuide(spec: GuideSpec.Legend, _) => spec
-    }.getOrElse(fail("expected a derived legend"))
+    val legend = trained.guides
+      .collectFirst { case ResolvedGuide(spec: GuideSpec.Legend, _) =>
+        spec
+      }
+      .getOrElse(fail("expected a derived legend"))
     assertEquals(legend.title, Some("condition-color"))
     assertEquals(legend.entries.map(_.label), Vector("A", "B"))
     assertEquals(legend.entries.head.gp.fill, Some(Rgba.unsafe(40, 80, 120)))
@@ -79,9 +86,11 @@ class GuideDerivationSuite extends munit.FunSuite:
     val trained = PlotCompiler
       .resolve(plot, PlotCompilerOptions(frame = Some(frame), guides = GuidePolicy.Derived()))
       .fold(e => fail(e.message), identity)
-    val colorbar = trained.guides.collectFirst {
-      case ResolvedGuide(spec: GuideSpec.Colorbar, _) => spec
-    }.getOrElse(fail("expected a derived colorbar"))
+    val colorbar = trained.guides
+      .collectFirst { case ResolvedGuide(spec: GuideSpec.Colorbar, _) =>
+        spec
+      }
+      .getOrElse(fail("expected a derived colorbar"))
 
     assertEquals(colorbar.name.map(_.value), Some("activation-colorbar"))
     assertEquals(colorbar.title, Some("activation"))
@@ -107,9 +116,11 @@ class GuideDerivationSuite extends munit.FunSuite:
     val layout = trained.layout.getOrElse(fail("expected a derived layout"))
     assertEquals(layout.xScale, Interval.unsafe(-0.05, 1.05))
 
-    val axis = trained.guides.collectFirst {
-      case ResolvedGuide(spec: GuideSpec.Axis, _) if spec.side == AxisSide.Bottom => spec
-    }.getOrElse(fail("expected a derived bottom axis"))
+    val axis = trained.guides
+      .collectFirst {
+        case ResolvedGuide(spec: GuideSpec.Axis, _) if spec.side == AxisSide.Bottom => spec
+      }
+      .getOrElse(fail("expected a derived bottom axis"))
     val ticks = axis.ticks.getOrElse(fail("expected transform-derived ticks"))
     assertEquals(ticks.map(_.label), Vector("1", "10", "100"))
     assertEqualsDouble(ticks(0).value, 0.0, 1e-12)
@@ -120,7 +131,8 @@ class GuideDerivationSuite extends munit.FunSuite:
 
   test("band scales are ordinary typed position scales on the y aesthetic") {
     val padding = BandPadding.unsafe(0.2)
-    val scale = BandScale("condition", DiscreteDomain.empty, padding).fold(e => fail(e.message), identity)
+    val scale =
+      BandScale("condition", DiscreteDomain.empty, padding).fold(e => fail(e.message), identity)
     val mapping = AesSpec
       .empty[Obs]
       .withPosition(_.x, _ => 0.0)
@@ -133,12 +145,18 @@ class GuideDerivationSuite extends munit.FunSuite:
     val trained = PlotCompiler
       .resolve(
         plot,
-        PlotCompilerOptions(frame = Some(frame), expansion = RangeExpansion.none, guides = GuidePolicy.Derived())
+        PlotCompilerOptions(
+          frame = Some(frame),
+          expansion = RangeExpansion.none,
+          guides = GuidePolicy.Derived()
+        )
       )
       .fold(e => fail(e.message), identity)
-    val axis = trained.guides.collectFirst {
-      case ResolvedGuide(spec: GuideSpec.Axis, _) if spec.side == AxisSide.Left => spec
-    }.getOrElse(fail("expected a derived left band axis"))
+    val axis = trained.guides
+      .collectFirst {
+        case ResolvedGuide(spec: GuideSpec.Axis, _) if spec.side == AxisSide.Left => spec
+      }
+      .getOrElse(fail("expected a derived left band axis"))
 
     assertEquals(trained.layers.head.rows.map(_.y), Vector(0.0, 1.0, 0.0))
     assertEquals(trained.layers.head.rows.flatMap(_.yBand).map(_.width), Vector.fill(3)(0.8))
@@ -154,7 +172,9 @@ class GuideDerivationSuite extends munit.FunSuite:
       .resolve(plot, PlotCompilerOptions(frame = Some(frame), guides = GuidePolicy.Derived()))
       .fold(e => fail(e.message), identity)
 
-    val titles = trained.guides.collect { case ResolvedGuide(axis: GuideSpec.Axis, _) => axis.title }
+    val titles = trained.guides.collect { case ResolvedGuide(axis: GuideSpec.Axis, _) =>
+      axis.title
+    }
     assertEquals(titles, Vector(Some("Elapsed time"), Some("Response")))
   }
 
@@ -186,7 +206,9 @@ class GuideDerivationSuite extends munit.FunSuite:
     }
     assertEquals(bottomAxes.length, 1)
     assertEquals(bottomAxes.head.name.map(_.value), Some("time-axis"))
-    val overrideTicks = bottomAxes.head.ticks.getOrElse(fail("override ticks must be materialized before panel expansion"))
+    val overrideTicks = bottomAxes.head.ticks.getOrElse(
+      fail("override ticks must be materialized before panel expansion")
+    )
     assertEquals(overrideTicks.map(_.value), Vector(0.0, 2.0))
     assertEquals(overrideTicks.map(_.label), Vector("0", "2"))
   }
@@ -195,15 +217,17 @@ class GuideDerivationSuite extends munit.FunSuite:
     val xScale = ContinuousScale
       .train("x-position", data.map(_.x), Palette.numeric)
       .fold(e => fail(e.message), identity)
-    val scaledLayer = Layer.fromMapping(
-      Geom.Point,
-      AesSpec
-        .empty[Obs]
-        .withPosition(_.x, _.y)
-        .bindScale(ScaleBinding[Obs, Double, Double](Aesthetic.X, _.x, xScale))
-        .fold(e => fail(e.message), identity),
-      inheritMapping = false
-    ).fold(e => fail(e.message), identity)
+    val scaledLayer = Layer
+      .fromMapping(
+        Geom.Point,
+        AesSpec
+          .empty[Obs]
+          .withPosition(_.x, _.y)
+          .bindScale(ScaleBinding[Obs, Double, Double](Aesthetic.X, _.x, xScale))
+          .fold(e => fail(e.message), identity),
+        inheritMapping = false
+      )
+      .fold(e => fail(e.message), identity)
     val plot = Plot(data)
       .addLayer(Layer.point[Obs](_.x, _.y))
       .flatMap(_.addLayer(scaledLayer))
@@ -231,11 +255,17 @@ class GuideDerivationSuite extends munit.FunSuite:
       .fold(e => fail(e.message), identity)
 
     val trained = PlotCompiler
-      .resolve(plot, PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived()))
+      .resolve(
+        plot,
+        PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
+      )
       .fold(e => fail(e.message), identity)
     val legends = trained.guides.map(_.spec).collect { case legend: GuideSpec.Legend => legend }
 
-    assertEquals(legends.map(_.name.map(_.value)), Vector(Some("condition-color-legend"), Some("condition-fill-legend")))
+    assertEquals(
+      legends.map(_.name.map(_.value)),
+      Vector(Some("condition-color-legend"), Some("condition-fill-legend"))
+    )
     val origins = legends.map(_.origin.y)
     assert(origins(0) != origins(1), "stacked legends must not share an origin")
   }
@@ -274,7 +304,10 @@ class GuideDerivationSuite extends munit.FunSuite:
 
   test("derived guides without a frame or layout remain a typed error") {
     assertEquals(
-      PlotCompiler.resolve(directPlot, PlotCompilerOptions(guides = GuidePolicy.Derived())).left.toOption,
+      PlotCompiler
+        .resolve(directPlot, PlotCompilerOptions(guides = GuidePolicy.Derived()))
+        .left
+        .toOption,
       Some(GraphicsError.MissingLayout("guides"))
     )
   }
@@ -297,11 +330,15 @@ class GuideDerivationSuite extends munit.FunSuite:
 
     val expansion = RangeExpansion.unsafe(0.1, additive = 0.2)
     val base = expansion.expand(Interval.unsafe(2.0, 6.0)).fold(e => fail(e.message), identity)
-    val translated = expansion.expand(Interval.unsafe(12.0, 16.0)).fold(e => fail(e.message), identity)
+    val translated =
+      expansion.expand(Interval.unsafe(12.0, 16.0)).fold(e => fail(e.message), identity)
     assertEquals(base, Interval.unsafe(1.4, 6.6))
     assertEqualsDouble(translated.lower - base.lower, 10.0, 1e-12)
     assertEqualsDouble(translated.upper - base.upper, 10.0, 1e-12)
-    assertEquals(RangeExpansion.none.expand(Interval.unsafe(2.0, 6.0)), Right(Interval.unsafe(2.0, 6.0)))
+    assertEquals(
+      RangeExpansion.none.expand(Interval.unsafe(2.0, 6.0)),
+      Right(Interval.unsafe(2.0, 6.0))
+    )
   }
 
   test("range expansion handles degenerate data and has an explicit opt-out") {

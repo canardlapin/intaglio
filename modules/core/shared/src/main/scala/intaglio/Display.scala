@@ -80,18 +80,20 @@ object DisplayOpacity:
   def value(opacity: DisplayOpacity): Double =
     opacity
 
-  extension (opacity: DisplayOpacity)
-    def toDouble: Double = DisplayOpacity.value(opacity)
+  extension (opacity: DisplayOpacity) def toDouble: Double = DisplayOpacity.value(opacity)
 
 enum DisplayBlendMode:
   case Normal, Additive, Multiply, Screen
 
-  /** Composite `over` onto `under` using source-over alpha and this mode's
-    * separable channel blend. Computation is performed in the stored sRGB
-    * channel space because `Rgba32` deliberately carries display bytes rather
-    * than a linear-light color profile.
+  /** Composite `over` onto `under` using source-over alpha and this mode's separable channel blend.
+    * Computation is performed in the stored sRGB channel space because `Rgba32` deliberately
+    * carries display bytes rather than a linear-light color profile.
     */
-  def composite(under: Rgba32, over: Rgba32, opacity: DisplayOpacity = DisplayOpacity.Opaque): Rgba32 =
+  def composite(
+      under: Rgba32,
+      over: Rgba32,
+      opacity: DisplayOpacity = DisplayOpacity.Opaque
+  ): Rgba32 =
     val underAlpha = under.alpha.toDouble / 255.0
     val overAlpha = over.alpha.toDouble / 255.0 * opacity.toDouble
     val outAlpha = overAlpha + underAlpha * (1.0 - overAlpha)
@@ -122,11 +124,10 @@ enum DisplayBlendMode:
 
 /** A value-to-pixel mapping.
   *
-  * `windowing` and `thresholding` are the single statement of each adjustment
-  * capability: `Some` iff this colorizer can rebuild itself for a new window
-  * or threshold. The capability predicate and the builder are both `final` and
-  * derived from them, so an implementation cannot claim support it does not
-  * provide. Callers that only need to ask — before they hold a `DisplayWindow`
+  * `windowing` and `thresholding` are the single statement of each adjustment capability: `Some`
+  * iff this colorizer can rebuild itself for a new window or threshold. The capability predicate
+  * and the builder are both `final` and derived from them, so an implementation cannot claim
+  * support it does not provide. Callers that only need to ask — before they hold a `DisplayWindow`
   * to try — use `supportsWindow`/`supportsThreshold`.
   */
 trait Colorizer[A]:
@@ -170,10 +171,10 @@ object ColorRamp:
     ColorRamp(Rgba32.unsafe(0, 0, 0), Rgba32.unsafe(255, 96, 0))
 
 final case class ScalarColorizer(
-  window: DisplayWindow,
-  ramp: ColorRamp = ColorRamp.Grayscale,
-  invalid: Rgba32 = Rgba32.unsafe(0, 0, 0, 0),
-  threshold: DisplayThreshold = DisplayThreshold.Disabled
+    window: DisplayWindow,
+    ramp: ColorRamp = ColorRamp.Grayscale,
+    invalid: Rgba32 = Rgba32.unsafe(0, 0, 0, 0),
+    threshold: DisplayThreshold = DisplayThreshold.Disabled
 ) extends Colorizer[Double]:
   def color(value: Double): Rgba32 =
     if !value.isFinite then invalid
@@ -191,15 +192,15 @@ object ScalarColorizer:
     Rgba32.unsafe(0, 0, 0, 0)
 
 final case class LabelColorizer(
-  colors: Map[Int, Rgba32],
-  fallback: Rgba32 = Rgba32.unsafe(0, 0, 0, 0)
+    colors: Map[Int, Rgba32],
+    fallback: Rgba32 = Rgba32.unsafe(0, 0, 0, 0)
 ) extends Colorizer[Int]:
   def color(value: Int): Rgba32 =
     colors.getOrElse(value, fallback)
 
 final case class MaskColorizer(
-  foreground: Rgba32,
-  background: Rgba32 = Rgba32.unsafe(0, 0, 0, 0)
+    foreground: Rgba32,
+    background: Rgba32 = Rgba32.unsafe(0, 0, 0, 0)
 ) extends Colorizer[Boolean]:
   def color(value: Boolean): Rgba32 =
     if value then foreground else background

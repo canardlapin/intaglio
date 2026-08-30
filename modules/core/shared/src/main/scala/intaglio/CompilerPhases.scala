@@ -1,7 +1,7 @@
 package intaglio
 
-/** Output of the mapping-resolution phase: one plan per layer with effective
-  * data and its canonical aesthetic mapping.
+/** Output of the mapping-resolution phase: one plan per layer with effective data and its canonical
+  * aesthetic mapping.
   */
 private[intaglio] final case class LayerPlan[Row](
     layerIndex: Int,
@@ -11,8 +11,8 @@ private[intaglio] final case class LayerPlan[Row](
     packageKey: AnyRef
 )
 
-/** Existential package that keeps one layer's row type attached to every
-  * compiler input derived from it.
+/** Existential package that keeps one layer's row type attached to every compiler input derived
+  * from it.
   */
 private[intaglio] sealed trait PackedLayerPlan:
   type Row
@@ -31,9 +31,8 @@ private[intaglio] object PackedLayerPlan:
       type Row = Row0
       val value: LayerPlan[Row] = plan
 
-/** A layer after its statistical transform. Every stat emits the same typed
-  * row envelope, so scale training remains plot-wide even when layers have
-  * different statistics.
+/** A layer after its statistical transform. Every stat emits the same typed row envelope, so scale
+  * training remains plot-wide even when layers have different statistics.
   */
 private[intaglio] final case class StatPlan[Row](
     source: LayerPlan[Row],
@@ -44,8 +43,8 @@ private[intaglio] final case class StatPlan[Row](
   def layer: Layer[Row] = source.layer
   def data: Vector[StatRow[Row]] = frame.rows
 
-/** Existential package for a statistically transformed layer. All operations
-  * except alignment of two copies of the same package remain fully typed.
+/** Existential package for a statistically transformed layer. All operations except alignment of
+  * two copies of the same package remain fully typed.
   */
 private[intaglio] sealed trait PackedStatPlan:
   type Row
@@ -66,16 +65,19 @@ private[intaglio] object PackedStatPlan:
       type Row = Row0
       val value: StatPlan[Row] = plan
 
-  /** Facet compilation creates global and panel-local copies from the same
-    * package. Runtime identity proves their hidden row types agree; the one
-    * unavoidable erasure recovery for heterogeneous layers is confined here.
+  /** Facet compilation creates global and panel-local copies from the same package. Runtime
+    * identity proves their hidden row types agree; the one unavoidable erasure recovery for
+    * heterogeneous layers is confined here.
     */
   def mergePositionScales(
       global: PackedStatPlan,
       local: PackedStatPlan,
       scales: FacetScales
   ): PackedStatPlan =
-    require(global.packageKey eq local.packageKey, "facet plans must originate from the same layer package")
+    require(
+      global.packageKey eq local.packageKey,
+      "facet plans must originate from the same layer package"
+    )
     mergeAligned(global.value, local.value.asInstanceOf[StatPlan[global.Row]], scales)
 
   private def mergeAligned[Row](
@@ -98,8 +100,8 @@ private[intaglio] object PackedStatPlan:
   ): AesSpec[Row] =
     source.get(aesthetic).fold(target)(target.updated(aesthetic, _))
 
-/** Phase 1 — mapping resolution: merge layer and plot mappings, validate the
-  * input contract, and reject unsupported geoms before any row is evaluated.
+/** Phase 1 — mapping resolution: merge layer and plot mappings, validate the input contract, and
+  * reject unsupported geoms before any row is evaluated.
   */
 private[intaglio] object MappingPhase:
   def plan[Row](plot: Plot[Row]): Either[GraphicsError, Vector[PackedLayerPlan]] =
@@ -137,7 +139,11 @@ private[intaglio] object MappingPhase:
       idx += 1
     result.map(_ => out.result())
 
-  def planLayer[Row](plot: Plot[Row], layer: Layer[Row], layerIndex: Int): Either[GraphicsError, LayerPlan[Row]] =
+  def planLayer[Row](
+      plot: Plot[Row],
+      layer: Layer[Row],
+      layerIndex: Int
+  ): Either[GraphicsError, LayerPlan[Row]] =
     planValues(
       layer,
       layer.effectiveData(plot.data),
@@ -175,11 +181,13 @@ private[intaglio] object MappingPhase:
   private def isSupported(geom: Geom): Boolean =
     geom match
       case Geom.Point | Geom.Line | Geom.Text | Geom.Rect | Geom.Bar | Geom.Segment |
-          Geom.ErrorBar | Geom.Ribbon | Geom.Area | Geom.HLine | Geom.VLine | Geom.Tile | Geom.Polygon => true
+          Geom.ErrorBar | Geom.Ribbon | Geom.Area | Geom.HLine | Geom.VLine | Geom.Tile |
+          Geom.Polygon =>
+        true
 
-/** Phase 2 — statistical transformation. Identity only lifts the source
-  * mapping into a stat row. Count aggregates by its typed key, creates count
-  * and proportion fields, and owns the discrete x scale plus computed y.
+/** Phase 2 — statistical transformation. Identity only lifts the source mapping into a stat row.
+  * Count aggregates by its typed key, creates count and proportion fields, and owns the discrete x
+  * scale plus computed y.
   */
 private[intaglio] object StatPhase:
   def transform(plans: Vector[PackedLayerPlan]): Either[GraphicsError, Vector[PackedStatPlan]] =
@@ -229,7 +237,8 @@ private[intaglio] object StatPhase:
       val groupKeys = stat.group match
         case None          => Vector(None)
         case Some(groupOf) => plan.data.map(row => Some(groupOf(row))).distinct
-      val groups = scala.collection.mutable.HashMap.empty[(String, Option[String]), scala.collection.mutable.ArrayBuffer[Row]]
+      val groups = scala.collection.mutable.HashMap
+        .empty[(String, Option[String]), scala.collection.mutable.ArrayBuffer[Row]]
       plan.data.zip(keys).foreach { case (row, key) =>
         val group = stat.group.map(_(row))
         groups.getOrElseUpdate((key, group), scala.collection.mutable.ArrayBuffer.empty) += row
@@ -289,10 +298,14 @@ private[intaglio] object StatPhase:
   private val densityAesthetics: Set[ComputedAesthetic[?]] =
     Set(ComputedAesthetic.Count, ComputedAesthetic.Position, ComputedAesthetic.Density)
 
-  private def binFrame[Row](plan: LayerPlan[Row], stat: Stat.Bin[Row]): Either[GraphicsError, StatPlan[Row]] =
+  private def binFrame[Row](
+      plan: LayerPlan[Row],
+      stat: Stat.Bin[Row]
+  ): Either[GraphicsError, StatPlan[Row]] =
     val values = plan.data.map(stat.x)
     firstNonFinite(values) match
-      case Some(value) => Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
+      case Some(value) =>
+        Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
       case None if values.isEmpty =>
         val mapping = binMapping[Row]
         Right(StatPlan(plan, StatFrame(Vector.empty, binAesthetics), mapping))
@@ -304,7 +317,8 @@ private[intaglio] object StatPhase:
           case Some(value) if HistogramBins.isExplicit(stat.bins) =>
             Left(GraphicsError.StatInputOutsideBins(value, lower, upper))
           case _ =>
-            val buckets = Array.fill(breaks.length - 1)(scala.collection.mutable.ArrayBuffer.empty[Row])
+            val buckets =
+              Array.fill(breaks.length - 1)(scala.collection.mutable.ArrayBuffer.empty[Row])
             var rowIndex = 0
             while rowIndex < plan.data.length do
               val value = values(rowIndex)
@@ -320,7 +334,12 @@ private[intaglio] object StatPhase:
                   members.head,
                   members,
                   None,
-                  ComputedValues.binned(members.length, plan.data.length, breaks(binIndex), breaks(binIndex + 1))
+                  ComputedValues.binned(
+                    members.length,
+                    plan.data.length,
+                    breaks(binIndex),
+                    breaks(binIndex + 1)
+                  )
                 )
               binIndex += 1
             val mapping = binMapping[Row]
@@ -332,9 +351,8 @@ private[intaglio] object StatPhase:
       y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Count).getOrElse(0.0)))
     )
 
-  /** ggplot2 histograms are right-closed by default: the first interval also
-    * owns its lower boundary, while an internal break belongs to the bin on
-    * its left.
+  /** ggplot2 histograms are right-closed by default: the first interval also owns its lower
+    * boundary, while an internal break belongs to the bin on its left.
     */
   private def findBin(value: Double, breaks: Vector[Double]): Int =
     var idx = 0
@@ -352,15 +370,21 @@ private[intaglio] object StatPhase:
     val xs = plan.data.map(stat.x)
     val ys = plan.data.map(stat.y)
     firstNonFinite(xs) match
-      case Some(value) => Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
+      case Some(value) =>
+        Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
       case None =>
         firstNonFinite(ys) match
-          case Some(value) => Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.Y.label, value))
+          case Some(value) =>
+            Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.Y.label, value))
           case None =>
-            val groups = scala.collection.mutable.HashMap.empty[Double, scala.collection.mutable.ArrayBuffer[(Row, Double)]]
+            val groups = scala.collection.mutable.HashMap
+              .empty[Double, scala.collection.mutable.ArrayBuffer[(Row, Double)]]
             var idx = 0
             while idx < plan.data.length do
-              groups.getOrElseUpdate(xs(idx), scala.collection.mutable.ArrayBuffer.empty) += ((plan.data(idx), ys(idx)))
+              groups.getOrElseUpdate(xs(idx), scala.collection.mutable.ArrayBuffer.empty) += ((
+                plan.data(idx),
+                ys(idx)
+              ))
               idx += 1
             val rows = groups.keys.toVector.sorted.map { x =>
               val observations = groups(x).toVector
@@ -377,7 +401,11 @@ private[intaglio] object StatPhase:
             val mapping = summaryMapping[Row]
             Right(StatPlan(plan, StatFrame(rows, summaryAesthetics), mapping))
 
-  private def summaryBounds(values: Vector[Double], mean: Double, interval: SummaryInterval): (Double, Double) =
+  private def summaryBounds(
+      values: Vector[Double],
+      mean: Double,
+      interval: SummaryInterval
+  ): (Double, Double) =
     interval match
       case SummaryInterval.StandardError =>
         val standardError =
@@ -410,8 +438,10 @@ private[intaglio] object StatPhase:
       values(valueIndex) = stat.x(plan.data(valueIndex))
       valueIndex += 1
     firstNonFinite(values) match
-      case Some(value) => Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
-      case None if values.length < 2 => Left(GraphicsError.InsufficientStatData(stat.label, 2, values.length))
+      case Some(value) =>
+        Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
+      case None if values.length < 2 =>
+        Left(GraphicsError.InsufficientStatData(stat.label, 2, values.length))
       case None =>
         val bandwidth = stat.config.bandwidth.map(_.toDouble).getOrElse(DensityMath.nrd0(values))
         val domain = stat.config.domain.getOrElse(Interval.unsafe(values.min, values.max))
@@ -457,19 +487,17 @@ private[intaglio] object StatPhase:
       idx += 1
     result
 
-/** Output of plot-wide scale training: every layer plan is rebound to the same
-  * trained scale for each aesthetic, and the plot registry contains one entry
-  * per aesthetic.
+/** Output of plot-wide scale training: every layer plan is rebound to the same trained scale for
+  * each aesthetic, and the plot registry contains one entry per aesthetic.
   */
 private[intaglio] final case class ScaleResolution(
     plans: Vector[PackedStatPlan],
     registry: PlotScaleRegistry
 )
 
-/** Phase 3 — plot-wide scale training. All observations from all layers using
-  * an aesthetic train one shared scale before any row is mapped. Distinct
-  * scale declarations for the same aesthetic are rejected instead of silently
-  * placing independently normalized layers on one axis.
+/** Phase 3 — plot-wide scale training. All observations from all layers using an aesthetic train
+  * one shared scale before any row is mapped. Distinct scale declarations for the same aesthetic
+  * are rejected instead of silently placing independently normalized layers on one axis.
   */
 private[intaglio] object ScalePhase:
   private final case class Contribution(
@@ -485,10 +513,9 @@ private[intaglio] object ScalePhase:
         result.flatMap(trainAesthetic(_, aesthetic, facetLocal = false, unifyFacetCopies = false))
     }
 
-  /** Facet statistics are transformed panel-by-panel, so a computed stat may
-    * construct equivalent scale values more than once. Copies are unified
-    * only when they retain the same source layer and compatible descriptor;
-    * distinct plot layers keep the ordinary strict conflict rule.
+  /** Facet statistics are transformed panel-by-panel, so a computed stat may construct equivalent
+    * scale values more than once. Copies are unified only when they retain the same source layer
+    * and compatible descriptor; distinct plot layers keep the ordinary strict conflict rule.
     */
   def trainFacets(plans: Vector[PackedStatPlan]): Either[GraphicsError, ScaleResolution] =
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
@@ -508,9 +535,8 @@ private[intaglio] object ScalePhase:
       ).flatten
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
     aesthetics
-      .foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
-        (result, aesthetic) =>
-          result.flatMap(trainAesthetic(_, aesthetic, facetLocal = true, unifyFacetCopies = false))
+      .foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) { (result, aesthetic) =>
+        result.flatMap(trainAesthetic(_, aesthetic, facetLocal = true, unifyFacetCopies = false))
       }
       .map(_.plans)
 
@@ -550,11 +576,10 @@ private[intaglio] object ScalePhase:
             for
               trained <- trainEntry(first.entry, observations, facetLocal)
               plans <- rebind(resolution.plans, aesthetic, observations, facetLocal)
-            yield
-              ScaleResolution(
-                plans,
-                PlotScaleRegistry.from(resolution.registry.scales :+ trained.trained)
-              )
+            yield ScaleResolution(
+              plans,
+              PlotScaleRegistry.from(resolution.registry.scales :+ trained.trained)
+            )
 
   private def contribution(
       plan: PackedStatPlan,
@@ -629,8 +654,8 @@ private[intaglio] object ScalePhase:
     if facetLocal then entry.trainFacet(observations)
     else entry.trainPlotWide(observations)
 
-/** Phase 4 — row evaluation: map each stat row through the canonical aesthetic
-  * mapping, keeping typed drop diagnostics for rows a renderer must skip.
+/** Phase 4 — row evaluation: map each stat row through the canonical aesthetic mapping, keeping
+  * typed drop diagnostics for rows a renderer must skip.
   */
 private[intaglio] object RowPhase:
   def resolve[Row](
@@ -680,28 +705,27 @@ private[intaglio] object RowPhase:
         subpath <- optionalAes(Aesthetic.Subpath, mapping.get(Aesthetic.Subpath), source)
         gp <- rowGraphicParams(source, mapping, layer.params.getOrElse(theme.geom))
         size <- rowSize(source, mapping, theme.pointSizePt)
-      yield
-        ResolvedRow(
-          rowIndex = rowIndex,
-          source = source.source,
-          computed = source.computed,
-          x = x,
-          y = y,
-          xBand = xBand,
-          yBand = yBand,
-          xEnd = xEnd,
-          yEnd = yEnd,
-          xMin = xMin,
-          xMax = xMax,
-          yMin = yMin,
-          yMax = yMax,
-          point = Point.nativeUnsafe(x, y),
-          label = if layer.geom == Geom.Text then Some(text) else None,
-          group = group,
-          subpath = subpath,
-          gp = gp,
-          size = size
-        )
+      yield ResolvedRow(
+        rowIndex = rowIndex,
+        source = source.source,
+        computed = source.computed,
+        x = x,
+        y = y,
+        xBand = xBand,
+        yBand = yBand,
+        xEnd = xEnd,
+        yEnd = yEnd,
+        xMin = xMin,
+        xMax = xMax,
+        yMin = yMin,
+        yMax = yMax,
+        point = Point.nativeUnsafe(x, y),
+        label = if layer.geom == Geom.Text then Some(text) else None,
+        group = group,
+        subpath = subpath,
+        gp = gp,
+        size = size
+      )
     resolved match
       case Right(row)   => RowResolution.Resolved(row)
       case Left(reason) => RowResolution.Dropped(reason)
@@ -807,8 +831,7 @@ private[intaglio] object RowPhase:
       case AesValue.Constant(v) =>
         Right(v)
       case scaled: AesValue.Scaled[Row, ?, A] =>
-        scaled
-          .scale
+        scaled.scale
           .mapValueResult(scaled.value(row))
           .left
           .map(toDropReason(aesthetic, _))
@@ -828,8 +851,8 @@ private[intaglio] object RowPhase:
     case Dropped(reason: PlotDropReason)
     case Failed(error: GraphicsError)
 
-/** Phase 5 — pure position adjustment over resolved statistical rows. The
-  * phase owns collision semantics; geoms only lower the resulting geometry.
+/** Phase 5 — pure position adjustment over resolved statistical rows. The phase owns collision
+  * semantics; geoms only lower the resulting geometry.
   */
 private[intaglio] object PositionPhase:
   def adjust[Row](
@@ -858,7 +881,8 @@ private[intaglio] object PositionPhase:
     val positions = rows.map(_.x).distinct
     positions.foreach { base =>
       val indices = rows.indices.filter(index => rows(index).x == base).toVector
-      val localGroups = globalGroups.filter(group => indices.exists(index => rows(index).group == group))
+      val localGroups =
+        globalGroups.filter(group => indices.exists(index => rows(index).group == group))
       val slots = config.preserve match
         case DodgePreserve.Total  => localGroups
         case DodgePreserve.Single => globalGroups
@@ -874,7 +898,9 @@ private[intaglio] object PositionPhase:
         val sourceWidth = row.xBand.map(_.width).getOrElse(0.9)
         val band = row.xBand
           .map(_ => Band.unsafe(center, sourceWidth / slotCount.toDouble))
-          .orElse(Option.when(geom == Geom.Bar)(Band.unsafe(center, sourceWidth / slotCount.toDouble)))
+          .orElse(
+            Option.when(geom == Geom.Bar)(Band.unsafe(center, sourceWidth / slotCount.toDouble))
+          )
         val (xMin, xMax) = (row.xMin, row.xMax) match
           case (Some(lower), Some(upper)) =>
             val width = (upper - lower) / slotCount.toDouble
@@ -954,10 +980,14 @@ private[intaglio] object PositionPhase:
 
   private def resolution(values: Vector[Double]): Double =
     val ordered = values.filter(_.isFinite).distinct.sorted
-    ordered.sliding(2).flatMap {
-      case Vector(left, right) if right > left => Some(right - left)
-      case _                                   => None
-    }.minOption.getOrElse(1.0)
+    ordered
+      .sliding(2)
+      .flatMap {
+        case Vector(left, right) if right > left => Some(right - left)
+        case _                                   => None
+      }
+      .minOption
+      .getOrElse(1.0)
 
   private def translate[Row](
       row: ResolvedRow[Row],
@@ -978,9 +1008,8 @@ private[intaglio] object PositionPhase:
       point = Point.nativeUnsafe(x, y)
     )
 
-  /** SplitMix64 gives identical integer arithmetic on the JVM and Scala.js.
-    * Each row/axis is addressed independently, so traversal refactors cannot
-    * perturb later offsets.
+  /** SplitMix64 gives identical integer arithmetic on the JVM and Scala.js. Each row/axis is
+    * addressed independently, so traversal refactors cannot perturb later offsets.
     */
   private def symmetric(seed: Long, row: Int, axis: Int): Double =
     var value = seed + 0x9e3779b97f4a7c15L * (row.toLong * 2L + axis.toLong + 1L)
@@ -990,9 +1019,8 @@ private[intaglio] object PositionPhase:
     val bits = value >>> 11
     bits.toDouble / 9007199254740992.0 * 2.0 - 1.0
 
-/** Phase 6 — geom lowering: turn adjusted rows into grobs. Lowering is
-  * group-aware: layers honoring the group aesthetic lower to one grob per
-  * group carrying that group's graphic params.
+/** Phase 6 — geom lowering: turn adjusted rows into grobs. Lowering is group-aware: layers honoring
+  * the group aesthetic lower to one grob per group carrying that group's graphic params.
   */
 private[intaglio] object GeomPhase:
   def lower[Row](
@@ -1002,7 +1030,7 @@ private[intaglio] object GeomPhase:
     layer.stat match
       case _: Stat.Summary[?] => summaryGrobs(rows)
       case _: Stat.Density[?] => densityGrobs(rows)
-      case _ => lowerIdentity(layer.geom, rows)
+      case _                  => lowerIdentity(layer.geom, rows)
 
   private def lowerIdentity[Row](
       geom: Geom,
@@ -1036,7 +1064,9 @@ private[intaglio] object GeomPhase:
       case Geom.Polygon =>
         polygonGrobs(rows)
 
-  private def summaryGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private def summaryGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
@@ -1067,7 +1097,9 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def densityGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private def densityGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     if rows.length < 2 then Right(Vector.empty)
     else
       Grob
@@ -1092,14 +1124,17 @@ private[intaglio] object GeomPhase:
       val yMax = row.yMax.getOrElse(row.y)
       out += Grob.rectUnsafe(
         center = Point.nativeUnsafe(xMin + (xMax - xMin) / 2.0, yMin + (yMax - yMin) / 2.0),
-        size = Size.fromExtents(ExtentExpr.nativeUnsafe(xMax - xMin), ExtentExpr.nativeUnsafe(yMax - yMin)),
+        size = Size
+          .fromExtents(ExtentExpr.nativeUnsafe(xMax - xMin), ExtentExpr.nativeUnsafe(yMax - yMin)),
         gp = row.gp,
         name = Some(GraphicsName.unsafe(s"geom-$prefix-$idx"))
       )
       idx += 1
     Right(out.result())
 
-  private def segmentGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private def segmentGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
@@ -1119,7 +1154,9 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def errorBarGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private def errorBarGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     val halfCap = ExtentExpr.pointsUnsafe(3.0)
     var idx = 0
@@ -1171,9 +1208,11 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def horizontalLineGrob[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private def horizontalLineGrob[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     rows.headOption match
-      case None => Right(Vector.empty)
+      case None      => Right(Vector.empty)
       case Some(row) =>
         val y = LengthExpr.nativeUnsafe(row.y)
         Grob
@@ -1184,9 +1223,11 @@ private[intaglio] object GeomPhase:
           )
           .map(Vector(_))
 
-  private def verticalLineGrob[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private def verticalLineGrob[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     rows.headOption match
-      case None => Right(Vector.empty)
+      case None      => Right(Vector.empty)
       case Some(row) =>
         val x = LengthExpr.nativeUnsafe(row.x)
         Grob
@@ -1225,7 +1266,9 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def polygonGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private def polygonGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val groups = groupInOrder(rows)
     val out = Vector.newBuilder[Grob]
     var index = 0
@@ -1254,14 +1297,16 @@ private[intaglio] object GeomPhase:
       index += 1
     result.map(_ => out.result())
 
-  private def subpathsInOrder[Row](rows: Vector[ResolvedRow[Row]]): Vector[Vector[ResolvedRow[Row]]] =
+  private def subpathsInOrder[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Vector[Vector[ResolvedRow[Row]]] =
     val order = scala.collection.mutable.ArrayBuffer.empty[Option[String]]
-    val buckets = scala.collection.mutable.HashMap.empty[Option[String], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
+    val buckets = scala.collection.mutable.HashMap
+      .empty[Option[String], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
     rows.foreach { row =>
       val key = row.subpath
       val bucket = buckets.getOrElseUpdate(
-        key,
-        {
+        key, {
           order += key
           scala.collection.mutable.ArrayBuffer.empty[ResolvedRow[Row]]
         }
@@ -1293,8 +1338,10 @@ private[intaglio] object GeomPhase:
       val upper = row.yMax.getOrElse(math.max(0.0, row.y))
       val height = upper - lower
       val centerY = lower + height / 2.0
-      val width = row.xBand.map(_.width).orElse(row.computed.get(ComputedAesthetic.BinWidth)).getOrElse(0.9)
-      val statName = if row.computed.get(ComputedAesthetic.BinWidth).nonEmpty then "bin" else "count"
+      val width =
+        row.xBand.map(_.width).orElse(row.computed.get(ComputedAesthetic.BinWidth)).getOrElse(0.9)
+      val statName =
+        if row.computed.get(ComputedAesthetic.BinWidth).nonEmpty then "bin" else "count"
       result = Grob
         .rect(
           center = Point.nativeUnsafe(row.x, centerY),
@@ -1309,15 +1356,15 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  /** Partition rows by their group value, preserving first-encounter order of
-    * groups and row order within each group.
+  /** Partition rows by their group value, preserving first-encounter order of groups and row order
+    * within each group.
     */
   private def groupInOrder[Row](rows: Vector[ResolvedRow[Row]]): Vector[Vector[ResolvedRow[Row]]] =
-    if rows.forall(_.group.isEmpty) then
-      if rows.isEmpty then Vector.empty else Vector(rows)
+    if rows.forall(_.group.isEmpty) then if rows.isEmpty then Vector.empty else Vector(rows)
     else
       val order = Vector.newBuilder[Option[String]]
-      val buckets = scala.collection.mutable.HashMap.empty[Option[String], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
+      val buckets = scala.collection.mutable.HashMap
+        .empty[Option[String], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
       rows.foreach { row =>
         val bucket = buckets.getOrElseUpdate(
           row.group, {
@@ -1329,11 +1376,10 @@ private[intaglio] object GeomPhase:
       }
       order.result().map(key => buckets(key).toVector)
 
-/** Phase 7 — coordinate transformation is deliberately one compiler phase. Statistical
-  * output and geoms remain expressed in logical x/y space; this phase turns
-  * their rows, grobs, and panel ranges into physical panel coordinates before
-  * layout and guide lowering. Backends therefore know nothing about plot
-  * coordinates.
+/** Phase 7 — coordinate transformation is deliberately one compiler phase. Statistical output and
+  * geoms remain expressed in logical x/y space; this phase turns their rows, grobs, and panel
+  * ranges into physical panel coordinates before layout and guide lowering. Backends therefore know
+  * nothing about plot coordinates.
   */
 private[intaglio] object CoordPhase:
   final case class CoordinateResolution(
@@ -1361,10 +1407,12 @@ private[intaglio] object CoordPhase:
     flipTypedLayer(layer.value)
 
   private def flipTypedLayer[Row](layer: ResolvedLayer[Row]): TrainedLayer =
-    TrainedLayer(layer.copy(
-      rows = layer.rows.map(flipRow),
-      grobs = layer.grobs.map(flipGrob)
-    ))
+    TrainedLayer(
+      layer.copy(
+        rows = layer.rows.map(flipRow),
+        grobs = layer.grobs.map(flipGrob)
+      )
+    )
 
   private def flipRow[Row](row: ResolvedRow[Row]): ResolvedRow[Row] =
     row.copy(
@@ -1398,7 +1446,9 @@ private[intaglio] object CoordPhase:
       case polygon: Grob.CompoundPolygon =>
         polygon.copy(rings = polygon.rings.map(_.map(flipPoint)))
       case segments: Grob.Segments =>
-        segments.copy(segments = segments.segments.map { case (start, end) => (flipPoint(start), flipPoint(end)) })
+        segments.copy(segments = segments.segments.map { case (start, end) =>
+          (flipPoint(start), flipPoint(end))
+        })
       case rect: Grob.Rect =>
         rect.copy(center = flipPoint(rect.center), size = flipSize(rect.size))
       case circle: Grob.Circle =>
@@ -1410,16 +1460,15 @@ private[intaglio] object CoordPhase:
       case group: Grob.Group =>
         group.copy(children = group.children.map(flipGrob))
 
-/** Phase 8 — layout resolution: use the explicit panel layout when given,
-  * or derive one from an explicit frame plus panel data ranges computed from
-  * the layers' position scales (mapped space is the unit interval) or their
-  * resolved row values when a position is unscaled.
+/** Phase 8 — layout resolution: use the explicit panel layout when given, or derive one from an
+  * explicit frame plus panel data ranges computed from the layers' position scales (mapped space is
+  * the unit interval) or their resolved row values when a position is unscaled.
   */
 private[intaglio] object LayoutPhase:
   final case class LayoutResolution(layout: Option[PanelLayout], frames: Option[PlotFrames])
 
-  /** Panel data ranges when any layout source (explicit layout, frame, or
-    * solver policy) is in play; `None` when the plot compiles layout-free.
+  /** Panel data ranges when any layout source (explicit layout, frame, or solver policy) is in
+    * play; `None` when the plot compiles layout-free.
     */
   def panelRangesFor(
       options: PlotCompilerOptions,
@@ -1443,16 +1492,24 @@ private[intaglio] object LayoutPhase:
     val clip = coordClip(coord)
     (options.layout, options.frame, options.policy, ranges) match
       case (Some(layout), _, _, Some((xRange, yRange))) =>
-        Right(LayoutResolution(Some(layout.copy(xScale = xRange, yScale = yRange, clip = clip)), None))
+        Right(
+          LayoutResolution(Some(layout.copy(xScale = xRange, yScale = yRange, clip = clip)), None)
+        )
       case (None, Some(frame), _, Some((xRange, yRange))) =>
         expandedRanges(options.expansion, xRange, yRange).map { case (expandedX, expandedY) =>
-          LayoutResolution(Some(PanelLayout(frame, expandedX, expandedY, options.margins, clip)), None)
+          LayoutResolution(
+            Some(PanelLayout(frame, expandedX, expandedY, options.margins, clip)),
+            None
+          )
         }
       case (None, None, Some(policy), Some((xRange, yRange))) =>
         for
           expanded <- expandedRanges(options.expansion, xRange, yRange)
           aspect <- panelAspect(coord, expanded._1, expanded._2)
-          frames <- PlotLayoutSolver.solve(policy, layoutRequest(specs, expanded._1, expanded._2, labels, aspect))
+          frames <- PlotLayoutSolver.solve(
+            policy,
+            layoutRequest(specs, expanded._1, expanded._2, labels, aspect)
+          )
         yield
           val (expandedX, expandedY) = expanded
           LayoutResolution(
@@ -1505,8 +1562,7 @@ private[intaglio] object LayoutPhase:
       case Coord.Fixed(ratio, _) =>
         if xRange.width <= 0.0 || yRange.width <= 0.0 then
           Left(GraphicsError.DegenerateFixedAspect(xRange.width, yRange.width))
-        else
-          CoordinateRatio(yRange.width / xRange.width * ratio.toDouble).map(Some(_))
+        else CoordinateRatio(yRange.width / xRange.width * ratio.toDouble).map(Some(_))
       case Coord.Cartesian(_) | Coord.Flipped(_) =>
         Right(None)
 
@@ -1525,12 +1581,11 @@ private[intaglio] object LayoutPhase:
       yRange <- positionRange(layers, Aesthetic.Y.label)
     yield (xRange, yRange)
 
-  /** Union of the position ranges contributed by each layer. Scaled layers
-    * live in mapped unit space (trained with the unit interval plus their
-    * actual mapped rows, so an `OobPolicy.Keep` overflow widens the panel
-    * rather than silently clipping); unscaled layers contribute raw row
-    * values. Mixing the two across layers is incoherent — mapped and raw
-    * coordinates share no unit — and is a typed error.
+  /** Union of the position ranges contributed by each layer. Scaled layers live in mapped unit
+    * space (trained with the unit interval plus their actual mapped rows, so an `OobPolicy.Keep`
+    * overflow widens the panel rather than silently clipping); unscaled layers contribute raw row
+    * values. Mixing the two across layers is incoherent — mapped and raw coordinates share no unit
+    * — and is a typed error.
     */
   private def positionRange(
       layers: Vector[TrainedLayer],
@@ -1544,7 +1599,8 @@ private[intaglio] object LayoutPhase:
         !(layer.geom == Geom.HLine && aesthetic == Aesthetic.X.label)
           && !(layer.geom == Geom.VLine && aesthetic == Aesthetic.Y.label)
       val values =
-        if contributes then layer.rows.iterator.flatMap(row => positionValues(row, aesthetic)).toVector
+        if contributes then
+          layer.rows.iterator.flatMap(row => positionValues(row, aesthetic)).toVector
         else Vector.empty
       layer.trainedScales.find(_.aesthetic == aesthetic) match
         case Some(scale) =>
@@ -1559,12 +1615,14 @@ private[intaglio] object LayoutPhase:
         if aesthetic == Aesthetic.X.label then
           val edges = layer.rows.iterator.flatMap { row =>
             val halfWidth =
-              row.xBand.map(_.width).orElse(row.computed.get(ComputedAesthetic.BinWidth)).getOrElse(0.9) / 2.0
+              row.xBand
+                .map(_.width)
+                .orElse(row.computed.get(ComputedAesthetic.BinWidth))
+                .getOrElse(0.9) / 2.0
             Iterator(row.x - halfWidth, row.x + halfWidth)
           }
           range = range.train(edges)
-        else if aesthetic == Aesthetic.Y.label then
-          range = range.train(Iterator.single(0.0))
+        else if aesthetic == Aesthetic.Y.label then range = range.train(Iterator.single(0.0))
       if aesthetic == Aesthetic.Y.label then
         val intervalValues = layer.rows.iterator.flatMap { row =>
           Iterator(
@@ -1591,9 +1649,9 @@ private[intaglio] object LayoutPhase:
   private[intaglio] def coordClip(coord: Coord): Clip =
     coord.clipping
 
-/** Structural plot text lowers into solver-owned regions before any backend
-  * sees the scene. Axis titles remain guide children; title and subtitle are
-  * top-level text grobs in dedicated viewports.
+/** Structural plot text lowers into solver-owned regions before any backend sees the scene. Axis
+  * titles remain guide children; title and subtitle are top-level text grobs in dedicated
+  * viewports.
   */
 private[intaglio] object PlotLabelPhase:
   def lower(
@@ -1605,7 +1663,7 @@ private[intaglio] object PlotLabelPhase:
     if !needsHeader then Right(Vector.empty)
     else
       frames match
-        case None => Left(GraphicsError.MissingLayout("plot title"))
+        case None         => Left(GraphicsError.MissingLayout("plot title"))
         case Some(solved) =>
           val out = Vector.newBuilder[Grob]
           for
@@ -1633,10 +1691,10 @@ private[intaglio] object PlotLabelPhase:
       out: scala.collection.mutable.Builder[Grob, Vector[Grob]]
   ): Either[GraphicsError, Unit] =
     text match
-      case None => Right(())
+      case None        => Right(())
       case Some(label) =>
         viewport match
-          case None => Left(GraphicsError.MissingLayout(name.value))
+          case None        => Left(GraphicsError.MissingLayout(name.value))
           case Some(frame) =>
             Grob
               .text(
@@ -1652,9 +1710,8 @@ private[intaglio] object PlotLabelPhase:
                 ()
               }
 
-/** Phase 7 — guide resolution: determine guide specs from the policy (deriving
-  * routine axes and legends from trained scales) and lower them against the
-  * panel layout.
+/** Phase 7 — guide resolution: determine guide specs from the policy (deriving routine axes and
+  * legends from trained scales) and lower them against the panel layout.
   */
 private[intaglio] object GuidePhase:
   def specs(
@@ -1679,7 +1736,16 @@ private[intaglio] object GuidePhase:
           case None =>
             Left(GraphicsError.MissingLayout("guides"))
           case Some((xRange, yRange)) =>
-            derived(coord, plotScales, xRange, yRange, overrides, deriveLegends, relativeLegend, labels)
+            derived(
+              coord,
+              plotScales,
+              xRange,
+              yRange,
+              overrides,
+              deriveLegends,
+              relativeLegend,
+              labels
+            )
 
   private def derived(
       coord: Coord,
@@ -1700,7 +1766,8 @@ private[intaglio] object GuidePhase:
     val (xSide, xPhysicalRange, ySide, yPhysicalRange) =
       coord match
         case Coord.Flipped(_) => (AxisSide.Left, xRange, AxisSide.Bottom, yRange)
-        case Coord.Cartesian(_) | Coord.Fixed(_, _) => (AxisSide.Bottom, xRange, AxisSide.Left, yRange)
+        case Coord.Cartesian(_) | Coord.Fixed(_, _) =>
+          (AxisSide.Bottom, xRange, AxisSide.Left, yRange)
     for
       resolvedOverrides <- materializeAxisTicks(overrides, xRange, yRange)
       xAxis <-
@@ -1714,9 +1781,9 @@ private[intaglio] object GuidePhase:
         else nonPositionGuides(plotScales)
     yield Vector(xAxis, yAxis).flatten ++ resolvedOverrides ++ legends
 
-  /** Resolve caller-supplied break policies against the unexpanded data
-    * ranges. Panel padding is a view concern and must not leak into tick values
-    * or labels when the guides are lowered later against the expanded layout.
+  /** Resolve caller-supplied break policies against the unexpanded data ranges. Panel padding is a
+    * view concern and must not leak into tick values or labels when the guides are lowered later
+    * against the expanded layout.
     */
   private def materializeAxisTicks(
       specs: Vector[GuideSpec],
@@ -1739,10 +1806,9 @@ private[intaglio] object GuidePhase:
       idx += 1
     result.map(_ => out.result())
 
-  /** Derive an axis for a position aesthetic. A trained continuous scale
-    * provides breaks and labels in the raw data domain, positioned in mapped
-    * unit space; an unscaled position takes default breaks over the panel
-    * range. Both carry explicit ticks so the layout solver can size strips
+  /** Derive an axis for a position aesthetic. A trained continuous scale provides breaks and labels
+    * in the raw data domain, positioned in mapped unit space; an unscaled position takes default
+    * breaks over the panel range. Both carry explicit ticks so the layout solver can size strips
     * from the actual labels.
     */
   private def positionAxis(
@@ -1826,9 +1892,8 @@ private[intaglio] object GuidePhase:
       idx += 1
     if valid then Some(out.result()) else None
 
-  /** Ticks for a trained continuous scale: break values come from the scale's
-    * transform in the raw data domain; positions are the mapped unit-space
-    * coordinates the rows were resolved into.
+  /** Ticks for a trained continuous scale: break values come from the scale's transform in the raw
+    * data domain; positions are the mapped unit-space coordinates the rows were resolved into.
     */
   private def scaledTicks(scale: ContinuousScale[?]): Either[GraphicsError, Vector[AxisTick]] =
     val breaks = scale.breaks
@@ -1849,9 +1914,9 @@ private[intaglio] object GuidePhase:
         idx += 1
       result.map(_ => out.result())
 
-  /** One guide per distinct color/fill scale: discrete scales become keyed
-    * legends and continuous scales become sampled colorbars. The layout
-    * solver measures and places the resulting stack later.
+  /** One guide per distinct color/fill scale: discrete scales become keyed legends and continuous
+    * scales become sampled colorbars. The layout solver measures and places the resulting stack
+    * later.
     */
   private def nonPositionGuides(
       plotScales: PlotScaleRegistry
@@ -1974,10 +2039,9 @@ private[intaglio] object GuidePhase:
             idx += 1
           result.map(_ => out.result())
 
-  /** Apply a solved placement to the spec it was measured from. Placements are
-    * keyed by that spec's index, so the two variants always agree; the final
-    * case is unreachable and keeps the authored origin rather than inventing an
-    * error for a condition that cannot arise.
+  /** Apply a solved placement to the spec it was measured from. Placements are keyed by that spec's
+    * index, so the two variants always agree; the final case is unreachable and keeps the authored
+    * origin rather than inventing an error for a condition that cannot arise.
     */
   private def placeGuide(spec: GuideSpec, placement: GuidePlacement): GuideSpec =
     def x(value: Double): LengthExpr = LengthExpr(Length.pointsUnsafe(value))
@@ -2005,9 +2069,9 @@ private[intaglio] object GuidePhase:
         )
       case _ => spec
 
-/** Panel decoration is ordinary renderer-neutral geometry. It is lowered
-  * after guide derivation so grid lines use the same tick positions as axes,
-  * and inserted before layer marks so data remains visually authoritative.
+/** Panel decoration is ordinary renderer-neutral geometry. It is lowered after guide derivation so
+  * grid lines use the same tick positions as axes, and inserted before layer marks so data remains
+  * visually authoritative.
   */
 private[intaglio] object PanelPhase:
   def lower(
@@ -2016,7 +2080,7 @@ private[intaglio] object PanelPhase:
       theme: PanelTheme
   ): Either[GraphicsError, Vector[Grob]] =
     layout match
-      case None => Right(Vector.empty)
+      case None        => Right(Vector.empty)
       case Some(panel) =>
         val out = Vector.newBuilder[Grob]
         theme.background.foreach { gp =>
@@ -2028,26 +2092,40 @@ private[intaglio] object PanelPhase:
           )
         }
         theme.grid match
-          case None => Right(out.result())
+          case None     => Right(out.result())
           case Some(gp) =>
             val xValues = tickValues(specs, horizontal = true).filter(panel.xScale.contains)
             val yValues = tickValues(specs, horizontal = false).filter(panel.yScale.contains)
             if xValues.nonEmpty then
-              out += Grob.segments(
-                xValues.map(x => Point.nativeUnsafe(x, panel.yScale.lower) -> Point.nativeUnsafe(x, panel.yScale.upper)),
-                gp = gp,
-                name = Some(PlotRegion.PanelGridX)
-              ).orThrow
+              out += Grob
+                .segments(
+                  xValues.map(x =>
+                    Point.nativeUnsafe(x, panel.yScale.lower) -> Point
+                      .nativeUnsafe(x, panel.yScale.upper)
+                  ),
+                  gp = gp,
+                  name = Some(PlotRegion.PanelGridX)
+                )
+                .orThrow
             if yValues.nonEmpty then
-              out += Grob.segments(
-                yValues.map(y => Point.nativeUnsafe(panel.xScale.lower, y) -> Point.nativeUnsafe(panel.xScale.upper, y)),
-                gp = gp,
-                name = Some(PlotRegion.PanelGridY)
-              ).orThrow
+              out += Grob
+                .segments(
+                  yValues.map(y =>
+                    Point.nativeUnsafe(panel.xScale.lower, y) -> Point
+                      .nativeUnsafe(panel.xScale.upper, y)
+                  ),
+                  gp = gp,
+                  name = Some(PlotRegion.PanelGridY)
+                )
+                .orThrow
             Right(out.result())
 
   private def tickValues(specs: Vector[GuideSpec], horizontal: Boolean): Vector[Double] =
-    specs.iterator.collect {
-      case axis: GuideSpec.Axis if axis.side.isHorizontal == horizontal =>
-        axis.ticks.getOrElse(Vector.empty).map(_.value)
-    }.flatten.toVector.distinct
+    specs.iterator
+      .collect {
+        case axis: GuideSpec.Axis if axis.side.isHorizontal == horizontal =>
+          axis.ticks.getOrElse(Vector.empty).map(_.value)
+      }
+      .flatten
+      .toVector
+      .distinct

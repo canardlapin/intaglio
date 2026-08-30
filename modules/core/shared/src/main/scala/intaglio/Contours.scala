@@ -27,20 +27,25 @@ object ContourLevels:
   def atUnsafe(values: Vector[Double]): ContourLevels =
     at(values).orThrow
 
-  /** Equally spaced interior levels. Field extrema are excluded so ordinary
-    * contours do not collapse onto a grid boundary.
+  /** Equally spaced interior levels. Field extrema are excluded so ordinary contours do not
+    * collapse onto a grid boundary.
     */
   def between(lower: Double, upper: Double, count: Int): Either[GraphicsError, ContourLevels] =
     if !lower.isFinite || !upper.isFinite || lower >= upper then
       Left(GraphicsError.InvalidContourLevels("finite increasing bounds", s"[$lower, $upper]"))
     else if count < 1 then Left(GraphicsError.InvalidContourLevels("count >= 1", count.toString))
     else
-      at(Vector.tabulate(count)(index => lower + (index + 1).toDouble * (upper - lower) / (count + 1).toDouble))
+      at(
+        Vector.tabulate(count)(index =>
+          lower + (index + 1).toDouble * (upper - lower) / (count + 1).toDouble
+        )
+      )
 
   def forField(field: ScalarField2D, count: Int = 10): Either[GraphicsError, ContourLevels] =
     val lower = field.samples.min
     val upper = field.samples.max
-    if lower == upper then Left(GraphicsError.InvalidContourLevels("a non-constant field", lower.toString))
+    if lower == upper then
+      Left(GraphicsError.InvalidContourLevels("a non-constant field", lower.toString))
     else between(lower, upper, count)
 
 enum SaddleTiePolicy:
@@ -160,22 +165,22 @@ private[intaglio] object MarchingSquares:
       case 2      => Vector(0 -> 1)
       case 3      => Vector(3 -> 1)
       case 4      => Vector(1 -> 2)
-      case 5 =>
+      case 5      =>
         if connectAbove(bottomLeft, bottomRight, topRight, topLeft, level, tiePolicy) then
           Vector(0 -> 1, 2 -> 3)
         else Vector(3 -> 0, 1 -> 2)
-      case 6      => Vector(0 -> 2)
-      case 7      => Vector(3 -> 2)
-      case 8      => Vector(2 -> 3)
-      case 9      => Vector(0 -> 2)
+      case 6  => Vector(0 -> 2)
+      case 7  => Vector(3 -> 2)
+      case 8  => Vector(2 -> 3)
+      case 9  => Vector(0 -> 2)
       case 10 =>
         if connectAbove(bottomLeft, bottomRight, topRight, topLeft, level, tiePolicy) then
           Vector(3 -> 0, 1 -> 2)
         else Vector(0 -> 1, 2 -> 3)
-      case 11     => Vector(1 -> 2)
-      case 12     => Vector(3 -> 1)
-      case 13     => Vector(0 -> 1)
-      case 14     => Vector(3 -> 0)
+      case 11 => Vector(1 -> 2)
+      case 12 => Vector(3 -> 1)
+      case 13 => Vector(0 -> 1)
+      case 14 => Vector(3 -> 0)
 
     if pairs.nonEmpty then
       val x0 = field.xAxis.coordinateUnsafe(xIndex)
@@ -190,8 +195,8 @@ private[intaglio] object MarchingSquares:
           case 3 => interpolate(x0, y0, bottomLeft, x0, y1, topLeft, level)
       pairs.foreach { case (start, end) => out += Segment(edge(start), edge(end)) }
 
-  /** Evaluate the bilinear interpolant at its saddle. Degenerate/equal cases
-    * use the explicit tie policy, making topology stable on both platforms.
+  /** Evaluate the bilinear interpolant at its saddle. Degenerate/equal cases use the explicit tie
+    * policy, making topology stable on both platforms.
     */
   private def connectAbove(
       bottomLeft: Double,
@@ -203,8 +208,7 @@ private[intaglio] object MarchingSquares:
   ): Boolean =
     val denominator = bottomLeft - bottomRight - topLeft + topRight
     val saddle =
-      if math.abs(denominator) <= 1e-15 then
-        (bottomLeft + bottomRight + topRight + topLeft) / 4.0
+      if math.abs(denominator) <= 1e-15 then (bottomLeft + bottomRight + topRight + topLeft) / 4.0
       else (bottomLeft * topRight - bottomRight * topLeft) / denominator
     if saddle > level then true
     else if saddle < level then false
@@ -224,11 +228,18 @@ private[intaglio] object MarchingSquares:
     FieldPoint.unsafe(x0 + t * (x1 - x0), y0 + t * (y1 - y0))
 
   private def stitch(segments: Vector[Segment]): Vector[ContourPath] =
-    val adjacency = scala.collection.mutable.HashMap.empty[VertexKey, scala.collection.mutable.ArrayBuffer[Int]]
+    val adjacency =
+      scala.collection.mutable.HashMap.empty[VertexKey, scala.collection.mutable.ArrayBuffer[Int]]
     var index = 0
     while index < segments.length do
-      adjacency.getOrElseUpdate(key(segments(index).start), scala.collection.mutable.ArrayBuffer.empty) += index
-      adjacency.getOrElseUpdate(key(segments(index).end), scala.collection.mutable.ArrayBuffer.empty) += index
+      adjacency.getOrElseUpdate(
+        key(segments(index).start),
+        scala.collection.mutable.ArrayBuffer.empty
+      ) += index
+      adjacency.getOrElseUpdate(
+        key(segments(index).end),
+        scala.collection.mutable.ArrayBuffer.empty
+      ) += index
       index += 1
     val visited = Array.fill(segments.length)(false)
     val paths = Vector.newBuilder[ContourPath]
@@ -236,7 +247,8 @@ private[intaglio] object MarchingSquares:
     while index < segments.length do
       if !visited(index) then
         visited(index) = true
-        val center = scala.collection.mutable.ArrayBuffer(segments(index).start, segments(index).end)
+        val center =
+          scala.collection.mutable.ArrayBuffer(segments(index).start, segments(index).end)
         extend(center, atEnd = true, segments, adjacency, visited)
         extend(center, atEnd = false, segments, adjacency, visited)
         paths += ContourPath.unsafe(center.toVector)
@@ -247,13 +259,16 @@ private[intaglio] object MarchingSquares:
       points: scala.collection.mutable.ArrayBuffer[FieldPoint],
       atEnd: Boolean,
       segments: Vector[Segment],
-      adjacency: scala.collection.mutable.HashMap[VertexKey, scala.collection.mutable.ArrayBuffer[Int]],
+      adjacency: scala.collection.mutable.HashMap[VertexKey, scala.collection.mutable.ArrayBuffer[
+        Int
+      ]],
       visited: Array[Boolean]
   ): Unit =
     var continue = true
     while continue do
       val endpoint = if atEnd then points.last else points.head
-      val candidates = adjacency.getOrElse(key(endpoint), scala.collection.mutable.ArrayBuffer.empty)
+      val candidates =
+        adjacency.getOrElse(key(endpoint), scala.collection.mutable.ArrayBuffer.empty)
       var candidateIndex = 0
       var next = -1
       while candidateIndex < candidates.length && next < 0 do

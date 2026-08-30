@@ -1,15 +1,14 @@
 package intaglio
 
-/** Where values live on a regular axis. Cell-centered axes describe aggregate
-  * bins; vertex-centered axes describe samples at both domain boundaries.
+/** Where values live on a regular axis. Cell-centered axes describe aggregate bins; vertex-centered
+  * axes describe samples at both domain boundaries.
   */
 enum GridSampling(val minimumSamples: Int):
   case CellCentered extends GridSampling(1)
   case VertexCentered extends GridSampling(2)
 
-/** A checked, regular one-dimensional sampling axis. The domain denotes cell
-  * edges for cell-centered sampling and endpoint coordinates for
-  * vertex-centered sampling.
+/** A checked, regular one-dimensional sampling axis. The domain denotes cell edges for
+  * cell-centered sampling and endpoint coordinates for vertex-centered sampling.
   */
 final case class RegularGridAxis private (
     domain: Interval,
@@ -27,8 +26,8 @@ final case class RegularGridAxis private (
   def coordinate(index: Int): Option[Double] =
     Option.when(index >= 0 && index < sampleCount)(coordinateUnsafe(index))
 
-  /** Bounds used when a sampled value is shown as a tile. Vertex-centered
-    * samples use their Voronoi cell, extending half a step beyond each end.
+  /** Bounds used when a sampled value is shown as a tile. Vertex-centered samples use their Voronoi
+    * cell, extending half a step beyond each end.
     */
   def tileBounds(index: Int): Option[Interval] =
     Option.when(index >= 0 && index < sampleCount)(tileBoundsUnsafe(index))
@@ -48,10 +47,18 @@ final case class RegularGridAxis private (
         Interval.unsafe(center - step / 2.0, center + step / 2.0)
 
 object RegularGridAxis:
-  def cellCentered(lower: Double, upper: Double, cells: Int): Either[GraphicsError, RegularGridAxis] =
+  def cellCentered(
+      lower: Double,
+      upper: Double,
+      cells: Int
+  ): Either[GraphicsError, RegularGridAxis] =
     create(lower, upper, cells, GridSampling.CellCentered)
 
-  def vertexCentered(lower: Double, upper: Double, points: Int): Either[GraphicsError, RegularGridAxis] =
+  def vertexCentered(
+      lower: Double,
+      upper: Double,
+      points: Int
+  ): Either[GraphicsError, RegularGridAxis] =
     create(lower, upper, points, GridSampling.VertexCentered)
 
   def cellCenteredUnsafe(lower: Double, upper: Double, cells: Int): RegularGridAxis =
@@ -70,12 +77,11 @@ object RegularGridAxis:
       Left(GraphicsError.InvalidGridSize(sampling.toString, sampling.minimumSamples, samples))
     else if !lower.isFinite || !upper.isFinite || lower >= upper then
       Left(GraphicsError.InvalidGridDomain(lower, upper))
-    else
-      Right(new RegularGridAxis(Interval.unsafe(lower, upper), samples, sampling))
+    else Right(new RegularGridAxis(Interval.unsafe(lower, upper), samples, sampling))
 
-/** One display cell derived from a scalar field. It is intentionally an
-  * ordinary immutable row so the generic grammar, scale trainer, facet
-  * compiler, and every renderer remain unaware of scalar-field storage.
+/** One display cell derived from a scalar field. It is intentionally an ordinary immutable row so
+  * the generic grammar, scale trainer, facet compiler, and every renderer remain unaware of
+  * scalar-field storage.
   */
 final case class ScalarCell private[intaglio] (
     xIndex: Int,
@@ -87,9 +93,9 @@ final case class ScalarCell private[intaglio] (
     value: Double
 )
 
-/** Immutable regular 2D scalar field with x-fastest row-major storage.
-  * Construction copies and validates the input once; numeric kernels may use
-  * the package-private zero-copy constructor after proving the same contract.
+/** Immutable regular 2D scalar field with x-fastest row-major storage. Construction copies and
+  * validates the input once; numeric kernels may use the package-private zero-copy constructor
+  * after proving the same contract.
   */
 final class ScalarField2D private (
     val xAxis: RegularGridAxis,

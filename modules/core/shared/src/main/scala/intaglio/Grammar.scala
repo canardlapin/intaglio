@@ -22,7 +22,8 @@ object AesValue:
     override def map(row: Row): Option[A] =
       Some(value)
 
-  final case class Scaled[Row, In, A](value: Row => In, scale: Scale[In, A]) extends AesValue[Row, A]:
+  final case class Scaled[Row, In, A](value: Row => In, scale: Scale[In, A])
+      extends AesValue[Row, A]:
     override def map(row: Row): Option[A] =
       scale.mapValue(value(row))
 
@@ -145,8 +146,8 @@ final case class AesSpec[Row](
       case Aesthetic.Group   => copy(group = Some(value))
       case Aesthetic.Subpath => copy(subpath = Some(value))
 
-  /** Register a scaled binding; a second scaled binding on the same aesthetic
-    * remains a typed error.
+  /** Register a scaled binding; a second scaled binding on the same aesthetic remains a typed
+    * error.
     */
   def bind[In, A](binding: ScaleBinding[Row, In, A]): Either[GraphicsError, AesSpec[Row]] =
     get(binding.aesthetic) match
@@ -155,8 +156,8 @@ final case class AesSpec[Row](
       case _ =>
         Right(updated(binding.aesthetic, binding.toAesValue))
 
-  /** Layer-over-plot inheritance: a scaled local binding wins, then a scaled
-    * parent binding, then local, then parent.
+  /** Layer-over-plot inheritance: a scaled local binding wins, then a scaled parent binding, then
+    * local, then parent.
     */
   def inherit(parent: AesSpec[Row]): AesSpec[Row] =
     AesSpec(
@@ -215,7 +216,7 @@ final case class AesSpec[Row](
   ): Option[AesValue[Row, A]] =
     local match
       case Some(value) if value.isScaled => local
-      case _ =>
+      case _                             =>
         parent match
           case Some(value) if value.isScaled => parent
           case parentValue                   => local.orElse(parentValue)
@@ -248,7 +249,12 @@ final case class AesSpec[Row](
   def withPosition(x: Row => Double, y: Row => Double): AesSpec[Row] =
     copy(x = Some(AesValue.direct(x)), y = Some(AesValue.direct(y)))
 
-  def withSegment(x: Row => Double, y: Row => Double, xEnd: Row => Double, yEnd: Row => Double): AesSpec[Row] =
+  def withSegment(
+      x: Row => Double,
+      y: Row => Double,
+      xEnd: Row => Double,
+      yEnd: Row => Double
+  ): AesSpec[Row] =
     copy(
       x = Some(AesValue.direct(x)),
       y = Some(AesValue.direct(y)),
@@ -339,8 +345,8 @@ object AesSpec:
   def empty[Row]: AesSpec[Row] =
     AesSpec()
 
-  /** Compatibility identity for callers that previously normalized through
-    * the separate `AesEnv` representation.
+  /** Compatibility identity for callers that previously normalized through the separate `AesEnv`
+    * representation.
     */
   def fromEnv[Row](env: AesEnv[Row]): AesSpec[Row] =
     env
@@ -362,15 +368,25 @@ enum Geom(val label: String):
 
   def requiredAesthetics: Vector[RequiredAesthetic] =
     this match
-      case Point => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
-      case Line  => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
+      case Point   => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
+      case Line    => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
       case Polygon => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
-      case Text  => Vector(RequiredAesthetic.X, RequiredAesthetic.Y, RequiredAesthetic.Label)
+      case Text    => Vector(RequiredAesthetic.X, RequiredAesthetic.Y, RequiredAesthetic.Label)
       case Bar | HLine | VLine => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
-      case Segment =>
-        Vector(RequiredAesthetic.X, RequiredAesthetic.Y, RequiredAesthetic.XEnd, RequiredAesthetic.YEnd)
+      case Segment             =>
+        Vector(
+          RequiredAesthetic.X,
+          RequiredAesthetic.Y,
+          RequiredAesthetic.XEnd,
+          RequiredAesthetic.YEnd
+        )
       case ErrorBar | Ribbon | Area =>
-        Vector(RequiredAesthetic.X, RequiredAesthetic.Y, RequiredAesthetic.YMin, RequiredAesthetic.YMax)
+        Vector(
+          RequiredAesthetic.X,
+          RequiredAesthetic.Y,
+          RequiredAesthetic.YMin,
+          RequiredAesthetic.YMax
+        )
       case Rect | Tile =>
         Vector(
           RequiredAesthetic.X,
@@ -426,10 +442,9 @@ final case class Layer[Row] private (
   def effectiveData(plotData: Vector[Row]): Vector[Row] =
     data.getOrElse(plotData)
 
-  /** Detach a layer from plot-level mapping inheritance. The rows of an
-    * independent layer are held by [[PlotLayer.Independent]] itself, so `data`
-    * is cleared here rather than carrying a second copy that could disagree
-    * with it.
+  /** Detach a layer from plot-level mapping inheritance. The rows of an independent layer are held
+    * by [[PlotLayer.Independent]] itself, so `data` is cleared here rather than carrying a second
+    * copy that could disagree with it.
     */
   private[intaglio] def selfContained: Layer[Row] =
     copy(data = None, inheritMapping = false)
@@ -444,7 +459,15 @@ object Layer:
       params: Option[GraphicParams] = None,
       position: Position = Position.Identity
   ): Layer[Row] =
-    Layer(Geom.Point, Stat.Identity, data, mapping.withPosition(x, y), inheritMapping, params, position)
+    Layer(
+      Geom.Point,
+      Stat.Identity,
+      data,
+      mapping.withPosition(x, y),
+      inheritMapping,
+      params,
+      position
+    )
 
   def line[Row](
       x: Row => Double,
@@ -475,7 +498,14 @@ object Layer:
       inheritMapping: Boolean = true,
       params: Option[GraphicParams] = None
   ): Layer[Row] =
-    Layer(Geom.Text, Stat.Identity, data, mapping.withPosition(x, y).withLabel(label), inheritMapping, params)
+    Layer(
+      Geom.Text,
+      Stat.Identity,
+      data,
+      mapping.withPosition(x, y).withLabel(label),
+      inheritMapping,
+      params
+    )
 
   def rect[Row](
       xMin: Row => Double,
@@ -504,7 +534,14 @@ object Layer:
       mapping: AesSpec[Row] = AesSpec.empty[Row],
       params: Option[GraphicParams] = None
   ): Layer[Row] =
-    Layer(Geom.Segment, Stat.Identity, data, mapping.withSegment(x, y, xEnd, yEnd), inheritMapping = false, params)
+    Layer(
+      Geom.Segment,
+      Stat.Identity,
+      data,
+      mapping.withSegment(x, y, xEnd, yEnd),
+      inheritMapping = false,
+      params
+    )
 
   def errorBar[Row](
       x: Row => Double,
@@ -614,9 +651,9 @@ object Layer:
       params
     )
 
-  /** Count observations by a discrete key and lower the computed result as
-    * bars. Position aesthetics belong to the statistic, so this constructor
-    * deliberately does not accept raw `x` or `y` mappings.
+  /** Count observations by a discrete key and lower the computed result as bars. Position
+    * aesthetics belong to the statistic, so this constructor deliberately does not accept raw `x`
+    * or `y` mappings.
     */
   def count[Row](
       x: Row => String,
@@ -653,7 +690,14 @@ object Layer:
       interval: SummaryInterval = SummaryInterval.StandardError,
       params: Option[GraphicParams] = None
   ): Layer[Row] =
-    Layer(Geom.Point, Stat.Summary(x, y, interval), data, AesSpec.empty[Row], inheritMapping = false, params)
+    Layer(
+      Geom.Point,
+      Stat.Summary(x, y, interval),
+      data,
+      AesSpec.empty[Row],
+      inheritMapping = false,
+      params
+    )
 
   def density[Row](
       x: Row => Double,
@@ -661,7 +705,14 @@ object Layer:
       config: DensityConfig = DensityConfig.default,
       params: Option[GraphicParams] = None
   ): Layer[Row] =
-    Layer(Geom.Line, Stat.Density(x, config), data, AesSpec.empty[Row], inheritMapping = false, params)
+    Layer(
+      Geom.Line,
+      Stat.Density(x, config),
+      data,
+      AesSpec.empty[Row],
+      inheritMapping = false,
+      params
+    )
 
   def fromMapping[Row](
       geom: Geom,
@@ -676,7 +727,10 @@ object Layer:
     if inheritMapping then Right(layer)
     else validate(layer, mapping).map(_ => layer)
 
-  private[intaglio] def validate[Row](layer: Layer[Row], mapping: AesSpec[Row]): Either[GraphicsError, Unit] =
+  private[intaglio] def validate[Row](
+      layer: Layer[Row],
+      mapping: AesSpec[Row]
+  ): Either[GraphicsError, Unit] =
     layer.stat match
       case Stat.Identity =>
         validate(layer.geom, mapping)
@@ -694,15 +748,22 @@ object Layer:
       mapping: AesSpec[Row],
       expectedGeom: Geom
   ): Either[GraphicsError, Unit] =
-    if layer.geom != expectedGeom then Left(GraphicsError.InvalidStatGeom(layer.stat.label, layer.geom.label))
-    else if mapping.x.nonEmpty then Left(GraphicsError.StatAestheticConflict(layer.stat.label, Aesthetic.X.label))
-    else if mapping.y.nonEmpty then Left(GraphicsError.StatAestheticConflict(layer.stat.label, Aesthetic.Y.label))
+    if layer.geom != expectedGeom then
+      Left(GraphicsError.InvalidStatGeom(layer.stat.label, layer.geom.label))
+    else if mapping.x.nonEmpty then
+      Left(GraphicsError.StatAestheticConflict(layer.stat.label, Aesthetic.X.label))
+    else if mapping.y.nonEmpty then
+      Left(GraphicsError.StatAestheticConflict(layer.stat.label, Aesthetic.Y.label))
     else
       mapping.bound.headOption match
-        case Some(aesthetic) => Left(GraphicsError.UnsupportedStatAesthetic(layer.stat.label, aesthetic.label))
-        case None            => Right(())
+        case Some(aesthetic) =>
+          Left(GraphicsError.UnsupportedStatAesthetic(layer.stat.label, aesthetic.label))
+        case None => Right(())
 
-  private[intaglio] def validate[Row](geom: Geom, mapping: AesSpec[Row]): Either[GraphicsError, Unit] =
+  private[intaglio] def validate[Row](
+      geom: Geom,
+      mapping: AesSpec[Row]
+  ): Either[GraphicsError, Unit] =
     geom.requiredAesthetics.find(required => !required.isPresent(mapping)) match
       case Some(aesthetic) => Left(GraphicsError.MissingAesthetic(geom.label, aesthetic.label))
       case None            => Right(())
@@ -710,9 +771,8 @@ object Layer:
   private def midpoint[Row](lower: Row => Double, upper: Row => Double): Row => Double =
     row => lower(row) + (upper(row) - lower(row)) / 2.0
 
-/** One plot layer with its row type kept together with its data, mapping, and
-  * statistic. `PlotRow` is the plot-level row type; `Row` may differ for an
-  * explicitly independent layer.
+/** One plot layer with its row type kept together with its data, mapping, and statistic. `PlotRow`
+  * is the plot-level row type; `Row` may differ for an explicitly independent layer.
   */
 sealed trait PlotLayer[PlotRow]:
   type Row
@@ -821,8 +881,8 @@ final case class Plot[Row] private (
       .validate(layer, layer.effectiveMapping(mapping))
       .map(_ => copy(layers = layers :+ PlotLayer.inherited(layer)))
 
-  /** Add a layer with a row type independent of the plot-level data. Its data
-    * and mapping are self-contained, and its facet behavior is mandatory.
+  /** Add a layer with a row type independent of the plot-level data. Its data and mapping are
+    * self-contained, and its facet behavior is mandatory.
     */
   def addIndependentLayer[LayerRow](
       data: Vector[LayerRow],
@@ -839,9 +899,8 @@ final case class Plot[Row] private (
   def withScale[In, A](binding: ScaleBinding[Row, In, A]): Either[GraphicsError, Plot[Row]] =
     mapping.bindScale(binding).flatMap(withMapping)
 
-  /** Bind a prepared scale to an aesthetic through a row accessor. The plot
-    * already fixes `Row`, so callers never spell the `ScaleBinding` type
-    * parameters: `encode(Aesthetic.X, _.x, xScale)`.
+  /** Bind a prepared scale to an aesthetic through a row accessor. The plot already fixes `Row`, so
+    * callers never spell the `ScaleBinding` type parameters: `encode(Aesthetic.X, _.x, xScale)`.
     */
   def encode[In, Out](
       aesthetic: Aesthetic[Out],

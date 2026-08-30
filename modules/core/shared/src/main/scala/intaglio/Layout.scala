@@ -16,7 +16,12 @@ object PanelMargins:
       ExtentExpr.npcUnsafe(0.0)
     )
 
-  def npc(top: Double, right: Double, bottom: Double, left: Double): Either[GraphicsError, PanelMargins] =
+  def npc(
+      top: Double,
+      right: Double,
+      bottom: Double,
+      left: Double
+  ): Either[GraphicsError, PanelMargins] =
     for
       t <- ExtentExpr.npc(top)
       r <- ExtentExpr.npc(right)
@@ -113,12 +118,20 @@ final case class LegendEntry private (
 )
 
 object LegendEntry:
-  def apply(label: String, gp: GraphicParams, shape: PointShape = PointShape.Circle): Either[GraphicsError, LegendEntry] =
+  def apply(
+      label: String,
+      gp: GraphicParams,
+      shape: PointShape = PointShape.Circle
+  ): Either[GraphicsError, LegendEntry] =
     val trimmed = label.trim
     if trimmed.isEmpty then Left(GraphicsError.BlankName("legend entry"))
     else Right(new LegendEntry(trimmed, gp, shape))
 
-  def color(label: String, color: Rgba, shape: PointShape = PointShape.Circle): Either[GraphicsError, LegendEntry] =
+  def color(
+      label: String,
+      color: Rgba,
+      shape: PointShape = PointShape.Circle
+  ): Either[GraphicsError, LegendEntry] =
     apply(
       label,
       GraphicParams.unsafe(stroke = Some(color), fill = Some(color)),
@@ -167,9 +180,9 @@ object GuideSpec:
       name: Option[GraphicsName] = None
   ) extends GuideSpec
 
-  /** A continuous color guide. `colors` are equal-width swatches ordered from
-    * the low end of the transformed scale to the high end; tick values are
-    * normalized positions in that same [0, 1] guide space.
+  /** A continuous color guide. `colors` are equal-width swatches ordered from the low end of the
+    * transformed scale to the high end; tick values are normalized positions in that same [0, 1]
+    * guide space.
     */
   final case class Colorbar(
       title: Option[String],
@@ -338,16 +351,20 @@ object GuideSpec:
     if spec.colors.isEmpty then Left(GraphicsError.EmptyGeometry("colorbar"))
     else
       val children = Vector.newBuilder[Grob]
-      val swatchHeight = ExtentExpr.unsafe(LengthExpr.Mul(1.0 / spec.colors.length.toDouble, spec.barHeight.expr))
+      val swatchHeight =
+        ExtentExpr.unsafe(LengthExpr.Mul(1.0 / spec.colors.length.toDouble, spec.barHeight.expr))
       var index = 0
       while index < spec.colors.length do
-        val y = spec.origin.y + ExtentExpr.unsafe(LengthExpr.Mul(index.toDouble / spec.colors.length.toDouble, spec.barHeight.expr))
+        val y = spec.origin.y + ExtentExpr.unsafe(
+          LengthExpr.Mul(index.toDouble / spec.colors.length.toDouble, spec.barHeight.expr)
+        )
         val name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-swatch-$index"))
         children += Grob.rectUnsafe(
           Point(spec.origin.x, y),
           Size.fromExtents(spec.barWidth, swatchHeight),
           anchor = Anchor.BottomLeft,
-          gp = GraphicParams.unsafe(stroke = None, fill = Some(spec.colors(index)), lineWidth = 0.0),
+          gp =
+            GraphicParams.unsafe(stroke = None, fill = Some(spec.colors(index)), lineWidth = 0.0),
           name = name
         )
         index += 1
@@ -372,50 +389,55 @@ object GuideSpec:
               ()
             }
 
-      tickResult.flatMap { _ =>
-        var labelIndex = 0
-        var labelResult: Either[GraphicsError, Unit] = Right(())
-        while labelIndex < visibleTicks.length && labelResult.isRight do
-          val tick = visibleTicks(labelIndex)
-          val y = spec.origin.y + ExtentExpr.unsafe(LengthExpr.Mul(tick.value, spec.barHeight.expr))
-          labelResult = Grob
-            .text(
-              tick.label,
-              Point(barRight + spec.labelOffset, y),
-              anchor = Anchor(HJust.Left, VJust.Center),
-              gp = spec.labelGp.getOrElse(theme.legend.text),
-              name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-label-$labelIndex"))
-            )
-            .map { grob =>
-              children += grob
-              ()
-            }
-          labelIndex += 1
-        labelResult
-      }.flatMap { _ =>
-        spec.title match
-          case None => Right(())
-          case Some(title) =>
-            Grob
+      tickResult
+        .flatMap { _ =>
+          var labelIndex = 0
+          var labelResult: Either[GraphicsError, Unit] = Right(())
+          while labelIndex < visibleTicks.length && labelResult.isRight do
+            val tick = visibleTicks(labelIndex)
+            val y =
+              spec.origin.y + ExtentExpr.unsafe(LengthExpr.Mul(tick.value, spec.barHeight.expr))
+            labelResult = Grob
               .text(
-                title,
-                Point(spec.origin.x, spec.origin.y + spec.barHeight + spec.titleOffset),
-                anchor = Anchor(HJust.Left, VJust.Bottom),
-                gp = spec.titleGp.getOrElse(theme.legend.title),
-                name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-title"))
+                tick.label,
+                Point(barRight + spec.labelOffset, y),
+                anchor = Anchor(HJust.Left, VJust.Center),
+                gp = spec.labelGp.getOrElse(theme.legend.text),
+                name =
+                  spec.name.map(value => GraphicsName.unsafe(s"${value.value}-label-$labelIndex"))
               )
               .map { grob =>
                 children += grob
                 ()
               }
-      }.map { _ =>
-        val group = Grob.group(
-          children.result(),
-          viewport = viewport,
-          name = spec.name.orElse(Some(GraphicsName.unsafe("colorbar")))
-        )
-        ResolvedGuide(spec, group)
-      }
+            labelIndex += 1
+          labelResult
+        }
+        .flatMap { _ =>
+          spec.title match
+            case None        => Right(())
+            case Some(title) =>
+              Grob
+                .text(
+                  title,
+                  Point(spec.origin.x, spec.origin.y + spec.barHeight + spec.titleOffset),
+                  anchor = Anchor(HJust.Left, VJust.Bottom),
+                  gp = spec.titleGp.getOrElse(theme.legend.title),
+                  name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-title"))
+                )
+                .map { grob =>
+                  children += grob
+                  ()
+                }
+        }
+        .map { _ =>
+          val group = Grob.group(
+            children.result(),
+            viewport = viewport,
+            name = spec.name.orElse(Some(GraphicsName.unsafe("colorbar")))
+          )
+          ResolvedGuide(spec, group)
+        }
 
   private def defaultAxisName(side: AxisSide): GraphicsName =
     val label =

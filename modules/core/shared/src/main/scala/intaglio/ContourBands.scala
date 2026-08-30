@@ -7,8 +7,7 @@ object ContourBreaks:
   def at(values: Vector[Double]): Either[GraphicsError, ContourBreaks] =
     if values.length < 2 then
       Left(GraphicsError.InvalidContourLevels("at least two band breaks", values.mkString(", ")))
-    else
-      ContourLevels.at(values).map(levels => ContourBreaks(levels.values))
+    else ContourLevels.at(values).map(levels => ContourBreaks(levels.values))
 
   def atUnsafe(values: Vector[Double]): ContourBreaks =
     at(values).orThrow
@@ -17,10 +16,15 @@ object ContourBreaks:
     val lower = field.samples.min
     val upper = field.samples.max
     if bands < 1 then Left(GraphicsError.InvalidContourLevels("band count >= 1", bands.toString))
-    else if lower == upper then Left(GraphicsError.InvalidContourLevels("a non-constant field", lower.toString))
+    else if lower == upper then
+      Left(GraphicsError.InvalidContourLevels("a non-constant field", lower.toString))
     else
       ContourLevels
-        .at(Vector.tabulate(bands + 1)(index => lower + index.toDouble * (upper - lower) / bands.toDouble))
+        .at(
+          Vector.tabulate(bands + 1)(index =>
+            lower + index.toDouble * (upper - lower) / bands.toDouble
+          )
+        )
         .map(levels => ContourBreaks(levels.values))
 
 enum RingWinding:
@@ -28,7 +32,10 @@ enum RingWinding:
   case Clockwise
 
 final case class ContourRing private (points: Vector[FieldPoint], signedArea: Double):
-  require(points.length >= 4 && points.head == points.last, "a contour ring must be closed with three vertices")
+  require(
+    points.length >= 4 && points.head == points.last,
+    "a contour ring must be closed with three vertices"
+  )
   require(signedArea != 0.0 && signedArea.isFinite, "a contour ring must have finite non-zero area")
 
   def winding: RingWinding =
@@ -186,8 +193,7 @@ private[intaglio] object Isobands:
         if currentInside then
           if !previousInside then out += intersection(previous, current, threshold)
           out += current
-        else if previousInside then
-          out += intersection(previous, current, threshold)
+        else if previousInside then out += intersection(previous, current, threshold)
         previous = current
         previousInside = currentInside
         index += 1
@@ -196,8 +202,8 @@ private[intaglio] object Isobands:
   private def inside(value: Double, threshold: Double, keepAbove: Boolean): Boolean =
     if keepAbove then value >= threshold else value <= threshold
 
-  /** Canonical endpoint order makes shared-edge intersections bit-identical
-    * even when adjacent triangles traverse the edge in opposite directions.
+  /** Canonical endpoint order makes shared-edge intersections bit-identical even when adjacent
+    * triangles traverse the edge in opposite directions.
     */
   private def intersection(left: Sample, right: Sample, threshold: Double): Sample =
     val (first, second) =
@@ -221,7 +227,9 @@ private[intaglio] object Isobands:
     val result = out.result()
     if result.length > 1 && result.head == result.last then result.dropRight(1) else result
 
-  private def boundaryRings(fragments: Vector[BandFragment]): Either[GraphicsError, Vector[ContourRing]] =
+  private def boundaryRings(
+      fragments: Vector[BandFragment]
+  ): Either[GraphicsError, Vector[ContourRing]] =
     val boundary = scala.collection.mutable.LinkedHashMap.empty[UndirectedEdge, DirectedEdge]
     fragments.foreach { fragment =>
       var index = 0
@@ -236,10 +244,14 @@ private[intaglio] object Isobands:
     stitch(boundary.values.toVector)
 
   private def stitch(edges: Vector[DirectedEdge]): Either[GraphicsError, Vector[ContourRing]] =
-    val outgoing = scala.collection.mutable.HashMap.empty[VertexKey, scala.collection.mutable.ArrayBuffer[Int]]
+    val outgoing =
+      scala.collection.mutable.HashMap.empty[VertexKey, scala.collection.mutable.ArrayBuffer[Int]]
     var index = 0
     while index < edges.length do
-      outgoing.getOrElseUpdate(key(edges(index).start), scala.collection.mutable.ArrayBuffer.empty) += index
+      outgoing.getOrElseUpdate(
+        key(edges(index).start),
+        scala.collection.mutable.ArrayBuffer.empty
+      ) += index
       index += 1
     val visited = Array.fill(edges.length)(false)
     val rings = Vector.newBuilder[ContourRing]
@@ -252,7 +264,8 @@ private[intaglio] object Isobands:
         var closed = key(points.last) == key(points.head)
         var searching = true
         while !closed && searching do
-          val candidates = outgoing.getOrElse(key(points.last), scala.collection.mutable.ArrayBuffer.empty)
+          val candidates =
+            outgoing.getOrElse(key(points.last), scala.collection.mutable.ArrayBuffer.empty)
           var candidateIndex = 0
           var next = -1
           while candidateIndex < candidates.length && next < 0 do
@@ -273,7 +286,9 @@ private[intaglio] object Isobands:
       index += 1
     result.map(_ => rings.result())
 
-  private def assignHoles(rings: Vector[ContourRing]): Either[GraphicsError, Vector[ContourRegion]] =
+  private def assignHoles(
+      rings: Vector[ContourRing]
+  ): Either[GraphicsError, Vector[ContourRegion]] =
     val outers = rings.filter(_.winding == RingWinding.CounterClockwise)
     val holes = rings.filter(_.winding == RingWinding.Clockwise)
     if outers.isEmpty && rings.nonEmpty then
@@ -284,14 +299,19 @@ private[intaglio] object Isobands:
       var result: Either[GraphicsError, Unit] = Right(())
       while holeIndex < holes.length && result.isRight do
         val hole = holes(holeIndex)
-        val containers = outers.indices.filter(index => contains(outers(index), hole.points.head)).toVector
+        val containers =
+          outers.indices.filter(index => contains(outers(index), hole.points.head)).toVector
         if containers.isEmpty then
-          result = Left(GraphicsError.InvalidContourTopology("hole is not contained by an outer ring"))
+          result = Left(
+            GraphicsError.InvalidContourTopology("hole is not contained by an outer ring")
+          )
         else
           val owner = containers.minBy(index => math.abs(outers(index).signedArea))
           assigned(owner) = assigned(owner) :+ hole
         holeIndex += 1
-      result.map(_ => outers.indices.map(index => ContourRegion(outers(index), assigned(index))).toVector)
+      result.map(_ =>
+        outers.indices.map(index => ContourRegion(outers(index), assigned(index))).toVector
+      )
 
   private def contains(ring: ContourRing, point: FieldPoint): Boolean =
     var inside = false
@@ -302,7 +322,8 @@ private[intaglio] object Isobands:
       val prior = ring.points(previous)
       val crosses = (current.y > point.y) != (prior.y > point.y)
       if crosses then
-        val boundaryX = (prior.x - current.x) * (point.y - current.y) / (prior.y - current.y) + current.x
+        val boundaryX =
+          (prior.x - current.x) * (point.y - current.y) / (prior.y - current.y) + current.x
         if point.x < boundaryX then inside = !inside
       previous = index
       index += 1
@@ -318,4 +339,7 @@ private[intaglio] object Isobands:
     left.x < right.x || (left.x == right.x && left.y < right.y)
 
   private def key(point: FieldPoint): VertexKey =
-    VertexKey(java.lang.Double.doubleToLongBits(point.x), java.lang.Double.doubleToLongBits(point.y))
+    VertexKey(
+      java.lang.Double.doubleToLongBits(point.x),
+      java.lang.Double.doubleToLongBits(point.y)
+    )

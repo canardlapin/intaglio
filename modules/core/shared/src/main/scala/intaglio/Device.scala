@@ -1,29 +1,27 @@
 package intaglio
 
-/** Direction of increasing y within a viewport's coordinate space, relative to
-  * the device. Scene coordinates (npc and native) are y-up by default, the
-  * grid convention: y = 0 is the bottom edge and increasing y moves toward the
-  * top of the device. Rotation angles follow the same handedness: in a y-up
-  * frame a positive angle turns counterclockwise (the mathematical
-  * convention), in a y-down frame clockwise. Backends receive device
-  * coordinates (y-down, origin at the top-left, clockwise-positive angles)
-  * only after resolution.
+/** Direction of increasing y within a viewport's coordinate space, relative to the device. Scene
+  * coordinates (npc and native) are y-up by default, the grid convention: y = 0 is the bottom edge
+  * and increasing y moves toward the top of the device. Rotation angles follow the same handedness:
+  * in a y-up frame a positive angle turns counterclockwise (the mathematical convention), in a
+  * y-down frame clockwise. Backends receive device coordinates (y-down, origin at the top-left,
+  * clockwise-positive angles) only after resolution.
   */
 enum YDirection:
   case Up
   case Down
 
-/** Physical description of a render target: size in device pixels and pixel
-  * density for absolute units. All backends resolve scene lengths through
-  * this context, so unit semantics live here rather than per renderer.
+/** Physical description of a render target: size in device pixels and pixel density for absolute
+  * units. All backends resolve scene lengths through this context, so unit semantics live here
+  * rather than per renderer.
   */
 final case class DeviceContext private (width: Double, height: Double, pixelsPerInch: Double):
   private[intaglio] def pxPerUnit(unit: LengthUnit): Option[Double] =
     unit match
-      case LengthUnit.Point => Some(pixelsPerInch / 72.0)
-      case LengthUnit.Inch  => Some(pixelsPerInch)
-      case LengthUnit.Cm    => Some(pixelsPerInch / 2.54)
-      case LengthUnit.Mm    => Some(pixelsPerInch / 25.4)
+      case LengthUnit.Point                                     => Some(pixelsPerInch / 72.0)
+      case LengthUnit.Inch                                      => Some(pixelsPerInch)
+      case LengthUnit.Cm                                        => Some(pixelsPerInch / 2.54)
+      case LengthUnit.Mm                                        => Some(pixelsPerInch / 25.4)
       case LengthUnit.Npc | LengthUnit.Native | LengthUnit.Line =>
         None
 
@@ -42,10 +40,9 @@ object DeviceContext:
   def unsafe(width: Double, height: Double, pixelsPerInch: Double = 96.0): DeviceContext =
     apply(width, height, pixelsPerInch).orThrow
 
-/** A viewport resolved to a device-pixel rectangle. `x`/`y` locate the
-  * top-left corner in device coordinates (y-down); `xScale`/`yScale` give the
-  * native data ranges and `yDirection` the orientation of scene y within the
-  * frame.
+/** A viewport resolved to a device-pixel rectangle. `x`/`y` locate the top-left corner in device
+  * coordinates (y-down); `xScale`/`yScale` give the native data ranges and `yDirection` the
+  * orientation of scene y within the frame.
   */
 final case class DeviceFrame(
     x: Double,
@@ -77,9 +74,8 @@ private object DeviceValue:
       Left(GraphicsError.InvalidDeviceValue(field, value))
     else Right(value)
 
-/** Evaluates length expressions against a device frame. Locations resolve to
-  * device coordinates (y flipped for y-up frames); extents resolve to
-  * non-directional pixel magnitudes.
+/** Evaluates length expressions against a device frame. Locations resolve to device coordinates (y
+  * flipped for y-up frames); extents resolve to non-directional pixel magnitudes.
   */
 final class LengthResolver(device: DeviceContext, val frame: DeviceFrame):
   def x(expr: LengthExpr): Either[GraphicsError, Double] =
@@ -106,9 +102,8 @@ final class LengthResolver(device: DeviceContext, val frame: DeviceFrame):
   def height(extent: ExtentExpr): Either[GraphicsError, Double] =
     height(extent.expr)
 
-  /** Axis-neutral extent (point sizes, circle radii): the smaller of the
-    * horizontal and vertical resolutions, so relative units cannot distort
-    * marks on anisotropic frames.
+  /** Axis-neutral extent (point sizes, circle radii): the smaller of the horizontal and vertical
+    * resolutions, so relative units cannot distort marks on anisotropic frames.
     */
   def extent(value: ExtentExpr): Either[GraphicsError, Double] =
     for
@@ -120,11 +115,11 @@ final class LengthResolver(device: DeviceContext, val frame: DeviceFrame):
   def fontSize(length: Length): Either[GraphicsError, Double] =
     device.pxPerUnit(length.unit) match
       case Some(px) => DeviceValue.checked("font size", length.value * px)
-      case None =>
+      case None     =>
         Left(GraphicsError.UnresolvableLength(s"font size in unit '${length.unit}'"))
 
-  /** Resolve a child viewport. The viewport origin is the lower-left corner
-    * of the child frame when this frame is y-up, the upper-left when y-down.
+  /** Resolve a child viewport. The viewport origin is the lower-left corner of the child frame when
+    * this frame is y-up, the upper-left when y-down.
     */
   def childFrame(viewport: Viewport): Either[GraphicsError, DeviceFrame] =
     for
@@ -138,8 +133,8 @@ final class LengthResolver(device: DeviceContext, val frame: DeviceFrame):
         case YDirection.Down => originY
       DeviceFrame(originX, top, w, h, viewport.xScale, viewport.yScale, viewport.yDirection)
 
-  /** Resolved device coordinates must be finite and small enough to format
-    * exactly; anything else is a degenerate scale or runaway expression.
+  /** Resolved device coordinates must be finite and small enough to format exactly; anything else
+    * is a degenerate scale or runaway expression.
     */
   private def checked(value: Double): Either[GraphicsError, Double] =
     if !value.isFinite then Left(GraphicsError.UnresolvableLength("non-finite device coordinate"))
@@ -196,9 +191,8 @@ final class LengthResolver(device: DeviceContext, val frame: DeviceFrame):
 
 final case class DevicePoint(x: Double, y: Double)
 
-/** Fully resolved drawing primitives in device coordinates (pixels, y-down).
-  * No units, viewports, or plot semantics remain: any backend can interpret
-  * these with local drawing calls only.
+/** Fully resolved drawing primitives in device coordinates (pixels, y-down). No units, viewports,
+  * or plot semantics remain: any backend can interpret these with local drawing calls only.
   */
 enum DevicePrimitive:
   case Disc(
@@ -263,8 +257,8 @@ enum DeviceElement:
       children: Vector[DeviceElement]
   )
 
-/** A scene flattened against a device context: the portable, numeric render
-  * contract shared by all backends.
+/** A scene flattened against a device context: the portable, numeric render contract shared by all
+  * backends.
   */
 final case class DeviceScene(width: Double, height: Double, elements: Vector[DeviceElement])
 
@@ -367,7 +361,7 @@ object DeviceScene:
   private def validateFillGraphicParams(gp: GraphicParams): Either[GraphicsError, Unit] =
     DeviceValue.checked("line width", gp.lineWidth).flatMap { _ =>
       gp.fillPattern match
-        case None => Right(())
+        case None          => Right(())
         case Some(pattern) =>
           val values = pattern.recipe match
             case recipe: PatternRecipe.AngledHatch =>
@@ -404,7 +398,9 @@ object DeviceScene:
       idx += 1
     result
 
-  private def validatePointGroups(groups: Vector[Vector[DevicePoint]]): Either[GraphicsError, Unit] =
+  private def validatePointGroups(
+      groups: Vector[Vector[DevicePoint]]
+  ): Either[GraphicsError, Unit] =
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < groups.length && result.isRight do
@@ -437,9 +433,8 @@ object DeviceScene:
       idx += 1
     result.map(_ => out.result())
 
-  /** Scene angles are counterclockwise-positive in y-up frames; device space
-    * is y-down where positive angles turn clockwise, so the handedness flips
-    * with the frame orientation.
+  /** Scene angles are counterclockwise-positive in y-up frames; device space is y-down where
+    * positive angles turn clockwise, so the handedness flips with the frame orientation.
     */
   private def deviceDegrees(degrees: Double, frame: DeviceFrame): Double =
     frame.yDirection match
@@ -522,21 +517,20 @@ object DeviceScene:
           x <- resolver.x(text.at.x)
           y <- resolver.y(text.at.y)
           fontPx <- resolver.fontSize(text.gp.fontSize)
-        yield
-          Vector(
-            DevicePrimitive.TextRun(
-              text.label,
-              x,
-              y,
-              text.anchor.horizontal,
-              text.anchor.vertical,
-              deviceDegrees(text.rotationDegrees, resolver.frame),
-              fontPx,
-              text.gp.fontFamily,
-              text.gp,
-              text.name
-            )
+        yield Vector(
+          DevicePrimitive.TextRun(
+            text.label,
+            x,
+            y,
+            text.anchor.horizontal,
+            text.anchor.vertical,
+            deviceDegrees(text.rotationDegrees, resolver.frame),
+            fontPx,
+            text.gp.fontFamily,
+            text.gp,
+            text.name
           )
+        )
       case image: Grob.Image =>
         imageMark(image, resolver)
       case group: Grob.Group =>
@@ -630,8 +624,9 @@ object DeviceScene:
       rect: Grob.Rect,
       resolver: LengthResolver
   ): Either[GraphicsError, Vector[DevicePrimitive]] =
-    anchoredBounds(rect.center, rect.size, rect.anchor, resolver).map { case (x, y, width, height) =>
-      Vector(DevicePrimitive.RectShape(x, y, width, height, rect.gp, rect.name))
+    anchoredBounds(rect.center, rect.size, rect.anchor, resolver).map {
+      case (x, y, width, height) =>
+        Vector(DevicePrimitive.RectShape(x, y, width, height, rect.gp, rect.name))
     }
 
   private def imageMark(

@@ -16,10 +16,21 @@ class JavaFxConformanceSuite extends munit.FunSuite:
     override def satisfies(out: JavaFxProgram, requirement: RenderRequirement): Boolean =
       requirement match
         case RenderRequirement.Primitive(name, kind) =>
-          out.commands.exists(command => commandName(command).contains(name) && primitiveKind(command).contains(kind))
+          out.commands.exists(command =>
+            commandName(command).contains(name) && primitiveKind(command).contains(kind)
+          )
         case RenderRequirement.Group(name, clipped, rotated) =>
           groupEffects(out.commands, name).contains((clipped, rotated))
-        case RenderRequirement.Style(name, stroke, fill, lineWidth, lineType, lineCap, lineJoin, alpha) =>
+        case RenderRequirement.Style(
+              name,
+              stroke,
+              fill,
+              lineWidth,
+              lineType,
+              lineCap,
+              lineJoin,
+              alpha
+            ) =>
           out.commands.exists { command =>
             commandName(command).contains(name) && commandPaint(command).exists { paint =>
               paint.stroke == stroke.map(JavaFxColor.fromRgba) &&
@@ -34,19 +45,32 @@ class JavaFxConformanceSuite extends munit.FunSuite:
         case RenderRequirement.PatternFill(name, pattern, alpha) =>
           out.commands.exists { command =>
             commandName(command).contains(name) &&
-            commandPaint(command).exists(paint => paint.fillPattern.contains(pattern) && paint.opacity == alpha)
+            commandPaint(command).exists(paint =>
+              paint.fillPattern.contains(pattern) && paint.opacity == alpha
+            )
           }
         case RenderRequirement.Text(name, horizontal, vertical, rotated) =>
           out.commands.exists {
             case JavaFxCommand.Text(_, _, _, h, v, rotation, _, _, _, commandName) =>
-              commandName.contains(name) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
+              commandName.contains(
+                name
+              ) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
             case _ => false
           }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           out.commands.exists {
-            case JavaFxCommand.Image(image, _, _, _, _, actualInterpolation, actualAlpha, commandName) =>
+            case JavaFxCommand.Image(
+                  image,
+                  _,
+                  _,
+                  _,
+                  _,
+                  actualInterpolation,
+                  actualAlpha,
+                  commandName
+                ) =>
               commandName.contains(name) && image.dimensions == dimensions &&
-                actualInterpolation == interpolation && actualAlpha == alpha
+              actualInterpolation == interpolation && actualAlpha == alpha
             case _ => false
           }
 
@@ -59,7 +83,8 @@ class JavaFxConformanceSuite extends munit.FunSuite:
   }
 
   test("combined viewport effects rotate before installing the clip") {
-    val scene = RendererConformance.clippedRotatedViewportCase.fold(e => fail(e.message), identity).scene
+    val scene =
+      RendererConformance.clippedRotatedViewportCase.fold(e => fail(e.message), identity).scene
     val program = JavaFxRenderer
       .compile(scene, JavaFxOptions.unsafe(width = 240, height = 160))
       .fold(e => fail(e.message), identity)
@@ -78,35 +103,35 @@ class JavaFxConformanceSuite extends munit.FunSuite:
 
   private def commandName(command: JavaFxCommand): Option[GraphicsName] =
     command match
-      case JavaFxCommand.Save(name)                            => name
-      case JavaFxCommand.Restore(name)                         => name
-      case JavaFxCommand.Disc(_, _, _, _, name)                => name
-      case JavaFxCommand.Polyline(_, _, _, name)               => name
-      case JavaFxCommand.CompoundPolygon(_, _, name)           => name
-      case JavaFxCommand.Rectangle(_, _, _, _, _, name)        => name
-      case JavaFxCommand.Text(_, _, _, _, _, _, _, _, _, name) => name
-      case JavaFxCommand.Image(_, _, _, _, _, _, _, name)      => name
+      case JavaFxCommand.Save(name)                                           => name
+      case JavaFxCommand.Restore(name)                                        => name
+      case JavaFxCommand.Disc(_, _, _, _, name)                               => name
+      case JavaFxCommand.Polyline(_, _, _, name)                              => name
+      case JavaFxCommand.CompoundPolygon(_, _, name)                          => name
+      case JavaFxCommand.Rectangle(_, _, _, _, _, name)                       => name
+      case JavaFxCommand.Text(_, _, _, _, _, _, _, _, _, name)                => name
+      case JavaFxCommand.Image(_, _, _, _, _, _, _, name)                     => name
       case JavaFxCommand.Rotate(_, _, _) | JavaFxCommand.ClipRect(_, _, _, _) => None
 
   private def primitiveKind(command: JavaFxCommand): Option[RenderPrimitiveKind] =
     command match
-      case JavaFxCommand.Disc(_, _, _, _, _) => Some(RenderPrimitiveKind.Disc)
+      case JavaFxCommand.Disc(_, _, _, _, _)       => Some(RenderPrimitiveKind.Disc)
       case JavaFxCommand.Polyline(_, closed, _, _) =>
         Some(if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline)
-      case JavaFxCommand.CompoundPolygon(_, _, _) => Some(RenderPrimitiveKind.Polygon)
-      case JavaFxCommand.Rectangle(_, _, _, _, _, _)         => Some(RenderPrimitiveKind.Rectangle)
-      case JavaFxCommand.Text(_, _, _, _, _, _, _, _, _, _)  => Some(RenderPrimitiveKind.Text)
-      case JavaFxCommand.Image(_, _, _, _, _, _, _, _)       => Some(RenderPrimitiveKind.Image)
-      case _                                                 => None
+      case JavaFxCommand.CompoundPolygon(_, _, _)           => Some(RenderPrimitiveKind.Polygon)
+      case JavaFxCommand.Rectangle(_, _, _, _, _, _)        => Some(RenderPrimitiveKind.Rectangle)
+      case JavaFxCommand.Text(_, _, _, _, _, _, _, _, _, _) => Some(RenderPrimitiveKind.Text)
+      case JavaFxCommand.Image(_, _, _, _, _, _, _, _)      => Some(RenderPrimitiveKind.Image)
+      case _                                                => None
 
   private def commandPaint(command: JavaFxCommand): Option[JavaFxPaint] =
     command match
-      case JavaFxCommand.Disc(_, _, _, paint, _)                 => Some(paint)
-      case JavaFxCommand.Polyline(_, _, paint, _)                => Some(paint)
-      case JavaFxCommand.CompoundPolygon(_, paint, _)            => Some(paint)
-      case JavaFxCommand.Rectangle(_, _, _, _, paint, _)         => Some(paint)
-      case JavaFxCommand.Text(_, _, _, _, _, _, _, _, paint, _)  => Some(paint)
-      case _                                                     => None
+      case JavaFxCommand.Disc(_, _, _, paint, _)                => Some(paint)
+      case JavaFxCommand.Polyline(_, _, paint, _)               => Some(paint)
+      case JavaFxCommand.CompoundPolygon(_, paint, _)           => Some(paint)
+      case JavaFxCommand.Rectangle(_, _, _, _, paint, _)        => Some(paint)
+      case JavaFxCommand.Text(_, _, _, _, _, _, _, _, paint, _) => Some(paint)
+      case _                                                    => None
 
   private def groupEffects(
       commands: Vector[JavaFxCommand],
@@ -122,4 +147,9 @@ class JavaFxConformanceSuite extends munit.FunSuite:
         case JavaFxCommand.Rotate(_, _, _) | JavaFxCommand.ClipRect(_, _, _, _) => true
         case _                                                                  => false
       }
-      Some((effects.exists(_.isInstanceOf[JavaFxCommand.ClipRect]), effects.exists(_.isInstanceOf[JavaFxCommand.Rotate])))
+      Some(
+        (
+          effects.exists(_.isInstanceOf[JavaFxCommand.ClipRect]),
+          effects.exists(_.isInstanceOf[JavaFxCommand.Rotate])
+        )
+      )

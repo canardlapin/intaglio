@@ -2,9 +2,8 @@ package intaglio.svg
 
 import intaglio.*
 
-/** The SVG backend's adoption of the shared renderer conformance contract:
-  * every case must render successfully, deterministically, keep its named
-  * markers, and emit numeric-only geometry.
+/** The SVG backend's adoption of the shared renderer conformance contract: every case must render
+  * successfully, deterministically, keep its named markers, and emit numeric-only geometry.
   */
 class SvgConformanceSuite extends munit.FunSuite:
 
@@ -22,9 +21,10 @@ class SvgConformanceSuite extends munit.FunSuite:
         case RenderRequirement.Primitive(name, kind) =>
           namedLines(out, name).exists { line =>
             kind match
-              case RenderPrimitiveKind.Disc      => line.startsWith("<circle")
-              case RenderPrimitiveKind.Polyline  => line.startsWith("<polyline")
-              case RenderPrimitiveKind.Polygon   => line.startsWith("<polygon") || line.startsWith("<path")
+              case RenderPrimitiveKind.Disc     => line.startsWith("<circle")
+              case RenderPrimitiveKind.Polyline => line.startsWith("<polyline")
+              case RenderPrimitiveKind.Polygon  =>
+                line.startsWith("<polygon") || line.startsWith("<path")
               case RenderPrimitiveKind.Rectangle => line.startsWith("<rect")
               case RenderPrimitiveKind.Text      => line.startsWith("<text")
               case RenderPrimitiveKind.Image     => line.startsWith("<image")
@@ -35,7 +35,16 @@ class SvgConformanceSuite extends munit.FunSuite:
             line.contains(" clip-path=") == clipped &&
             line.contains(" transform=\"rotate(") == rotated
           }
-        case RenderRequirement.Style(name, stroke, fill, lineWidth, lineType, lineCap, lineJoin, alpha) =>
+        case RenderRequirement.Style(
+              name,
+              stroke,
+              fill,
+              lineWidth,
+              lineType,
+              lineCap,
+              lineJoin,
+              alpha
+            ) =>
           namedLines(out, name).exists { line =>
             !line.startsWith("<g") &&
             hasPaint(line, "stroke", stroke) &&
@@ -48,7 +57,9 @@ class SvgConformanceSuite extends munit.FunSuite:
           }
         case RenderRequirement.PatternFill(name, paint, alpha) =>
           namedLines(out, name).exists { line =>
-            patternId(line).exists(id => patternDefinition(out, id).exists(matchesPattern(_, paint))) &&
+            patternId(line).exists(id =>
+              patternDefinition(out, id).exists(matchesPattern(_, paint))
+            ) &&
             hasOpacity(line, alpha)
           }
         case RenderRequirement.Text(name, horizontal, vertical, rotated) =>
@@ -85,7 +96,7 @@ class SvgConformanceSuite extends munit.FunSuite:
       paint match
         case Some(color) =>
           line.contains(s""" $attribute="${hex(color)}"""") &&
-            (color.alpha == 1.0 || line.contains(s""" $attribute-opacity="${number(color.alpha)}""""))
+          (color.alpha == 1.0 || line.contains(s""" $attribute-opacity="${number(color.alpha)}""""))
         case None =>
           line.contains(s""" $attribute="none"""")
 
@@ -118,36 +129,39 @@ class SvgConformanceSuite extends munit.FunSuite:
           opening.contains(s""" height="$spacing"""") &&
           opening.contains(""" patternUnits="userSpaceOnUse"""")
       val background = paint.background match
-        case Some(color) => lines.exists(line => line.startsWith("<rect") && hasPaint(line, "fill", Some(color)))
-        case None        => !lines.exists(_.startsWith("<rect"))
+        case Some(color) =>
+          lines.exists(line => line.startsWith("<rect") && hasPaint(line, "fill", Some(color)))
+        case None => !lines.exists(_.startsWith("<rect"))
       val recipe = paint.recipe match
         case value: PatternRecipe.AngledHatch =>
           opening.contains(s""" patternTransform="rotate(${number(value.angleDegrees)})"""") &&
-            lines.count(_.startsWith("<line")) == 1 &&
-            lines.exists(line =>
-              line.startsWith("<line") && hasPaint(line, "stroke", Some(paint.ink)) &&
-                line.contains(s""" stroke-width="${number(value.lineWidth)}""")
-            )
+          lines.count(_.startsWith("<line")) == 1 &&
+          lines.exists(line =>
+            line.startsWith("<line") && hasPaint(line, "stroke", Some(paint.ink)) &&
+              line.contains(s""" stroke-width="${number(value.lineWidth)}""")
+          )
         case value: PatternRecipe.CrossHatch =>
           opening.contains(s""" patternTransform="rotate(${number(value.angleDegrees)})"""") &&
-            lines.count(_.startsWith("<line")) == 2 &&
-            lines.filter(_.startsWith("<line")).forall(line =>
+          lines.count(_.startsWith("<line")) == 2 &&
+          lines
+            .filter(_.startsWith("<line"))
+            .forall(line =>
               hasPaint(line, "stroke", Some(paint.ink)) &&
                 line.contains(s""" stroke-width="${number(value.lineWidth)}""")
             )
         case value: PatternRecipe.ParallelRules =>
           !opening.contains(" patternTransform=") &&
-            lines.count(_.startsWith("<line")) == 1 &&
-            lines.exists(line =>
-              line.startsWith("<line") && hasPaint(line, "stroke", Some(paint.ink)) &&
-                line.contains(s""" stroke-width="${number(value.lineWidth)}""")
-            )
+          lines.count(_.startsWith("<line")) == 1 &&
+          lines.exists(line =>
+            line.startsWith("<line") && hasPaint(line, "stroke", Some(paint.ink)) &&
+              line.contains(s""" stroke-width="${number(value.lineWidth)}""")
+          )
         case value: PatternRecipe.Stipple =>
           !opening.contains(" patternTransform=") &&
-            lines.exists(line =>
-              line.startsWith("<circle") && hasPaint(line, "fill", Some(paint.ink)) &&
-                line.contains(s""" r="${number(value.radius)}""")
-            )
+          lines.exists(line =>
+            line.startsWith("<circle") && hasPaint(line, "fill", Some(paint.ink)) &&
+              line.contains(s""" r="${number(value.radius)}""")
+          )
       common && background && recipe
 
     private def hasOpacity(line: String, alpha: Double): Boolean =
@@ -193,7 +207,8 @@ class SvgConformanceSuite extends munit.FunSuite:
   }
 
   test("conformance groups can run independently for focused debugging") {
-    val primitives = RendererConformance.group(ConformanceGroup.Primitive).fold(e => fail(e.message), identity)
+    val primitives =
+      RendererConformance.group(ConformanceGroup.Primitive).fold(e => fail(e.message), identity)
     primitives.foreach { conformanceCase =>
       val rendered = SvgHarness.render(conformanceCase.scene)
       assert(rendered.isRight, s"case '${conformanceCase.name.value}' failed: $rendered")

@@ -11,13 +11,13 @@ enum AxisSide:
       case Bottom | Top => true
       case Left | Right => false
 
-  /** Sign of the outward normal in y-up scene coordinates: ticks and labels
-    * extend away from the panel, so Bottom and Left are negative.
+  /** Sign of the outward normal in y-up scene coordinates: ticks and labels extend away from the
+    * panel, so Bottom and Left are negative.
     */
   private[intaglio] def direction: Double =
     this match
-      case Top | Right    => 1.0
-      case Bottom | Left  => -1.0
+      case Top | Right   => 1.0
+      case Bottom | Left => -1.0
 
 final case class AxisTick private (value: Double, label: String)
 
@@ -48,8 +48,7 @@ final case class Axis private (
     val baseline =
       if side.isHorizontal then
         (Point.nativeUnsafe(range.lower, position), Point.nativeUnsafe(range.upper, position))
-      else
-        (Point.nativeUnsafe(position, range.lower), Point.nativeUnsafe(position, range.upper))
+      else (Point.nativeUnsafe(position, range.lower), Point.nativeUnsafe(position, range.upper))
     val tickSegments =
       ticks.map { tick =>
         if side.isHorizontal then
@@ -79,8 +78,7 @@ final case class Axis private (
     val at =
       if side.isHorizontal then
         Point(LengthExpr.nativeUnsafe(tick.value), outward(position, labelOffset))
-      else
-        Point(outward(position, labelOffset), LengthExpr.nativeUnsafe(tick.value))
+      else Point(outward(position, labelOffset), LengthExpr.nativeUnsafe(tick.value))
     Grob.textUnsafe(
       tick.label,
       at,
@@ -94,8 +92,7 @@ final case class Axis private (
     val at =
       if side.isHorizontal then
         Point(LengthExpr.nativeUnsafe(midpoint), outward(position, titleOffset))
-      else
-        Point(outward(position, titleOffset), LengthExpr.nativeUnsafe(midpoint))
+      else Point(outward(position, titleOffset), LengthExpr.nativeUnsafe(midpoint))
     val rotation =
       side match
         case AxisSide.Left  => 90.0
@@ -142,7 +139,21 @@ object Axis:
       titleGp: GraphicParams = GraphicParams.unsafe()
   ): Either[GraphicsError, Axis] =
     validate(range, ticks, position).map { _ =>
-      new Axis(side, range, ticks, position, tickLength, labelOffset, axisGp, tickGp, labelGp, name, title, titleOffset, titleGp)
+      new Axis(
+        side,
+        range,
+        ticks,
+        position,
+        tickLength,
+        labelOffset,
+        axisGp,
+        tickGp,
+        labelGp,
+        name,
+        title,
+        titleOffset,
+        titleGp
+      )
     }
 
   def bottom(
@@ -204,7 +215,8 @@ object Axis:
   ): Either[GraphicsError, Vector[AxisTick]] =
     val values = breaks(range).filter(range.contains)
     val labels = labeler(values)
-    if labels.length != values.length then Left(GraphicsError.AxisLabelCountMismatch(values.length, labels.length))
+    if labels.length != values.length then
+      Left(GraphicsError.AxisLabelCountMismatch(values.length, labels.length))
     else
       val out = Vector.newBuilder[AxisTick]
       var idx = 0
@@ -224,5 +236,6 @@ object Axis:
     if !position.isFinite then Left(GraphicsError.InvalidAxisCoordinate("position", position))
     else
       ticks.find(tick => !range.contains(tick.value)) match
-        case Some(tick) => Left(GraphicsError.AxisTickOutsideRange(tick.value, range.lower, range.upper))
-        case None       => Right(())
+        case Some(tick) =>
+          Left(GraphicsError.AxisTickOutsideRange(tick.value, range.lower, range.upper))
+        case None => Right(())

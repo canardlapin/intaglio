@@ -12,7 +12,11 @@ class Java2DTextMetricsSuite extends munit.FunSuite:
     val large = TextStyle(Some(Font.MONOSPACED), 20.0)
 
     assertEquals(metrics.resolvedFamily(small.fontFamily), Font.MONOSPACED)
-    assertEqualsDouble(metrics.widthPt("intaglio", large) / metrics.widthPt("intaglio", small), 2.0, 0.02)
+    assertEqualsDouble(
+      metrics.widthPt("intaglio", large) / metrics.widthPt("intaglio", small),
+      2.0,
+      0.02
+    )
     assertEqualsDouble(metrics.heightPt(large) / metrics.heightPt(small), 2.0, 0.02)
   }
 
@@ -21,7 +25,11 @@ class Java2DTextMetricsSuite extends munit.FunSuite:
     val fallback = TextStyle(Some(metrics.fallbackFamily), 12.0)
 
     assertEquals(metrics.resolvedFamily(missing.fontFamily), metrics.fallbackFamily)
-    assertEqualsDouble(metrics.widthPt("fallback", missing), metrics.widthPt("fallback", fallback), tol)
+    assertEqualsDouble(
+      metrics.widthPt("fallback", missing),
+      metrics.widthPt("fallback", fallback),
+      tol
+    )
     assertEqualsDouble(metrics.heightPt(missing), metrics.heightPt(fallback), tol)
   }
 

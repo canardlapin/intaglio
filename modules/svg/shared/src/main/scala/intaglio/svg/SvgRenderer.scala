@@ -8,7 +8,11 @@ object SvgOptions:
   val default: SvgOptions =
     unsafe()
 
-  def apply(width: Int = 640, height: Int = 480, title: Option[String] = None): Either[SvgRenderError, SvgOptions] =
+  def apply(
+      width: Int = 640,
+      height: Int = 480,
+      title: Option[String] = None
+  ): Either[SvgRenderError, SvgOptions] =
     if width <= 0 || height <= 0 then Left(SvgRenderError.InvalidDocumentSize(width, height))
     else Right(new SvgOptions(width, height, title))
 
@@ -19,15 +23,16 @@ final case class SvgDocument(value: String):
   override def toString: String =
     value
 
-/** Serializes a resolved [[intaglio.DeviceScene]] to SVG text.
-  * All unit and orientation semantics are handled by the shared device
-  * lowering; this backend only formats numeric device primitives.
+/** Serializes a resolved [[intaglio.DeviceScene]] to SVG text. All unit and orientation semantics
+  * are handled by the shared device lowering; this backend only formats numeric device primitives.
   */
 object SvgRenderer:
-  def render(scene: Scene, options: SvgOptions = SvgOptions.default): Either[SvgRenderError, SvgDocument] =
+  def render(
+      scene: Scene,
+      options: SvgOptions = SvgOptions.default
+  ): Either[SvgRenderError, SvgDocument] =
     for
-      device <- DeviceContext(options.width.toDouble, options.height.toDouble)
-        .left
+      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left
         .map(SvgRenderError.Graphics(_))
       deviceScene <- DeviceScene.fromScene(scene, device).left.map(SvgRenderError.Graphics(_))
       serialized <- serialize(deviceScene, options)
@@ -83,7 +88,9 @@ object SvgRenderer:
         line(
           out,
           3,
-          s"""<rect x="${format(clip.x)}" y="${format(clip.y)}" width="${format(clip.width)}" height="${format(clip.height)}" />"""
+          s"""<rect x="${format(clip.x)}" y="${format(clip.y)}" width="${format(
+              clip.width
+            )}" height="${format(clip.height)}" />"""
         )
         line(out, 2, "</clipPath>")
       }
@@ -94,7 +101,10 @@ object SvgRenderer:
     line(out, 0, "</svg>")
     out.result()
 
-  private def validateDocument(scene: DeviceScene, options: SvgOptions): Either[SvgRenderError, Unit] =
+  private def validateDocument(
+      scene: DeviceScene,
+      options: SvgOptions
+  ): Either[SvgRenderError, Unit] =
     val title = options.title match
       case Some(value) => validateXml("document title", value)
       case None        => Right(())
@@ -181,7 +191,9 @@ object SvgRenderer:
         val nameAttr = name.map(n => s""" data-name="${escapeAttr(n.value)}"""").getOrElse("")
         val clipAttr = clip.map(c => s""" clip-path="url(#${clips.register(c)})"""").getOrElse("")
         val rotateAttr = rotation
-          .map(r => s""" transform="rotate(${format(r.degrees)} ${format(r.pivotX)} ${format(r.pivotY)})"""")
+          .map(r =>
+            s""" transform="rotate(${format(r.degrees)} ${format(r.pivotX)} ${format(r.pivotY)})""""
+          )
           .getOrElse("")
         line(out, indent, s"<g$nameAttr$clipAttr$rotateAttr>")
         children.foreach(writeElement(_, out, indent + 1, clips, patterns))
@@ -198,33 +210,60 @@ object SvgRenderer:
         line(
           out,
           indent,
-          s"""<circle${commonAttrs(name, gp, patterns)} cx="${format(cx)}" cy="${format(cy)}" r="${format(radius)}" />"""
+          s"""<circle${commonAttrs(name, gp, patterns)} cx="${format(cx)}" cy="${format(
+              cy
+            )}" r="${format(radius)}" />"""
         )
       case DevicePrimitive.Polyline(points, closed, gp, name) =>
         val coords = points.map(p => s"${format(p.x)},${format(p.y)}").mkString(" ")
-        if closed then line(out, indent, s"""<polygon${commonAttrs(name, gp, patterns)} points="$coords" />""")
+        if closed then
+          line(out, indent, s"""<polygon${commonAttrs(name, gp, patterns)} points="$coords" />""")
         else line(out, indent, s"""<polyline${lineAttrs(name, gp)} points="$coords" />""")
       case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
-        val path = rings.map { ring =>
-          val start = ring.head
-          val rest = ring.tail.map(point => s"L ${format(point.x)} ${format(point.y)}").mkString(" ")
-          s"M ${format(start.x)} ${format(start.y)} $rest Z"
-        }.mkString(" ")
-        line(out, indent, s"""<path${commonAttrs(name, gp, patterns)} fill-rule="nonzero" d="$path" />""")
+        val path = rings
+          .map { ring =>
+            val start = ring.head
+            val rest =
+              ring.tail.map(point => s"L ${format(point.x)} ${format(point.y)}").mkString(" ")
+            s"M ${format(start.x)} ${format(start.y)} $rest Z"
+          }
+          .mkString(" ")
+        line(
+          out,
+          indent,
+          s"""<path${commonAttrs(name, gp, patterns)} fill-rule="nonzero" d="$path" />"""
+        )
       case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
         line(
           out,
           indent,
-          s"""<rect${commonAttrs(name, gp, patterns)} x="${format(x)}" y="${format(y)}" width="${format(width)}" height="${format(height)}" />"""
+          s"""<rect${commonAttrs(name, gp, patterns)} x="${format(x)}" y="${format(
+              y
+            )}" width="${format(width)}" height="${format(height)}" />"""
         )
-      case DevicePrimitive.TextRun(label, x, y, horizontal, vertical, rotationDegrees, fontSizePx, fontFamily, gp, name) =>
+      case DevicePrimitive.TextRun(
+            label,
+            x,
+            y,
+            horizontal,
+            vertical,
+            rotationDegrees,
+            fontSizePx,
+            fontFamily,
+            gp,
+            name
+          ) =>
         val rotation =
           if rotationDegrees == 0.0 then ""
           else s""" transform="rotate(${format(rotationDegrees)} ${format(x)} ${format(y)})""""
         line(
           out,
           indent,
-          s"""<text${textAttrs(name, gp, fontSizePx, fontFamily)} x="${format(x)}" y="${format(y)}" text-anchor="${textAnchor(horizontal)}" dominant-baseline="${dominantBaseline(vertical)}"$rotation>${escapeText(label)}</text>"""
+          s"""<text${textAttrs(name, gp, fontSizePx, fontFamily)} x="${format(x)}" y="${format(
+              y
+            )}" text-anchor="${textAnchor(horizontal)}" dominant-baseline="${dominantBaseline(
+              vertical
+            )}"$rotation>${escapeText(label)}</text>"""
         )
       case DevicePrimitive.Image(image, x, y, width, height, interpolation, alpha, name) =>
         val nameAttr = name.map(n => s""" data-name="${escapeAttr(n.value)}"""").getOrElse("")
@@ -235,10 +274,19 @@ object SvgRenderer:
         line(
           out,
           indent,
-          s"""<image$nameAttr data-pixel-width="${image.width}" data-pixel-height="${image.height}" x="${format(x)}" y="${format(y)}" width="${format(width)}" height="${format(height)}" preserveAspectRatio="none" image-rendering="$rendering"$opacityAttr href="${PngEncoder.dataUri(image)}" />"""
+          s"""<image$nameAttr data-pixel-width="${image.width}" data-pixel-height="${image.height}" x="${format(
+              x
+            )}" y="${format(y)}" width="${format(width)}" height="${format(
+              height
+            )}" preserveAspectRatio="none" image-rendering="$rendering"$opacityAttr href="${PngEncoder
+              .dataUri(image)}" />"""
         )
 
-  private def commonAttrs(name: Option[GraphicsName], gp: GraphicParams, patterns: PatternRegistry): String =
+  private def commonAttrs(
+      name: Option[GraphicsName],
+      gp: GraphicParams,
+      patterns: PatternRegistry
+  ): String =
     val attrs = new StringBuilder
     name.foreach(n => attrs.append(s""" data-name="${escapeAttr(n.value)}""""))
     appendPaint(attrs, "stroke", gp.stroke)
@@ -252,19 +300,26 @@ object SvgRenderer:
     if gp.alpha != 1.0 then attrs.append(s""" opacity="${format(gp.alpha)}"""")
     attrs.result()
 
-  private def writePatternDefinition(id: String, paint: PatternPaint, out: StringBuilder, indent: Int): Unit =
+  private def writePatternDefinition(
+      id: String,
+      paint: PatternPaint,
+      out: StringBuilder,
+      indent: Int
+  ): Unit =
     val transform = paint.recipe match
       case recipe: PatternRecipe.AngledHatch =>
         s""" patternTransform="rotate(${format(recipe.angleDegrees)})""""
       case recipe: PatternRecipe.CrossHatch =>
         s""" patternTransform="rotate(${format(recipe.angleDegrees)})""""
       case _: PatternRecipe.ParallelRules => ""
-      case _: PatternRecipe.Stipple      => ""
+      case _: PatternRecipe.Stipple       => ""
     val spacing = paint.recipe.spacing
     line(
       out,
       indent,
-      s"""<pattern id="$id" x="0" y="0" width="${format(spacing)}" height="${format(spacing)}" patternUnits="userSpaceOnUse"$transform>"""
+      s"""<pattern id="$id" x="0" y="0" width="${format(spacing)}" height="${format(
+          spacing
+        )}" patternUnits="userSpaceOnUse"$transform>"""
     )
     paint.background.foreach { color =>
       val attrs = new StringBuilder
@@ -272,7 +327,8 @@ object SvgRenderer:
       line(
         out,
         indent + 1,
-        s"""<rect x="0" y="0" width="${format(spacing)}" height="${format(spacing)}"${attrs.result()} />"""
+        s"""<rect x="0" y="0" width="${format(spacing)}" height="${format(spacing)}"${attrs
+            .result()} />"""
       )
     }
     paint.recipe match
@@ -296,7 +352,9 @@ object SvgRenderer:
         line(
           out,
           indent + 1,
-          s"""<circle cx="${format(spacing / 2.0)}" cy="${format(spacing / 2.0)}" r="${format(recipe.radius)}"${attrs.result()} />"""
+          s"""<circle cx="${format(spacing / 2.0)}" cy="${format(spacing / 2.0)}" r="${format(
+              recipe.radius
+            )}"${attrs.result()} />"""
         )
     line(out, indent, "</pattern>")
 
@@ -389,8 +447,8 @@ object SvgRenderer:
   private def line(out: StringBuilder, indent: Int, value: String): Unit =
     out.append("  " * indent).append(value).append("\n")
 
-  /** Fixed-point formatting (up to 4 decimals, no exponent) so output is
-    * byte-identical across JVM and JS double-to-string behavior.
+  /** Fixed-point formatting (up to 4 decimals, no exponent) so output is byte-identical across JVM
+    * and JS double-to-string behavior.
     */
   private def format(value: Double): String =
     val scaled = math.rint(math.abs(value) * 10000.0).toLong

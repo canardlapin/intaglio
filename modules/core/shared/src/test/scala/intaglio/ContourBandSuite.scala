@@ -35,7 +35,9 @@ class ContourBandSuite extends munit.FunSuite:
     val shiftedAxis = RegularGridAxis.vertexCenteredUnsafe(8.5, 11.5, 25)
     val source = ScalarField2D.tabulate(axis, axis)((x, y) => x * x + y * y).toOption.get
     val shifted = ScalarField2D
-      .tabulate(shiftedAxis, shiftedAxis)((x, y) => (x - 10.0) * (x - 10.0) + (y - 10.0) * (y - 10.0))
+      .tabulate(shiftedAxis, shiftedAxis)((x, y) =>
+        (x - 10.0) * (x - 10.0) + (y - 10.0) * (y - 10.0)
+      )
       .toOption
       .get
     val breaks = ContourBreaks.atUnsafe(Vector(0.25, 1.0))
@@ -53,15 +55,17 @@ class ContourBandSuite extends munit.FunSuite:
   test("filled bands lower through capability-gated generic polygons") {
     val axis = RegularGridAxis.vertexCenteredUnsafe(-2.0, 2.0, 81)
     val field = ScalarField2D.tabulate(axis, axis)((x, y) => x * x + y * y).toOption.get
-    val bands = ContourBandSet.extract(field, ContourBreaks.atUnsafe(Vector(0.25, 1.0))).toOption.get
-    val trained = plot(bands).geomFilledContour().resolve.fold(error => fail(error.message), identity)
+    val bands =
+      ContourBandSet.extract(field, ContourBreaks.atUnsafe(Vector(0.25, 1.0))).toOption.get
+    val trained =
+      plot(bands).geomFilledContour().resolve.fold(error => fail(error.message), identity)
 
     assertEquals(trained.layers.map(_.geom), Vector(Geom.Polygon))
     assert(trained.layers.head.grobs.nonEmpty)
     assert(trained.layers.head.grobs.forall(_.isInstanceOf[Grob.CompoundPolygon]))
     assert(trained.layers.head.grobs.exists {
       case Grob.CompoundPolygon(rings, _, _, _) => rings.length > 1
-      case _                                     => false
+      case _                                    => false
     })
     assert(trained.guides.exists(_.grob.name.exists(_.value == "level-colorbar")))
   }

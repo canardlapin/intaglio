@@ -28,20 +28,29 @@ class AxisSuite extends munit.FunSuite:
     val midpointLabel = group.children(3).asInstanceOf[Grob.Text]
 
     assertEquals(baseline.name.map(_.value), Some("x-axis-baseline"))
-    assertEquals(baseline.segments, Vector((Point.nativeUnsafe(0.0, 0.0), Point.nativeUnsafe(10.0, 0.0))))
+    assertEquals(
+      baseline.segments,
+      Vector((Point.nativeUnsafe(0.0, 0.0), Point.nativeUnsafe(10.0, 0.0)))
+    )
     assertEquals(ticksGrob.name.map(_.value), Some("x-axis-ticks"))
     assertEquals(
       ticksGrob.segments(1),
       (
         Point.nativeUnsafe(5.0, 0.0),
-        Point(LengthExpr.nativeUnsafe(5.0), LengthExpr.nativeUnsafe(0.0) - ExtentExpr.nativeUnsafe(0.4))
+        Point(
+          LengthExpr.nativeUnsafe(5.0),
+          LengthExpr.nativeUnsafe(0.0) - ExtentExpr.nativeUnsafe(0.4)
+        )
       )
     )
     assertEquals(midpointLabel.name.map(_.value), Some("x-axis-label"))
     assertEquals(midpointLabel.label, "5")
     assertEquals(
       midpointLabel.at,
-      Point(LengthExpr.nativeUnsafe(5.0), LengthExpr.nativeUnsafe(0.0) - ExtentExpr.nativeUnsafe(0.8))
+      Point(
+        LengthExpr.nativeUnsafe(5.0),
+        LengthExpr.nativeUnsafe(0.0) - ExtentExpr.nativeUnsafe(0.8)
+      )
     )
     assertEquals(midpointLabel.anchor, Anchor(HJust.Center, VJust.Top))
   }
@@ -70,12 +79,18 @@ class AxisSuite extends munit.FunSuite:
       tickGrob.segments.head,
       (
         Point.nativeUnsafe(0.0, -1.0),
-        Point(LengthExpr.nativeUnsafe(0.0) - ExtentExpr.nativeUnsafe(0.25), LengthExpr.nativeUnsafe(-1.0))
+        Point(
+          LengthExpr.nativeUnsafe(0.0) - ExtentExpr.nativeUnsafe(0.25),
+          LengthExpr.nativeUnsafe(-1.0)
+        )
       )
     )
     assertEquals(
       firstLabel.at,
-      Point(LengthExpr.nativeUnsafe(0.0) - ExtentExpr.nativeUnsafe(0.5), LengthExpr.nativeUnsafe(-1.0))
+      Point(
+        LengthExpr.nativeUnsafe(0.0) - ExtentExpr.nativeUnsafe(0.5),
+        LengthExpr.nativeUnsafe(-1.0)
+      )
     )
     assertEquals(firstLabel.anchor, Anchor(HJust.Right, VJust.Center))
   }

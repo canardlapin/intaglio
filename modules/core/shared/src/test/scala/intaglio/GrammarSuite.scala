@@ -39,27 +39,36 @@ class GrammarSuite extends munit.FunSuite:
         .flatMap(_.addLayer(inheritedPoint))
 
     val missingTextLabel =
-      Layer.fromMapping[Observation](
-        Geom.Text,
-        AesSpec.empty[Observation].withPosition(_.time, _.value)
-      ).flatMap(layer => Plot(data).addLayer(layer))
+      Layer
+        .fromMapping[Observation](
+          Geom.Text,
+          AesSpec.empty[Observation].withPosition(_.time, _.value)
+        )
+        .flatMap(layer => Plot(data).addLayer(layer))
 
     assertEquals(missingPoint.left.toOption, Some(GraphicsError.MissingAesthetic("point", "x")))
     assert(inheritedPlot.isRight)
-    assertEquals(missingTextLabel.left.toOption, Some(GraphicsError.MissingAesthetic("text", "label")))
+    assertEquals(
+      missingTextLabel.left.toOption,
+      Some(GraphicsError.MissingAesthetic("text", "label"))
+    )
   }
 
   test("plot layers inherit plot data and mappings without mutating either") {
     val plotMapping =
-      AesSpec.empty[Observation]
+      AesSpec
+        .empty[Observation]
         .withPosition(_.time, _.value)
         .withGroup(_.condition)
 
     val layer =
-      Layer.fromMapping[Observation](
-        Geom.Line,
-        AesSpec.empty[Observation].withPosition(_.time, _.value)
-      ).toOption.get
+      Layer
+        .fromMapping[Observation](
+          Geom.Line,
+          AesSpec.empty[Observation].withPosition(_.time, _.value)
+        )
+        .toOption
+        .get
 
     val plot =
       Plot(data)

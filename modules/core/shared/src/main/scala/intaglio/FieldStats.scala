@@ -5,8 +5,8 @@ enum Bin2DValue:
   case Count
   case Proportion
 
-/** Validated rectangular-binning plan. Fixed domains are useful for parity,
-  * composition, and repeated plots; absent domains train from finite input.
+/** Validated rectangular-binning plan. Fixed domains are useful for parity, composition, and
+  * repeated plots; absent domains train from finite input.
   */
 final case class Bin2DConfig private (
     xBins: BinCount,
@@ -32,7 +32,11 @@ object Bin2DConfig:
       y <- BinCount(yBins)
       _ <-
         if x.toInt.toLong * y.toInt.toLong <= Int.MaxValue.toLong then Right(())
-        else Left(GraphicsError.InvalidStatParameter("bin2d", "representable cell count", s"${x.toInt}x${y.toInt}"))
+        else
+          Left(
+            GraphicsError
+              .InvalidStatParameter("bin2d", "representable cell count", s"${x.toInt}x${y.toInt}")
+          )
     yield Bin2DConfig(x, y, xDomain, yDomain, value)
 
   def unsafe(
@@ -44,9 +48,8 @@ object Bin2DConfig:
   ): Bin2DConfig =
     apply(xBins, yBins, xDomain, yDomain, value).orThrow
 
-/** Gaussian 2D kernel-density plan. Fixed bandwidths are kernel standard
-  * deviations; automatic bandwidths use the same `bw.nrd0` rule as the 1D
-  * density statistic, independently for x and y.
+/** Gaussian 2D kernel-density plan. Fixed bandwidths are kernel standard deviations; automatic
+  * bandwidths use the same `bw.nrd0` rule as the 1D density statistic, independently for x and y.
   */
 final case class Kde2DConfig private (
     bandwidthX: Option[DensityBandwidth],
@@ -97,8 +100,8 @@ object Kde2DConfig:
   ): Kde2DConfig =
     fixed(bandwidthX, bandwidthY, xPoints, yPoints, xDomain, yDomain).orThrow
 
-/** A renderer-neutral statistical transform whose result is a checked scalar
-  * field rather than an R-style dynamically shaped row table.
+/** A renderer-neutral statistical transform whose result is a checked scalar field rather than an
+  * R-style dynamically shaped row table.
   */
 sealed trait FieldStat[-Row]:
   def label: String
@@ -237,8 +240,8 @@ object FieldStat:
           index += 1
         ScalarField2D(xAxis, yAxis, counts)
 
-  /** ggplot-compatible right closure: the lower domain boundary belongs to
-    * the first bin and an internal break belongs to the bin on its left.
+  /** ggplot-compatible right closure: the lower domain boundary belongs to the first bin and an
+    * internal break belongs to the bin on its left.
     */
   private def locateRightClosed(value: Double, domain: Interval, bins: Int): Int =
     if value <= domain.lower then 0
@@ -272,8 +275,11 @@ object FieldStat:
       if !domain.contains(values(index)) then outside = Some(values(index))
       index += 1
     outside match
-      case Some(value) => Left(GraphicsError.StatInputOutsideGrid("bin2d", aesthetic, value, domain.lower, domain.upper))
-      case None        => Right(())
+      case Some(value) =>
+        Left(
+          GraphicsError.StatInputOutsideGrid("bin2d", aesthetic, value, domain.lower, domain.upper)
+        )
+      case None => Right(())
 
   private def observedDomain(values: Array[Double]): Interval =
     var lower = values(0)

@@ -1,17 +1,16 @@
 package intaglio
 
-/** Text-extent capability used by the layout solver to size axis strips and
-  * legend columns. The portable default is a conservative estimate; platform
-  * backends may provide real font metrics without changing the solver
-  * contract.
+/** Text-extent capability used by the layout solver to size axis strips and legend columns. The
+  * portable default is a conservative estimate; platform backends may provide real font metrics
+  * without changing the solver contract.
   */
 trait TextMetrics:
   def widthPt(text: String, fontSizePt: Double): Double
   def heightPt(fontSizePt: Double): Double
 
-  /** Family-aware entry points used by layout. Existing deterministic or
-    * synthetic providers can implement only the size-based contract; platform
-    * providers override these methods to honor the requested family.
+  /** Family-aware entry points used by layout. Existing deterministic or synthetic providers can
+    * implement only the size-based contract; platform providers override these methods to honor the
+    * requested family.
     */
   def widthPt(text: String, style: TextStyle): Double =
     widthPt(text, style.fontSizePt)
@@ -23,9 +22,8 @@ final case class TextStyle(fontFamily: Option[String], fontSizePt: Double):
   require(fontSizePt > 0.0 && fontSizePt.isFinite, "`fontSizePt` must be finite and > 0")
 
 object TextMetrics:
-  /** Conservative portable estimator: wide-glyph average advance and a
-    * standard line height, so allocated regions err toward whitespace rather
-    * than overlap.
+  /** Conservative portable estimator: wide-glyph average advance and a standard line height, so
+    * allocated regions err toward whitespace rather than overlap.
     */
   val estimate: TextMetrics =
     new TextMetrics:
@@ -35,9 +33,8 @@ object TextMetrics:
       override def heightPt(fontSizePt: Double): Double =
         fontSizePt * 1.25
 
-/** Placement and sizing defaults for solved plot layouts. All sizes are in
-  * points; the solver converts them to npc fractions of the reference
-  * device.
+/** Placement and sizing defaults for solved plot layouts. All sizes are in points; the solver
+  * converts them to npc fractions of the reference device.
   */
 final case class LayoutPolicy(
     metrics: TextMetrics = TextMetrics.estimate,
@@ -74,25 +71,70 @@ final case class LayoutPolicy(
 ):
   require(outerMarginPt >= 0.0 && outerMarginPt.isFinite, "`outerMarginPt` must be finite and >= 0")
   require(tickLengthPt >= 0.0 && tickLengthPt.isFinite, "`tickLengthPt` must be finite and >= 0")
-  require(tickLabelGapPt >= 0.0 && tickLabelGapPt.isFinite, "`tickLabelGapPt` must be finite and >= 0")
+  require(
+    tickLabelGapPt >= 0.0 && tickLabelGapPt.isFinite,
+    "`tickLabelGapPt` must be finite and >= 0"
+  )
   require(axisFontPt > 0.0 && axisFontPt.isFinite, "`axisFontPt` must be finite and > 0")
-  require(axisTitleFontPt > 0.0 && axisTitleFontPt.isFinite, "`axisTitleFontPt` must be finite and > 0")
-  require(axisTitleGapPt >= 0.0 && axisTitleGapPt.isFinite, "`axisTitleGapPt` must be finite and >= 0")
-  require(plotTitleFontPt > 0.0 && plotTitleFontPt.isFinite, "`plotTitleFontPt` must be finite and > 0")
-  require(plotSubtitleFontPt > 0.0 && plotSubtitleFontPt.isFinite, "`plotSubtitleFontPt` must be finite and > 0")
-  require(plotLabelGapPt >= 0.0 && plotLabelGapPt.isFinite, "`plotLabelGapPt` must be finite and >= 0")
+  require(
+    axisTitleFontPt > 0.0 && axisTitleFontPt.isFinite,
+    "`axisTitleFontPt` must be finite and > 0"
+  )
+  require(
+    axisTitleGapPt >= 0.0 && axisTitleGapPt.isFinite,
+    "`axisTitleGapPt` must be finite and >= 0"
+  )
+  require(
+    plotTitleFontPt > 0.0 && plotTitleFontPt.isFinite,
+    "`plotTitleFontPt` must be finite and > 0"
+  )
+  require(
+    plotSubtitleFontPt > 0.0 && plotSubtitleFontPt.isFinite,
+    "`plotSubtitleFontPt` must be finite and > 0"
+  )
+  require(
+    plotLabelGapPt >= 0.0 && plotLabelGapPt.isFinite,
+    "`plotLabelGapPt` must be finite and >= 0"
+  )
   require(legendFontPt > 0.0 && legendFontPt.isFinite, "`legendFontPt` must be finite and > 0")
-  require(legendTitleFontPt > 0.0 && legendTitleFontPt.isFinite, "`legendTitleFontPt` must be finite and > 0")
+  require(
+    legendTitleFontPt > 0.0 && legendTitleFontPt.isFinite,
+    "`legendTitleFontPt` must be finite and > 0"
+  )
   require(legendKeyPt >= 0.0 && legendKeyPt.isFinite, "`legendKeyPt` must be finite and >= 0")
   require(legendGapPt >= 0.0 && legendGapPt.isFinite, "`legendGapPt` must be finite and >= 0")
-  require(legendPaddingPt >= 0.0 && legendPaddingPt.isFinite, "`legendPaddingPt` must be finite and >= 0")
-  require(legendRowGapPt >= 0.0 && legendRowGapPt.isFinite, "`legendRowGapPt` must be finite and >= 0")
-  require(legendTitleGapPt >= 0.0 && legendTitleGapPt.isFinite, "`legendTitleGapPt` must be finite and >= 0")
-  require(guideStackGapPt >= 0.0 && guideStackGapPt.isFinite, "`guideStackGapPt` must be finite and >= 0")
-  require(colorbarWidthPt > 0.0 && colorbarWidthPt.isFinite, "`colorbarWidthPt` must be finite and > 0")
-  require(colorbarHeightPt > 0.0 && colorbarHeightPt.isFinite, "`colorbarHeightPt` must be finite and > 0")
-  require(colorbarTickLengthPt >= 0.0 && colorbarTickLengthPt.isFinite, "`colorbarTickLengthPt` must be finite and >= 0")
-  require(colorbarLabelGapPt >= 0.0 && colorbarLabelGapPt.isFinite, "`colorbarLabelGapPt` must be finite and >= 0")
+  require(
+    legendPaddingPt >= 0.0 && legendPaddingPt.isFinite,
+    "`legendPaddingPt` must be finite and >= 0"
+  )
+  require(
+    legendRowGapPt >= 0.0 && legendRowGapPt.isFinite,
+    "`legendRowGapPt` must be finite and >= 0"
+  )
+  require(
+    legendTitleGapPt >= 0.0 && legendTitleGapPt.isFinite,
+    "`legendTitleGapPt` must be finite and >= 0"
+  )
+  require(
+    guideStackGapPt >= 0.0 && guideStackGapPt.isFinite,
+    "`guideStackGapPt` must be finite and >= 0"
+  )
+  require(
+    colorbarWidthPt > 0.0 && colorbarWidthPt.isFinite,
+    "`colorbarWidthPt` must be finite and > 0"
+  )
+  require(
+    colorbarHeightPt > 0.0 && colorbarHeightPt.isFinite,
+    "`colorbarHeightPt` must be finite and > 0"
+  )
+  require(
+    colorbarTickLengthPt >= 0.0 && colorbarTickLengthPt.isFinite,
+    "`colorbarTickLengthPt` must be finite and >= 0"
+  )
+  require(
+    colorbarLabelGapPt >= 0.0 && colorbarLabelGapPt.isFinite,
+    "`colorbarLabelGapPt` must be finite and >= 0"
+  )
   require(panelGapPt >= 0.0 && panelGapPt.isFinite, "`panelGapPt` must be finite and >= 0")
   require(facetStripPt > 0.0 && facetStripPt.isFinite, "`facetStripPt` must be finite and > 0")
 
@@ -128,15 +170,17 @@ final case class PlotLayoutRequest(
     grid: Option[PanelGridRequest] = None
 )
 
-/** The guides to measure as one stacked column. `items` is the single
-  * representation; the two-argument constructors below lift the common
-  * single-legend case into it.
+/** The guides to measure as one stacked column. `items` is the single representation; the
+  * two-argument constructors below lift the common single-legend case into it.
   */
 final case class LegendRequest(
     items: Vector[GuideLayoutRequest],
     extraKeyWidthPt: Double = 0.0
 ):
-  require(extraKeyWidthPt >= 0.0 && extraKeyWidthPt.isFinite, "`extraKeyWidthPt` must be finite and >= 0")
+  require(
+    extraKeyWidthPt >= 0.0 && extraKeyWidthPt.isFinite,
+    "`extraKeyWidthPt` must be finite and >= 0"
+  )
 
 object LegendRequest:
   def apply(title: Option[String], labels: Vector[String]): LegendRequest =
@@ -162,7 +206,10 @@ object GuidePlacement:
   ) extends GuidePlacement:
     require(xPt.isFinite && topPt.isFinite, "legend placement origin must be finite")
     require(rowPitchPt.isFinite && rowPitchPt >= 0.0, "`rowPitchPt` must be finite and >= 0")
-    require(firstRowOffsetPt.isFinite && firstRowOffsetPt >= 0.0, "`firstRowOffsetPt` must be finite and >= 0")
+    require(
+      firstRowOffsetPt.isFinite && firstRowOffsetPt >= 0.0,
+      "`firstRowOffsetPt` must be finite and >= 0"
+    )
     require(labelOffsetPt.isFinite, "`labelOffsetPt` must be finite")
     require(markerSizePt.isFinite && markerSizePt >= 0.0, "`markerSizePt` must be finite and >= 0")
 
@@ -181,12 +228,17 @@ object GuidePlacement:
     require(barWidthPt.isFinite && barWidthPt >= 0.0, "`barWidthPt` must be finite and >= 0")
     require(barHeightPt.isFinite && barHeightPt >= 0.0, "`barHeightPt` must be finite and >= 0")
     require(tickLengthPt.isFinite && tickLengthPt >= 0.0, "`tickLengthPt` must be finite and >= 0")
-    require(labelOffsetPt.isFinite && labelOffsetPt >= 0.0, "`labelOffsetPt` must be finite and >= 0")
-    require(titleOffsetPt.isFinite && titleOffsetPt >= 0.0, "`titleOffsetPt` must be finite and >= 0")
+    require(
+      labelOffsetPt.isFinite && labelOffsetPt >= 0.0,
+      "`labelOffsetPt` must be finite and >= 0"
+    )
+    require(
+      titleOffsetPt.isFinite && titleOffsetPt >= 0.0,
+      "`titleOffsetPt` must be finite and >= 0"
+    )
 
-/** Measured guide column. `placements` holds exactly one entry per
-  * `LegendRequest.items` entry, in the same order and of the matching variant,
-  * so callers can associate the two by position.
+/** Measured guide column. `placements` holds exactly one entry per `LegendRequest.items` entry, in
+  * the same order and of the matching variant, so callers can associate the two by position.
   */
 final case class GuideStackPlan(
     widthPt: Double,
@@ -194,9 +246,9 @@ final case class GuideStackPlan(
     placements: Vector[GuidePlacement]
 )
 
-/** Measures a complete legend/colorbar column in points. Placement is stored
-  * as offsets from the top-left of the guide viewport so the same plan can be
-  * lowered deterministically by every backend.
+/** Measures a complete legend/colorbar column in points. Placement is stored as offsets from the
+  * top-left of the guide viewport so the same plan can be lowered deterministically by every
+  * backend.
   */
 object GuideStackSolver:
   def plan(policy: LayoutPolicy, request: LegendRequest): GuideStackPlan =
@@ -217,13 +269,15 @@ object GuideStackSolver:
       val labelWidth = labels.foldLeft(0.0) { (acc, label) =>
         math.max(acc, policy.metrics.widthPt(label, policy.legendTextStyle))
       }
-      val titleWidth = title.fold(0.0)(value => policy.metrics.widthPt(value, policy.legendTitleTextStyle))
+      val titleWidth =
+        title.fold(0.0)(value => policy.metrics.widthPt(value, policy.legendTitleTextStyle))
       val titleBlock = title.fold(0.0)(_ => titleHeight + policy.legendTitleGapPt)
       val itemHeight = item match
         case GuideLayoutRequest.Legend(_, values) =>
           val rowsHeight =
             if values.isEmpty then 0.0
-            else rowHeight * values.length.toDouble + policy.legendRowGapPt * (values.length - 1).toDouble
+            else
+              rowHeight * values.length.toDouble + policy.legendRowGapPt * (values.length - 1).toDouble
           val firstRowOffset =
             if title.nonEmpty then titleBlock + rowHeight / 2.0
             else rowHeight / 2.0
@@ -235,7 +289,8 @@ object GuideStackSolver:
             policy.legendKeyPt + policy.legendGapPt / 2.0,
             policy.legendKeyPt
           )
-          val entryWidth = policy.legendKeyPt + policy.legendGapPt / 2.0 + request.extraKeyWidthPt + labelWidth
+          val entryWidth =
+            policy.legendKeyPt + policy.legendGapPt / 2.0 + request.extraKeyWidthPt + labelWidth
           widest = math.max(widest, math.max(entryWidth, titleWidth))
           titleBlock + rowsHeight
         case GuideLayoutRequest.Colorbar(_, _) =>
@@ -251,7 +306,8 @@ object GuideStackSolver:
             policy.colorbarTickLengthPt + policy.colorbarLabelGapPt,
             policy.legendTitleGapPt + labelInset
           )
-          val entryWidth = policy.colorbarWidthPt + policy.colorbarTickLengthPt + policy.colorbarLabelGapPt + labelWidth
+          val entryWidth =
+            policy.colorbarWidthPt + policy.colorbarTickLengthPt + policy.colorbarLabelGapPt + labelWidth
           widest = math.max(widest, math.max(entryWidth, titleWidth))
           titleBlock + policy.colorbarHeightPt + textHeight
       nextTop += itemHeight
@@ -305,9 +361,8 @@ final case class PlotFrames(
   private def frameViewport(frame: PanelFrame): Viewport =
     Viewport.unsafe(origin = frame.origin, size = frame.size, clip = Clip.Off)
 
-/** Allocates panel, axis-strip, and legend regions from declared extents and
-  * estimated text sizes. Deterministic and portable: no font access, no
-  * platform calls.
+/** Allocates panel, axis-strip, and legend regions from declared extents and estimated text sizes.
+  * Deterministic and portable: no font access, no platform calls.
   */
 object PlotLayoutSolver:
   def solve(
@@ -323,23 +378,36 @@ object PlotLayoutSolver:
     val marginY = npcY(policy.outerMarginPt)
 
     def titleExtent(request: AxisRequest): Double =
-      request.title.fold(0.0)(_ => policy.axisTitleGapPt + policy.metrics.heightPt(policy.axisTitleTextStyle))
+      request.title.fold(0.0)(_ =>
+        policy.axisTitleGapPt + policy.metrics.heightPt(policy.axisTitleTextStyle)
+      )
     def axisStripPtY(request: AxisRequest): Double =
-      policy.tickLengthPt + policy.tickLabelGapPt + policy.metrics.heightPt(policy.axisTextStyle) + titleExtent(request)
+      policy.tickLengthPt + policy.tickLabelGapPt + policy.metrics.heightPt(
+        policy.axisTextStyle
+      ) + titleExtent(request)
     def axisStripPtX(request: AxisRequest): Double =
-      val labelWidth = request.labels.foldLeft(0.0)((acc, label) => math.max(acc, policy.metrics.widthPt(label, policy.axisTextStyle)))
+      val labelWidth = request.labels.foldLeft(0.0)((acc, label) =>
+        math.max(acc, policy.metrics.widthPt(label, policy.axisTextStyle))
+      )
       policy.tickLengthPt + policy.tickLabelGapPt + labelWidth + titleExtent(request)
 
-    val bottom = request.axes.get(AxisSide.Bottom).map(axis => npcY(axisStripPtY(axis))).getOrElse(0.0)
+    val bottom =
+      request.axes.get(AxisSide.Bottom).map(axis => npcY(axisStripPtY(axis))).getOrElse(0.0)
     val top = request.axes.get(AxisSide.Top).map(axis => npcY(axisStripPtY(axis))).getOrElse(0.0)
     val left = request.axes.get(AxisSide.Left).map(axis => npcX(axisStripPtX(axis))).getOrElse(0.0)
-    val right = request.axes.get(AxisSide.Right).map(axis => npcX(axisStripPtX(axis))).getOrElse(0.0)
+    val right =
+      request.axes.get(AxisSide.Right).map(axis => npcX(axisStripPtX(axis))).getOrElse(0.0)
 
-    val titleHeight = request.labels.title.map(_ => npcY(policy.metrics.heightPt(policy.plotTitleTextStyle)))
-    val subtitleHeight = request.labels.subtitle.map(_ => npcY(policy.metrics.heightPt(policy.plotSubtitleTextStyle)))
-    val betweenLabels = if titleHeight.nonEmpty && subtitleHeight.nonEmpty then npcY(policy.plotLabelGapPt) else 0.0
-    val belowLabels = if titleHeight.nonEmpty || subtitleHeight.nonEmpty then npcY(policy.plotLabelGapPt) else 0.0
-    val headerHeight = titleHeight.getOrElse(0.0) + subtitleHeight.getOrElse(0.0) + betweenLabels + belowLabels
+    val titleHeight =
+      request.labels.title.map(_ => npcY(policy.metrics.heightPt(policy.plotTitleTextStyle)))
+    val subtitleHeight =
+      request.labels.subtitle.map(_ => npcY(policy.metrics.heightPt(policy.plotSubtitleTextStyle)))
+    val betweenLabels =
+      if titleHeight.nonEmpty && subtitleHeight.nonEmpty then npcY(policy.plotLabelGapPt) else 0.0
+    val belowLabels =
+      if titleHeight.nonEmpty || subtitleHeight.nonEmpty then npcY(policy.plotLabelGapPt) else 0.0
+    val headerHeight =
+      titleHeight.getOrElse(0.0) + subtitleHeight.getOrElse(0.0) + betweenLabels + belowLabels
 
     val guideStack = request.legend.map(legend => GuideStackSolver.plan(policy, legend))
     val legendWidth = guideStack.map(plan => npcX(plan.widthPt))
@@ -368,28 +436,32 @@ object PlotLayoutSolver:
               val width = availableH / targetNpcAspect
               (availableX0 + (availableW - width) / 2.0, availableY0, width, availableH)
       val panelHeightPt = panelH * device.height / pxPerPt
-      if guideStack.exists(_.heightPt > panelHeightPt) then Left(GraphicsError.LayoutOverflow("guide stack height"))
-      else for
-        panel <- PanelFrame.npc(panelX0, panelY0, panelW, panelH)
-        grid <- request.grid match
-          case Some(spec) => panelGridFrames(policy, spec, panelX0, panelY0, panelW, panelH, npcX, npcY)
-          case None       => Right(Vector.empty)
-        axes <- axisFrames(request, panelX0, panelY0, panelW, panelH, bottom, top, left, right)
-        legend <- legendWidth match
-          case Some(width) =>
-            PanelFrame.npc(availableX1 + right + legendGap, panelY0, width, panelH).map(Some(_))
-          case None =>
-            Right(None)
-        subtitle <- subtitleHeight match
-          case Some(height) =>
-            PanelFrame.npc(panelX0, availableY1 + top + belowLabels, panelW, height).map(Some(_))
-          case None => Right(None)
-        title <- titleHeight match
-          case Some(height) =>
-            val y = availableY1 + top + belowLabels + subtitleHeight.getOrElse(0.0) + betweenLabels
-            PanelFrame.npc(panelX0, y, panelW, height).map(Some(_))
-          case None => Right(None)
-      yield PlotFrames(panel, axes, legend, title, subtitle, grid)
+      if guideStack.exists(_.heightPt > panelHeightPt) then
+        Left(GraphicsError.LayoutOverflow("guide stack height"))
+      else
+        for
+          panel <- PanelFrame.npc(panelX0, panelY0, panelW, panelH)
+          grid <- request.grid match
+            case Some(spec) =>
+              panelGridFrames(policy, spec, panelX0, panelY0, panelW, panelH, npcX, npcY)
+            case None => Right(Vector.empty)
+          axes <- axisFrames(request, panelX0, panelY0, panelW, panelH, bottom, top, left, right)
+          legend <- legendWidth match
+            case Some(width) =>
+              PanelFrame.npc(availableX1 + right + legendGap, panelY0, width, panelH).map(Some(_))
+            case None =>
+              Right(None)
+          subtitle <- subtitleHeight match
+            case Some(height) =>
+              PanelFrame.npc(panelX0, availableY1 + top + belowLabels, panelW, height).map(Some(_))
+            case None => Right(None)
+          title <- titleHeight match
+            case Some(height) =>
+              val y =
+                availableY1 + top + belowLabels + subtitleHeight.getOrElse(0.0) + betweenLabels
+              PanelFrame.npc(panelX0, y, panelW, height).map(Some(_))
+            case None => Right(None)
+        yield PlotFrames(panel, axes, legend, title, subtitle, grid)
 
   private def panelGridFrames(
       policy: LayoutPolicy,
@@ -447,8 +519,12 @@ object PlotLayoutSolver:
           out += side -> frame
           ()
         }
-    if request.axes.contains(AxisSide.Bottom) then add(AxisSide.Bottom, panelX, panelY - bottom, panelW, bottom)
-    if request.axes.contains(AxisSide.Top) then add(AxisSide.Top, panelX, panelY + panelH, panelW, top)
-    if request.axes.contains(AxisSide.Left) then add(AxisSide.Left, panelX - left, panelY, left, panelH)
-    if request.axes.contains(AxisSide.Right) then add(AxisSide.Right, panelX + panelW, panelY, right, panelH)
+    if request.axes.contains(AxisSide.Bottom) then
+      add(AxisSide.Bottom, panelX, panelY - bottom, panelW, bottom)
+    if request.axes.contains(AxisSide.Top) then
+      add(AxisSide.Top, panelX, panelY + panelH, panelW, top)
+    if request.axes.contains(AxisSide.Left) then
+      add(AxisSide.Left, panelX - left, panelY, left, panelH)
+    if request.axes.contains(AxisSide.Right) then
+      add(AxisSide.Right, panelX + panelW, panelY, right, panelH)
     result.map(_ => out.result())

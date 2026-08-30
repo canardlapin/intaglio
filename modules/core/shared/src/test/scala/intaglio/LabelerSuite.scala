@@ -1,8 +1,7 @@
 package intaglio
 
-/** Labels must be byte-identical across JVM and Scala.js; this suite runs on
-  * both platforms and pins exact strings, including the magnitudes where
-  * `Double.toString` diverges between them.
+/** Labels must be byte-identical across JVM and Scala.js; this suite runs on both platforms and
+  * pins exact strings, including the magnitudes where `Double.toString` diverges between them.
   */
 class LabelerSuite extends munit.FunSuite:
 

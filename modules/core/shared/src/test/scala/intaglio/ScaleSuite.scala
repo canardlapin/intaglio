@@ -39,8 +39,14 @@ class ScaleSuite extends munit.FunSuite:
     assertEquals(scale.breaks, Vector(1.0, 10.0, 100.0))
     assertEquals(scale.breaks.flatMap(scale.mapValue), Vector(0.0, 0.5, 1.0))
     assertEquals(scale.descriptor.kind, ScaleKind.Continuous)
-    assertEquals(scale.descriptor.domain, ScaleDomain.Continuous(Interval.unsafe(1.0, 100.0), Interval.unsafe(0.0, 2.0)))
-    assertEquals(scale.mapValueResult(0.0).left.toOption, Some(ScaleMapFailure.TransformDomain("log10", 0.0)))
+    assertEquals(
+      scale.descriptor.domain,
+      ScaleDomain.Continuous(Interval.unsafe(1.0, 100.0), Interval.unsafe(0.0, 2.0))
+    )
+    assertEquals(
+      scale.mapValueResult(0.0).left.toOption,
+      Some(ScaleMapFailure.TransformDomain("log10", 0.0))
+    )
   }
 
   test("continuous palette sampling is deterministic at equal-width bin centers") {
@@ -123,24 +129,41 @@ class ScaleSuite extends munit.FunSuite:
     val palette = DiscretePalette.valuesUnsafe(Vector(Rgba.Black, Rgba.White))
     val scale = DiscreteScale("condition", domain, palette).toOption.get
 
-    assertEquals(scale.mapLevels(Vector("A", "B", "C", "D")), Vector(Some(Rgba.Black), Some(Rgba.White), Some(Rgba.Black), None))
+    assertEquals(
+      scale.mapLevels(Vector("A", "B", "C", "D")),
+      Vector(Some(Rgba.Black), Some(Rgba.White), Some(Rgba.Black), None)
+    )
     assertEquals(scale.descriptor.kind, ScaleKind.Discrete)
-    assertEquals(scale.descriptor.domain, ScaleDomain.Discrete(Vector("A", "B", "C"), ordered = true))
-    assertEquals(scale.mapValueResult("D").left.toOption, Some(ScaleMapFailure.OutOfDomain("condition", "D")))
+    assertEquals(
+      scale.descriptor.domain,
+      ScaleDomain.Discrete(Vector("A", "B", "C"), ordered = true)
+    )
+    assertEquals(
+      scale.mapValueResult("D").left.toOption,
+      Some(ScaleMapFailure.OutOfDomain("condition", "D"))
+    )
   }
 
   test("band scales expose checked categorical intervals as domain values") {
     val padding = BandPadding(0.2).fold(e => fail(e.message), identity)
-    val domain = DiscreteDomain.ordered(Vector("control", "task", "other")).fold(e => fail(e.message), identity)
+    val domain = DiscreteDomain
+      .ordered(Vector("control", "task", "other"))
+      .fold(e => fail(e.message), identity)
     val scale = BandScale("condition", domain, padding).fold(e => fail(e.message), identity)
 
-    assertEquals(scale.mapLevels(Vector("control", "task", "other", "missing")), Vector(Some(0.0), Some(1.0), Some(2.0), None))
+    assertEquals(
+      scale.mapLevels(Vector("control", "task", "other", "missing")),
+      Vector(Some(0.0), Some(1.0), Some(2.0), None)
+    )
     assertEquals(scale.band("control"), Some(Band.unsafe(0.0, 0.8)))
     assertEquals(scale.band("task").map(_.lower), Some(0.6))
     assertEquals(scale.band("task").map(_.upper), Some(1.4))
     assertEquals(scale.descriptor.kind, ScaleKind.Band)
     assertEquals(scale.descriptor.domain, ScaleDomain.Band(domain.levels, ordered = true, padding))
-    assertEquals(scale.mapValueResult("missing").left.toOption, Some(ScaleMapFailure.OutOfDomain("condition", "missing")))
+    assertEquals(
+      scale.mapValueResult("missing").left.toOption,
+      Some(ScaleMapFailure.OutOfDomain("condition", "missing"))
+    )
   }
 
   test("band construction rejects invalid padding, centers, and widths") {
@@ -149,7 +172,10 @@ class ScaleSuite extends munit.FunSuite:
     BandPadding(Double.NaN).left.toOption match
       case Some(GraphicsError.InvalidBandPadding(value)) => assert(value.isNaN)
       case result => fail(s"expected InvalidBandPadding(NaN), obtained $result")
-    assertEquals(Band(Double.PositiveInfinity, 0.8).left.toOption, Some(GraphicsError.InvalidBand(Double.PositiveInfinity, 0.8)))
+    assertEquals(
+      Band(Double.PositiveInfinity, 0.8).left.toOption,
+      Some(GraphicsError.InvalidBand(Double.PositiveInfinity, 0.8))
+    )
     assertEquals(Band(0.0, 0.0).left.toOption, Some(GraphicsError.InvalidBand(0.0, 0.0)))
   }
 

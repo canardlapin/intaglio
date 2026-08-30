@@ -74,8 +74,9 @@ class ScientificStatSuite extends munit.FunSuite:
     val layer = trained.layers.head
 
     assertEquals(layer.rows.map(_.x), ScientificStatParityFixture.densityGrid)
-    layer.rows.map(_.y).zip(ScientificStatParityFixture.density).foreach { case (actual, expected) =>
-      assertEqualsDouble(actual, expected, 6e-6)
+    layer.rows.map(_.y).zip(ScientificStatParityFixture.density).foreach {
+      case (actual, expected) =>
+        assertEqualsDouble(actual, expected, 6e-6)
     }
     assertEquals(layer.grobs.length, 1)
     assert(layer.grobs.head.isInstanceOf[Grob.Lines])

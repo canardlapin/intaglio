@@ -45,9 +45,8 @@ sealed trait LengthExpr:
   def -(that: LengthExpr): LengthExpr =
     LengthExpr.Sub(this, that)
 
-  /** Translate a location by an extent. Unlike adding two raw length
-    * expressions, native units in `that` resolve as a delta rather than as a
-    * second location in the frame's scale.
+  /** Translate a location by an extent. Unlike adding two raw length expressions, native units in
+    * `that` resolve as a delta rather than as a second location in the frame's scale.
     */
   def +(that: ExtentExpr): LengthExpr =
     LengthExpr.Offset(this, that, 1.0)
@@ -63,7 +62,11 @@ object LengthExpr:
   final case class Const(length: Length) extends LengthExpr
   final case class Add private[intaglio] (left: LengthExpr, right: LengthExpr) extends LengthExpr
   final case class Sub private[intaglio] (left: LengthExpr, right: LengthExpr) extends LengthExpr
-  final case class Offset private[intaglio] (location: LengthExpr, extent: ExtentExpr, direction: Double) extends LengthExpr:
+  final case class Offset private[intaglio] (
+      location: LengthExpr,
+      extent: ExtentExpr,
+      direction: Double
+  ) extends LengthExpr:
     require(direction.isFinite, "`direction` must be finite")
   final case class Mul private[intaglio] (factor: Double, value: LengthExpr) extends LengthExpr:
     require(factor.isFinite, "`factor` must be finite")
@@ -139,11 +142,11 @@ object ExtentExpr:
 
   private def describe(expr: LengthExpr): String =
     expr match
-      case LengthExpr.Const(length) => s"${length.value} ${length.unit}"
-      case LengthExpr.Add(_, _)     => "sum expression"
-      case LengthExpr.Sub(_, _)     => "difference expression"
+      case LengthExpr.Const(length)   => s"${length.value} ${length.unit}"
+      case LengthExpr.Add(_, _)       => "sum expression"
+      case LengthExpr.Sub(_, _)       => "difference expression"
       case LengthExpr.Offset(_, _, _) => "location-offset expression"
-      case LengthExpr.Mul(_, _)     => "scaled expression"
+      case LengthExpr.Mul(_, _)       => "scaled expression"
 
 final case class Point(x: LengthExpr, y: LengthExpr)
 
@@ -214,7 +217,8 @@ object Rgba:
     if red < 0 || red > 255 then Left(GraphicsError.InvalidColorChannel("red", red))
     else if green < 0 || green > 255 then Left(GraphicsError.InvalidColorChannel("green", green))
     else if blue < 0 || blue > 255 then Left(GraphicsError.InvalidColorChannel("blue", blue))
-    else if !alpha.isFinite || alpha < 0.0 || alpha > 1.0 then Left(GraphicsError.InvalidAlpha(alpha))
+    else if !alpha.isFinite || alpha < 0.0 || alpha > 1.0 then
+      Left(GraphicsError.InvalidAlpha(alpha))
     else Right(new Rgba(red, green, blue, alpha))
 
   def unsafe(red: Int, green: Int, blue: Int, alpha: Double = 1.0): Rgba =
@@ -235,12 +239,11 @@ enum RuleOrientation:
 
 /** A finite, backend-neutral recipe for a repeated fill pattern.
   *
-  * Spacing, line width, and radius are measured in device pixels. Hatch
-  * angles are clockwise degrees from a vertical rule in the device's y-down
-  * coordinate system. Tiles start at `(0, 0)` in the current device coordinate
-  * system, repeat without shape-local re-anchoring, and follow enclosing
-  * viewport transforms. These semantics intentionally do not admit backend
-  * objects, callbacks, CSS, or raw SVG.
+  * Spacing, line width, and radius are measured in device pixels. Hatch angles are clockwise
+  * degrees from a vertical rule in the device's y-down coordinate system. Tiles start at `(0, 0)`
+  * in the current device coordinate system, repeat without shape-local re-anchoring, and follow
+  * enclosing viewport transforms. These semantics intentionally do not admit backend objects,
+  * callbacks, CSS, or raw SVG.
   */
 sealed trait PatternRecipe:
   def spacing: Double
@@ -322,16 +325,19 @@ object PatternRecipe:
     if value.isFinite then Right(())
     else Left(GraphicsError.InvalidPatternParameter(recipe, "angle", value, "finite"))
 
-  private def positive(recipe: String, parameter: String, value: Double): Either[GraphicsError, Unit] =
+  private def positive(
+      recipe: String,
+      parameter: String,
+      value: Double
+  ): Either[GraphicsError, Unit] =
     if value.isFinite && value > 0.0 then Right(())
     else Left(GraphicsError.InvalidPatternParameter(recipe, parameter, value, "finite and > 0"))
 
 /** Complete paint for one pattern fill.
   *
-  * Ink and optional background retain their own RGBA values. A mark's
-  * [[GraphicParams.alpha]] is applied once to the composited pattern, so it
-  * multiplies the final ink/background result rather than replacing either
-  * channel alpha. Equality covers the full recipe and both colors, which lets
+  * Ink and optional background retain their own RGBA values. A mark's [[GraphicParams.alpha]] is
+  * applied once to the composited pattern, so it multiplies the final ink/background result rather
+  * than replacing either channel alpha. Equality covers the full recipe and both colors, which lets
   * renderers reuse resources without relying on object identity.
   */
 final case class PatternPaint(
@@ -352,8 +358,8 @@ final case class GraphicParams private (
     fontSize: Length = Length.pointsUnsafe(12.0),
     fillPattern: Option[PatternPaint] = None
 ):
-  /** Retains the pre-pattern JVM constructor descriptor for compiled callers;
-    * Scala callers still enter through the checked companion constructors.
+  /** Retains the pre-pattern JVM constructor descriptor for compiled callers; Scala callers still
+    * enter through the checked companion constructors.
     */
   private[intaglio] def this(
       stroke: Option[Rgba],
@@ -371,8 +377,8 @@ final case class GraphicParams private (
   require(lineWidth.isFinite && lineWidth >= 0.0, "`lineWidth` must be finite and >= 0")
   require(alpha.isFinite && alpha >= 0.0 && alpha <= 1.0, "`alpha` must be in [0, 1]")
 
-  /** Apply row-mapped style channels while preserving every other parameter.
-    * `None` means that the corresponding aesthetic is not mapped for this row.
+  /** Apply row-mapped style channels while preserving every other parameter. `None` means that the
+    * corresponding aesthetic is not mapped for this row.
     */
   private[intaglio] def withAestheticOverrides(
       stroke: Option[Rgba] = None,
@@ -415,7 +421,8 @@ object GraphicParams:
       fontSize: Length = Length.pointsUnsafe(12.0)
   ): Either[GraphicsError, GraphicParams] =
     if !lineWidth.isFinite || lineWidth < 0.0 then Left(GraphicsError.InvalidLineWidth(lineWidth))
-    else if !alpha.isFinite || alpha < 0.0 || alpha > 1.0 then Left(GraphicsError.InvalidAlpha(alpha))
+    else if !alpha.isFinite || alpha < 0.0 || alpha > 1.0 then
+      Left(GraphicsError.InvalidAlpha(alpha))
     else
       Right(
         new GraphicParams(
@@ -443,7 +450,17 @@ object GraphicParams:
       fontFamily: Option[String] = None,
       fontSize: Length = Length.pointsUnsafe(12.0)
   ): GraphicParams =
-    checked(stroke, fill, lineWidth, lineType, lineCap, lineJoin, alpha, fontFamily, fontSize).orThrow
+    checked(
+      stroke,
+      fill,
+      lineWidth,
+      lineType,
+      lineCap,
+      lineJoin,
+      alpha,
+      fontFamily,
+      fontSize
+    ).orThrow
 
 final case class Viewport private (
     origin: Point = Point.npcUnsafe(0.0, 0.0),
@@ -513,8 +530,8 @@ object Grob:
   ) extends Grob:
     require(points.length >= 3, "`points` must contain at least three vertices")
 
-  /** One filled polygon made from independently closed rings. Ring winding
-    * carries outer/hole semantics through the renderer-neutral scene.
+  /** One filled polygon made from independently closed rings. Ring winding carries outer/hole
+    * semantics through the renderer-neutral scene.
     */
   final case class CompoundPolygon private[intaglio] (
       rings: Vector[Vector[Point]],
@@ -522,7 +539,10 @@ object Grob:
       viewport: Option[Viewport],
       name: Option[GraphicsName]
   ) extends Grob:
-    require(rings.nonEmpty && rings.forall(_.length >= 3), "`rings` must contain non-empty polygon paths")
+    require(
+      rings.nonEmpty && rings.forall(_.length >= 3),
+      "`rings` must contain non-empty polygon paths"
+    )
 
   final case class Segments private[intaglio] (
       segments: Vector[(Point, Point)],
@@ -624,8 +644,9 @@ object Grob:
     if rings.isEmpty then Left(GraphicsError.EmptyGeometry("compound polygon"))
     else
       rings.find(_.length < 3) match
-        case Some(points) => Left(GraphicsError.InvalidGeometrySize("compound polygon ring", 3, points.length))
-        case None         => Right(CompoundPolygon(rings, gp, viewport, name))
+        case Some(points) =>
+          Left(GraphicsError.InvalidGeometrySize("compound polygon ring", 3, points.length))
+        case None => Right(CompoundPolygon(rings, gp, viewport, name))
 
   def compoundPolygonUnsafe(
       rings: Vector[Vector[Point]],

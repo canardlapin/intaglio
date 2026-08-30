@@ -4,8 +4,8 @@ import scala.scalajs.js
 import scala.scalajs.js.annotation.JSExportTopLevel
 import intaglio.*
 
-/** Test-only real-browser gallery entry point. Link the test configuration as
-  * a NoModule script and call `renderScalafimCanvasGallery()` from an HTML page.
+/** Test-only real-browser gallery entry point. Link the test configuration as a NoModule script and
+  * call `renderScalafimCanvasGallery()` from an HTML page.
   */
 object BrowserGallery:
   @JSExportTopLevel("renderScalafimCanvasGallery")
@@ -19,7 +19,10 @@ object BrowserGallery:
     document.body.appendChild(root)
 
     val options = CanvasOptions.unsafe(width = 640, height = 480)
-    val cases = RendererConformance.cases.fold(error => throw new IllegalArgumentException(error.message), identity)
+    val cases = RendererConformance.cases.fold(
+      error => throw new IllegalArgumentException(error.message),
+      identity
+    )
     cases.foreach { conformanceCase =>
       val section = document.createElement("section")
       val title = document.createElement("h2")

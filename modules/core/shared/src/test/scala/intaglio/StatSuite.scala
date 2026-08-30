@@ -58,9 +58,11 @@ class StatSuite extends munit.FunSuite:
     assertEquals(trained.layout.map(_.xScale), Some(Interval.unsafe(-0.45, 5.45)))
     assertEquals(trained.layout.map(_.yScale), Some(Interval.unsafe(0.0, 10.0)))
 
-    val xAxis = trained.guides.collectFirst {
-      case ResolvedGuide(axis: GuideSpec.Axis, _) if axis.side == AxisSide.Bottom => axis
-    }.getOrElse(fail("missing count x axis"))
+    val xAxis = trained.guides
+      .collectFirst {
+        case ResolvedGuide(axis: GuideSpec.Axis, _) if axis.side == AxisSide.Bottom => axis
+      }
+      .getOrElse(fail("missing count x axis"))
     assertEquals(xAxis.ticks.toVector.flatten.map(_.label), StatCountParityFixture.levels)
     assertEquals(xAxis.ticks.toVector.flatten.map(_.value), Vector(0.0, 1.0, 2.0, 3.0, 4.0, 5.0))
   }

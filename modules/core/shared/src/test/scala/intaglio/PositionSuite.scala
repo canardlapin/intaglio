@@ -18,7 +18,9 @@ class PositionSuite extends munit.FunSuite:
       .empty[BarDatum]
       .withPosition(_ => 0.0, _.value)
       .withGroup(_.group)
-      .withFill(row => if row.group == "red" then Rgba.unsafe(70, 125, 180) else Rgba.unsafe(220, 135, 65))
+      .withFill(row =>
+        if row.group == "red" then Rgba.unsafe(70, 125, 180) else Rgba.unsafe(220, 135, 65)
+      )
       .bindScale(ScaleBinding[BarDatum, String, Double](Aesthetic.X, _.category, band))
       .fold(e => fail(e.message), identity)
     val layer = Layer
@@ -67,7 +69,8 @@ class PositionSuite extends munit.FunSuite:
   }
 
   test("seeded jitter is byte-stable in principle across JVM and Scala.js") {
-    val data = Vector(PointDatum(0.0, 1.0), PointDatum(0.0, 1.0), PointDatum(1.0, 2.0), PointDatum(1.0, 2.0))
+    val data =
+      Vector(PointDatum(0.0, 1.0), PointDatum(0.0, 1.0), PointDatum(1.0, 2.0), PointDatum(1.0, 2.0))
     val jitter = Position.jitterUnsafe(42L, width = Some(0.25), height = Some(0.1))
     def resolve(position: Position): Vector[ResolvedRow[?]] =
       Plot(data)
@@ -88,13 +91,16 @@ class PositionSuite extends munit.FunSuite:
     )
 
     assertEquals(first.map(row => (row.x, row.y)), second.map(row => (row.x, row.y)))
-    first.zip(data).zip(expectedUnitOffsets).foreach { case ((row, source), (expectedX, expectedY)) =>
-      assertEqualsDouble((row.x - source.x) / 0.25, expectedX, 1e-15)
-      assertEqualsDouble((row.y - source.y) / 0.1, expectedY, 1e-14)
+    first.zip(data).zip(expectedUnitOffsets).foreach {
+      case ((row, source), (expectedX, expectedY)) =>
+        assertEqualsDouble((row.x - source.x) / 0.25, expectedX, 1e-15)
+        assertEqualsDouble((row.y - source.y) / 0.1, expectedY, 1e-14)
     }
     assertNotEquals(
       first.map(row => (row.x, row.y)),
-      resolve(Position.jitterUnsafe(43L, width = Some(0.25), height = Some(0.1))).map(row => (row.x, row.y))
+      resolve(Position.jitterUnsafe(43L, width = Some(0.25), height = Some(0.1))).map(row =>
+        (row.x, row.y)
+      )
     )
   }
 
@@ -111,5 +117,8 @@ class PositionSuite extends munit.FunSuite:
     val stackedPoint = Plot(Vector(PointDatum(0.0, 1.0)))
       .addLayer(Layer.point[PointDatum](_.x, _.y, position = Position.Stack()))
       .flatMap(PlotCompiler.resolve(_))
-    assertEquals(stackedPoint.left.toOption, Some(GraphicsError.InvalidPositionGeom("stack", "point")))
+    assertEquals(
+      stackedPoint.left.toOption,
+      Some(GraphicsError.InvalidPositionGeom("stack", "point"))
+    )
   }

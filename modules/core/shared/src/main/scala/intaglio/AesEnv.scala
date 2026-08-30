@@ -1,8 +1,8 @@
 package intaglio
 
-/** Source-compatible name for the canonical aesthetic mapping. `AesSpec`
-  * owns both the precise public fields and the deterministic typed operations;
-  * there is no second environment representation.
+/** Source-compatible name for the canonical aesthetic mapping. `AesSpec` owns both the precise
+  * public fields and the deterministic typed operations; there is no second environment
+  * representation.
   */
 type AesEnv[Row] = AesSpec[Row]
 
@@ -10,9 +10,9 @@ object AesEnv:
   def empty[Row]: AesEnv[Row] =
     AesSpec.empty[Row]
 
-/** A scaled aesthetic binding with its hidden input/output types kept together.
-  * The only erased cast packages an existentially typed `Scaled` value; all
-  * observation and retraining operations are typed again inside this value.
+/** A scaled aesthetic binding with its hidden input/output types kept together. The only erased
+  * cast packages an existentially typed `Scaled` value; all observation and retraining operations
+  * are typed again inside this value.
   */
 sealed trait RegisteredScale[Row]:
   type In
@@ -73,9 +73,8 @@ object RegisteredScale:
       val aesthetic: Aesthetic[Out] = aesthetic0
       val value: AesValue.Scaled[Row, In, Out] = value0
 
-  /** `AesSpec.updated` is the type-safe construction boundary. Existential
-    * iteration erases that relation, so recover it once here and keep it
-    * packaged.
+  /** `AesSpec.updated` is the type-safe construction boundary. Existential iteration erases that
+    * relation, so recover it once here and keep it packaged.
     */
   private[intaglio] def erased[Row](
       aesthetic: Aesthetic[?],
@@ -86,9 +85,8 @@ object RegisteredScale:
       value.asInstanceOf[AesValue.Scaled[Row, Any, Any]]
     )
 
-/** Per-layer view of the plot-trained bindings in an effective aesthetic
-  * environment. Plot-wide uniqueness and training live in
-  * `PlotScaleRegistry`; this view preserves layer provenance.
+/** Per-layer view of the plot-trained bindings in an effective aesthetic environment. Plot-wide
+  * uniqueness and training live in `PlotScaleRegistry`; this view preserves layer provenance.
   */
 final case class ScaleRegistry[Row] private (entries: Vector[RegisteredScale[Row]]):
   def declarations(layerIndex: Int): Vector[ScaleDeclaration] =
@@ -107,11 +105,14 @@ object ScaleRegistry:
   def fromEnv[Row](env: AesEnv[Row]): ScaleRegistry[Row] =
     fromMapping(env)
 
-/** The single trained scale table for a plot. Each aesthetic occurs at most
-  * once, in `Aesthetic` declaration order.
+/** The single trained scale table for a plot. Each aesthetic occurs at most once, in `Aesthetic`
+  * declaration order.
   */
 final case class PlotScaleRegistry private (scales: Vector[TrainedScale]):
-  require(scales.map(_.aesthetic).distinct.length == scales.length, "plot scales must be unique by aesthetic")
+  require(
+    scales.map(_.aesthetic).distinct.length == scales.length,
+    "plot scales must be unique by aesthetic"
+  )
 
   def forAesthetic(aesthetic: Aesthetic[?]): Option[TrainedScale] =
     scales.find(_.aesthetic == aesthetic.label)

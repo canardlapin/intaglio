@@ -2,9 +2,8 @@ package intaglio
 
 import scala.annotation.implicitNotFound
 
-/** Position mapping states carried by [[PlotBuilder]]. They make geom
-  * prerequisites visible to the Scala compiler without exposing compiler
-  * phases or requiring a macro-based syntax layer.
+/** Position mapping states carried by [[PlotBuilder]]. They make geom prerequisites visible to the
+  * Scala compiler without exposing compiler phases or requiring a macro-based syntax layer.
   */
 sealed trait PlotPosition[Row]
 
@@ -39,9 +38,9 @@ object HasXY:
 
 /** An executable, inspectable plotting value.
   *
-  * The public DSL stops here: callers can inspect or further compose the
-  * renderer-neutral [[Plot]], resolve it to a [[TrainedPlot]], or compile it
-  * to a [[Scene]]. Concrete renderers remain separate modules.
+  * The public DSL stops here: callers can inspect or further compose the renderer-neutral [[Plot]],
+  * resolve it to a [[TrainedPlot]], or compile it to a [[Scene]]. Concrete renderers remain
+  * separate modules.
   */
 final case class PlotProgram[Row] private[intaglio] (
     plot: Plot[Row],
@@ -55,10 +54,9 @@ final case class PlotProgram[Row] private[intaglio] (
 
 /** Immutable user-facing plotting builder.
   *
-  * Every operation returns another builder. Errors from checked scales,
-  * coordinates, and layer validation accumulate in `build` as
-  * `GraphicsError`; `resolve` and `scene` retain typed compiler errors. No
-  * exception or backend value crosses the API boundary.
+  * Every operation returns another builder. Errors from checked scales, coordinates, and layer
+  * validation accumulate in `build` as `GraphicsError`; `resolve` and `scene` retain typed compiler
+  * errors. No exception or backend value crosses the API boundary.
   */
 final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     private val data: Vector[Row],
@@ -110,8 +108,8 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   def group(value: Row => String): PlotBuilder[Row, Position] =
     mapAesthetics(_.withGroup(value))
 
-  /** Identify independently closed subpaths within one polygon group. This
-    * retains holes as geometry instead of flattening them into backend tricks.
+  /** Identify independently closed subpaths within one polygon group. This retains holes as
+    * geometry instead of flattening them into backend tricks.
     */
   def subpath(value: Row => String): PlotBuilder[Row, Position] =
     mapAesthetics(_.withSubpath(value))
@@ -157,10 +155,9 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   ): PlotBuilder[Row, Position] =
     bindContinuous(Aesthetic.Fill, value, name, palette, transform, oob)
 
-  /** Bind a scale you built yourself — a log transform, a fixed domain, a
-    * bespoke palette — without dropping to the low-level `Plot` API. The
-    * builder fixes `Row`, so no `ScaleBinding` type parameters appear:
-    * `encode(Aesthetic.X, _.x, xScale)`.
+  /** Bind a scale you built yourself — a log transform, a fixed domain, a bespoke palette — without
+    * dropping to the low-level `Plot` API. The builder fixes `Row`, so no `ScaleBinding` type
+    * parameters appear: `encode(Aesthetic.X, _.x, xScale)`.
     */
   def encode[In, Out](
       aesthetic: Aesthetic[Out],
@@ -265,9 +262,9 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val xy = ev(position)
     addLayer(Right(Layer.tile(xy.x, xy.y, width, height, data, resultMapping, params)))
 
-  /** Add a continuous-fill heatmap to a field-native plot. The equality
-    * witness makes this operation unavailable to ordinary row plots without
-    * introducing a specialized mutable builder hierarchy.
+  /** Add a continuous-fill heatmap to a field-native plot. The equality witness makes this
+    * operation unavailable to ordinary row plots without introducing a specialized mutable builder
+    * hierarchy.
     */
   def geomHeatmap(
       palette: Palette[Rgba] = options.theme.palettes.continuousPalette,
@@ -283,22 +280,28 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
         params = Some(params)
       )
 
-  /** Add already-extracted contour paths. The capability witness prevents
-    * ordinary row plots from accidentally claiming contour semantics.
+  /** Add already-extracted contour paths. The capability witness prevents ordinary row plots from
+    * accidentally claiming contour semantics.
     */
   def geomContour(
       params: Option[GraphicParams] = None
-  )(using contourRows: Row =:= ContourVertex, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using
+      contourRows: Row =:= ContourVertex,
+      ev: HasXY[Row, Position]
+  ): PlotBuilder[Row, Position] =
     geomLine(params = params)
 
-  /** Fill already-extracted contour bands. Each region is one compound
-    * polygon whose independently closed subpaths retain explicit holes.
+  /** Fill already-extracted contour bands. Each region is one compound polygon whose independently
+    * closed subpaths retain explicit holes.
     */
   def geomFilledContour(
       palette: Palette[Rgba] = options.theme.palettes.continuousPalette,
       name: String = "level",
       params: GraphicParams = GraphicParams.unsafe(stroke = None)
-  )(using bandRows: Row =:= ContourBandVertex, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using
+      bandRows: Row =:= ContourBandVertex,
+      ev: HasXY[Row, Position]
+  ): PlotBuilder[Row, Position] =
     scaleFillContinuous(row => bandRows(row).levelMid, palette, name)
       .geomPolygon(params = Some(params))
 
@@ -362,8 +365,8 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   def compilerOptions(value: PlotCompilerOptions): PlotBuilder[Row, Position] =
     updateOptions(value)
 
-  /** Add a self-contained layer whose row type differs from the plot data.
-    * The required facet policy keeps future faceting behavior explicit.
+  /** Add a self-contained layer whose row type differs from the plot data. The required facet
+    * policy keeps future faceting behavior explicit.
     */
   def independentLayer[LayerRow](
       data: Vector[LayerRow],
@@ -435,7 +438,12 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       nextPosition: Next,
       f: AesSpec[Row] => AesSpec[Row]
   ): PlotBuilder[Row, Next] =
-    new PlotBuilder(data, nextPosition, result.flatMap(current => current.withMapping(f(current.mapping))), options)
+    new PlotBuilder(
+      data,
+      nextPosition,
+      result.flatMap(current => current.withMapping(f(current.mapping))),
+      options
+    )
 
   private def updatePlot(f: Plot[Row] => Plot[Row]): PlotBuilder[Row, Position] =
     updateResult(result.map(f))
@@ -446,8 +454,8 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   private def updateOptions(next: PlotCompilerOptions): PlotBuilder[Row, Position] =
     new PlotBuilder(data, position, result, next)
 
-/** Start a renderer-neutral plot program. The default DSL policy derives axes
-  * and legends and uses the active theme's layout policy.
+/** Start a renderer-neutral plot program. The default DSL policy derives axes and legends and uses
+  * the active theme's layout policy.
   */
 def plot[Row](data: IterableOnce[Row]): PlotBuilder[Row, PlotPosition.Empty[Row]] =
   val rows = data.iterator.toVector
@@ -463,8 +471,8 @@ def plot[Row](data: IterableOnce[Row]): PlotBuilder[Row, PlotPosition.Empty[Row]
     )
   )
 
-/** Begin a field-native plot. Coordinates and cell extents derive from the
-  * checked field instead of being repeated as loosely related columns.
+/** Begin a field-native plot. Coordinates and cell extents derive from the checked field instead of
+  * being repeated as loosely related columns.
   */
 def plot(field: ScalarField2D): PlotBuilder[ScalarCell, PlotPosition.XY[ScalarCell]] =
   plot(field.cells).aes(_.x, _.y)
@@ -475,10 +483,12 @@ def plot(contours: ContourSet): PlotBuilder[ContourVertex, PlotPosition.XY[Conto
     .aes(_.x, _.y)
     .group(_.pathId)
 
-/** Begin a plot from filled-band regions while retaining each outer/hole ring
-  * as an independently closed polygon subpath.
+/** Begin a plot from filled-band regions while retaining each outer/hole ring as an independently
+  * closed polygon subpath.
   */
-def plot(bands: ContourBandSet): PlotBuilder[ContourBandVertex, PlotPosition.XY[ContourBandVertex]] =
+def plot(
+    bands: ContourBandSet
+): PlotBuilder[ContourBandVertex, PlotPosition.XY[ContourBandVertex]] =
   plot(bands.vertices)
     .aes(_.x, _.y)
     .group(_.regionId)

@@ -3,7 +3,8 @@ package intaglio
 class ContourSuite extends munit.FunSuite:
   test("a planar field produces one analytic contour path") {
     val axis = RegularGridAxis.vertexCenteredUnsafe(-1.0, 1.0, 5)
-    val field = ScalarField2D.tabulate(axis, axis)(_ + _).fold(error => fail(error.message), identity)
+    val field =
+      ScalarField2D.tabulate(axis, axis)(_ + _).fold(error => fail(error.message), identity)
     val contours = ContourSet
       .extract(field, ContourLevels.atUnsafe(Vector(0.25)))
       .fold(error => fail(error.message), identity)
@@ -19,7 +20,9 @@ class ContourSuite extends munit.FunSuite:
 
   test("a radial field produces a closed, nearly circular path") {
     val axis = RegularGridAxis.vertexCenteredUnsafe(-2.0, 2.0, 41)
-    val field = ScalarField2D.tabulate(axis, axis)((x, y) => x * x + y * y).fold(error => fail(error.message), identity)
+    val field = ScalarField2D
+      .tabulate(axis, axis)((x, y) => x * x + y * y)
+      .fold(error => fail(error.message), identity)
     val contours = ContourSet
       .extract(field, ContourLevels.atUnsafe(Vector(1.0)))
       .fold(error => fail(error.message), identity)
@@ -36,8 +39,10 @@ class ContourSuite extends munit.FunSuite:
     val axis = RegularGridAxis.vertexCenteredUnsafe(0.0, 1.0, 2)
     val field = ScalarField2D.unsafe(axis, axis, Vector(1.0, -1.0, -1.0, 1.0))
     val levels = ContourLevels.atUnsafe(Vector(0.0))
-    val above = ContourSet.extract(field, ContourConfig(levels, SaddleTiePolicy.ConnectAbove)).toOption.get
-    val below = ContourSet.extract(field, ContourConfig(levels, SaddleTiePolicy.ConnectBelow)).toOption.get
+    val above =
+      ContourSet.extract(field, ContourConfig(levels, SaddleTiePolicy.ConnectAbove)).toOption.get
+    val below =
+      ContourSet.extract(field, ContourConfig(levels, SaddleTiePolicy.ConnectBelow)).toOption.get
 
     assertEquals(above.lines.head.paths.length, 2)
     assertEquals(below.lines.head.paths.length, 2)
@@ -48,7 +53,10 @@ class ContourSuite extends munit.FunSuite:
     val axis = RegularGridAxis.vertexCenteredUnsafe(-1.0, 1.0, 7)
     val shiftedAxis = RegularGridAxis.vertexCenteredUnsafe(9.0, 11.0, 7)
     val source = ScalarField2D.tabulate(axis, axis)((x, y) => x * x + y).toOption.get
-    val shifted = ScalarField2D.tabulate(shiftedAxis, shiftedAxis)((x, y) => (x - 10.0) * (x - 10.0) + y - 10.0).toOption.get
+    val shifted = ScalarField2D
+      .tabulate(shiftedAxis, shiftedAxis)((x, y) => (x - 10.0) * (x - 10.0) + y - 10.0)
+      .toOption
+      .get
     val levels = ContourLevels.atUnsafe(Vector(0.5))
     val left = ContourSet.extract(source, levels).toOption.get.vertices
     val right = ContourSet.extract(shifted, levels).toOption.get.vertices

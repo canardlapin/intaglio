@@ -23,7 +23,12 @@ enum GraphicsError extends IntaglioError:
   case InvalidContourTopology(detail: String)
   case InvalidAlpha(value: Double)
   case InvalidLineWidth(value: Double)
-  case InvalidPatternParameter(recipe: String, parameter: String, value: Double, expectation: String)
+  case InvalidPatternParameter(
+      recipe: String,
+      parameter: String,
+      value: Double,
+      expectation: String
+  )
   case InvalidRotation(value: Double)
   case InvalidBreakCount(value: Int)
   case InvalidBreakWidth(value: Double)
@@ -47,12 +52,23 @@ enum GraphicsError extends IntaglioError:
   case StatAestheticConflict(stat: String, aesthetic: String)
   case UnsupportedStatAesthetic(stat: String, aesthetic: String)
   case InvalidStatParameter(stat: String, parameter: String, value: String)
-  case InvalidPositionParameter(position: String, parameter: String, value: Double, expectation: String)
+  case InvalidPositionParameter(
+      position: String,
+      parameter: String,
+      value: Double,
+      expectation: String
+  )
   case InvalidPositionGeom(position: String, geom: String)
   case NonFiniteStatInput(stat: String, aesthetic: String, value: Double)
   case InsufficientStatData(stat: String, minimum: Int, actual: Int)
   case StatInputOutsideBins(value: Double, lower: Double, upper: Double)
-  case StatInputOutsideGrid(stat: String, aesthetic: String, value: Double, lower: Double, upper: Double)
+  case StatInputOutsideGrid(
+      stat: String,
+      aesthetic: String,
+      value: Double,
+      lower: Double,
+      upper: Double
+  )
   case InvalidCoordinateRatio(value: Double)
   case DegenerateFixedAspect(xWidth: Double, yWidth: Double)
   case InvalidFacetColumns(value: Int)
@@ -142,7 +158,13 @@ enum GraphicsError extends IntaglioError:
         s"geom '$geom' requires aesthetic '$aesthetic'"
       case DuplicateScale(aesthetic) =>
         s"duplicate scale for aesthetic '$aesthetic'"
-      case ConflictingPlotScales(aesthetic, firstLayer, firstScale, conflictingLayer, conflictingScale) =>
+      case ConflictingPlotScales(
+            aesthetic,
+            firstLayer,
+            firstScale,
+            conflictingLayer,
+            conflictingScale
+          ) =>
         s"aesthetic '$aesthetic' uses different plot scales in layers $firstLayer ('$firstScale') and $conflictingLayer ('$conflictingScale'); bind one scale at plot level or reuse the same scale declaration"
       case UnsupportedGeom(geom) =>
         s"unsupported geom '$geom'"

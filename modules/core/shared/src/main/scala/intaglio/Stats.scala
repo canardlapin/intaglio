@@ -1,7 +1,7 @@
 package intaglio
 
-/** Values created by a statistical transformation rather than read directly
-  * from an input row. The type parameter keeps each computed field honest.
+/** Values created by a statistical transformation rather than read directly from an input row. The
+  * type parameter keeps each computed field honest.
   */
 enum ComputedAesthetic[A](val label: String):
   case Count extends ComputedAesthetic[Double]("count")
@@ -16,8 +16,8 @@ enum ComputedAesthetic[A](val label: String):
   case BinWidth extends ComputedAesthetic[Double]("bin_width")
   case BinMidpoint extends ComputedAesthetic[Double]("bin_midpoint")
 
-/** A finite typed record of computed aesthetics. Future statistics can add
-  * fields without turning their output into a string-keyed map.
+/** A finite typed record of computed aesthetics. Future statistics can add fields without turning
+  * their output into a string-keyed map.
   */
 final case class ComputedValues private (
     count: Option[Double] = None,
@@ -96,8 +96,8 @@ object ComputedValues:
       position = Some(position)
     )
 
-/** One output row from a statistic. `members` makes aggregation inspectable;
-  * `source` is the stable representative used by source-oriented diagnostics.
+/** One output row from a statistic. `members` makes aggregation inspectable; `source` is the stable
+  * representative used by source-oriented diagnostics.
   */
 final case class StatRow[Row] private[intaglio] (
     source: Row,
@@ -120,16 +120,15 @@ enum CountOrder:
   /** Use platform-stable Unicode lexicographic order. */
   case Lexicographic
 
-  /** Follow declared levels, then append undeclared observed levels in first
-    * occurrence order.
+  /** Follow declared levels, then append undeclared observed levels in first occurrence order.
     */
   case Declared(domain: DiscreteDomain)
 
   private[intaglio] def arrange(observed: Vector[String]): Vector[String] =
     val distinct = observed.distinct
     this match
-      case Encountered => distinct
-      case Lexicographic => distinct.sorted
+      case Encountered      => distinct
+      case Lexicographic    => distinct.sorted
       case Declared(domain) =>
         val levels = domain.levels
         levels.filter(distinct.contains) ++ distinct.filterNot(levels.contains)
@@ -165,9 +164,8 @@ object BinWidth:
 
   extension (value: BinWidth) def toDouble: Double = value
 
-/** A histogram partition chosen by count, width, or explicit break points.
-  * Construction is validated so the statistical kernel never sees an empty
-  * or incoherent partition.
+/** A histogram partition chosen by count, width, or explicit break points. Construction is
+  * validated so the statistical kernel never sees an empty or incoherent partition.
   */
 sealed trait HistogramBins
 
@@ -197,18 +195,28 @@ object HistogramBins:
     else if values.exists(value => !value.isFinite) then
       Left(GraphicsError.InvalidStatParameter("bin", "finite breaks", values.mkString(", ")))
     else if values.sliding(2).exists(pair => pair(0) >= pair(1)) then
-      Left(GraphicsError.InvalidStatParameter("bin", "strictly increasing breaks", values.mkString(", ")))
+      Left(
+        GraphicsError
+          .InvalidStatParameter("bin", "strictly increasing breaks", values.mkString(", "))
+      )
     else Right(AtBreaks(values))
 
   def breaksUnsafe(values: Vector[Double]): HistogramBins =
     breaks(values).orThrow
 
-  private[intaglio] def partition(spec: HistogramBins, minimum: Double, maximum: Double): Vector[Double] =
+  private[intaglio] def partition(
+      spec: HistogramBins,
+      minimum: Double,
+      maximum: Double
+  ): Vector[Double] =
     spec match
       case ByCount(value) =>
         val count = value.toInt
         if minimum == maximum then Vector(minimum - 0.5, maximum + 0.5)
-        else Vector.tabulate(count + 1)(idx => minimum + (maximum - minimum) * idx.toDouble / count.toDouble)
+        else
+          Vector.tabulate(count + 1)(idx =>
+            minimum + (maximum - minimum) * idx.toDouble / count.toDouble
+          )
       case ByWidth(value) =>
         val width = value.toDouble
         val lower = math.floor(minimum / width) * width
@@ -251,9 +259,8 @@ object DensityPoints:
 
   extension (value: DensityPoints) def toInt: Int = value
 
-/** Validated Gaussian kernel-density configuration. When bandwidth is absent,
-  * the transform uses R's `bw.nrd0` rule. An absent domain spans the observed
-  * data exactly.
+/** Validated Gaussian kernel-density configuration. When bandwidth is absent, the transform uses
+  * R's `bw.nrd0` rule. An absent domain spans the observed data exactly.
   */
 final case class DensityConfig private (
     bandwidth: Option[DensityBandwidth],
@@ -265,7 +272,10 @@ object DensityConfig:
   val default: DensityConfig =
     DensityConfig(None, DensityPoints.unsafe(512), None)
 
-  def automatic(points: Int = 512, domain: Option[Interval] = None): Either[GraphicsError, DensityConfig] =
+  def automatic(
+      points: Int = 512,
+      domain: Option[Interval] = None
+  ): Either[GraphicsError, DensityConfig] =
     DensityPoints(points).map(DensityConfig(None, _, domain))
 
   def fixed(
@@ -286,8 +296,8 @@ object DensityConfig:
     fixed(bandwidth, points, domain).orThrow
 
 private[intaglio] object DensityMath:
-  /** R's `bw.nrd0`: the standard deviation or robust IQR scale, with the
-    * same constant-data fallbacks, followed by Silverman's 0.9 rule.
+  /** R's `bw.nrd0`: the standard deviation or robust IQR scale, with the same constant-data
+    * fallbacks, followed by Silverman's 0.9 rule.
     */
   def nrd0(values: Array[Double]): Double =
     val sorted = values.clone()
@@ -335,7 +345,8 @@ object Stat:
   ) extends Stat[Row]:
     override val label: String = "count"
 
-  final case class Bin[Row](x: Row => Double, bins: HistogramBins = HistogramBins.default) extends Stat[Row]:
+  final case class Bin[Row](x: Row => Double, bins: HistogramBins = HistogramBins.default)
+      extends Stat[Row]:
     override val label: String = "bin"
 
   final case class Summary[Row](
@@ -345,5 +356,6 @@ object Stat:
   ) extends Stat[Row]:
     override val label: String = "summary"
 
-  final case class Density[Row](x: Row => Double, config: DensityConfig = DensityConfig.default) extends Stat[Row]:
+  final case class Density[Row](x: Row => Double, config: DensityConfig = DensityConfig.default)
+      extends Stat[Row]:
     override val label: String = "density"

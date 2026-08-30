@@ -1,16 +1,16 @@
 package intaglio
 
-/** Runs the renderer conformance contract against the shared device lowering,
-  * which acts as the reference backend: every case must resolve to numeric
-  * device primitives deterministically with all named markers intact.
+/** Runs the renderer conformance contract against the shared device lowering, which acts as the
+  * reference backend: every case must resolve to numeric device primitives deterministically with
+  * all named markers intact.
   */
 class SceneConformanceSuite extends munit.FunSuite:
 
   private def discs(elements: Vector[DeviceElement]): Vector[DevicePrimitive.Disc] =
     elements.flatMap {
       case DeviceElement.Mark(disc: DevicePrimitive.Disc) => Vector(disc)
-      case DeviceElement.Mark(_)                           => Vector.empty
-      case DeviceElement.Group(_, _, _, children)          => discs(children)
+      case DeviceElement.Mark(_)                          => Vector.empty
+      case DeviceElement.Group(_, _, _, children)         => discs(children)
     }
 
   private object DeviceHarness extends RendererHarness[DeviceScene]:
@@ -37,12 +37,12 @@ class SceneConformanceSuite extends munit.FunSuite:
 
     private def primitiveName(primitive: DevicePrimitive): Option[GraphicsName] =
       primitive match
-        case DevicePrimitive.Disc(_, _, _, _, name)          => name
-        case DevicePrimitive.Polyline(_, _, _, name)         => name
-        case DevicePrimitive.CompoundPolygon(_, _, name)     => name
-        case DevicePrimitive.RectShape(_, _, _, _, _, name)  => name
+        case DevicePrimitive.Disc(_, _, _, _, name)                   => name
+        case DevicePrimitive.Polyline(_, _, _, name)                  => name
+        case DevicePrimitive.CompoundPolygon(_, _, name)              => name
+        case DevicePrimitive.RectShape(_, _, _, _, _, name)           => name
         case DevicePrimitive.TextRun(_, _, _, _, _, _, _, _, _, name) => name
-        case DevicePrimitive.Image(_, _, _, _, _, _, _, name) => name
+        case DevicePrimitive.Image(_, _, _, _, _, _, _, name)         => name
 
     private def satisfiesElement(element: DeviceElement, requirement: RenderRequirement): Boolean =
       element match
@@ -55,29 +55,54 @@ class SceneConformanceSuite extends munit.FunSuite:
             case _ => false
           groupMatches || children.exists(satisfiesElement(_, requirement))
 
-    private def satisfiesPrimitive(primitive: DevicePrimitive, requirement: RenderRequirement): Boolean =
+    private def satisfiesPrimitive(
+        primitive: DevicePrimitive,
+        requirement: RenderRequirement
+    ): Boolean =
       requirement match
         case RenderRequirement.Primitive(name, kind) =>
           primitiveName(primitive).contains(name) && primitiveKind(primitive) == kind
-        case RenderRequirement.Style(name, stroke, fill, lineWidth, lineType, lineCap, lineJoin, alpha) =>
+        case RenderRequirement.Style(
+              name,
+              stroke,
+              fill,
+              lineWidth,
+              lineType,
+              lineCap,
+              lineJoin,
+              alpha
+            ) =>
           primitiveName(primitive).contains(name) &&
-            primitiveParams(primitive).exists { gp =>
-              gp.stroke == stroke && gp.fill == fill && gp.lineWidth == lineWidth &&
-              gp.lineType == lineType && gp.lineCap == lineCap && gp.lineJoin == lineJoin && gp.alpha == alpha
-            }
+          primitiveParams(primitive).exists { gp =>
+            gp.stroke == stroke && gp.fill == fill && gp.lineWidth == lineWidth &&
+            gp.lineType == lineType && gp.lineCap == lineCap && gp.lineJoin == lineJoin && gp.alpha == alpha
+          }
         case RenderRequirement.PatternFill(name, paint, alpha) =>
           primitiveName(primitive).contains(name) &&
-            primitiveParams(primitive).exists(gp => gp.fillPattern.contains(paint) && gp.alpha == alpha)
+          primitiveParams(primitive).exists(gp =>
+            gp.fillPattern.contains(paint) && gp.alpha == alpha
+          )
         case RenderRequirement.Text(name, horizontal, vertical, rotated) =>
           primitive match
             case DevicePrimitive.TextRun(_, _, _, h, v, rotation, _, _, _, primitiveName) =>
-              primitiveName.contains(name) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
+              primitiveName.contains(
+                name
+              ) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
             case _ => false
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           primitive match
-            case DevicePrimitive.Image(image, _, _, _, _, actualInterpolation, actualAlpha, primitiveName) =>
+            case DevicePrimitive.Image(
+                  image,
+                  _,
+                  _,
+                  _,
+                  _,
+                  actualInterpolation,
+                  actualAlpha,
+                  primitiveName
+                ) =>
               primitiveName.contains(name) && image.dimensions == dimensions &&
-                actualInterpolation == interpolation && actualAlpha == alpha
+              actualInterpolation == interpolation && actualAlpha == alpha
             case _ => false
         case RenderRequirement.Group(_, _, _) => false
 
@@ -98,12 +123,12 @@ class SceneConformanceSuite extends munit.FunSuite:
 
     private def primitiveParams(primitive: DevicePrimitive): Option[GraphicParams] =
       primitive match
-        case DevicePrimitive.Disc(_, _, _, gp, _) => Some(gp)
-        case DevicePrimitive.Polyline(_, _, gp, _) => Some(gp)
-        case DevicePrimitive.CompoundPolygon(_, gp, _) => Some(gp)
-        case DevicePrimitive.RectShape(_, _, _, _, gp, _) => Some(gp)
+        case DevicePrimitive.Disc(_, _, _, gp, _)                   => Some(gp)
+        case DevicePrimitive.Polyline(_, _, gp, _)                  => Some(gp)
+        case DevicePrimitive.CompoundPolygon(_, gp, _)              => Some(gp)
+        case DevicePrimitive.RectShape(_, _, _, _, gp, _)           => Some(gp)
         case DevicePrimitive.TextRun(_, _, _, _, _, _, _, _, gp, _) => Some(gp)
-        case DevicePrimitive.Image(_, _, _, _, _, _, _, _) => None
+        case DevicePrimitive.Image(_, _, _, _, _, _, _, _)          => None
 
     private def firstNonFinite(elements: Vector[DeviceElement]): Option[String] =
       elements.iterator.map(nonFinite).collectFirst { case Some(problem) => problem }
@@ -112,10 +137,11 @@ class SceneConformanceSuite extends munit.FunSuite:
       element match
         case DeviceElement.Mark(primitive) =>
           val values = primitive match
-            case DevicePrimitive.Disc(cx, cy, r, _, _)              => Vector(cx, cy, r)
-            case DevicePrimitive.Polyline(points, _, _, _)          => points.flatMap(p => Vector(p.x, p.y))
-            case DevicePrimitive.CompoundPolygon(rings, _, _)       => rings.flatten.flatMap(p => Vector(p.x, p.y))
-            case DevicePrimitive.RectShape(x, y, w, h, _, _)        => Vector(x, y, w, h)
+            case DevicePrimitive.Disc(cx, cy, r, _, _)     => Vector(cx, cy, r)
+            case DevicePrimitive.Polyline(points, _, _, _) => points.flatMap(p => Vector(p.x, p.y))
+            case DevicePrimitive.CompoundPolygon(rings, _, _) =>
+              rings.flatten.flatMap(p => Vector(p.x, p.y))
+            case DevicePrimitive.RectShape(x, y, w, h, _, _)              => Vector(x, y, w, h)
             case DevicePrimitive.TextRun(_, x, y, _, _, rot, fs, _, _, _) => Vector(x, y, rot, fs)
             case DevicePrimitive.Image(_, x, y, w, h, _, alpha, _) => Vector(x, y, w, h, alpha)
           if values.forall(_.isFinite) then None
@@ -143,7 +169,8 @@ class SceneConformanceSuite extends munit.FunSuite:
   }
 
   test("group selection filters cases by behavior family") {
-    val primitives = RendererConformance.group(ConformanceGroup.Primitive).fold(e => fail(e.message), identity)
+    val primitives =
+      RendererConformance.group(ConformanceGroup.Primitive).fold(e => fail(e.message), identity)
     assert(primitives.nonEmpty)
     assert(primitives.forall(_.group == ConformanceGroup.Primitive))
   }
@@ -158,14 +185,16 @@ class SceneConformanceSuite extends munit.FunSuite:
     val device = DeviceScene
       .fromScene(scene, DeviceContext.unsafe(640.0, 480.0))
       .fold(e => fail(e.message), identity)
-    val (clip, discs) = device.elements.collectFirst {
-      case DeviceElement.Group(name, Some(clip), _, children)
-          if name.exists(_.value == "plot-panel") =>
-        val discs = children.collect {
-          case DeviceElement.Mark(disc: DevicePrimitive.Disc) => disc
-        }
-        (clip, discs)
-    }.getOrElse(fail("missing scaled-plot panel"))
+    val (clip, discs) = device.elements
+      .collectFirst {
+        case DeviceElement.Group(name, Some(clip), _, children)
+            if name.exists(_.value == "plot-panel") =>
+          val discs = children.collect { case DeviceElement.Mark(disc: DevicePrimitive.Disc) =>
+            disc
+          }
+          (clip, discs)
+      }
+      .getOrElse(fail("missing scaled-plot panel"))
 
     assertEquals(discs.length, 3)
     discs.foreach { disc =>

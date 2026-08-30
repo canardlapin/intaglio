@@ -42,7 +42,10 @@ class PatternTileSuite extends munit.FunSuite:
     val ink = tile.image.pixelUnsafe(0, 4)
     assertEquals((ink.red, ink.green, ink.blue, ink.alpha), (170, 0, 85, 191))
     val background = tile.image.pixelUnsafe(4, 4)
-    assertEquals((background.red, background.green, background.blue, background.alpha), (0, 0, 255, 128))
+    assertEquals(
+      (background.red, background.green, background.blue, background.alpha),
+      (0, 0, 255, 128)
+    )
   }
 
   test("positive hatch angles turn clockwise from a vertical rule in y-down space") {

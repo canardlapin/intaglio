@@ -25,9 +25,15 @@ class SceneSuite extends munit.FunSuite:
   }
 
   test("grob constructors reject empty geometries before renderer boundaries") {
-    assertEquals(Grob.points(Vector.empty).left.toOption, Some(GraphicsError.EmptyGeometry("points")))
+    assertEquals(
+      Grob.points(Vector.empty).left.toOption,
+      Some(GraphicsError.EmptyGeometry("points"))
+    )
     assertEquals(Grob.lines(Vector.empty).left.toOption, Some(GraphicsError.EmptyGeometry("lines")))
-    assertEquals(Grob.segments(Vector.empty).left.toOption, Some(GraphicsError.EmptyGeometry("segments")))
+    assertEquals(
+      Grob.segments(Vector.empty).left.toOption,
+      Some(GraphicsError.EmptyGeometry("segments"))
+    )
     assertEquals(
       Grob.polygon(Vector(p0, p1)).left.toOption,
       Some(GraphicsError.InvalidGeometrySize("polygon", 3, 2))
@@ -36,7 +42,13 @@ class SceneSuite extends munit.FunSuite:
 
   test("public polygons lower as closed renderer-neutral polylines") {
     val polygon = Grob
-      .polygon(Vector(Point.nativeUnsafe(0.0, 0.0), Point.nativeUnsafe(1.0, 0.0), Point.nativeUnsafe(0.5, 1.0)))
+      .polygon(
+        Vector(
+          Point.nativeUnsafe(0.0, 0.0),
+          Point.nativeUnsafe(1.0, 0.0),
+          Point.nativeUnsafe(0.5, 1.0)
+        )
+      )
       .fold(error => fail(error.message), identity)
     val device = DeviceScene
       .fromScene(Scene(Vector(polygon)), DeviceContext.unsafe(100.0, 100.0))
@@ -51,7 +63,10 @@ class SceneSuite extends munit.FunSuite:
   test("color and length constructors keep invalid scalar values out of the scene tree") {
     assertEquals(Rgba(300, 0, 0).left.toOption, Some(GraphicsError.InvalidColorChannel("red", 300)))
     assertEquals(Rgba(0, 0, 0, 1.5).left.toOption, Some(GraphicsError.InvalidAlpha(1.5)))
-    assertEquals(GraphicParams.checked(lineWidth = -1.0).left.toOption, Some(GraphicsError.InvalidLineWidth(-1.0)))
+    assertEquals(
+      GraphicParams.checked(lineWidth = -1.0).left.toOption,
+      Some(GraphicsError.InvalidLineWidth(-1.0))
+    )
     assert(Length(Double.NaN, LengthUnit.Npc).left.toOption.exists {
       case GraphicsError.InvalidLength(value) => value.isNaN
       case _                                  => false
@@ -62,10 +77,12 @@ class SceneSuite extends munit.FunSuite:
       case _                                    => false
     })
     val image = RasterImage.solid(RasterDimensions.unsafe(1, 1), Rgba32.unsafe(0, 0, 0))
-    assert(Grob.image(image, p0, Size.npcUnsafe(0.5, 0.5), alpha = Double.NaN).left.toOption.exists {
-      case GraphicsError.InvalidAlpha(value) => value.isNaN
-      case _                                 => false
-    })
+    assert(
+      Grob.image(image, p0, Size.npcUnsafe(0.5, 0.5), alpha = Double.NaN).left.toOption.exists {
+        case GraphicsError.InvalidAlpha(value) => value.isNaN
+        case _                                 => false
+      }
+    )
   }
 
   test("graphic parameters define backend-neutral stroke geometry defaults") {
@@ -117,7 +134,8 @@ class SceneSuite extends munit.FunSuite:
   }
 
   test("pattern fill is explicit and mutually exclusive with solid fill") {
-    val recipe = PatternRecipe.angledHatch(30.0, 8.0, 1.5).fold(error => fail(error.message), identity)
+    val recipe =
+      PatternRecipe.angledHatch(30.0, 8.0, 1.5).fold(error => fail(error.message), identity)
     val paint = PatternPaint(recipe, Rgba.Black, Some(Rgba.White))
     val solid = GraphicParams.unsafe(fill = Some(Rgba.unsafe(10, 20, 30)))
     val patterned = solid.withPatternFill(paint)
@@ -137,7 +155,9 @@ class SceneSuite extends munit.FunSuite:
 
   test("length expressions preserve symbolic unit composition") {
     val expr =
-      LengthExpr.npcUnsafe(0.5) + LengthExpr(Length.pointsUnsafe(2.0)) - LengthExpr.nativeUnsafe(1.0)
+      LengthExpr.npcUnsafe(0.5) + LengthExpr(Length.pointsUnsafe(2.0)) - LengthExpr.nativeUnsafe(
+        1.0
+      )
     val scaled =
       expr.times(2.0).toOption.get
 

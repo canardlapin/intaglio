@@ -1,7 +1,7 @@
 package intaglio
 
-/** Complete leaf styles for axes. `None` in a [[GuideSpec]] means use these
-  * values; an explicit guide style remains authoritative.
+/** Complete leaf styles for axes. `None` in a [[GuideSpec]] means use these values; an explicit
+  * guide style remains authoritative.
   */
 final case class AxisTheme(
     line: GraphicParams,
@@ -20,16 +20,16 @@ final case class PlotTextTheme(
     subtitle: GraphicParams
 )
 
-/** Optional panel decoration. Absence is meaningful: the default theme adds
-  * no marks that were not requested by the plot.
+/** Optional panel decoration. Absence is meaningful: the default theme adds no marks that were not
+  * requested by the plot.
   */
 final case class PanelTheme(
     background: Option[GraphicParams] = None,
     grid: Option[GraphicParams] = None
 )
 
-/** Default palettes available to scale constructors without introducing a
-  * mutable registry or implicit ambient state.
+/** Default palettes available to scale constructors without introducing a mutable registry or
+  * implicit ambient state.
   */
 final case class ThemePalettes(
     discrete: Vector[Rgba],
@@ -44,9 +44,9 @@ final case class ThemePalettes(
   def continuousPalette: Palette[Rgba] =
     Palette.gradient(continuousLow, continuousHigh)
 
-/** Immutable plot defaults resolved once by [[PlotCompiler]]. A theme is a
-  * finite product of complete values: there is no cascade, selector language,
-  * mutable global, or backend-specific styling hook.
+/** Immutable plot defaults resolved once by [[PlotCompiler]]. A theme is a finite product of
+  * complete values: there is no cascade, selector language, mutable global, or backend-specific
+  * styling hook.
   */
 final case class Theme(
     geom: GraphicParams,
@@ -66,9 +66,8 @@ final case class Theme(
   requirePointFont("plot.title", plotText.title)
   requirePointFont("plot.subtitle", plotText.subtitle)
 
-  /** Layout measures the exact typography later emitted into guide and label
-    * grobs. Non-typographic spacing and the text-metrics capability remain
-    * configurable through `layout`.
+  /** Layout measures the exact typography later emitted into guide and label grobs. Non-typographic
+    * spacing and the text-metrics capability remain configurable through `layout`.
     */
   def layoutPolicy: LayoutPolicy =
     layoutPolicy(layout)
@@ -137,8 +136,8 @@ object Theme:
       layout = LayoutPolicy()
     )
 
-  /** A quiet publication-oriented base: white panel, pale grid, crisp axes.
-    * Callers customize it with ordinary case-class `copy` operations.
+  /** A quiet publication-oriented base: white panel, pale grid, crisp axes. Callers customize it
+    * with ordinary case-class `copy` operations.
     */
   val minimal: Theme =
     default.copy(

@@ -32,7 +32,10 @@ class CoordSuite extends munit.FunSuite:
 
     assertEquals(layer.rows.map(row => row.x -> row.y), Vector(10.0 -> 1.0, 20.0 -> 2.0))
     val points = layer.grobs.map(_.asInstanceOf[Grob.Points].points.head)
-    assertEquals(points.map(point => native(point.x) -> native(point.y)), Vector(10.0 -> 1.0, 20.0 -> 2.0))
+    assertEquals(
+      points.map(point => native(point.x) -> native(point.y)),
+      Vector(10.0 -> 1.0, 20.0 -> 2.0)
+    )
   }
 
   test("flipped histograms become horizontal bars with swapped panel ranges") {
@@ -63,8 +66,10 @@ class CoordSuite extends munit.FunSuite:
   test("flipped coordinates transpose every ring of compound polygons") {
     val axis = RegularGridAxis.vertexCenteredUnsafe(-2.0, 2.0, 41)
     val field = ScalarField2D.tabulate(axis, axis)((x, y) => x * x + y * y).toOption.get
-    val bands = ContourBandSet.extract(field, ContourBreaks.atUnsafe(Vector(0.25, 1.0))).toOption.get
-    val ordinary = plot(bands).geomFilledContour().resolve.fold(error => fail(error.message), identity)
+    val bands =
+      ContourBandSet.extract(field, ContourBreaks.atUnsafe(Vector(0.25, 1.0))).toOption.get
+    val ordinary =
+      plot(bands).geomFilledContour().resolve.fold(error => fail(error.message), identity)
     val flipped =
       plot(bands)
         .coord(Coord.Flipped())

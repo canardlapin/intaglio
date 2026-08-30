@@ -6,9 +6,8 @@ import java.awt.image.BufferedImage
 import java.util.Locale
 import intaglio.{TextMetrics, TextStyle}
 
-/** Opt-in Java2D font measurement for [[intaglio.LayoutPolicy]].
-  * Missing requested families resolve to `fallbackFamily`; if that family is
-  * unavailable, Java's logical `SansSerif` family is used.
+/** Opt-in Java2D font measurement for [[intaglio.LayoutPolicy]]. Missing requested families resolve
+  * to `fallbackFamily`; if that family is unavailable, Java's logical `SansSerif` family is used.
   */
 final class Java2DTextMetrics private (
     val fallbackFamily: String,
@@ -42,12 +41,10 @@ final class Java2DTextMetrics private (
 
 object Java2DTextMetrics:
   def apply(fallbackFamily: String = Font.SANS_SERIF): Java2DTextMetrics =
-    val families = GraphicsEnvironment
-      .getLocalGraphicsEnvironment
-      .getAvailableFontFamilyNames
-      .iterator
-      .map(value => value.toLowerCase(Locale.ROOT) -> value)
-      .toMap
+    val families =
+      GraphicsEnvironment.getLocalGraphicsEnvironment.getAvailableFontFamilyNames.iterator
+        .map(value => value.toLowerCase(Locale.ROOT) -> value)
+        .toMap
     val requestedFallback = Option(fallbackFamily).map(_.trim).filter(_.nonEmpty)
     val resolvedFallback = requestedFallback
       .flatMap(value => families.get(value.toLowerCase(Locale.ROOT)))

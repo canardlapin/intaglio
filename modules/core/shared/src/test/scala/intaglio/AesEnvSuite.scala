@@ -67,7 +67,8 @@ class AesEnvSuite extends munit.FunSuite:
 
   test("inherit prefers scaled local, then scaled parent, then local, then parent") {
     val row = Row(1.0, 2.0, "A")
-    val scaledColor = ScaleBinding[Row, String, Rgba](Aesthetic.Color, _.condition, colorScale).toAesValue
+    val scaledColor =
+      ScaleBinding[Row, String, Rgba](Aesthetic.Color, _.condition, colorScale).toAesValue
     val localDirect = AesSpec.empty[Row].withColor(Rgba.White)
     val parentScaled = AesEnv.empty[Row].updated(Aesthetic.Color, scaledColor)
 
@@ -98,7 +99,10 @@ class AesEnvSuite extends munit.FunSuite:
       .flatMap(_.bind(ScaleBinding[Row, Double, Double](Aesthetic.X, _.x, xScale)))
       .fold(e => fail(e.message), identity)
     val registry = ScaleRegistry.fromMapping(mapping)
-    assertEquals(registry.entries.map(_.aesthetic), Vector[Aesthetic[?]](Aesthetic.X, Aesthetic.Color))
+    assertEquals(
+      registry.entries.map(_.aesthetic),
+      Vector[Aesthetic[?]](Aesthetic.X, Aesthetic.Color)
+    )
     val declarations = registry.declarations(3)
     assertEquals(declarations.map(_.aesthetic), Vector("x", "color"))
     assertEquals(declarations.map(_.layerIndex), Vector(3, 3))

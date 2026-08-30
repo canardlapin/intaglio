@@ -47,7 +47,10 @@ private[svg] object PatternFillAssuranceFixture:
     SvgRenderer.render(scene, Options).orThrow.value
 
   def measure(svg: String): PatternFillStructuralMetrics =
-    require(svg.forall(_ <= 0x7f), "the assurance fixture must remain ASCII for portable byte accounting")
+    require(
+      svg.forall(_ <= 0x7f),
+      "the assurance fixture must remain ASCII for portable byte accounting"
+    )
     val names = semanticNames(svg)
     PatternFillStructuralMetrics(
       markCount = MarkCount,
@@ -55,7 +58,8 @@ private[svg] object PatternFillAssuranceFixture:
       uniqueSemanticNameCount = names.distinct.length,
       svgElementCount = svg.linesIterator.count { raw =>
         val line = raw.trim
-        line.startsWith("<") && !line.startsWith("</") && !line.startsWith("<?") && !line.startsWith("<!")
+        line.startsWith("<") && !line.startsWith("</") && !line.startsWith("<?") && !line
+          .startsWith("<!")
       },
       patternDefinitionCount = occurrences(svg, "<pattern id=\""),
       serializedBytes = svg.length,
@@ -89,14 +93,7 @@ private[svg] object PatternFillAssuranceFixture:
 
 private[svg] object PortableSha256:
   private val Initial = Array(
-    0x6a09e667,
-    0xbb67ae85,
-    0x3c6ef372,
-    0xa54ff53a,
-    0x510e527f,
-    0x9b05688c,
-    0x1f83d9ab,
-    0x5be0cd19
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
   )
 
   private val Constants = Array(
@@ -130,15 +127,18 @@ private[svg] object PortableSha256:
       var index = 0
       while index < 16 do
         val base = offset + index * 4
-        words(index) =
-          (message(base) << 24) |
-            (message(base + 1) << 16) |
-            (message(base + 2) << 8) |
-            message(base + 3)
+        words(index) = (message(base) << 24) |
+          (message(base + 1) << 16) |
+          (message(base + 2) << 8) |
+          message(base + 3)
         index += 1
       while index < 64 do
-        val s0 = rotateRight(words(index - 15), 7) ^ rotateRight(words(index - 15), 18) ^ (words(index - 15) >>> 3)
-        val s1 = rotateRight(words(index - 2), 17) ^ rotateRight(words(index - 2), 19) ^ (words(index - 2) >>> 10)
+        val s0 = rotateRight(words(index - 15), 7) ^ rotateRight(words(index - 15), 18) ^ (words(
+          index - 15
+        ) >>> 3)
+        val s1 = rotateRight(words(index - 2), 17) ^ rotateRight(words(index - 2), 19) ^ (words(
+          index - 2
+        ) >>> 10)
         words(index) = words(index - 16) + s0 + words(index - 7) + s1
         index += 1
 
@@ -203,7 +203,10 @@ class PatternFillAssuranceSuite extends munit.FunSuite:
     assertEquals(metrics.markCount, PatternFillAssuranceFixture.MarkCount)
     assertEquals(metrics.semanticNameCount, PatternFillAssuranceFixture.MarkCount)
     assertEquals(metrics.uniqueSemanticNameCount, PatternFillAssuranceFixture.MarkCount)
-    assertEquals(PatternFillAssuranceFixture.semanticNames(first), PatternFillAssuranceFixture.expectedNames)
+    assertEquals(
+      PatternFillAssuranceFixture.semanticNames(first),
+      PatternFillAssuranceFixture.expectedNames
+    )
     assertEquals(metrics.patternDefinitionCount, 1)
     assert(metrics.svgElementCount < PatternFillAssuranceFixture.MaxElements)
     assert(metrics.serializedBytes < PatternFillAssuranceFixture.MaxSerializedBytes)

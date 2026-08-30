@@ -1,7 +1,7 @@
 package intaglio
 
-/** Position-scale sharing across facet panels. Non-position scales remain
-  * plot-global under every policy, so color and fill legends stay coherent.
+/** Position-scale sharing across facet panels. Non-position scales remain plot-global under every
+  * policy, so color and fill legends stay coherent.
   */
 enum FacetScales:
   case Shared
@@ -15,9 +15,8 @@ enum FacetScales:
   def yIsFree: Boolean =
     this == FreeY || this == Free
 
-/** How an independent layer whose row type differs from the plot's row type
-  * participates in facets. Same-row layers continue to use the plot's typed
-  * `FacetSpec` directly.
+/** How an independent layer whose row type differs from the plot's row type participates in facets.
+  * Same-row layers continue to use the plot's typed `FacetSpec` directly.
   */
 sealed trait LayerFacetPolicy[-Row]:
   private[intaglio] def includes(cell: FacetCell, row: Row): Boolean

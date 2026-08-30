@@ -77,7 +77,9 @@ class ThemeSuite extends munit.FunSuite:
         .get
     val plot =
       Plot(rows)
-        .withScale(ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale))
+        .withScale(
+          ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale)
+        )
         .flatMap(_.addLayer(Layer.point[Observation](_.x, _.y)))
         .map(_.withTitle("Signal").withSubtitle("By condition").withAxisTitles("Time", "Value"))
         .toOption
@@ -97,17 +99,26 @@ class ThemeSuite extends munit.FunSuite:
       Vector("plot-panel-background", "plot-panel-grid-x", "plot-panel-grid-y")
     )
 
-    val bottom = trained.guides.collectFirst {
-      case ResolvedGuide(axis: GuideSpec.Axis, grob: Grob.Group) if axis.side == AxisSide.Bottom => grob
-    }.getOrElse(fail("missing bottom axis"))
+    val bottom = trained.guides
+      .collectFirst {
+        case ResolvedGuide(axis: GuideSpec.Axis, grob: Grob.Group)
+            if axis.side == AxisSide.Bottom =>
+          grob
+      }
+      .getOrElse(fail("missing bottom axis"))
     assertEquals(bottom.children.head.asInstanceOf[Grob.Segments].gp, themed.axis.line)
     assertEquals(bottom.children(1).asInstanceOf[Grob.Segments].gp, themed.axis.tick)
-    assertEquals(bottom.children.collectFirst { case text: Grob.Text => text.gp }, Some(themed.axis.text))
+    assertEquals(
+      bottom.children.collectFirst { case text: Grob.Text => text.gp },
+      Some(themed.axis.text)
+    )
     assertEquals(bottom.children.last.asInstanceOf[Grob.Text].gp, themed.axis.title)
 
-    val legend = trained.guides.collectFirst {
-      case ResolvedGuide(_: GuideSpec.Legend, grob: Grob.Group) => grob
-    }.getOrElse(fail("missing legend"))
+    val legend = trained.guides
+      .collectFirst { case ResolvedGuide(_: GuideSpec.Legend, grob: Grob.Group) =>
+        grob
+      }
+      .getOrElse(fail("missing legend"))
     assertEquals(legend.children.head.asInstanceOf[Grob.Text].gp, themed.legend.title)
     assertEquals(legend.children(2).asInstanceOf[Grob.Text].gp, themed.legend.text)
     assertEquals(trained.labelGrobs.head.asInstanceOf[Grob.Text].gp, themed.plotText.title)

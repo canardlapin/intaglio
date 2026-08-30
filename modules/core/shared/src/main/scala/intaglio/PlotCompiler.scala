@@ -4,10 +4,9 @@ package intaglio
   *
   *   - [[GuidePolicy.NoGuides]] — no guides; a layout is optional.
   *   - [[GuidePolicy.Explicit]] — exactly the given specs.
-  *   - [[GuidePolicy.Derived]] — routine axes and legends derive from the
-  *     layers' trained scales (or from the panel ranges when a position is
-  *     unscaled). An explicit override axis suppresses the derived axis on
-  *     the same side, and any explicit legend suppresses derived legends;
+  *   - [[GuidePolicy.Derived]] — routine axes and legends derive from the layers' trained scales
+  *     (or from the panel ranges when a position is unscaled). An explicit override axis suppresses
+  *     the derived axis on the same side, and any explicit legend suppresses derived legends;
   *     overrides are always included.
   */
 enum GuidePolicy:
@@ -21,10 +20,10 @@ enum GuidePolicy:
       case Explicit(specs) => specs.nonEmpty
       case Derived(_, _)   => true
 
-/** Padding applied to compiler-derived panel ranges after scale training and
-  * guide derivation. `multiplicative` is a fraction of the trained width;
-  * `additive` is in panel-native units. Degenerate ranges use `zeroWidth` as
-  * their reference width so a single point still receives visible framing.
+/** Padding applied to compiler-derived panel ranges after scale training and guide derivation.
+  * `multiplicative` is a fraction of the trained width; `additive` is in panel-native units.
+  * Degenerate ranges use `zeroWidth` as their reference width so a single point still receives
+  * visible framing.
   */
 final case class RangeExpansion private (
     multiplicative: Double,
@@ -80,8 +79,8 @@ object PlotCompilerOptions:
   val default: PlotCompilerOptions =
     PlotCompilerOptions()
 
-/** Inspectable trained layer whose hidden row type remains attached to its
-  * mapping, statistic, resolved rows, and dropped-row provenance.
+/** Inspectable trained layer whose hidden row type remains attached to its mapping, statistic,
+  * resolved rows, and dropped-row provenance.
   */
 sealed trait TrainedLayer:
   type Row
@@ -129,10 +128,9 @@ object TrainedDroppedRow:
       type Row = Row0
       val value: DroppedRow[Row] = row
 
-/** A compiled plot. Layers are packed existentially because an independent
-  * layer may carry a row type of its own, so the plot as a whole has no single
-  * row type to name. Per-layer diagnostics stay typed at each layer's own row
-  * via [[TrainedLayer.droppedRows]].
+/** A compiled plot. Layers are packed existentially because an independent layer may carry a row
+  * type of its own, so the plot as a whole has no single row type to name. Per-layer diagnostics
+  * stay typed at each layer's own row via [[TrainedLayer.droppedRows]].
   */
 final case class TrainedPlot(
     layers: Vector[TrainedLayer],
@@ -257,9 +255,9 @@ enum PlotDropReason:
   case ScaleOutOfDomain(aesthetic: String, scale: String, value: String)
   case InvalidAesthetic(aesthetic: String, value: String)
 
-/** Facade over the compiler phases: mapping resolution, plot-wide scale
-  * training, row evaluation, geom lowering, and guide resolution. Each phase
-  * lives in [[CompilerPhases]] and is independently testable.
+/** Facade over the compiler phases: mapping resolution, plot-wide scale training, row evaluation,
+  * geom lowering, and guide resolution. Each phase lives in [[CompilerPhases]] and is independently
+  * testable.
   */
 object PlotCompiler:
   def compile[Row](
@@ -288,7 +286,8 @@ object PlotCompiler:
         && options.layout.isEmpty && options.frame.isEmpty && options.policy.isEmpty
       then options.copy(policy = Some(options.theme.layout))
       else options
-    val layoutPolicy = options.theme.layoutPolicy(effectiveOptions.policy.getOrElse(options.theme.layout))
+    val layoutPolicy =
+      options.theme.layoutPolicy(effectiveOptions.policy.getOrElse(options.theme.layout))
     effectiveOptions.copy(policy = effectiveOptions.policy.map(_ => layoutPolicy))
 
   private def resolveSingle[Row](
@@ -323,16 +322,15 @@ object PlotCompiler:
         resolvedOptions.theme
       )
       labels <- PlotLabelPhase.lower(plot.labels, resolution.frames, resolvedOptions.theme.plotText)
-    yield
-      TrainedPlot(
-        layers,
-        resolution.layout,
-        guides,
-        scales.registry,
-        panelGrobs,
-        labels,
-        Vector.empty[ResolvedFacetPanel]
-      )
+    yield TrainedPlot(
+      layers,
+      resolution.layout,
+      guides,
+      scales.registry,
+      panelGrobs,
+      labels,
+      Vector.empty[ResolvedFacetPanel]
+    )
 
   private[intaglio] def resolveLayers(
       plans: Vector[PackedStatPlan],
@@ -349,10 +347,16 @@ object PlotCompiler:
       idx += 1
     result.map(_ => out.result())
 
-  private def resolveLayer(plan: PackedStatPlan, theme: Theme): Either[GraphicsError, TrainedLayer] =
+  private def resolveLayer(
+      plan: PackedStatPlan,
+      theme: Theme
+  ): Either[GraphicsError, TrainedLayer] =
     resolveTypedLayer(plan.value, theme)
 
-  private def resolveTypedLayer[Row](plan: StatPlan[Row], theme: Theme): Either[GraphicsError, TrainedLayer] =
+  private def resolveTypedLayer[Row](
+      plan: StatPlan[Row],
+      theme: Theme
+  ): Either[GraphicsError, TrainedLayer] =
     val registry = ScaleRegistry.fromMapping(plan.mapping)
     RowPhase.resolve(plan, theme).flatMap { case (rows, droppedRows) =>
       PositionPhase.adjust(plan.layer, rows).flatMap { adjusted =>

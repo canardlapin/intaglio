@@ -9,8 +9,14 @@ class DeviceSuite extends munit.FunSuite:
     LengthResolver(device, DeviceFrame.root(device))
 
   test("device context rejects invalid sizes and resolutions") {
-    assertEquals(DeviceContext(0.0, 100.0).left.toOption, Some(GraphicsError.InvalidDeviceSize(0.0, 100.0)))
-    assertEquals(DeviceContext(100.0, -1.0).left.toOption, Some(GraphicsError.InvalidDeviceSize(100.0, -1.0)))
+    assertEquals(
+      DeviceContext(0.0, 100.0).left.toOption,
+      Some(GraphicsError.InvalidDeviceSize(0.0, 100.0))
+    )
+    assertEquals(
+      DeviceContext(100.0, -1.0).left.toOption,
+      Some(GraphicsError.InvalidDeviceSize(100.0, -1.0))
+    )
     assertEquals(
       DeviceContext(100.0, 100.0, pixelsPerInch = 0.0).left.toOption,
       Some(GraphicsError.InvalidDeviceResolution(0.0))
@@ -90,7 +96,15 @@ class DeviceSuite extends munit.FunSuite:
   }
 
   test("degenerate native scales resolve extents to zero and locations to midpoints") {
-    val frame = DeviceFrame(0.0, 0.0, 100.0, 100.0, Interval.unsafe(3.0, 3.0), Interval.unsafe(0.0, 1.0), YDirection.Up)
+    val frame = DeviceFrame(
+      0.0,
+      0.0,
+      100.0,
+      100.0,
+      Interval.unsafe(3.0, 3.0),
+      Interval.unsafe(0.0, 1.0),
+      YDirection.Up
+    )
     val r = LengthResolver(device, frame)
     assertEqualsDouble(r.width(LengthExpr.nativeUnsafe(1.0)).toOption.get, 0.0, tol)
     assertEqualsDouble(r.x(LengthExpr.nativeUnsafe(3.0)).toOption.get, 50.0, tol)
@@ -156,7 +170,14 @@ class DeviceSuite extends munit.FunSuite:
     val scene = DeviceScene.fromScene(Scene(Vector(grob)), device).toOption.get
 
     scene.elements match
-      case Vector(DeviceElement.Group(name, Some(clip), None, Vector(DeviceElement.Mark(polyline: DevicePrimitive.Polyline)))) =>
+      case Vector(
+            DeviceElement.Group(
+              name,
+              Some(clip),
+              None,
+              Vector(DeviceElement.Mark(polyline: DevicePrimitive.Polyline))
+            )
+          ) =>
         assertEquals(name.map(_.value), Some("native-line"))
         assertEqualsDouble(clip.x, 20.0, tol)
         assertEqualsDouble(clip.y, 40.0, tol)
@@ -167,7 +188,10 @@ class DeviceSuite extends munit.FunSuite:
         assertEqualsDouble(polyline.points(0).y, 80.0, tol)
         assertEqualsDouble(polyline.points(1).x, 120.0, tol)
         assertEqualsDouble(polyline.points(1).y, 40.0, tol)
-        assert(polyline.points(0).y > polyline.points(1).y, "larger data y must render higher (smaller device y)")
+        assert(
+          polyline.points(0).y > polyline.points(1).y,
+          "larger data y must render higher (smaller device y)"
+        )
       case other =>
         fail(s"unexpected device elements: $other")
   }
@@ -182,7 +206,8 @@ class DeviceSuite extends munit.FunSuite:
       )
       .toOption
       .get
-    val square = DeviceScene.fromScene(Scene(Vector(grob)), DeviceContext.unsafe(100.0, 100.0)).toOption.get
+    val square =
+      DeviceScene.fromScene(Scene(Vector(grob)), DeviceContext.unsafe(100.0, 100.0)).toOption.get
 
     square.elements match
       case Vector(DeviceElement.Mark(rect: DevicePrimitive.RectShape)) =>
@@ -234,7 +259,9 @@ class DeviceSuite extends munit.FunSuite:
         .get
       val outer = Grob.group(Vector(inner), viewport = Some(parent))
       DeviceScene.fromScene(Scene(Vector(outer)), device).toOption.get.elements match
-        case Vector(DeviceElement.Group(_, _, _, Vector(DeviceElement.Group(_, _, Some(rotation), _)))) =>
+        case Vector(
+              DeviceElement.Group(_, _, _, Vector(DeviceElement.Group(_, _, Some(rotation), _)))
+            ) =>
           rotation.degrees
         case other =>
           fail(s"unexpected device elements: $other")

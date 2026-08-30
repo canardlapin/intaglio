@@ -43,7 +43,11 @@ class PlotDslSuite extends munit.FunSuite:
       plot(rows)
         .aes(_.x, _.y)
         .geomPoint()
-        .independentLayer(overlays, Layer.point[Overlay](_.x, _.y, inheritMapping = false), LayerFacetPolicy.Repeat)
+        .independentLayer(
+          overlays,
+          Layer.point[Overlay](_.x, _.y, inheritMapping = false),
+          LayerFacetPolicy.Repeat
+        )
         .build
         .fold(error => fail(error.message), identity)
     val trained = program.resolve.fold(error => fail(error.message), identity)
@@ -148,7 +152,10 @@ class PlotDslSuite extends munit.FunSuite:
 
     assertEquals(program.plot.data.map(_.value), field.samples)
     assertEquals(program.plot.layers.map(_.geom), Vector(Geom.Tile))
-    assertEquals(trained.trainedScales.map(scale => scale.aesthetic -> scale.descriptor.name.value), Vector("fill" -> "activation"))
+    assertEquals(
+      trained.trainedScales.map(scale => scale.aesthetic -> scale.descriptor.name.value),
+      Vector("fill" -> "activation")
+    )
     assertEquals(trained.layers.head.grobs.length, 4)
     assert(trained.guides.exists(_.grob.name.exists(_.value == "activation-colorbar")))
   }

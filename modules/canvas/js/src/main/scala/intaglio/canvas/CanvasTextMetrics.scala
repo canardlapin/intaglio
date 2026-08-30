@@ -9,10 +9,9 @@ trait CanvasTextMeasurement extends js.Object:
   val actualBoundingBoxAscent: js.UndefOr[Double] = js.native
   val actualBoundingBoxDescent: js.UndefOr[Double] = js.native
 
-/** Opt-in browser Canvas font measurement for
-  * [[intaglio.LayoutPolicy]]. `familyAvailable` should query the
-  * caller's loaded-font environment (for example `document.fonts.check`). A
-  * missing requested family resolves to the explicit CSS fallback family.
+/** Opt-in browser Canvas font measurement for [[intaglio.LayoutPolicy]]. `familyAvailable` should
+  * query the caller's loaded-font environment (for example `document.fonts.check`). A missing
+  * requested family resolves to the explicit CSS fallback family.
   */
 final class CanvasTextMetrics(
     context: CanvasRenderingContext2D,
@@ -20,7 +19,8 @@ final class CanvasTextMetrics(
     familyAvailable: String => Boolean = _ => true
 ) extends TextMetrics:
   private val pixelsPerPoint = 96.0 / 72.0
-  private val resolvedFallback = Option(fallbackFamily).map(_.trim).filter(_.nonEmpty).getOrElse("sans-serif")
+  private val resolvedFallback =
+    Option(fallbackFamily).map(_.trim).filter(_.nonEmpty).getOrElse("sans-serif")
 
   override def widthPt(text: String, fontSizePt: Double): Double =
     widthPt(text, TextStyle(None, fontSizePt))
@@ -38,7 +38,8 @@ final class CanvasTextMetrics(
     val ascent = measured.actualBoundingBoxAscent.toOption
     val descent = measured.actualBoundingBoxDescent.toOption
     (ascent, descent) match
-      case (Some(up), Some(down)) if up >= 0.0 && down >= 0.0 && (up + down).isFinite && up + down > 0.0 =>
+      case (Some(up), Some(down))
+          if up >= 0.0 && down >= 0.0 && (up + down).isFinite && up + down > 0.0 =>
         (up + down) / pixelsPerPoint
       case _ =>
         TextMetrics.estimate.heightPt(style)

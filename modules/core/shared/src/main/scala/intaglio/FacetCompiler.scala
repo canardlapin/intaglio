@@ -1,9 +1,8 @@
 package intaglio
 
-/** Compiler branch for small multiples. Facet membership is resolved before
-  * statistics, while scale training happens over the resulting statistical
-  * frames. This keeps panel-local summaries honest and plot-global scales
-  * coherent.
+/** Compiler branch for small multiples. Facet membership is resolved before statistics, while scale
+  * training happens over the resulting statistical frames. This keeps panel-local summaries honest
+  * and plot-global scales coherent.
   */
 private[intaglio] object FacetCompiler:
   private final case class PanelStats(
@@ -69,7 +68,11 @@ private[intaglio] object FacetCompiler:
             case guide: GuideSpec.Colorbar => guide
           }
           sizingAxes = representativeAxes(panels.flatMap(_.specs))
-          expandedGlobal <- LayoutPhase.expandedRanges(options.expansion, globalPhysical._1, globalPhysical._2)
+          expandedGlobal <- LayoutPhase.expandedRanges(
+            options.expansion,
+            globalPhysical._1,
+            globalPhysical._2
+          )
           frames <- PlotLayoutSolver.solve(
             policy,
             LayoutPhase.layoutRequest(
@@ -78,7 +81,9 @@ private[intaglio] object FacetCompiler:
               expandedGlobal._2,
               plot.labels,
               panelAspect = None,
-              grid = Some(PanelGridRequest(facetLayout.rows, facetLayout.columns, facetLayout.cells.length))
+              grid = Some(
+                PanelGridRequest(facetLayout.rows, facetLayout.columns, facetLayout.cells.length)
+              )
             )
           )
           resolvedPanels <- lowerPanels[Row](panels, frames, plot.coord, options)
@@ -91,16 +96,15 @@ private[intaglio] object FacetCompiler:
             options.theme
           )
           labels <- PlotLabelPhase.lower(plot.labels, Some(frames), options.theme.plotText)
-        yield
-          TrainedPlot(
-            layers = resolvedPanels.flatMap(_.layers),
-            layout = resolvedPanels.headOption.map(_.layout),
-            guides = axes ++ globalGuides,
-            scaleRegistry = globalScales.registry,
-            panelGrobs = Vector.empty,
-            labelGrobs = labels,
-            facetPanels = resolvedPanels
-          )
+        yield TrainedPlot(
+          layers = resolvedPanels.flatMap(_.layers),
+          layout = resolvedPanels.headOption.map(_.layout),
+          guides = axes ++ globalGuides,
+          scaleRegistry = globalScales.registry,
+          panelGrobs = Vector.empty,
+          labelGrobs = labels,
+          facetPanels = resolvedPanels
+        )
 
   private def transformPanels[Row](
       plot: Plot[Row],
@@ -125,7 +129,8 @@ private[intaglio] object FacetCompiler:
   ): Either[GraphicsError, Vector[PanelResolution]] =
     val plansPerPanel = panels.headOption.fold(0)(_.plans.length)
     traverse(panels.zipWithIndex) { case (panel, panelIndex) =>
-      val global = globallyTrained.slice(panelIndex * plansPerPanel, (panelIndex + 1) * plansPerPanel)
+      val global =
+        globallyTrained.slice(panelIndex * plansPerPanel, (panelIndex + 1) * plansPerPanel)
       for
         localPlans <-
           if panel.plans.forall(_.data.isEmpty) then Right(global)
@@ -174,15 +179,20 @@ private[intaglio] object FacetCompiler:
 
   private def axisPolicy(policy: GuidePolicy): GuidePolicy =
     policy match
-      case GuidePolicy.NoGuides => GuidePolicy.NoGuides
+      case GuidePolicy.NoGuides        => GuidePolicy.NoGuides
       case GuidePolicy.Explicit(specs) =>
         GuidePolicy.Explicit(specs.collect { case axis: GuideSpec.Axis => axis })
       case GuidePolicy.Derived(overrides, _) =>
-        GuidePolicy.Derived(overrides.collect { case axis: GuideSpec.Axis => axis }, deriveLegends = false)
+        GuidePolicy.Derived(
+          overrides.collect { case axis: GuideSpec.Axis => axis },
+          deriveLegends = false
+        )
 
   private def representativeAxes(specs: Vector[GuideSpec]): Vector[GuideSpec] =
     AxisSide.values.toVector.flatMap { side =>
-      specs.collect { case axis: GuideSpec.Axis if axis.side == side => axis }.maxByOption(axisWeight)
+      specs
+        .collect { case axis: GuideSpec.Axis if axis.side == side => axis }
+        .maxByOption(axisWeight)
     }
 
   private def axisWeight(axis: GuideSpec.Axis): Int =
@@ -199,7 +209,11 @@ private[intaglio] object FacetCompiler:
     else
       traverse(panels.zip(frames.grid)) { case (panel, frame) =>
         for
-          expanded <- LayoutPhase.expandedRanges(options.expansion, panel.physicalRanges._1, panel.physicalRanges._2)
+          expanded <- LayoutPhase.expandedRanges(
+            options.expansion,
+            panel.physicalRanges._1,
+            panel.physicalRanges._2
+          )
           layout = PanelLayout(
             frame.panel,
             expanded._1,
@@ -209,7 +223,14 @@ private[intaglio] object FacetCompiler:
           )
           decoration <- PanelPhase.lower(Some(layout), panel.specs, options.theme.panel)
           strip <- stripGrob(panel.cell, frame.strip, options.theme.axis.text)
-        yield ResolvedFacetPanel(panel.cell, layout, panel.layers, panel.registry, decoration, strip)
+        yield ResolvedFacetPanel(
+          panel.cell,
+          layout,
+          panel.layers,
+          panel.registry,
+          decoration,
+          strip
+        )
       }
 
   private def stripGrob(
@@ -284,7 +305,9 @@ private[intaglio] object FacetCompiler:
   ): Either[GraphicsError, (Interval, Interval)] =
     ranges.toRight(GraphicsError.MissingLayout("facet panel ranges"))
 
-  private def traverse[A, B](values: Vector[A])(f: A => Either[GraphicsError, B]): Either[GraphicsError, Vector[B]] =
+  private def traverse[A, B](values: Vector[A])(
+      f: A => Either[GraphicsError, B]
+  ): Either[GraphicsError, Vector[B]] =
     val out = Vector.newBuilder[B]
     var index = 0
     var result: Either[GraphicsError, Unit] = Right(())

@@ -3,8 +3,7 @@ package intaglio.javafx
 import scala.collection.mutable.{ArrayBuffer, HashSet}
 import intaglio.*
 
-/** Records every drawing call so the interpreter is exercised without
-  * starting the JavaFX toolkit.
+/** Records every drawing call so the interpreter is exercised without starting the JavaFX toolkit.
   */
 final class RecordingFxContext extends JavaFxGraphicsContext:
   val calls: ArrayBuffer[String] = ArrayBuffer.empty
@@ -36,8 +35,10 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   override def clip(): Unit = calls += "clip"
   override def fillPath(): Unit = calls += "fillPath"
   override def strokePath(): Unit = calls += "strokePath"
-  override def fillOval(x: Double, y: Double, width: Double, height: Double): Unit = calls += "fillOval"
-  override def strokeOval(x: Double, y: Double, width: Double, height: Double): Unit = calls += "strokeOval"
+  override def fillOval(x: Double, y: Double, width: Double, height: Double): Unit =
+    calls += "fillOval"
+  override def strokeOval(x: Double, y: Double, width: Double, height: Double): Unit =
+    calls += "strokeOval"
   override def setFill(color: JavaFxColor): Unit =
     calls += "setFill"
     lastFill = Some(color)
@@ -77,7 +78,13 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   override def setImageSmoothing(enabled: Boolean): Unit =
     calls += "setImageSmoothing"
     imageSmoothing = enabled
-  override def drawImage(image: RasterImage, x: Double, y: Double, width: Double, height: Double): Unit =
+  override def drawImage(
+      image: RasterImage,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double
+  ): Unit =
     calls += "drawImage"
     drawnImage = Some(image)
     drawnBounds = Vector(x, y, width, height)
@@ -161,7 +168,8 @@ class JavaFxRendererSuite extends munit.FunSuite:
   }
 
   test("pattern resources are reused across every fill-bearing primitive") {
-    val recipe = PatternRecipe.crossHatch(30.0, 10.0, 1.5).fold(error => fail(error.message), identity)
+    val recipe =
+      PatternRecipe.crossHatch(30.0, 10.0, 1.5).fold(error => fail(error.message), identity)
     val pattern = PatternPaint(recipe, Rgba.Black, Some(Rgba.White))
     val params = GraphicParams.unsafe(stroke = None, alpha = 0.8).withPatternFill(pattern)
     val grobs = Vector(
@@ -183,7 +191,9 @@ class JavaFxRendererSuite extends munit.FunSuite:
         name = Some(GraphicsName.unsafe("pattern-polygon"))
       ),
       Grob.compoundPolygonUnsafe(
-        Vector(Vector(Point.npcUnsafe(0.1, 0.6), Point.npcUnsafe(0.9, 0.6), Point.npcUnsafe(0.5, 0.9))),
+        Vector(
+          Vector(Point.npcUnsafe(0.1, 0.6), Point.npcUnsafe(0.9, 0.6), Point.npcUnsafe(0.5, 0.9))
+        ),
         gp = params,
         name = Some(GraphicsName.unsafe("pattern-compound"))
       )
@@ -203,10 +213,10 @@ class JavaFxRendererSuite extends munit.FunSuite:
     assert(context.globalAlphaValues.contains(0.8))
     assertEquals(context.globalAlpha, 1.0)
     val paints = program.commands.collect {
-      case JavaFxCommand.Disc(_, _, _, paint, _)             => paint
-      case JavaFxCommand.Polyline(_, true, paint, _)         => paint
-      case JavaFxCommand.CompoundPolygon(_, paint, _)        => paint
-      case JavaFxCommand.Rectangle(_, _, _, _, paint, _)     => paint
+      case JavaFxCommand.Disc(_, _, _, paint, _)         => paint
+      case JavaFxCommand.Polyline(_, true, paint, _)     => paint
+      case JavaFxCommand.CompoundPolygon(_, paint, _)    => paint
+      case JavaFxCommand.Rectangle(_, _, _, _, paint, _) => paint
     }
     assertEquals(paints.length, 4)
     assert(paints.forall(_.fillPattern.contains(pattern)))
@@ -224,8 +234,10 @@ class JavaFxRendererSuite extends munit.FunSuite:
     )
 
     assert(JavaFxRenderer.compile(Scene(Vector(rect))).left.toOption.exists {
-      case JavaFxRenderError.Graphics(GraphicsError.InvalidPatternParameter("raster", "spacing", _, _)) => true
-      case _                                                                                               => false
+      case JavaFxRenderError
+            .Graphics(GraphicsError.InvalidPatternParameter("raster", "spacing", _, _)) =>
+        true
+      case _ => false
     })
   }
 

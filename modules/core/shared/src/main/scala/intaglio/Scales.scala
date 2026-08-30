@@ -90,7 +90,11 @@ final case class TransformDomain private (lower: DomainBound, upper: DomainBound
 
 object TransformDomain:
   val all: TransformDomain =
-    unsafe("all", DomainBound.Open(Double.NegativeInfinity), DomainBound.Open(Double.PositiveInfinity))
+    unsafe(
+      "all",
+      DomainBound.Open(Double.NegativeInfinity),
+      DomainBound.Open(Double.PositiveInfinity)
+    )
 
   def apply(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
     closed(name, lower, upper)
@@ -98,17 +102,30 @@ object TransformDomain:
   def closed(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
     apply(name, DomainBound.Closed(lower), DomainBound.Closed(upper))
 
-  def openClosed(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
+  def openClosed(
+      name: String,
+      lower: Double,
+      upper: Double
+  ): Either[GraphicsError, TransformDomain] =
     apply(name, DomainBound.Open(lower), DomainBound.Closed(upper))
 
-  def closedOpen(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
+  def closedOpen(
+      name: String,
+      lower: Double,
+      upper: Double
+  ): Either[GraphicsError, TransformDomain] =
     apply(name, DomainBound.Closed(lower), DomainBound.Open(upper))
 
   def open(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
     apply(name, DomainBound.Open(lower), DomainBound.Open(upper))
 
-  def apply(name: String, lower: DomainBound, upper: DomainBound): Either[GraphicsError, TransformDomain] =
-    if !lower.value.isNaN && !upper.value.isNaN && lower.value < upper.value then Right(new TransformDomain(lower, upper))
+  def apply(
+      name: String,
+      lower: DomainBound,
+      upper: DomainBound
+  ): Either[GraphicsError, TransformDomain] =
+    if !lower.value.isNaN && !upper.value.isNaN && lower.value < upper.value then
+      Right(new TransformDomain(lower, upper))
     else Left(GraphicsError.InvalidTransformDomain(name, lower.value, upper.value))
 
   def unsafe(name: String, lower: Double, upper: Double): TransformDomain =
@@ -129,17 +146,16 @@ object Breaks:
           if n == 1 then Vector((range.lower + range.upper) / 2.0)
           else
             val step = range.width / (n - 1).toDouble
-            Vector.tabulate(n)(i => range.lower + step * i)
-      )
+            Vector.tabulate(n)(i => range.lower + step * i))
 
   def countUnsafe(n: Int): Breaks =
     count(n).orThrow
 
   /** Deterministic 1/2/5-style breaks with an approximate target count.
     *
-    * The grid is anchored at zero and chosen without logarithms so the same
-    * interval produces byte-identical labels on the JVM and Scala.js. Use
-    * [[count]] when the number of breaks must be exact.
+    * The grid is anchored at zero and chosen without logarithms so the same interval produces
+    * byte-identical labels on the JVM and Scala.js. Use [[count]] when the number of breaks must be
+    * exact.
     */
   def pretty(targetCount: Int = 5): Either[GraphicsError, Breaks] =
     if targetCount < 1 then Left(GraphicsError.InvalidBreakCount(targetCount))
@@ -154,8 +170,7 @@ object Breaks:
             else
               val step = niceStep(rawStep)
               if !step.isFinite || step <= 0.0 then boundaryFallback(range)
-              else prettyGrid(range, step, targetCount)
-      )
+              else prettyGrid(range, step, targetCount))
 
   def prettyUnsafe(targetCount: Int = 5): Breaks =
     pretty(targetCount).orThrow
@@ -171,8 +186,7 @@ object Breaks:
           while x <= range.upper + width * 1e-12 do
             buf += x
             x += width
-          buf.result()
-      )
+          buf.result())
 
   val log10: Breaks =
     new Breaks:
@@ -202,8 +216,8 @@ object Breaks:
     if width.isFinite then width / targetCount.toDouble
     else range.upper / targetCount.toDouble - range.lower / targetCount.toDouble
 
-  /** Nearest 1/2/5 power-of-ten step using D3-style geometric thresholds.
-    * Repeated IEEE scaling avoids platform-specific `log10` edge behavior.
+  /** Nearest 1/2/5 power-of-ten step using D3-style geometric thresholds. Repeated IEEE scaling
+    * avoids platform-specific `log10` edge behavior.
     */
   private def niceStep(rawStep: Double): Double =
     var fraction = rawStep
@@ -265,11 +279,10 @@ trait Labeler:
   def apply(values: Vector[Double]): Vector[String]
 
 object Labeler:
-  /** Deterministic, platform-independent number labels. `Double.toString`
-    * switches to exponent notation at different magnitudes on the JVM and
-    * Scala.js, so non-integral values are formatted manually: fixed notation
-    * with up to six significant digits for ordinary magnitudes, an explicit
-    * `<mantissa>e<exponent>` form for extreme ones.
+  /** Deterministic, platform-independent number labels. `Double.toString` switches to exponent
+    * notation at different magnitudes on the JVM and Scala.js, so non-integral values are formatted
+    * manually: fixed notation with up to six significant digits for ordinary magnitudes, an
+    * explicit `<mantissa>e<exponent>` form for extreme ones.
     */
   val default: Labeler =
     values => values.map(formatValue)
@@ -289,8 +302,8 @@ object Labeler:
           val mantissa = magnitude / math.pow(10.0, exponent.toDouble)
           s"$sign${fixed(mantissa, decimals = 4)}e$exponent"
 
-  /** Largest e with 10^e <= magnitude, via repeated scaling (identical IEEE
-    * arithmetic on JVM and JS, unlike `math.log10`).
+  /** Largest e with 10^e <= magnitude, via repeated scaling (identical IEEE arithmetic on JVM and
+    * JS, unlike `math.log10`).
     */
   private def decimalExponent(magnitude: Double): Int =
     var exponent = 0
@@ -364,7 +377,11 @@ object Transform:
       "log10",
       value => math.log10(value),
       value => math.pow(10.0, value),
-      TransformDomain.unsafe("log10", DomainBound.Open(0.0), DomainBound.Open(Double.PositiveInfinity)),
+      TransformDomain.unsafe(
+        "log10",
+        DomainBound.Open(0.0),
+        DomainBound.Open(Double.PositiveInfinity)
+      ),
       breaks = Breaks.log10
     ).orThrow
 
@@ -425,9 +442,9 @@ enum ScaleKind:
   case Band
   case Generic
 
-/** Whether a scale learns from every layer that uses it or keeps its declared
-  * domain unchanged. Plot-wide training is the ordinary grammar-of-graphics
-  * behavior; fixed domains are an explicit limits contract.
+/** Whether a scale learns from every layer that uses it or keeps its declared domain unchanged.
+  * Plot-wide training is the ordinary grammar-of-graphics behavior; fixed domains are an explicit
+  * limits contract.
   */
 enum ScaleTraining:
   case PlotWide
@@ -446,8 +463,8 @@ final case class ScaleDescriptor(
     training: ScaleTraining = ScaleTraining.PlotWide
 )
 
-/** Erased, closed observations let a heterogeneous plot-scale registry train
-  * each binding without erasing the input type of `Scale[In, Out]` itself.
+/** Erased, closed observations let a heterogeneous plot-scale registry train each binding without
+  * erasing the input type of `Scale[In, Out]` itself.
   */
 private[intaglio] enum ScaleObservation:
   case Continuous(value: Double)
@@ -488,8 +505,7 @@ object DiscretePalette:
     else
       Right(new DiscretePalette[A]:
         override def apply(index: Int, count: Int): A =
-          values(index % values.length)
-      )
+          values(index % values.length))
 
   def valuesUnsafe[A](values: Vector[A]): DiscretePalette[A] =
     DiscretePalette.values(values).orThrow
@@ -562,9 +578,9 @@ final case class ContinuousScale[A] private (
   def mapValues(values: IterableOnce[Double]): Vector[Option[A]] =
     values.iterator.map(mapValue).toVector
 
-  /** Sample the palette at equal-width transformed-domain bin centers.
-    * Sampling is deliberately expressed only with integer indexing and IEEE
-    * arithmetic so a guide receives the same colors on the JVM and Scala.js.
+  /** Sample the palette at equal-width transformed-domain bin centers. Sampling is deliberately
+    * expressed only with integer indexing and IEEE arithmetic so a guide receives the same colors
+    * on the JVM and Scala.js.
     */
   def paletteSamples(count: Int): Either[GraphicsError, Vector[A]] =
     if count < 1 then Left(GraphicsError.InvalidBreakCount(count))
@@ -698,7 +714,10 @@ final case class DiscreteScale[A] private (
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
-        val levels = observations.iterator.collect { case ScaleObservation.Discrete(value) => value }.toVector.distinct
+        val levels = observations.iterator
+          .collect { case ScaleObservation.Discrete(value) => value }
+          .toVector
+          .distinct
         val trained =
           if domain.ordered then DiscreteDomain.ordered(levels)
           else DiscreteDomain.unordered(levels)
@@ -731,9 +750,9 @@ object DiscreteScale:
   ): Either[GraphicsError, DiscreteScale[A]] =
     apply(name, domain, palette, ScaleTraining.Fixed)
 
-/** Scala-native categorical position scale. Levels retain their declared
-  * order, centers are zero-based unit steps, and width is carried explicitly
-  * as a [[Band]] rather than inferred later from a plotting convention.
+/** Scala-native categorical position scale. Levels retain their declared order, centers are
+  * zero-based unit steps, and width is carried explicitly as a [[Band]] rather than inferred later
+  * from a plotting convention.
   */
 final case class BandScale private (
     name: GraphicsName,
@@ -770,7 +789,10 @@ final case class BandScale private (
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
-        val levels = observations.iterator.collect { case ScaleObservation.Discrete(value) => value }.toVector.distinct
+        val levels = observations.iterator
+          .collect { case ScaleObservation.Discrete(value) => value }
+          .toVector
+          .distinct
         val trained =
           if domain.ordered then DiscreteDomain.ordered(levels)
           else DiscreteDomain.unordered(levels)

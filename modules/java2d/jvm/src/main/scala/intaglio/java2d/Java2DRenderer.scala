@@ -1,6 +1,15 @@
 package intaglio.java2d
 
-import java.awt.{AlphaComposite, BasicStroke, Color, Font, Graphics2D, RenderingHints, Shape, TexturePaint}
+import java.awt.{
+  AlphaComposite,
+  BasicStroke,
+  Color,
+  Font,
+  Graphics2D,
+  RenderingHints,
+  Shape,
+  TexturePaint
+}
 import java.awt.geom.{AffineTransform, Ellipse2D, Path2D, Rectangle2D}
 import java.awt.image.BufferedImage
 import scala.collection.mutable
@@ -151,9 +160,24 @@ enum Java2DCommand:
   case Save(name: Option[GraphicsName])
   case Rotate(degrees: Double, pivotX: Double, pivotY: Double)
   case ClipRect(x: Double, y: Double, width: Double, height: Double)
-  case Disc(centerX: Double, centerY: Double, radius: Double, paint: Java2DPaint, name: Option[GraphicsName])
-  case Polyline(points: Vector[DevicePoint], closed: Boolean, paint: Java2DPaint, name: Option[GraphicsName])
-  case CompoundPolygon(rings: Vector[Vector[DevicePoint]], paint: Java2DPaint, name: Option[GraphicsName])
+  case Disc(
+      centerX: Double,
+      centerY: Double,
+      radius: Double,
+      paint: Java2DPaint,
+      name: Option[GraphicsName]
+  )
+  case Polyline(
+      points: Vector[DevicePoint],
+      closed: Boolean,
+      paint: Java2DPaint,
+      name: Option[GraphicsName]
+  )
+  case CompoundPolygon(
+      rings: Vector[Vector[DevicePoint]],
+      paint: Java2DPaint,
+      name: Option[GraphicsName]
+  )
   case Rectangle(
       x: Double,
       y: Double,
@@ -210,12 +234,15 @@ object Java2DProgram:
         case Java2DCommand.Restore(name) =>
           stack match
             case expected :: rest if expected == name => stack = rest
-            case expected :: _ => problem = Some(s"restore marker $name does not match save marker $expected")
-            case Nil           => problem = Some("restore without a matching save")
+            case expected :: _                        =>
+              problem = Some(s"restore marker $name does not match save marker $expected")
+            case Nil => problem = Some("restore without a matching save")
         case other =>
           problem = firstInvalidNumber(other)
       idx += 1
-    problem.orElse(if stack.nonEmpty then Some(s"${stack.length} Java2D save operations were not restored") else None)
+    problem.orElse(if stack.nonEmpty then
+      Some(s"${stack.length} Java2D save operations were not restored")
+    else None)
 
   private def appendElement(
       element: DeviceElement,
@@ -226,8 +253,12 @@ object Java2DProgram:
         out += fromPrimitive(primitive)
       case DeviceElement.Group(name, clip, rotation, children) =>
         out += Java2DCommand.Save(name)
-        rotation.foreach(value => out += Java2DCommand.Rotate(value.degrees, value.pivotX, value.pivotY))
-        clip.foreach(value => out += Java2DCommand.ClipRect(value.x, value.y, value.width, value.height))
+        rotation.foreach(value =>
+          out += Java2DCommand.Rotate(value.degrees, value.pivotX, value.pivotY)
+        )
+        clip.foreach(value =>
+          out += Java2DCommand.ClipRect(value.x, value.y, value.width, value.height)
+        )
         children.foreach(appendElement(_, out))
         out += Java2DCommand.Restore(name)
 
@@ -241,7 +272,18 @@ object Java2DProgram:
         Java2DCommand.CompoundPolygon(rings, Java2DPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
         Java2DCommand.Rectangle(x, y, width, height, Java2DPaint.fromGraphicParams(gp), name)
-      case DevicePrimitive.TextRun(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, gp, name) =>
+      case DevicePrimitive.TextRun(
+            label,
+            x,
+            y,
+            horizontal,
+            vertical,
+            rotation,
+            fontSize,
+            fontFamily,
+            gp,
+            name
+          ) =>
         Java2DCommand.Text(
           label,
           x,
@@ -268,7 +310,10 @@ object Java2DProgram:
       case Java2DCommand.Polyline(points, _, paint, _) =>
         points.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
       case Java2DCommand.CompoundPolygon(rings, paint, _) =>
-        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
+        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(
+          paint.lineWidth,
+          paint.opacity
+        )
       case Java2DCommand.Rectangle(x, y, width, height, paint, _) =>
         Vector(x, y, width, height, paint.lineWidth, paint.opacity)
       case Java2DCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
@@ -280,9 +325,13 @@ object Java2DProgram:
     if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
 
 object Java2DRenderer:
-  def compile(scene: Scene, options: Java2DOptions = Java2DOptions.default): Either[Java2DRenderError, Java2DProgram] =
+  def compile(
+      scene: Scene,
+      options: Java2DOptions = Java2DOptions.default
+  ): Either[Java2DRenderError, Java2DProgram] =
     for
-      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left.map(Java2DRenderError.Graphics(_))
+      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left
+        .map(Java2DRenderError.Graphics(_))
       resolved <- DeviceScene.fromScene(scene, device).left.map(Java2DRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(Java2DRenderError.Graphics(_))
     yield Java2DProgram.fromDevice(resolved)
@@ -363,7 +412,18 @@ object Java2DRenderer:
           patterns,
           accumulator
         )
-      case Java2DCommand.Text(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, paint, _) =>
+      case Java2DCommand.Text(
+            label,
+            x,
+            y,
+            horizontal,
+            vertical,
+            rotation,
+            fontSize,
+            fontFamily,
+            paint,
+            _
+          ) =>
         withCopy(graphics) { copy =>
           antialias(copy)
           val family = fontFamily.getOrElse(Font.SANS_SERIF)
@@ -412,7 +472,9 @@ object Java2DRenderer:
       if allowFill then
         paint.fillPattern match
           case Some(pattern) =>
-            copy.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, paint.opacity.toFloat))
+            copy.setComposite(
+              AlphaComposite.getInstance(AlphaComposite.SRC_OVER, paint.opacity.toFloat)
+            )
             copy.setPaint(resolvePattern(pattern, patterns, accumulator))
             copy.fill(shape)
           case None =>
@@ -438,7 +500,9 @@ object Java2DRenderer:
         accumulator.recordPattern(hit = true)
         pattern
       case None =>
-        val tile = PatternTile.fromPaint(paint).fold(error => throw new IllegalStateException(error.message), identity)
+        val tile = PatternTile
+          .fromPaint(paint)
+          .fold(error => throw new IllegalStateException(error.message), identity)
         val pattern = new TexturePaint(
           buffered(tile.image),
           new Rectangle2D.Double(0.0, 0.0, tile.width, tile.height)
@@ -471,7 +535,10 @@ object Java2DRenderer:
 
   private def antialias(graphics: Graphics2D): Unit =
     graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-    graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+    graphics.setRenderingHint(
+      RenderingHints.KEY_TEXT_ANTIALIASING,
+      RenderingHints.VALUE_TEXT_ANTIALIAS_ON
+    )
 
   private def buffered(image: RasterImage): BufferedImage =
     val output = new BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)

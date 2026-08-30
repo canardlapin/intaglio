@@ -24,7 +24,8 @@ class SvgXmlSuite extends munit.FunSuite:
   }
 
   test("pattern resources parse as XML without semantic mark names") {
-    val recipe = PatternRecipe.crossHatch(35.0, 8.0, 1.25).fold(error => fail(error.message), identity)
+    val recipe =
+      PatternRecipe.crossHatch(35.0, 8.0, 1.25).fold(error => fail(error.message), identity)
     val rect = Grob.rectUnsafe(
       Point.npcUnsafe(0.5, 0.5),
       Size.npcUnsafe(0.5, 0.5),

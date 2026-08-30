@@ -143,17 +143,32 @@ private final class JavaFxDrawAccumulator:
   def result: JavaFxDrawProfile =
     JavaFxDrawProfile(patternRequests, patternCacheHits, patternCacheMisses)
 
-/** Deterministic JavaFX Canvas operations in device coordinates. Group effects
-  * deliberately record rotation before clipping: the clip is installed in the
-  * rotated local coordinate system, matching the SVG and Canvas backends.
+/** Deterministic JavaFX Canvas operations in device coordinates. Group effects deliberately record
+  * rotation before clipping: the clip is installed in the rotated local coordinate system, matching
+  * the SVG and Canvas backends.
   */
 enum JavaFxCommand:
   case Save(name: Option[GraphicsName])
   case Rotate(degrees: Double, pivotX: Double, pivotY: Double)
   case ClipRect(x: Double, y: Double, width: Double, height: Double)
-  case Disc(centerX: Double, centerY: Double, radius: Double, paint: JavaFxPaint, name: Option[GraphicsName])
-  case Polyline(points: Vector[DevicePoint], closed: Boolean, paint: JavaFxPaint, name: Option[GraphicsName])
-  case CompoundPolygon(rings: Vector[Vector[DevicePoint]], paint: JavaFxPaint, name: Option[GraphicsName])
+  case Disc(
+      centerX: Double,
+      centerY: Double,
+      radius: Double,
+      paint: JavaFxPaint,
+      name: Option[GraphicsName]
+  )
+  case Polyline(
+      points: Vector[DevicePoint],
+      closed: Boolean,
+      paint: JavaFxPaint,
+      name: Option[GraphicsName]
+  )
+  case CompoundPolygon(
+      rings: Vector[Vector[DevicePoint]],
+      paint: JavaFxPaint,
+      name: Option[GraphicsName]
+  )
   case Rectangle(
       x: Double,
       y: Double,
@@ -210,12 +225,15 @@ object JavaFxProgram:
         case JavaFxCommand.Restore(name) =>
           stack match
             case expected :: rest if expected == name => stack = rest
-            case expected :: _ => problem = Some(s"restore marker $name does not match save marker $expected")
-            case Nil           => problem = Some("restore without a matching save")
+            case expected :: _                        =>
+              problem = Some(s"restore marker $name does not match save marker $expected")
+            case Nil => problem = Some("restore without a matching save")
         case other =>
           problem = firstInvalidNumber(other)
       idx += 1
-    problem.orElse(if stack.nonEmpty then Some(s"${stack.length} JavaFX save operations were not restored") else None)
+    problem.orElse(if stack.nonEmpty then
+      Some(s"${stack.length} JavaFX save operations were not restored")
+    else None)
 
   private def appendElement(
       element: DeviceElement,
@@ -226,8 +244,12 @@ object JavaFxProgram:
         out += fromPrimitive(primitive)
       case DeviceElement.Group(name, clip, rotation, children) =>
         out += JavaFxCommand.Save(name)
-        rotation.foreach(value => out += JavaFxCommand.Rotate(value.degrees, value.pivotX, value.pivotY))
-        clip.foreach(value => out += JavaFxCommand.ClipRect(value.x, value.y, value.width, value.height))
+        rotation.foreach(value =>
+          out += JavaFxCommand.Rotate(value.degrees, value.pivotX, value.pivotY)
+        )
+        clip.foreach(value =>
+          out += JavaFxCommand.ClipRect(value.x, value.y, value.width, value.height)
+        )
         children.foreach(appendElement(_, out))
         out += JavaFxCommand.Restore(name)
 
@@ -241,7 +263,18 @@ object JavaFxProgram:
         JavaFxCommand.CompoundPolygon(rings, JavaFxPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
         JavaFxCommand.Rectangle(x, y, width, height, JavaFxPaint.fromGraphicParams(gp), name)
-      case DevicePrimitive.TextRun(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, gp, name) =>
+      case DevicePrimitive.TextRun(
+            label,
+            x,
+            y,
+            horizontal,
+            vertical,
+            rotation,
+            fontSize,
+            fontFamily,
+            gp,
+            name
+          ) =>
         JavaFxCommand.Text(
           label,
           x,
@@ -268,7 +301,10 @@ object JavaFxProgram:
       case JavaFxCommand.Polyline(points, _, paint, _) =>
         points.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
       case JavaFxCommand.CompoundPolygon(rings, paint, _) =>
-        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
+        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(
+          paint.lineWidth,
+          paint.opacity
+        )
       case JavaFxCommand.Rectangle(x, y, width, height, paint, _) =>
         Vector(x, y, width, height, paint.lineWidth, paint.opacity)
       case JavaFxCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
@@ -279,12 +315,11 @@ object JavaFxProgram:
         Vector.empty
     if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
 
-/** Toolkit-free drawing contract the interpreter targets. The one production
-  * implementation is [[JavaFxCanvasContext]], a thin adapter over a live
-  * `javafx.scene.canvas.GraphicsContext`; tests substitute recording
-  * implementations so the interpreter is exercised without starting the JavaFX
-  * toolkit. Angles are degrees, clockwise-positive in device (y-down) space,
-  * matching `GraphicsContext.rotate`.
+/** Toolkit-free drawing contract the interpreter targets. The one production implementation is
+  * [[JavaFxCanvasContext]], a thin adapter over a live `javafx.scene.canvas.GraphicsContext`; tests
+  * substitute recording implementations so the interpreter is exercised without starting the JavaFX
+  * toolkit. Angles are degrees, clockwise-positive in device (y-down) space, matching
+  * `GraphicsContext.rotate`.
   */
 trait JavaFxGraphicsContext:
   def save(): Unit
@@ -302,6 +337,7 @@ trait JavaFxGraphicsContext:
   def fillOval(x: Double, y: Double, width: Double, height: Double): Unit
   def strokeOval(x: Double, y: Double, width: Double, height: Double): Unit
   def setFill(color: JavaFxColor): Unit
+
   /** Install a native pattern fill and report whether its cached resource was reused. */
   def setPatternFill(pattern: PatternPaint): Boolean
   def setStroke(color: JavaFxColor): Unit
@@ -331,9 +367,13 @@ private[javafx] object JavaFxRaster:
     pixels
 
 object JavaFxRenderer:
-  def compile(scene: Scene, options: JavaFxOptions = JavaFxOptions.default): Either[JavaFxRenderError, JavaFxProgram] =
+  def compile(
+      scene: Scene,
+      options: JavaFxOptions = JavaFxOptions.default
+  ): Either[JavaFxRenderError, JavaFxProgram] =
     for
-      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left.map(JavaFxRenderError.Graphics(_))
+      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left
+        .map(JavaFxRenderError.Graphics(_))
       resolved <- DeviceScene.fromScene(scene, device).left.map(JavaFxRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(JavaFxRenderError.Graphics(_))
     yield JavaFxProgram.fromDevice(resolved)
@@ -424,7 +464,18 @@ object JavaFxRenderer:
           context.rect(x, y, width, height)
           paintPath(context, paint, true, accumulator)
         }
-      case JavaFxCommand.Text(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, paint, _) =>
+      case JavaFxCommand.Text(
+            label,
+            x,
+            y,
+            horizontal,
+            vertical,
+            rotation,
+            fontSize,
+            fontFamily,
+            paint,
+            _
+          ) =>
         withSaved(context) {
           val color = paint.fill.getOrElse(JavaFxColor.fromRgba(Rgba.Black))
           context.setFill(color.combined(paint.opacity))
@@ -478,10 +529,14 @@ object JavaFxRenderer:
           draw
         }
 
-  /** JavaFX save/restore does not cover all stroke geometry, so every stroke
-    * installs the complete backend-neutral state explicitly.
+  /** JavaFX save/restore does not cover all stroke geometry, so every stroke installs the complete
+    * backend-neutral state explicitly.
     */
-  private def strokeState(context: JavaFxGraphicsContext, paint: JavaFxPaint, color: JavaFxColor): Unit =
+  private def strokeState(
+      context: JavaFxGraphicsContext,
+      paint: JavaFxPaint,
+      color: JavaFxColor
+  ): Unit =
     context.setStroke(color.combined(paint.opacity))
     context.setLineWidth(paint.lineWidth)
     context.setLineCap(paint.lineCap)

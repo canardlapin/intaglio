@@ -137,17 +137,32 @@ object CanvasPaint:
       None
     )
 
-/** Deterministic Canvas 2D operations in device coordinates. Group effects
-  * deliberately record rotation before clipping: the clip is installed in
-  * the rotated local coordinate system, matching the corresponding SVG group.
+/** Deterministic Canvas 2D operations in device coordinates. Group effects deliberately record
+  * rotation before clipping: the clip is installed in the rotated local coordinate system, matching
+  * the corresponding SVG group.
   */
 enum CanvasCommand:
   case Save(name: Option[GraphicsName])
   case Rotate(degrees: Double, pivotX: Double, pivotY: Double)
   case ClipRect(x: Double, y: Double, width: Double, height: Double)
-  case Disc(centerX: Double, centerY: Double, radius: Double, paint: CanvasPaint, name: Option[GraphicsName])
-  case Polyline(points: Vector[DevicePoint], closed: Boolean, paint: CanvasPaint, name: Option[GraphicsName])
-  case CompoundPolygon(rings: Vector[Vector[DevicePoint]], paint: CanvasPaint, name: Option[GraphicsName])
+  case Disc(
+      centerX: Double,
+      centerY: Double,
+      radius: Double,
+      paint: CanvasPaint,
+      name: Option[GraphicsName]
+  )
+  case Polyline(
+      points: Vector[DevicePoint],
+      closed: Boolean,
+      paint: CanvasPaint,
+      name: Option[GraphicsName]
+  )
+  case CompoundPolygon(
+      rings: Vector[Vector[DevicePoint]],
+      paint: CanvasPaint,
+      name: Option[GraphicsName]
+  )
   case Rectangle(
       x: Double,
       y: Double,
@@ -204,21 +219,31 @@ object CanvasProgram:
         case CanvasCommand.Restore(name) =>
           stack match
             case expected :: rest if expected == name => stack = rest
-            case expected :: _ => problem = Some(s"restore marker $name does not match save marker $expected")
-            case Nil           => problem = Some("restore without a matching save")
+            case expected :: _                        =>
+              problem = Some(s"restore marker $name does not match save marker $expected")
+            case Nil => problem = Some("restore without a matching save")
         case other =>
           problem = firstInvalidNumber(other)
       idx += 1
-    problem.orElse(if stack.nonEmpty then Some(s"${stack.length} canvas save operations were not restored") else None)
+    problem.orElse(if stack.nonEmpty then
+      Some(s"${stack.length} canvas save operations were not restored")
+    else None)
 
-  private def appendElement(element: DeviceElement, out: scala.collection.mutable.Builder[CanvasCommand, Vector[CanvasCommand]]): Unit =
+  private def appendElement(
+      element: DeviceElement,
+      out: scala.collection.mutable.Builder[CanvasCommand, Vector[CanvasCommand]]
+  ): Unit =
     element match
       case DeviceElement.Mark(primitive) =>
         out += fromPrimitive(primitive)
       case DeviceElement.Group(name, clip, rotation, children) =>
         out += CanvasCommand.Save(name)
-        rotation.foreach(value => out += CanvasCommand.Rotate(value.degrees, value.pivotX, value.pivotY))
-        clip.foreach(value => out += CanvasCommand.ClipRect(value.x, value.y, value.width, value.height))
+        rotation.foreach(value =>
+          out += CanvasCommand.Rotate(value.degrees, value.pivotX, value.pivotY)
+        )
+        clip.foreach(value =>
+          out += CanvasCommand.ClipRect(value.x, value.y, value.width, value.height)
+        )
         children.foreach(appendElement(_, out))
         out += CanvasCommand.Restore(name)
 
@@ -232,7 +257,18 @@ object CanvasProgram:
         CanvasCommand.CompoundPolygon(rings, CanvasPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
         CanvasCommand.Rectangle(x, y, width, height, CanvasPaint.fromGraphicParams(gp), name)
-      case DevicePrimitive.TextRun(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, gp, name) =>
+      case DevicePrimitive.TextRun(
+            label,
+            x,
+            y,
+            horizontal,
+            vertical,
+            rotation,
+            fontSize,
+            fontFamily,
+            gp,
+            name
+          ) =>
         CanvasCommand.Text(
           label,
           x,
@@ -259,7 +295,10 @@ object CanvasProgram:
       case CanvasCommand.Polyline(points, _, paint, _) =>
         points.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
       case CanvasCommand.CompoundPolygon(rings, paint, _) =>
-        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
+        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(
+          paint.lineWidth,
+          paint.opacity
+        )
       case CanvasCommand.Rectangle(x, y, width, height, paint, _) =>
         Vector(x, y, width, height, paint.lineWidth, paint.opacity)
       case CanvasCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
@@ -309,7 +348,14 @@ trait CanvasRenderingContext2D extends js.Object:
   def moveTo(x: Double, y: Double): Unit = js.native
   def lineTo(x: Double, y: Double): Unit = js.native
   def rect(x: Double, y: Double, width: Double, height: Double): Unit = js.native
-  def arc(x: Double, y: Double, radius: Double, startAngle: Double, endAngle: Double, counterclockwise: Boolean): Unit = js.native
+  def arc(
+      x: Double,
+      y: Double,
+      radius: Double,
+      startAngle: Double,
+      endAngle: Double,
+      counterclockwise: Boolean
+  ): Unit = js.native
   def fill(): Unit = js.native
   def stroke(): Unit = js.native
   def clip(): Unit = js.native
@@ -320,7 +366,13 @@ trait CanvasRenderingContext2D extends js.Object:
   def measureText(text: String): CanvasTextMeasurement = js.native
   def createImageData(width: Int, height: Int): CanvasImageData = js.native
   def putImageData(image: CanvasImageData, x: Double, y: Double): Unit = js.native
-  def drawImage(image: CanvasImageSource, x: Double, y: Double, width: Double, height: Double): Unit = js.native
+  def drawImage(
+      image: CanvasImageSource,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double
+  ): Unit = js.native
   def createPattern(image: CanvasImageSource, repetition: String): CanvasPattern = js.native
 
 trait CanvasRasterFactory:
@@ -373,9 +425,9 @@ object CanvasRasterFactory:
       imageContext.putImageData(imageData, 0.0, 0.0)
       canvas
 
-/** Bounded LRU of browser-native image resources, keyed by raster identity.
-  * Identity lookup avoids scanning immutable pixel buffers through
-  * `RasterImage.equals` and `hashCode` during an interactive redraw.
+/** Bounded LRU of browser-native image resources, keyed by raster identity. Identity lookup avoids
+  * scanning immutable pixel buffers through `RasterImage.equals` and `hashCode` during an
+  * interactive redraw.
   */
 final class CanvasRasterCache private (val capacity: Int):
   private final case class Entry(image: RasterImage, source: CanvasImageSource)
@@ -385,8 +437,8 @@ final class CanvasRasterCache private (val capacity: Int):
     entries.size
 
   private[canvas] def resolve(
-    image: RasterImage,
-    context: CanvasRenderingContext2D
+      image: RasterImage,
+      context: CanvasRenderingContext2D
   )(using factory: CanvasRasterFactory): (CanvasImageSource, Boolean) =
     var index = 0
     var found = -1
@@ -413,13 +465,13 @@ object CanvasRasterCache:
     make(capacity).orThrow
 
 final case class CanvasDrawProfile(
-  imageRequests: Int,
-  cacheHits: Int,
-  cacheMisses: Int,
-  uploadedBytes: Long,
-  patternRequests: Int = 0,
-  patternCacheHits: Int = 0,
-  patternCacheMisses: Int = 0
+    imageRequests: Int,
+    cacheHits: Int,
+    cacheMisses: Int,
+    uploadedBytes: Long,
+    patternRequests: Int = 0,
+    patternCacheHits: Int = 0,
+    patternCacheMisses: Int = 0
 ):
   /** Binary bridge for callers compiled before pattern cache metrics were added. */
   def this(imageRequests: Int, cacheHits: Int, cacheMisses: Int, uploadedBytes: Long) =
@@ -497,7 +549,8 @@ private final class CanvasPatternCache:
           try
             val source = factory.create(tile.image, context)
             val pattern = context.createPattern(source, "repeat")
-            if pattern == null then Left(CanvasRenderError.PatternResourceFailure("createPattern returned null"))
+            if pattern == null then
+              Left(CanvasRenderError.PatternResourceFailure("createPattern returned null"))
             else
               val scaleX = tile.width / tile.image.width.toDouble
               val scaleY = tile.height / tile.image.height.toDouble
@@ -516,13 +569,20 @@ private final class CanvasPatternCache:
               Right(pattern -> false)
           catch
             case NonFatal(_) =>
-              Left(CanvasRenderError.PatternResourceFailure("native pattern creation threw an exception"))
+              Left(
+                CanvasRenderError
+                  .PatternResourceFailure("native pattern creation threw an exception")
+              )
         }
 
 object CanvasRenderer:
-  def compile(scene: Scene, options: CanvasOptions = CanvasOptions.default): Either[CanvasRenderError, CanvasProgram] =
+  def compile(
+      scene: Scene,
+      options: CanvasOptions = CanvasOptions.default
+  ): Either[CanvasRenderError, CanvasProgram] =
     for
-      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left.map(CanvasRenderError.Graphics(_))
+      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left
+        .map(CanvasRenderError.Graphics(_))
       resolved <- DeviceScene.fromScene(scene, device).left.map(CanvasRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(CanvasRenderError.Graphics(_))
     yield CanvasProgram.fromDevice(resolved)
@@ -536,7 +596,9 @@ object CanvasRenderer:
       drawChecked(program, context).map(_ => program)
     }
 
-  def draw(program: CanvasProgram, context: CanvasRenderingContext2D)(using factory: CanvasRasterFactory): Unit =
+  def draw(program: CanvasProgram, context: CanvasRenderingContext2D)(using
+      factory: CanvasRasterFactory
+  ): Unit =
     drawChecked(program, context).orThrow
 
   def drawChecked(
@@ -633,7 +695,18 @@ object CanvasRenderer:
           context.rect(x, y, width, height)
           paintPath(context, paint, true, patterns, accumulator)
         }
-      case CanvasCommand.Text(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, paint, _) =>
+      case CanvasCommand.Text(
+            label,
+            x,
+            y,
+            horizontal,
+            vertical,
+            rotation,
+            fontSize,
+            fontFamily,
+            paint,
+            _
+          ) =>
         withSaved(context) {
           val color = paint.fill.getOrElse(CanvasColor.fromRgba(Rgba.Black))
           context.fillStyle = color.css

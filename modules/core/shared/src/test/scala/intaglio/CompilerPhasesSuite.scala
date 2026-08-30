@@ -36,17 +36,19 @@ class CompilerPhasesSuite extends munit.FunSuite:
     )
 
   private val nonDefaultGraphicParams =
-    GraphicParams.unsafe(
-      stroke = Some(Rgba.unsafe(11, 22, 33)),
-      fill = None,
-      lineWidth = 2.75,
-      lineType = LineType.Dashed,
-      lineCap = LineCap.Round,
-      lineJoin = LineJoin.Bevel,
-      alpha = 0.65,
-      fontFamily = Some("CompilerPhasesSuite"),
-      fontSize = Length.pointsUnsafe(17.0)
-    ).withPatternFill(compilerPattern)
+    GraphicParams
+      .unsafe(
+        stroke = Some(Rgba.unsafe(11, 22, 33)),
+        fill = None,
+        lineWidth = 2.75,
+        lineType = LineType.Dashed,
+        lineCap = LineCap.Round,
+        lineJoin = LineJoin.Bevel,
+        alpha = 0.65,
+        fontFamily = Some("CompilerPhasesSuite"),
+        fontSize = Length.pointsUnsafe(17.0)
+      )
+      .withPatternFill(compilerPattern)
 
   private def resolvePointLayer(mapping: AesSpec[Obs]): TrainedLayer =
     val plot =
@@ -78,20 +80,24 @@ class CompilerPhasesSuite extends munit.FunSuite:
 
   test("mapping phase rejects invalid stat-geom combinations and incomplete geom mappings") {
     val plot = Plot(data)
-    val statLayer = Layer.fromMapping(
-      Geom.Point,
-      AesSpec.empty[Obs].withPosition(_.x, _.y),
-      stat = Stat.Count(_.condition)
-    ).fold(e => fail(e.message), identity)
+    val statLayer = Layer
+      .fromMapping(
+        Geom.Point,
+        AesSpec.empty[Obs].withPosition(_.x, _.y),
+        stat = Stat.Count(_.condition)
+      )
+      .fold(e => fail(e.message), identity)
     assertEquals(
       MappingPhase.planLayer(plot, statLayer, 0).left.toOption,
       Some(GraphicsError.InvalidStatGeom("count", "point"))
     )
 
-    val rectLayer = Layer.fromMapping(
-      Geom.Rect,
-      AesSpec.empty[Obs].withPosition(_.x, _.y)
-    ).fold(e => fail(e.message), identity)
+    val rectLayer = Layer
+      .fromMapping(
+        Geom.Rect,
+        AesSpec.empty[Obs].withPosition(_.x, _.y)
+      )
+      .fold(e => fail(e.message), identity)
     assertEquals(
       MappingPhase.planLayer(plot, rectLayer, 0).left.toOption,
       Some(GraphicsError.MissingAesthetic("rect", "xmin"))

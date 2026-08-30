@@ -9,11 +9,10 @@ import javafx.scene.text.{Font, TextAlignment}
 import scala.collection.mutable
 import intaglio.*
 
-/** Adapter from the toolkit-free [[JavaFxGraphicsContext]] contract onto a
-  * live JavaFX `GraphicsContext`. Construction has no toolkit side effects;
-  * drawing must happen on the JavaFX application thread like any other
-  * `Canvas` access. Raster images are materialized once per adapter as cached
-  * ARGB `WritableImage` values.
+/** Adapter from the toolkit-free [[JavaFxGraphicsContext]] contract onto a live JavaFX
+  * `GraphicsContext`. Construction has no toolkit side effects; drawing must happen on the JavaFX
+  * application thread like any other `Canvas` access. Raster images are materialized once per
+  * adapter as cached ARGB `WritableImage` values.
   */
 final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphicsContext:
   private val images = mutable.HashMap.empty[RasterImage, Image]
@@ -123,7 +122,13 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
   override def setImageSmoothing(enabled: Boolean): Unit =
     context.setImageSmoothing(enabled)
 
-  override def drawImage(image: RasterImage, x: Double, y: Double, width: Double, height: Double): Unit =
+  override def drawImage(
+      image: RasterImage,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double
+  ): Unit =
     val source = images.getOrElseUpdate(image, writable(image))
     context.drawImage(source, x, y, width, height)
 
@@ -131,7 +136,9 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
     Color.rgb(color.red, color.green, color.blue, color.alpha.max(0.0).min(1.0))
 
   private def imagePattern(pattern: PatternPaint): ImagePattern =
-    val tile = PatternTile.fromPaint(pattern).fold(error => throw new IllegalStateException(error.message), identity)
+    val tile = PatternTile
+      .fromPaint(pattern)
+      .fold(error => throw new IllegalStateException(error.message), identity)
     new ImagePattern(writable(tile.image), 0.0, 0.0, tile.width, tile.height, false)
 
   private def writable(image: RasterImage): WritableImage =

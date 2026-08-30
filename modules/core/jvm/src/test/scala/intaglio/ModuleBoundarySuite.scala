@@ -3,11 +3,10 @@ package intaglio
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
-/** Guards the boundary that keeps Intaglio self-contained and portable: every
-  * production package lives under `intaglio`, the core stays platform-neutral,
-  * and each backend depends only on the core. These are the properties that
-  * let the library be consumed a module at a time — a portable consumer must
-  * never acquire a platform renderer or toolkit transitively.
+/** Guards the boundary that keeps Intaglio self-contained and portable: every production package
+  * lives under `intaglio`, the core stays platform-neutral, and each backend depends only on the
+  * core. These are the properties that let the library be consumed a module at a time — a portable
+  * consumer must never acquire a platform renderer or toolkit transitively.
   */
 class ModuleBoundarySuite extends munit.FunSuite:
   private val modules = Vector("core", "svg", "canvas", "java2d", "javafx")
@@ -30,7 +29,8 @@ class ModuleBoundarySuite extends munit.FunSuite:
       declaration match
         case Some(value) if value == "package intaglio" || value.startsWith("package intaglio.") =>
           None
-        case other => Some(s"${root.relativize(path)}: ${other.getOrElse("missing package declaration")}")
+        case other =>
+          Some(s"${root.relativize(path)}: ${other.getOrElse("missing package declaration")}")
     }
 
     assertEquals(violations, Vector.empty)

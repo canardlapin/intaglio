@@ -50,8 +50,7 @@ class PlotCompilerSuite extends munit.FunSuite:
     assert(typedSource == markers.head)
     assert(resolvedMarkers.droppedRows.head.reason match
       case PlotDropReason.NonFinitePosition(x, y) => x == 1.0 && y.isNaN
-      case _                                      => false
-    )
+      case _                                      => false)
     assert(resolvedMarkers.droppedRows.head.source == markers.last)
     assert(trained.droppedRows.head.source == markers.last)
   }
@@ -122,22 +121,46 @@ class PlotCompilerSuite extends munit.FunSuite:
     val plot =
       Plot(data)
         .withScale(ScaleBinding[Observation, Double, Double](Aesthetic.X, _.time, xScale))
-        .flatMap(_.withScale(ScaleBinding[Observation, Double, Double](Aesthetic.Y, _.value, yScale)))
-        .flatMap(_.withScale(ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale)))
-        .flatMap(_.withScale(ScaleBinding[Observation, String, Rgba](Aesthetic.Fill, _.condition, fillScale)))
-        .flatMap(_.withScale(ScaleBinding[Observation, Double, Double](Aesthetic.Size, _.value, sizeScale)))
+        .flatMap(
+          _.withScale(ScaleBinding[Observation, Double, Double](Aesthetic.Y, _.value, yScale))
+        )
+        .flatMap(
+          _.withScale(
+            ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale)
+          )
+        )
+        .flatMap(
+          _.withScale(
+            ScaleBinding[Observation, String, Rgba](Aesthetic.Fill, _.condition, fillScale)
+          )
+        )
+        .flatMap(
+          _.withScale(ScaleBinding[Observation, Double, Double](Aesthetic.Size, _.value, sizeScale))
+        )
         .flatMap(_.addLayer(Layer.point[Observation](_.time, _.value)))
         .toOption
         .get
 
     val trained = PlotCompiler.resolve(plot).toOption.get
 
-    assertEquals(trained.scaleDeclarations.map(_.aesthetic), Vector("x", "y", "color", "fill", "size"))
+    assertEquals(
+      trained.scaleDeclarations.map(_.aesthetic),
+      Vector("x", "y", "color", "fill", "size")
+    )
     assertEquals(
       trained.scaleDeclarations.map(_.kind),
-      Vector(ScaleKind.Continuous, ScaleKind.Continuous, ScaleKind.Discrete, ScaleKind.Discrete, ScaleKind.Continuous)
+      Vector(
+        ScaleKind.Continuous,
+        ScaleKind.Continuous,
+        ScaleKind.Discrete,
+        ScaleKind.Discrete,
+        ScaleKind.Continuous
+      )
     )
-    assertEquals(trained.trainedScales.map(_.descriptor.name.value), Vector("x", "y", "condition-color", "condition-fill", "size"))
+    assertEquals(
+      trained.trainedScales.map(_.descriptor.name.value),
+      Vector("x", "y", "condition-color", "condition-fill", "size")
+    )
     assertEquals(
       trained.trainedScales.map(_.descriptor.domain),
       Vector(
@@ -247,19 +270,21 @@ class PlotCompilerSuite extends munit.FunSuite:
     assertEquals(resolved.droppedRows.map(_.rowIndex), Vector(1))
     assert(resolved.droppedRows.head.reason match
       case PlotDropReason.NonFinitePosition(x, _) => x.isNaN
-      case _                                      => false
-    )
+      case _                                      => false)
     assertEquals(line.points, Vector(Point.nativeUnsafe(0.0, 1.0), Point.nativeUnsafe(2.0, 3.0)))
   }
 
   test("scaled label mappings can drop text rows without failing the whole plot") {
     val domain = DiscreteDomain.ordered(Vector("A")).toOption.get
     val scale =
-      DiscreteScale.fixed(
-        "condition-label",
-        domain,
-        DiscretePalette.valuesUnsafe(Vector("alpha"))
-      ).toOption.get
+      DiscreteScale
+        .fixed(
+          "condition-label",
+          domain,
+          DiscretePalette.valuesUnsafe(Vector("alpha"))
+        )
+        .toOption
+        .get
     val binding = ScaleBinding[Observation, String, String](Aesthetic.Label, _.condition, scale)
     val layer = Layer.text[Observation](_.time, _.value, row => row.condition)
     val plot =
@@ -314,14 +339,19 @@ class PlotCompilerSuite extends munit.FunSuite:
   test("discrete unknown levels are typed scale out-of-domain row drops") {
     val domain = DiscreteDomain.ordered(Vector("A")).toOption.get
     val colorScale =
-      DiscreteScale.fixed(
-        "condition-color",
-        domain,
-        DiscretePalette.valuesUnsafe(Vector(Rgba.Black))
-      ).toOption.get
+      DiscreteScale
+        .fixed(
+          "condition-color",
+          domain,
+          DiscretePalette.valuesUnsafe(Vector(Rgba.Black))
+        )
+        .toOption
+        .get
     val plot =
       Plot(data)
-        .withScale(ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale))
+        .withScale(
+          ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale)
+        )
         .flatMap(_.addLayer(Layer.point[Observation](_.time, _.value)))
         .toOption
         .get
@@ -376,7 +406,10 @@ class PlotCompilerSuite extends munit.FunSuite:
 
     val trained =
       PlotCompiler
-        .resolve(plot, PlotCompilerOptions(layout = Some(layout), guides = GuidePolicy.Explicit(Vector(guide))))
+        .resolve(
+          plot,
+          PlotCompilerOptions(layout = Some(layout), guides = GuidePolicy.Explicit(Vector(guide)))
+        )
         .toOption
         .get
     val panel = trained.scene.grobs.head.asInstanceOf[Grob.Group]
@@ -401,7 +434,10 @@ class PlotCompilerSuite extends munit.FunSuite:
 
     assertEquals(
       PlotCompiler
-        .resolve(plot, PlotCompilerOptions(guides = GuidePolicy.Explicit(Vector(GuideSpec.Axis(AxisSide.Left)))))
+        .resolve(
+          plot,
+          PlotCompilerOptions(guides = GuidePolicy.Explicit(Vector(GuideSpec.Axis(AxisSide.Left))))
+        )
         .left
         .toOption,
       Some(GraphicsError.MissingLayout("guides"))

@@ -14,7 +14,10 @@ class Bin2DSuite extends munit.FunSuite:
     )
 
   test("rectangular binning is right-closed and conserves observations") {
-    val field = FieldStat.bin2D[Observation](_.x, _.y, config).compute(rows).fold(error => fail(error.message), identity)
+    val field = FieldStat
+      .bin2D[Observation](_.x, _.y, config)
+      .compute(rows)
+      .fold(error => fail(error.message), identity)
 
     assertEquals(field.samples, Vector(2.0, 0.0, 0.0, 2.0))
     assertEqualsDouble(field.samples.sum, rows.length.toDouble, 0.0)
@@ -32,7 +35,10 @@ class Bin2DSuite extends munit.FunSuite:
 
   test("proportions form a probability mass over the grid") {
     val probabilityConfig = Bin2DConfig.unsafe(2, 2, domain, domain, Bin2DValue.Proportion)
-    val field = FieldStat.bin2D[Observation](_.x, _.y, probabilityConfig).compute(rows).fold(error => fail(error.message), identity)
+    val field = FieldStat
+      .bin2D[Observation](_.x, _.y, probabilityConfig)
+      .compute(rows)
+      .fold(error => fail(error.message), identity)
 
     assertEquals(field.samples, Vector(0.5, 0.0, 0.0, 0.5))
     assertEqualsDouble(field.samples.sum, 1.0, 1e-15)
@@ -57,13 +63,18 @@ class Bin2DSuite extends munit.FunSuite:
       Some(GraphicsError.InsufficientStatData("bin2d", 1, 0))
     )
 
-    val nonFinite = FieldStat.bin2D[Observation](_.x, _.y).compute(Vector(Observation(Double.NaN, 0.0)))
+    val nonFinite =
+      FieldStat.bin2D[Observation](_.x, _.y).compute(Vector(Observation(Double.NaN, 0.0)))
     nonFinite.left.toOption match
       case Some(GraphicsError.NonFiniteStatInput("bin2d", "x", value)) => assert(value.isNaN)
       case other => fail(s"expected non-finite bin2d input, found $other")
 
     assertEquals(
-      FieldStat.bin2D[Observation](_.x, _.y, config).compute(Vector(Observation(3.0, 1.0))).left.toOption,
+      FieldStat
+        .bin2D[Observation](_.x, _.y, config)
+        .compute(Vector(Observation(3.0, 1.0)))
+        .left
+        .toOption,
       Some(GraphicsError.StatInputOutsideGrid("bin2d", "x", 3.0, 0.0, 2.0))
     )
   }

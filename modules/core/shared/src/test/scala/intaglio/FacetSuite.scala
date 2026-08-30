@@ -21,7 +21,8 @@ class FacetSuite extends munit.FunSuite:
   test("independent layers require and obey explicit facet participation policies") {
     val annotations = Vector(Annotation(-1.0, -1.0, "control"), Annotation(30.0, 300.0, "task"))
     val annotationLayer = Layer.point[Annotation](_.x, _.y, inheritMapping = false)
-    val facet = FacetSpec.wrap[Observation](_.condition).fold(error => fail(error.message), identity)
+    val facet =
+      FacetSpec.wrap[Observation](_.condition).fold(error => fail(error.message), identity)
 
     def resolve(policy: LayerFacetPolicy[Annotation]): TrainedPlot =
       Plot(rows)
@@ -58,7 +59,8 @@ class FacetSuite extends munit.FunSuite:
       Observation(0.0, 0.0, "control"),
       Observation(0.0, 0.0, "task")
     )
-    val facet = FacetSpec.wrap[Observation](_.condition).fold(error => fail(error.message), identity)
+    val facet =
+      FacetSpec.wrap[Observation](_.condition).fold(error => fail(error.message), identity)
     val plot = Plot(counted)
       .withFacet(facet)
       .addLayer(Layer.count[Observation](_ => "all"))
@@ -127,7 +129,10 @@ class FacetSuite extends munit.FunSuite:
         .fold(error => fail(error.message), identity)
     assertEquals(colored.guides.count(_.spec.isInstanceOf[GuideSpec.Legend]), 1)
     assertEquals(
-      colored.facetPanels.map(_.scaleRegistry.forAesthetic(Aesthetic.Color).map(_.descriptor.domain)).distinct.length,
+      colored.facetPanels
+        .map(_.scaleRegistry.forAesthetic(Aesthetic.Color).map(_.descriptor.domain))
+        .distinct
+        .length,
       1
     )
 
@@ -139,7 +144,9 @@ class FacetSuite extends munit.FunSuite:
       )
       .fold(error => fail(error.message), identity)
     val continuousFacet = Plot(rows)
-      .withFacet(FacetSpec.wrap[Observation](_.condition).fold(error => fail(error.message), identity))
+      .withFacet(
+        FacetSpec.wrap[Observation](_.condition).fold(error => fail(error.message), identity)
+      )
       .withScale(ScaleBinding[Observation, Double, Rgba](Aesthetic.Color, _.y, activationScale))
       .flatMap(_.addLayer(Layer.point[Observation](_.x, _.y)))
       .fold(error => fail(error.message), identity)

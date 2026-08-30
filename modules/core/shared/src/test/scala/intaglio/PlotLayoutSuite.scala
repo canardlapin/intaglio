@@ -30,7 +30,8 @@ class PlotLayoutSuite extends munit.FunSuite:
       case other                    => fail(s"expected npc constant, got $other")
 
   test("panel-only requests allocate margins and nothing else") {
-    val frames = PlotLayoutSolver.solve(policy, PlotLayoutRequest()).fold(e => fail(e.message), identity)
+    val frames =
+      PlotLayoutSolver.solve(policy, PlotLayoutRequest()).fold(e => fail(e.message), identity)
     assertEqualsDouble(originX(frames.panel), npcX(10.0), tol)
     assertEqualsDouble(originY(frames.panel), npcY(10.0), tol)
     assertEqualsDouble(width(frames.panel), 1.0 - 2.0 * npcX(10.0), tol)
@@ -86,7 +87,11 @@ class PlotLayoutSuite extends munit.FunSuite:
     assertEqualsDouble(height(title), npcY(16.0 * 1.25), tol)
     assertEqualsDouble(height(subtitle), npcY(12.0 * 1.25), tol)
     assertEqualsDouble(originY(title), originY(subtitle) + height(subtitle) + npcY(4.0), tol)
-    assertEqualsDouble(originY(subtitle), originY(frames.panel) + height(frames.panel) + npcY(4.0), tol)
+    assertEqualsDouble(
+      originY(subtitle),
+      originY(frames.panel) + height(frames.panel) + npcY(4.0),
+      tol
+    )
   }
 
   test("legend requests allocate a right-hand column beside the panel") {
@@ -99,7 +104,11 @@ class PlotLayoutSuite extends munit.FunSuite:
     // Title width 9 chars * 10pt * 0.62 = 55.8pt dominates entries; plus 12pt padding.
     val legendWidth = npcX(2.0 * 6.0 + 55.8)
     assertEqualsDouble(width(legend), legendWidth, tol)
-    assertEqualsDouble(originX(legend), originX(frames.panel) + width(frames.panel) + npcX(10.0), tol)
+    assertEqualsDouble(
+      originX(legend),
+      originX(frames.panel) + width(frames.panel) + npcX(10.0),
+      tol
+    )
     assertEqualsDouble(originY(legend), originY(frames.panel), tol)
     assertEqualsDouble(height(legend), height(frames.panel), tol)
     assertEqualsDouble(
@@ -114,7 +123,10 @@ class PlotLayoutSuite extends munit.FunSuite:
       .solve(policy, PlotLayoutRequest(legend = Some(LegendRequest(None, Vector("100")))))
       .fold(e => fail(e.message), identity)
     val colorbar = PlotLayoutSolver
-      .solve(policy, PlotLayoutRequest(legend = Some(LegendRequest(None, Vector("100"), extraKeyWidthPt = 5.0))))
+      .solve(
+        policy,
+        PlotLayoutRequest(legend = Some(LegendRequest(None, Vector("100"), extraKeyWidthPt = 5.0)))
+      )
       .fold(e => fail(e.message), identity)
 
     assertEqualsDouble(
@@ -166,14 +178,21 @@ class PlotLayoutSuite extends munit.FunSuite:
       case other                              => fail(s"expected a colorbar placement, got $other")
     val textHeight = policy.metrics.heightPt(policy.legendTextStyle)
 
-    assertEqualsDouble(legend.rowPitchPt, math.max(policy.legendKeyPt, textHeight) + policy.legendRowGapPt, tol)
+    assertEqualsDouble(
+      legend.rowPitchPt,
+      math.max(policy.legendKeyPt, textHeight) + policy.legendRowGapPt,
+      tol
+    )
     assertEqualsDouble(
       legend.firstRowOffsetPt,
       textHeight + policy.legendTitleGapPt + math.max(policy.legendKeyPt, textHeight) / 2.0,
       tol
     )
     assert(colorbar.topPt > legend.topPt)
-    assert(plan.widthPt >= policy.metrics.widthPt("value", policy.legendTitleTextStyle) + 2.0 * policy.legendPaddingPt)
+    assert(
+      plan.widthPt >= policy.metrics
+        .widthPt("value", policy.legendTitleTextStyle) + 2.0 * policy.legendPaddingPt
+    )
   }
 
   test("guide stacks that exceed the reserved viewport fail with typed overflow") {
@@ -194,7 +213,10 @@ class PlotLayoutSuite extends munit.FunSuite:
     val request = PlotLayoutRequest(grid = Some(PanelGridRequest(rows = 2, columns = 2, count = 4)))
     val frames = PlotLayoutSolver.solve(policy, request).fold(e => fail(e.message), identity)
 
-    assertEquals(frames.grid.map(frame => (frame.row, frame.column)), Vector((0, 0), (0, 1), (1, 0), (1, 1)))
+    assertEquals(
+      frames.grid.map(frame => (frame.row, frame.column)),
+      Vector((0, 0), (0, 1), (1, 0), (1, 1))
+    )
     assertEquals(frames.panelFrames, frames.grid.map(_.panel))
     assert(originY(frames.grid(0).panel) > originY(frames.grid(2).panel))
     frames.grid.foreach { frame =>
@@ -230,17 +252,25 @@ class PlotLayoutSuite extends munit.FunSuite:
     val layout = trained.layout.getOrElse(fail("expected a solved layout"))
     assertEquals(layout.xScale, Interval.unsafe(-0.1, 2.1))
 
-    val legendGuide = trained.guides.collectFirst {
-      case guide @ ResolvedGuide(_: GuideSpec.Legend, _) => guide
-    }.getOrElse(fail("expected a derived legend"))
+    val legendGuide = trained.guides
+      .collectFirst { case guide @ ResolvedGuide(_: GuideSpec.Legend, _) =>
+        guide
+      }
+      .getOrElse(fail("expected a derived legend"))
     val legendGroup = legendGuide.grob.asInstanceOf[Grob.Group]
     assertEquals(legendGroup.name.map(_.value), Some("condition-legend"))
     assert(legendGroup.viewport.nonEmpty, "legend must live in its allocated viewport")
 
     val scene = trained.scene
     assert(scene.grobs.head.name.map(_.value).contains("plot-panel"))
-    assertEquals(trained.labelGrobs.flatMap(_.name).map(_.value), Vector("plot-title", "plot-subtitle"))
-    assertEquals(scene.grobs.takeRight(2).flatMap(_.name).map(_.value), Vector("plot-title", "plot-subtitle"))
+    assertEquals(
+      trained.labelGrobs.flatMap(_.name).map(_.value),
+      Vector("plot-title", "plot-subtitle")
+    )
+    assertEquals(
+      scene.grobs.takeRight(2).flatMap(_.name).map(_.value),
+      Vector("plot-title", "plot-subtitle")
+    )
   }
 
   test("solver-driven compilation places a continuous colorbar in the guide viewport") {
@@ -262,9 +292,11 @@ class PlotLayoutSuite extends munit.FunSuite:
     val trained = PlotCompiler
       .resolve(plot, PlotCompilerOptions(policy = Some(policy), guides = GuidePolicy.Derived()))
       .fold(e => fail(e.message), identity)
-    val colorbar = trained.guides.collectFirst {
-      case guide @ ResolvedGuide(_: GuideSpec.Colorbar, _) => guide
-    }.getOrElse(fail("expected a derived colorbar"))
+    val colorbar = trained.guides
+      .collectFirst { case guide @ ResolvedGuide(_: GuideSpec.Colorbar, _) =>
+        guide
+      }
+      .getOrElse(fail("expected a derived colorbar"))
     val group = colorbar.grob.asInstanceOf[Grob.Group]
 
     assertEquals(group.name.map(_.value), Some("activation-colorbar"))
@@ -294,8 +326,12 @@ class PlotLayoutSuite extends munit.FunSuite:
     def plot(scaled: Boolean): Plot[Obs] =
       val base =
         if scaled then
-          val xScale = ContinuousScale.train("x", data.map(_.x), Palette.numeric).fold(e => fail(e.message), identity)
-          val yScale = ContinuousScale.train("y", data.map(_.y), Palette.numeric).fold(e => fail(e.message), identity)
+          val xScale = ContinuousScale
+            .train("x", data.map(_.x), Palette.numeric)
+            .fold(e => fail(e.message), identity)
+          val yScale = ContinuousScale
+            .train("y", data.map(_.y), Palette.numeric)
+            .fold(e => fail(e.message), identity)
           Plot(data)
             .withScale(ScaleBinding[Obs, Double, Double](Aesthetic.X, _.x, xScale))
             .flatMap(_.withScale(ScaleBinding[Obs, Double, Double](Aesthetic.Y, _.y, yScale)))
@@ -303,7 +339,10 @@ class PlotLayoutSuite extends munit.FunSuite:
         else Plot(data)
       base.addLayer(Layer.point[Obs](_.x, _.y)).fold(e => fail(e.message), identity)
 
-    def panel(scaled: Boolean, expansion: RangeExpansion): (DeviceClip, Vector[DevicePrimitive.Disc]) =
+    def panel(
+        scaled: Boolean,
+        expansion: RangeExpansion
+    ): (DeviceClip, Vector[DevicePrimitive.Disc]) =
       val trained = PlotCompiler
         .resolve(
           plot(scaled),
@@ -317,14 +356,16 @@ class PlotLayoutSuite extends munit.FunSuite:
       val scene = DeviceScene
         .fromScene(trained.scene, policy.referenceDevice)
         .fold(e => fail(e.message), identity)
-      scene.elements.collectFirst {
-        case DeviceElement.Group(name, Some(clip), _, children)
-            if name.exists(_.value == "plot-panel") =>
-          val discs = children.collect {
-            case DeviceElement.Mark(disc: DevicePrimitive.Disc) => disc
-          }
-          (clip, discs)
-      }.getOrElse(fail(s"missing clipped panel for scaled=$scaled"))
+      scene.elements
+        .collectFirst {
+          case DeviceElement.Group(name, Some(clip), _, children)
+              if name.exists(_.value == "plot-panel") =>
+            val discs = children.collect { case DeviceElement.Mark(disc: DevicePrimitive.Disc) =>
+              disc
+            }
+            (clip, discs)
+        }
+        .getOrElse(fail(s"missing clipped panel for scaled=$scaled"))
 
     Vector(false, true).foreach { scaled =>
       val (clip, discs) = panel(scaled, RangeExpansion.default)

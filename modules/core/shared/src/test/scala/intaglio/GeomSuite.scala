@@ -39,10 +39,15 @@ class GeomSuite extends munit.FunSuite:
     assert(rectLayer.grobs.forall(_.isInstanceOf[Grob.Rect]))
 
     val tiles = resolve(
-      Layer.tile[Observation](_.x, _.y, _ => 0.8, _ => 0.6, mapping = AesSpec.empty.withFill(_.group match
-        case "a" => Rgba.unsafe(40, 80, 120)
-        case _   => Rgba.unsafe(180, 90, 50)
-      ))
+      Layer.tile[Observation](
+        _.x,
+        _.y,
+        _ => 0.8,
+        _ => 0.6,
+        mapping = AesSpec.empty.withFill(_.group match
+          case "a" => Rgba.unsafe(40, 80, 120)
+          case _   => Rgba.unsafe(180, 90, 50))
+      )
     )
     assertEquals(tiles.layout.map(_.xScale), Some(Interval.unsafe(-0.4, 3.4)))
     assertEquals(tiles.layout.map(_.yScale), Some(Interval.unsafe(0.7, 2.8)))
