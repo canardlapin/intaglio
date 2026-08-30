@@ -67,7 +67,7 @@ private[intaglio] object FacetCompiler:
             case guide: GuideSpec.Legend   => guide
             case guide: GuideSpec.Colorbar => guide
           }
-          sizingAxes = representativeAxes(panels.flatMap(_.specs))
+          sizingAxes = representativeAxes(panels.flatMap(_.specs), policy)
           expandedGlobal <- LayoutPhase.expandedRanges(
             options.expansion,
             globalPhysical._1,
@@ -82,12 +82,12 @@ private[intaglio] object FacetCompiler:
               plot.labels,
               panelAspect = None,
               grid = Some(
-                PanelGridRequest(facetLayout.rows, facetLayout.columns, facetLayout.cells.length)
+                facetGridRequest(facetLayout, facet.scales, panels, policy)
               )
             )
           )
           resolvedPanels <- lowerPanels[Row](panels, frames, plot.coord, options)
-          axes <- lowerAxes(resolvedPanels, panels, facetLayout, policy, options)
+          axes <- lowerAxes(resolvedPanels, panels, facetLayout, facet.scales, policy, options)
           globalGuides <- GuidePhase.lower(
             resolvedPanels.headOption.map(_.layout),
             Some(frames),
@@ -193,16 +193,63 @@ private[intaglio] object FacetCompiler:
           deriveLegends = false
         )
 
-  private def representativeAxes(specs: Vector[GuideSpec]): Vector[GuideSpec] =
+  private def representativeAxes(
+      specs: Vector[GuideSpec],
+      policy: LayoutPolicy
+  ): Vector[GuideSpec] =
     AxisSide.values.toVector.flatMap { side =>
       specs
         .collect { case axis: GuideSpec.Axis if axis.side == side => axis }
-        .maxByOption(axisWeight)
+        .maxByOption(axisExtentPt(_, policy))
     }
 
-  private def axisWeight(axis: GuideSpec.Axis): Int =
-    axis.ticks.fold(0)(_.foldLeft(0)((total, tick) => total + tick.label.length)) +
-      axis.title.fold(0)(_.length)
+  private def axisExtentPt(axis: GuideSpec.Axis, policy: LayoutPolicy): Double =
+    val title = axis.title.fold(0.0)(_ =>
+      policy.axisTitleGapPt + policy.metrics.heightPt(policy.axisTitleTextStyle)
+    )
+    val labels =
+      if axis.side.isHorizontal then policy.metrics.heightPt(policy.axisTextStyle)
+      else
+        axis.ticks.getOrElse(Vector.empty).foldLeft(0.0) { (maximum, tick) =>
+          math.max(maximum, policy.metrics.widthPt(tick.label, policy.axisTextStyle))
+        }
+    policy.tickLengthPt + policy.tickLabelGapPt + labels + title
+
+  private def facetGridRequest(
+      layout: FacetLayout,
+      scales: FacetScales,
+      panels: Vector[PanelResolution],
+      policy: LayoutPolicy
+  ): PanelGridRequest =
+    val axes = panels.flatMap(_.specs).collect { case axis: GuideSpec.Axis => axis }
+    val columnGap = Option.when(scales.yIsFree) {
+      policy.panelGapPt +
+        maximumAxisExtent(axes, AxisSide.Left, policy) +
+        maximumAxisExtent(axes, AxisSide.Right, policy)
+    }
+    val rowGap = Option.when(scales.xIsFree) {
+      policy.panelGapPt +
+        maximumAxisExtent(axes, AxisSide.Bottom, policy) +
+        maximumAxisExtent(axes, AxisSide.Top, policy)
+    }
+    PanelGridRequest(
+      layout.rows,
+      layout.columns,
+      layout.cells.length,
+      columnGapPt = columnGap,
+      rowGapPt = rowGap
+    )
+
+  private def maximumAxisExtent(
+      axes: Vector[GuideSpec.Axis],
+      side: AxisSide,
+      policy: LayoutPolicy
+  ): Double =
+    axes.iterator
+      .filter(_.side == side)
+      .map(axisExtentPt(_, policy))
+      .maxOption
+      .getOrElse(0.0)
 
   private def lowerPanels[Row](
       panels: Vector[PanelResolution],
@@ -262,6 +309,7 @@ private[intaglio] object FacetCompiler:
       resolved: Vector[ResolvedFacetPanel],
       panels: Vector[PanelResolution],
       facetLayout: FacetLayout,
+      scales: FacetScales,
       policy: LayoutPolicy,
       options: PlotCompilerOptions
   ): Either[GraphicsError, Vector[ResolvedGuide]] =
@@ -274,7 +322,8 @@ private[intaglio] object FacetCompiler:
     while panelIndex < resolved.length && result.isRight do
       val panel = resolved(panelIndex)
       val specs = panels(panelIndex).specs.collect {
-        case axis: GuideSpec.Axis if isOuter(axis.side, panel.cell, bottomByColumn, rightByRow) =>
+        case axis: GuideSpec.Axis
+            if rendersAxis(axis.side, panel.cell, scales, bottomByColumn, rightByRow) =>
           axis.copy(name = Some(axisName(axis, panel.cell)))
       }
       var specIndex = 0
@@ -288,6 +337,17 @@ private[intaglio] object FacetCompiler:
         specIndex += 1
       panelIndex += 1
     result.map(_ => out.result())
+
+  private def rendersAxis(
+      side: AxisSide,
+      cell: FacetCell,
+      scales: FacetScales,
+      bottomByColumn: Map[Int, Int],
+      rightByRow: Map[Int, Int]
+  ): Boolean =
+    val dimensionIsFree =
+      if side.isHorizontal then scales.xIsFree else scales.yIsFree
+    dimensionIsFree || isOuter(side, cell, bottomByColumn, rightByRow)
 
   private def isOuter(
       side: AxisSide,

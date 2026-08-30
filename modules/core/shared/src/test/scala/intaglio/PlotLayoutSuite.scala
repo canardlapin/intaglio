@@ -229,6 +229,35 @@ class PlotLayoutSuite extends munit.FunSuite:
       npcX(policy.panelGapPt),
       tol
     )
+
+    val measured = PlotLayoutSolver
+      .solve(
+        policy,
+        PlotLayoutRequest(
+          grid = Some(
+            PanelGridRequest(
+              rows = 2,
+              columns = 2,
+              count = 4,
+              columnGapPt = Some(37.0),
+              rowGapPt = Some(41.0)
+            )
+          )
+        )
+      )
+      .fold(e => fail(e.message), identity)
+    assertEqualsDouble(
+      originX(measured.grid(1).panel) - originX(measured.grid(0).panel) -
+        width(measured.grid(0).panel),
+      npcX(37.0),
+      tol
+    )
+    assertEqualsDouble(
+      originY(measured.grid(0).panel) - originY(measured.grid(2).strip) -
+        height(measured.grid(2).strip),
+      npcY(41.0),
+      tol
+    )
   }
 
   test("solver-driven compilation places the legend in its own named viewport") {

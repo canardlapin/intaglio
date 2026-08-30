@@ -319,10 +319,24 @@ object GuideStackSolver:
       placements = placements.result()
     )
 
-final case class PanelGridRequest(rows: Int, columns: Int, count: Int):
+final case class PanelGridRequest(
+    rows: Int,
+    columns: Int,
+    count: Int,
+    columnGapPt: Option[Double] = None,
+    rowGapPt: Option[Double] = None
+):
   require(rows >= 1, "`rows` must be >= 1")
   require(columns >= 1, "`columns` must be >= 1")
   require(count >= 1 && count <= rows * columns, "`count` must fit in the panel grid")
+  require(
+    columnGapPt.forall(value => value.isFinite && value >= 0.0),
+    "`columnGapPt` must be finite and >= 0"
+  )
+  require(
+    rowGapPt.forall(value => value.isFinite && value >= 0.0),
+    "`rowGapPt` must be finite and >= 0"
+  )
 
 final case class PanelGridFrame(
     row: Int,
@@ -473,8 +487,8 @@ object PlotLayoutSolver:
       npcX: Double => Double,
       npcY: Double => Double
   ): Either[GraphicsError, Vector[PanelGridFrame]] =
-    val gapX = npcX(policy.panelGapPt)
-    val gapY = npcY(policy.panelGapPt)
+    val gapX = npcX(request.columnGapPt.getOrElse(policy.panelGapPt))
+    val gapY = npcY(request.rowGapPt.getOrElse(policy.panelGapPt))
     val stripH = npcY(policy.facetStripPt)
     val cellW = (panelW - gapX * (request.columns - 1).toDouble) / request.columns.toDouble
     val blockH = (panelH - gapY * (request.rows - 1).toDouble) / request.rows.toDouble

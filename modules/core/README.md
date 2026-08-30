@@ -334,7 +334,11 @@ Guides read that same registry, so marks, axes, and legends cannot disagree.
 Faceted plots repeat mapping and statistics per panel before the scale phase,
 then either train one union scale or fresh panel position scales according to
 `FacetScales`; the remaining row, geom, coordinate, and guide phases stay the
-same renderer-neutral machinery.
+same renderer-neutral machinery. A free position dimension receives a local
+axis on every panel; only dimensions explicitly shared by `FacetScales`
+suppress inner axes. Inter-panel gaps and representative outer strips are
+measured with the active `LayoutPolicy.metrics`, so independently trained tick
+labels remain legible under the target text metrics.
 Guides follow a `GuidePolicy`:
 `Derived` produces routine axes from trained scales (transform-aware breaks
 positioned in mapped space) and legends from discrete color/fill palettes,
