@@ -126,6 +126,48 @@ class PlotDslSuite extends munit.FunSuite:
     assertEquals(invalidCoord.left.toOption, Some(GraphicsError.InvalidCoordinateRatio(0.0)))
   }
 
+  test("publication palettes reject overflow unless cycling is explicit") {
+    val manyGroups = Vector.tabulate(7) { index =>
+      Observation(index.toDouble, index.toDouble, s"group-$index")
+    }
+
+    val publicationDefault =
+      plot(manyGroups)
+        .aes(_.x, _.y)
+        .scaleColorDiscrete(_.group)
+        .geomPoint()
+        .build
+    assertEquals(
+      publicationDefault.left.toOption,
+      Some(GraphicsError.DiscretePaletteOverflow("color", 7, 6))
+    )
+
+    val cycled =
+      plot(manyGroups)
+        .aes(_.x, _.y)
+        .scaleColorDiscrete(
+          _.group,
+          colors = Vector(Rgba.Black, Rgba.White),
+          overflow = PaletteOverflowPolicy.Cycle
+        )
+        .geomPoint()
+        .resolve
+        .fold(error => fail(error.message), identity)
+
+    assertEquals(
+      cycled.layers.head.rows.map(_.gp.stroke),
+      Vector(
+        Some(Rgba.Black),
+        Some(Rgba.White),
+        Some(Rgba.Black),
+        Some(Rgba.White),
+        Some(Rgba.Black),
+        Some(Rgba.White),
+        Some(Rgba.Black)
+      )
+    )
+  }
+
   test("facet builders retain an inspectable typed specification") {
     val program =
       plot(rows)

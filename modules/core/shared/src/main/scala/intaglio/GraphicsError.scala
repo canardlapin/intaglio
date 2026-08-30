@@ -39,6 +39,7 @@ enum GraphicsError extends IntaglioError:
   case InvalidBand(center: Double, width: Double)
   case InvalidBandPadding(value: Double)
   case EmptyPalette
+  case DiscretePaletteOverflow(scale: String, levels: Int, capacity: Int)
   case DuplicateLevel(level: String)
   case EmptyGeometry(kind: String)
   case InvalidGeometrySize(kind: String, minimum: Int, actual: Int)
@@ -160,6 +161,8 @@ enum GraphicsError extends IntaglioError:
         s"band padding must be finite and in [0, 1): $value"
       case EmptyPalette =>
         "palette must contain at least one value"
+      case DiscretePaletteOverflow(scale, levels, capacity) =>
+        s"discrete scale '$scale' has $levels levels but its palette capacity is $capacity; select an explicit cycling policy to reuse values"
       case DuplicateLevel(level) =>
         s"duplicate discrete level '$level'"
       case EmptyGeometry(kind) =>

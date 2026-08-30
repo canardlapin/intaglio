@@ -124,9 +124,35 @@ class ScaleSuite extends munit.FunSuite:
     assertEquals(trained.levels, Vector("low", "mid", "high"))
   }
 
-  test("discrete scale maps levels with a total palette over trained domain") {
+  test("finite discrete palettes reject over-capacity domains by default") {
     val domain = DiscreteDomain.ordered(Vector("A", "B", "C")).toOption.get
     val palette = DiscretePalette.valuesUnsafe(Vector(Rgba.Black, Rgba.White))
+
+    assertEquals(
+      DiscreteScale("condition", domain, palette).left.toOption,
+      Some(GraphicsError.DiscretePaletteOverflow("condition", 3, 2))
+    )
+
+    val initiallyValid = DiscreteScale(
+      "condition",
+      DiscreteDomain.ordered(Vector("A", "B")).toOption.get,
+      palette
+    ).toOption.get
+    assertEquals(
+      initiallyValid
+        .trainPlotWide(Vector(ScaleObservation.Discrete("C")))
+        .left
+        .toOption,
+      Some(GraphicsError.DiscretePaletteOverflow("condition", 3, 2))
+    )
+  }
+
+  test("discrete scale cycles finite palettes only under the explicit overflow policy") {
+    val domain = DiscreteDomain.ordered(Vector("A", "B", "C")).toOption.get
+    val palette = DiscretePalette.valuesUnsafe(
+      Vector(Rgba.Black, Rgba.White),
+      PaletteOverflowPolicy.Cycle
+    )
     val scale = DiscreteScale("condition", domain, palette).toOption.get
 
     assertEquals(

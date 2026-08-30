@@ -134,17 +134,19 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       value: Row => String,
       levels: Vector[String] = Vector.empty,
       colors: Vector[Rgba] = options.theme.palettes.discrete,
-      name: String = "color"
+      name: String = "color",
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
   ): PlotBuilder[Row, Position] =
-    bindDiscrete(Aesthetic.Color, value, levels, colors, name)
+    bindDiscrete(Aesthetic.Color, value, levels, colors, name, overflow)
 
   def scaleFillDiscrete(
       value: Row => String,
       levels: Vector[String] = Vector.empty,
       colors: Vector[Rgba] = options.theme.palettes.discrete,
-      name: String = "fill"
+      name: String = "fill",
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
   ): PlotBuilder[Row, Position] =
-    bindDiscrete(Aesthetic.Fill, value, levels, colors, name)
+    bindDiscrete(Aesthetic.Fill, value, levels, colors, name, overflow)
 
   def scaleFillContinuous(
       value: Row => Double,
@@ -418,14 +420,15 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       value: Row => String,
       levels: Vector[String],
       colors: Vector[Rgba],
-      name: String
+      name: String,
+      overflow: PaletteOverflowPolicy
   ): PlotBuilder[Row, Position] =
     val declared = if levels.nonEmpty then levels else data.map(value).distinct
     val next =
       for
         current <- result
         domain <- DiscreteDomain.ordered(declared)
-        palette <- DiscretePalette.values(colors)
+        palette <- DiscretePalette.values(colors, overflow)
         scale <- DiscreteScale(name, domain, palette)
         plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
       yield plot

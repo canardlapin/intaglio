@@ -647,6 +647,7 @@ private[intaglio] enum ScaleObservation:
 enum ScaleMapFailure:
   case TransformDomain(transform: String, value: Double)
   case OutOfDomain(scale: String, value: String)
+  case PaletteOverflow(scale: String, levels: Int, capacity: Int)
 
 trait Palette[+A]:
   def apply(value: Double): A
@@ -670,19 +671,69 @@ object Palette:
         from.alpha + (to.alpha - from.alpha) * t
       )
 
+enum PaletteOverflowPolicy:
+  case Reject
+  case Cycle
+
 trait DiscretePalette[+A]:
   def apply(index: Int, count: Int): A
 
+  /** Finite palettes publish their capacity; procedural palettes remain unbounded. */
+  def capacity: Option[Int] =
+    None
+
+  def overflowPolicy: PaletteOverflowPolicy =
+    PaletteOverflowPolicy.Reject
+
+  final def validateDomain(
+      scale: String,
+      levelCount: Int
+  ): Either[GraphicsError, Unit] =
+    (capacity, overflowPolicy) match
+      case (Some(maximum), PaletteOverflowPolicy.Reject) if levelCount > maximum =>
+        Left(GraphicsError.DiscretePaletteOverflow(scale, levelCount, maximum))
+      case _ => Right(())
+
+  private[intaglio] final def mapValue(
+      scale: String,
+      index: Int,
+      levelCount: Int
+  ): Either[ScaleMapFailure, A] =
+    (capacity, overflowPolicy) match
+      case (Some(maximum), PaletteOverflowPolicy.Reject) if levelCount > maximum =>
+        Left(ScaleMapFailure.PaletteOverflow(scale, levelCount, maximum))
+      case _ => Right(apply(index, levelCount))
+
 object DiscretePalette:
-  def values[A](values: Vector[A]): Either[GraphicsError, DiscretePalette[A]] =
+  def values[A](
+      values: Vector[A],
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
+  ): Either[GraphicsError, DiscretePalette[A]] =
     if values.isEmpty then Left(GraphicsError.EmptyPalette)
     else
       Right(new DiscretePalette[A]:
-        override def apply(index: Int, count: Int): A =
-          values(index % values.length))
+        override val capacity: Option[Int] =
+          Some(values.length)
 
-  def valuesUnsafe[A](values: Vector[A]): DiscretePalette[A] =
-    DiscretePalette.values(values).orThrow
+        override val overflowPolicy: PaletteOverflowPolicy =
+          overflow
+
+        override def apply(index: Int, count: Int): A =
+          overflow match
+            case PaletteOverflowPolicy.Reject =>
+              if index >= 0 && index < values.length then values(index)
+              else
+                Left[GraphicsError, A](
+                  GraphicsError.DiscretePaletteOverflow("unvalidated", count, values.length)
+                ).orThrow
+            case PaletteOverflowPolicy.Cycle =>
+              values(index % values.length))
+
+  def valuesUnsafe[A](
+      values: Vector[A],
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
+  ): DiscretePalette[A] =
+    DiscretePalette.values(values, overflow).orThrow
 
   /** Stable zero-based positions for discrete axes and other ordinal output. */
   val indices: DiscretePalette[Double] =
@@ -883,7 +934,7 @@ final case class DiscreteScale[A] private (
       case ScaleTraining.PlotWide =>
         domain
           .train(observations.iterator.collect { case ScaleObservation.Discrete(value) => value })
-          .map(DiscreteScale(name, _, palette, training))
+          .flatMap(DiscreteScale.validated(name, _, palette, training))
 
   private[intaglio] override def trainFacet(
       observations: IterableOnce[ScaleObservation]
@@ -899,7 +950,7 @@ final case class DiscreteScale[A] private (
         val trained =
           if domain.ordered then DiscreteDomain.ordered(levels)
           else DiscreteDomain.unordered(levels)
-        trained.map(DiscreteScale(name, _, palette, training))
+        trained.flatMap(DiscreteScale.validated(name, _, palette, training))
 
   override def mapValue(value: String): Option[A] =
     mapValueResult(value).toOption
@@ -907,7 +958,7 @@ final case class DiscreteScale[A] private (
   override def mapValueResult(value: String): Either[ScaleMapFailure, A] =
     val idx = domain.levels.indexOf(value)
     if idx < 0 then Left(ScaleMapFailure.OutOfDomain(name.value, value))
-    else Right(palette(idx, domain.levels.length))
+    else palette.mapValue(name.value, idx, domain.levels.length)
 
   def mapLevels(values: IterableOnce[String]): Vector[Option[A]] =
     values.iterator.map(mapValue).toVector
@@ -919,7 +970,7 @@ object DiscreteScale:
       palette: DiscretePalette[A],
       training: ScaleTraining = ScaleTraining.PlotWide
   ): Either[GraphicsError, DiscreteScale[A]] =
-    GraphicsName(name, "discrete scale").map(DiscreteScale(_, domain, palette, training))
+    GraphicsName(name, "discrete scale").flatMap(validated(_, domain, palette, training))
 
   def fixed[A](
       name: String,
@@ -927,6 +978,16 @@ object DiscreteScale:
       palette: DiscretePalette[A]
   ): Either[GraphicsError, DiscreteScale[A]] =
     apply(name, domain, palette, ScaleTraining.Fixed)
+
+  private def validated[A](
+      name: GraphicsName,
+      domain: DiscreteDomain,
+      palette: DiscretePalette[A],
+      training: ScaleTraining
+  ): Either[GraphicsError, DiscreteScale[A]] =
+    palette
+      .validateDomain(name.value, domain.levels.length)
+      .map(_ => new DiscreteScale(name, domain, palette, training))
 
 /** Scala-native categorical position scale. Levels retain their declared order, centers are
   * zero-based unit steps, and width is carried explicitly as a [[Band]] rather than inferred later

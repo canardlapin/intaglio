@@ -845,6 +845,8 @@ private[intaglio] object RowPhase:
         PlotDropReason.TransformDomain(aesthetic.label, transform, value)
       case ScaleMapFailure.OutOfDomain(scale, value) =>
         PlotDropReason.ScaleOutOfDomain(aesthetic.label, scale, value)
+      case ScaleMapFailure.PaletteOverflow(scale, levels, capacity) =>
+        PlotDropReason.PaletteOverflow(aesthetic.label, scale, levels, capacity)
 
   private enum RowResolution[Row]:
     case Resolved(row: ResolvedRow[Row])

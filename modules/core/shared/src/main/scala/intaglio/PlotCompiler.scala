@@ -253,6 +253,7 @@ enum PlotDropReason:
   case InvalidBounds(axis: String, minimum: Double, maximum: Double)
   case TransformDomain(aesthetic: String, transform: String, value: Double)
   case ScaleOutOfDomain(aesthetic: String, scale: String, value: String)
+  case PaletteOverflow(aesthetic: String, scale: String, levels: Int, capacity: Int)
   case InvalidAesthetic(aesthetic: String, value: String)
 
 /** Facade over the compiler phases: mapping resolution, plot-wide scale training, row evaluation,
