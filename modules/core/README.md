@@ -252,6 +252,34 @@ not collapse distinct factors or enum cases. `String` has a built-in identity
 for source-level convenience. `external.category.TypedCategorySuite` is the
 JVM/Scala.js consumer court.
 
+Application and scientific model types can remain independent of Intaglio.
+Define a `PlotRecipe` beside the model to convert it to an immutable,
+renderer-neutral `PlotSpec`:
+
+```scala
+final case class TimeSeries(samples: Vector[Observation])
+
+given PlotRecipe.Aux[TimeSeries, Observation] =
+  PlotRecipe.checked { series =>
+    plot(series.samples)
+      .aes(_.time, _.signal)
+      .geomLine()
+      .build
+      .map(PlotSpec.fromProgram)
+  }
+
+val spec: Either[GraphicsError, PlotSpec[Observation]] =
+  TimeSeries(rows).toPlotSpec
+```
+
+`PlotRecipe` is a Scala typeclass with an associated row type, not a base class,
+implicit conversion, or mutable plugin registry. Normal lexical `given`
+resolution selects the recipe; a missing or ambiguous recipe fails at compile
+time. Conversion and compilation are pure over immutable inputs, so resolving
+the same recipe result is deterministic. The shared
+`external.recipe.PlotRecipeSuite` defines two unrelated consumer-package models
+and runs their recipes on both JVM and Scala.js.
+
 Layers may also own a different row type. Independent layers supply their own
 data and mapping, and must state what happens if the plot is faceted:
 
