@@ -332,6 +332,8 @@ object RendererConformance:
     val crossedName = GraphicsName.unsafe("conformance-pattern-crossed")
     val rulesName = GraphicsName.unsafe("conformance-pattern-rules")
     val stippleName = GraphicsName.unsafe("conformance-pattern-stipple")
+    val solidName = GraphicsName.unsafe("conformance-pattern-solid-control")
+    val groupName = GraphicsName.unsafe("conformance-pattern-transform")
     for
       angledRecipe <- PatternRecipe.angledHatch(30.0, 12.0, 1.5)
       crossedRecipe <- PatternRecipe.crossHatch(45.0, 12.0, 1.5)
@@ -380,12 +382,30 @@ object RendererConformance:
         gp = GraphicParams.unsafe(stroke = None, alpha = 0.55).withPatternFill(stipplePaint),
         name = Some(stippleName)
       )
+      solid <- Grob.rect(
+        Point.npcUnsafe(0.88, 0.78),
+        Size.npcUnsafe(0.12, 0.16),
+        gp = GraphicParams.unsafe(stroke = None, fill = Some(Rgba.unsafe(145, 155, 165)), alpha = 0.45),
+        name = Some(solidName)
+      )
+      viewport = Viewport.unsafe(
+        origin = Point.npcUnsafe(0.0, 0.0),
+        size = Size.npcUnsafe(1.0, 1.0),
+        clip = Clip.On,
+        angleDegrees = 7.5
+      )
+      group = Grob.group(
+        Vector(angled, crossed, rules, stipple, solid),
+        viewport = Some(viewport),
+        name = Some(groupName)
+      )
     yield ConformanceCase(
       GraphicsName.unsafe("pattern-fills"),
       ConformanceGroup.PatternFill,
-      Scene(Vector(angled, crossed, rules, stipple)),
-      Vector(angledName, crossedName, rulesName, stippleName),
+      Scene(Vector(group)),
+      Vector(groupName, angledName, crossedName, rulesName, stippleName, solidName),
       Vector(
+        RenderRequirement.Group(groupName, clipped = true, rotated = true),
         RenderRequirement.Primitive(angledName, RenderPrimitiveKind.Rectangle),
         RenderRequirement.PatternFill(angledName, angledPaint, 0.85),
         RenderRequirement.Primitive(crossedName, RenderPrimitiveKind.Disc),
@@ -393,7 +413,18 @@ object RendererConformance:
         RenderRequirement.Primitive(rulesName, RenderPrimitiveKind.Polygon),
         RenderRequirement.PatternFill(rulesName, rulesPaint, 0.65),
         RenderRequirement.Primitive(stippleName, RenderPrimitiveKind.Polygon),
-        RenderRequirement.PatternFill(stippleName, stipplePaint, 0.55)
+        RenderRequirement.PatternFill(stippleName, stipplePaint, 0.55),
+        RenderRequirement.Primitive(solidName, RenderPrimitiveKind.Rectangle),
+        RenderRequirement.Style(
+          solidName,
+          stroke = None,
+          fill = Some(Rgba.unsafe(145, 155, 165)),
+          lineWidth = 1.0,
+          lineType = LineType.Solid,
+          lineCap = LineCap.Butt,
+          lineJoin = LineJoin.Miter,
+          alpha = 0.45
+        )
       )
     )
 

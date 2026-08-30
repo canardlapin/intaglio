@@ -33,6 +33,13 @@ alpha stays on the resource geometry, while mark alpha remains the element's
 `opacity` and applies once to the composited fill and outline. Resource IDs use
 `id`, never `data-name`, so definitions do not impersonate semantic marks.
 
+`PatternFillAssuranceSuite` is the reproducible scale court for the admitted
+StoryAtlas-sized workload. On both the JVM and Scala.js it renders 2,300
+uniquely named marks sharing one complete pattern paint, pins the byte-identical
+SHA-256 output, and checks the 10,000-element and 2 MiB structural limits. It
+also proves that the emitted `data-name` sequence is exactly the input mark-name
+sequence and that only one pattern definition is serialized.
+
 ## Visual gallery
 
 The reproducible gallery runner lives in JVM test sources, so it never ships in
