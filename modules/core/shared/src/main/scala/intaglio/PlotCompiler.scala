@@ -92,6 +92,7 @@ sealed trait TrainedLayer:
   final def position: Position = value.position
   final def dataSize: Int = value.dataSize
   final def mapping: AesSpec[Row] = value.mapping
+  final def annotation: Option[ResolvedReferenceLine] = value.annotation
   final def statFrame: StatFrame[Row] = value.statFrame
   final def scaleDeclarations: Vector[ScaleDeclaration] = value.scaleDeclarations
   final def trainedScales: Vector[TrainedScale] = value.trainedScales
@@ -194,6 +195,7 @@ final case class ResolvedLayer[Row](
     position: Position,
     dataSize: Int,
     mapping: AesSpec[Row],
+    annotation: Option[ResolvedReferenceLine],
     statFrame: StatFrame[Row],
     scaleDeclarations: Vector[ScaleDeclaration],
     trainedScales: Vector[TrainedScale],
@@ -201,6 +203,18 @@ final case class ResolvedLayer[Row](
     droppedRows: Vector[DroppedRow[Row]],
     grobs: Vector[Grob]
 )
+
+/** A row-independent annotation after any requested position-scale mapping. */
+final case class ResolvedReferenceLine(
+    reference: ReferenceLine,
+    coordinate: Double,
+    trainedScale: Option[TrainedScale]
+):
+  def isMapped: Boolean =
+    trainedScale.nonEmpty
+
+  private[intaglio] def flipped: ResolvedReferenceLine =
+    copy(reference = reference.flipped)
 
 final case class ScaleDeclaration(
     layerIndex: Int,
@@ -365,9 +379,14 @@ object PlotCompiler:
       theme: Theme
   ): Either[GraphicsError, TrainedLayer] =
     val registry = ScaleRegistry.fromMapping(plan.mapping)
+    val annotation = plan.annotation.map(_.resolved)
+    val trainedScales = annotation.flatMap(_.trainedScale).fold(registry.trained) { scale =>
+      if registry.trained.exists(_.aesthetic == scale.aesthetic) then registry.trained
+      else registry.trained :+ scale
+    }
     RowPhase.resolve(plan, theme).flatMap { case (rows, droppedRows) =>
       PositionPhase.adjust(plan.layer, rows).flatMap { adjusted =>
-        GeomPhase.lower(plan.layer, adjusted).map { grobs =>
+        GeomPhase.lower(plan.layer, adjusted, annotation, theme).map { grobs =>
           TrainedLayer(
             ResolvedLayer(
               layerIndex = plan.layerIndex,
@@ -376,9 +395,10 @@ object PlotCompiler:
               position = plan.layer.position,
               dataSize = plan.source.data.length,
               mapping = plan.source.mapping,
+              annotation = annotation,
               statFrame = plan.frame,
               scaleDeclarations = registry.declarations(plan.layerIndex),
-              trainedScales = registry.trained,
+              trainedScales = trainedScales,
               rows = adjusted,
               droppedRows = droppedRows,
               grobs = grobs

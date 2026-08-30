@@ -133,7 +133,12 @@ private[intaglio] object FacetCompiler:
         globallyTrained.slice(panelIndex * plansPerPanel, (panelIndex + 1) * plansPerPanel)
       for
         localPlans <-
-          if panel.plans.forall(_.data.isEmpty) then Right(global)
+          if panel.plans.forall(plan =>
+              plan.data.isEmpty && plan.annotation.forall(
+                _.reference.scalePolicy != AnnotationScalePolicy.Train
+              )
+            )
+          then Right(global)
           else ScalePhase.trainFacetPositions(panel.plans, scales)
         merged = global.zip(localPlans).map { case (globalPlan, localPlan) =>
           PackedStatPlan.mergePositionScales(globalPlan, localPlan, scales)

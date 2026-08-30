@@ -141,6 +141,32 @@ The compiler retains each layer's hidden `Row` member through statistics,
 dropped-row provenance, and `TrainedLayer` inspection while training shared
 scale declarations over observations from every layer.
 
+Horizontal and vertical reference lines are a separate O(1) annotation path,
+not constant mappings repeated over the plot rows:
+
+```scala
+val annotated = plot(rows)
+  .aes(_.time, _.signal)
+  .geomPoint()
+  .hline(2.5) // Train + Repeat are the explicit defaults
+  .vline(
+    0.5,
+    scale = AnnotationScalePolicy.Overlay,
+    facets = AnnotationFacetPolicy.Exclude
+  )
+  .resolve
+```
+
+`Train` treats the coordinate as data-space input: it expands an unscaled
+range or contributes to an existing continuous position scale and is then
+mapped through that trained scale. `Overlay` leaves training unchanged and
+uses a panel-native coordinate. `Repeat` emits the annotation in every facet;
+`Exclude` omits it from faceted panels. Reference layers retain no data or row
+accessors, expose their resolved state through `TrainedLayer.annotation`, and
+render even when the base data is empty. The legacy `data` argument on
+`Layer.hline` and `Layer.vline` is accepted for source compatibility but is
+ignored rather than retained.
+
 ## Core laws
 
 - Scene composition is a monoid: `Scene.empty` is identity and `++` is

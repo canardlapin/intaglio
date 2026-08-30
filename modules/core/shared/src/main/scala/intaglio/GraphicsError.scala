@@ -72,6 +72,16 @@ enum GraphicsError extends IntaglioError:
       expectation: String
   )
   case InvalidPositionGeom(position: String, geom: String)
+  case InvalidAnnotationCoordinate(kind: String, value: Double)
+  case InvalidAnnotationGeom(kind: String, geom: String)
+  case ReferenceLineRequiresAnnotation(geom: String)
+  case AnnotationRequiresContinuousScale(kind: String, aesthetic: String, scale: String)
+  case AnnotationScaleMappingFailed(
+      kind: String,
+      aesthetic: String,
+      value: Double,
+      detail: String
+  )
   case NonFiniteStatInput(stat: String, aesthetic: String, value: Double)
   case InsufficientStatData(stat: String, minimum: Int, actual: Int)
   case StatInputOutsideBins(value: Double, lower: Double, upper: Double)
@@ -206,6 +216,16 @@ enum GraphicsError extends IntaglioError:
         s"position '$position' requires $parameter to be $expectation: $value"
       case InvalidPositionGeom(position, geom) =>
         s"position '$position' cannot adjust geom '$geom'"
+      case InvalidAnnotationCoordinate(kind, value) =>
+        s"$kind reference-line coordinate must be finite: $value"
+      case InvalidAnnotationGeom(kind, geom) =>
+        s"$kind reference-line state cannot be attached to geom '$geom'"
+      case ReferenceLineRequiresAnnotation(geom) =>
+        s"geom '$geom' requires O(1) reference-line state; use Layer.hline or Layer.vline"
+      case AnnotationRequiresContinuousScale(kind, aesthetic, scale) =>
+        s"$kind reference line cannot train $aesthetic scale '$scale' because it is not a built-in continuous position scale; use AnnotationScalePolicy.Overlay for panel-native coordinates"
+      case AnnotationScaleMappingFailed(kind, aesthetic, value, detail) =>
+        s"$kind reference line at $value could not map through $aesthetic scale: $detail"
       case NonFiniteStatInput(stat, aesthetic, value) =>
         s"stat '$stat' requires finite '$aesthetic' values: $value"
       case InsufficientStatData(stat, minimum, actual) =>

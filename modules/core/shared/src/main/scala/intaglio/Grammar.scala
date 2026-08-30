@@ -539,8 +539,9 @@ enum Geom(val label: String):
       case Line    => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
       case Polygon => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
       case Text    => Vector(RequiredAesthetic.X, RequiredAesthetic.Y, RequiredAesthetic.Label)
-      case Bar | HLine | VLine => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
-      case Segment             =>
+      case Bar     => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
+      case HLine | VLine => Vector.empty
+      case Segment       =>
         Vector(
           RequiredAesthetic.X,
           RequiredAesthetic.Y,
@@ -594,6 +595,58 @@ object Coord:
   def fixedUnsafe(ratio: Double = 1.0, clip: Clip = Clip.On): Coord =
     fixed(ratio, clip).orThrow
 
+enum ReferenceLineOrientation(val label: String):
+  case Horizontal extends ReferenceLineOrientation("horizontal")
+  case Vertical extends ReferenceLineOrientation("vertical")
+
+/** Whether a reference coordinate participates in its position scale.
+  *
+  * `Train` uses data-space coordinates: it expands an unscaled panel range or contributes an
+  * observation to an existing continuous position scale. `Overlay` leaves training unchanged and
+  * interprets the coordinate directly in the compiled panel's native space.
+  */
+enum AnnotationScalePolicy:
+  case Train
+  case Overlay
+
+/** Facet participation for row-independent annotations. */
+enum AnnotationFacetPolicy:
+  case Repeat
+  case Exclude
+
+/** O(1) reference-line state. It contains no source rows or row accessors. */
+final case class ReferenceLine private (
+    orientation: ReferenceLineOrientation,
+    coordinate: Double,
+    scalePolicy: AnnotationScalePolicy,
+    facetPolicy: AnnotationFacetPolicy
+):
+  def aesthetic: Aesthetic[Double] =
+    orientation match
+      case ReferenceLineOrientation.Horizontal => Aesthetic.Y
+      case ReferenceLineOrientation.Vertical   => Aesthetic.X
+
+  private[intaglio] def flipped: ReferenceLine =
+    val next = orientation match
+      case ReferenceLineOrientation.Horizontal => ReferenceLineOrientation.Vertical
+      case ReferenceLineOrientation.Vertical   => ReferenceLineOrientation.Horizontal
+    copy(orientation = next)
+
+object ReferenceLine:
+  def horizontal(
+      y: Double,
+      scale: AnnotationScalePolicy = AnnotationScalePolicy.Train,
+      facets: AnnotationFacetPolicy = AnnotationFacetPolicy.Repeat
+  ): ReferenceLine =
+    ReferenceLine(ReferenceLineOrientation.Horizontal, y, scale, facets)
+
+  def vertical(
+      x: Double,
+      scale: AnnotationScalePolicy = AnnotationScalePolicy.Train,
+      facets: AnnotationFacetPolicy = AnnotationFacetPolicy.Repeat
+  ): ReferenceLine =
+    ReferenceLine(ReferenceLineOrientation.Vertical, x, scale, facets)
+
 final case class Layer[Row] private (
     geom: Geom,
     stat: Stat[Row],
@@ -601,13 +654,14 @@ final case class Layer[Row] private (
     mapping: AesSpec[Row],
     inheritMapping: Boolean,
     params: Option[GraphicParams],
-    position: Position = Position.Identity
+    position: Position = Position.Identity,
+    annotation: Option[ReferenceLine] = None
 ):
   def effectiveMapping(plotMapping: AesSpec[Row]): AesSpec[Row] =
     if inheritMapping then mapping.inherit(plotMapping) else mapping
 
   def effectiveData(plotData: Vector[Row]): Vector[Row] =
-    data.getOrElse(plotData)
+    if annotation.nonEmpty then Vector.empty else data.getOrElse(plotData)
 
   /** Detach a layer from plot-level mapping inheritance. The rows of an independent layer are held
     * by [[PlotLayer.Independent]] itself, so `data` is cleared here rather than carrying a second
@@ -765,32 +819,44 @@ object Layer:
       params
     )
 
+  /** A row-independent horizontal annotation. `data` is retained for source compatibility but is
+    * deliberately not stored or traversed.
+    */
   def hline[Row](
       y: Double,
       data: Option[Vector[Row]] = None,
-      params: Option[GraphicParams] = None
+      params: Option[GraphicParams] = None,
+      scale: AnnotationScalePolicy = AnnotationScalePolicy.Train,
+      facets: AnnotationFacetPolicy = AnnotationFacetPolicy.Repeat
   ): Layer[Row] =
     Layer(
-      Geom.HLine,
-      Stat.Identity,
-      data,
-      AesSpec.empty[Row].withPosition(_ => 0.0, _ => y),
+      geom = Geom.HLine,
+      stat = Stat.Identity,
+      data = None,
+      mapping = AesSpec.empty[Row],
       inheritMapping = false,
-      params
+      params = params,
+      annotation = Some(ReferenceLine.horizontal(y, scale, facets))
     )
 
+  /** A row-independent vertical annotation. `data` is retained for source compatibility but is
+    * deliberately not stored or traversed.
+    */
   def vline[Row](
       x: Double,
       data: Option[Vector[Row]] = None,
-      params: Option[GraphicParams] = None
+      params: Option[GraphicParams] = None,
+      scale: AnnotationScalePolicy = AnnotationScalePolicy.Train,
+      facets: AnnotationFacetPolicy = AnnotationFacetPolicy.Repeat
   ): Layer[Row] =
     Layer(
-      Geom.VLine,
-      Stat.Identity,
-      data,
-      AesSpec.empty[Row].withPosition(_ => x, _ => 0.0),
+      geom = Geom.VLine,
+      stat = Stat.Identity,
+      data = None,
+      mapping = AesSpec.empty[Row],
       inheritMapping = false,
-      params
+      params = params,
+      annotation = Some(ReferenceLine.vertical(x, scale, facets))
     )
 
   def tile[Row](
@@ -898,17 +964,34 @@ object Layer:
       layer: Layer[Row],
       mapping: AesSpec[Row]
   ): Either[GraphicsError, Unit] =
-    layer.stat match
-      case Stat.Identity =>
-        validate(layer.geom, mapping)
-      case _: Stat.Count[?] =>
-        validateComputedStat(layer, mapping, Geom.Bar)
-      case _: Stat.Bin[?] =>
-        validateComputedStat(layer, mapping, Geom.Bar)
-      case _: Stat.Summary[?] =>
-        validateComputedStat(layer, mapping, Geom.Point)
-      case _: Stat.Density[?] =>
-        validateComputedStat(layer, mapping, Geom.Line)
+    layer.annotation match
+      case Some(annotation) if !annotation.coordinate.isFinite =>
+        Left(
+          GraphicsError.InvalidAnnotationCoordinate(
+            annotation.orientation.label,
+            annotation.coordinate
+          )
+        )
+      case Some(annotation)
+          if (annotation.orientation == ReferenceLineOrientation.Horizontal && layer.geom != Geom.HLine) ||
+            (annotation.orientation == ReferenceLineOrientation.Vertical && layer.geom != Geom.VLine) =>
+        Left(GraphicsError.InvalidAnnotationGeom(annotation.orientation.label, layer.geom.label))
+      case Some(_) =>
+        Right(())
+      case None if layer.geom == Geom.HLine || layer.geom == Geom.VLine =>
+        Left(GraphicsError.ReferenceLineRequiresAnnotation(layer.geom.label))
+      case None =>
+        layer.stat match
+          case Stat.Identity =>
+            validate(layer.geom, mapping)
+          case _: Stat.Count[?] =>
+            validateComputedStat(layer, mapping, Geom.Bar)
+          case _: Stat.Bin[?] =>
+            validateComputedStat(layer, mapping, Geom.Bar)
+          case _: Stat.Summary[?] =>
+            validateComputedStat(layer, mapping, Geom.Point)
+          case _: Stat.Density[?] =>
+            validateComputedStat(layer, mapping, Geom.Line)
 
   private def validateComputedStat[Row](
       layer: Layer[Row],
@@ -970,7 +1053,7 @@ object PlotLayer:
   private final case class Inherited[PlotRow](layer: Layer[PlotRow]) extends PlotLayer[PlotRow]:
     type Row = PlotRow
 
-    val inheritsPlotData: Boolean = layer.data.isEmpty
+    val inheritsPlotData: Boolean = layer.data.isEmpty && layer.annotation.isEmpty
     val inheritsPlotMapping: Boolean = layer.inheritMapping
     val facetPolicy: Option[LayerFacetPolicy[Row]] = None
 

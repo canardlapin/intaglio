@@ -1,5 +1,16 @@
 package intaglio
 
+private[intaglio] final case class AnnotationPlan(
+    reference: ReferenceLine,
+    coordinate: Double,
+    trainedScale: Option[TrainedScale] = None
+):
+  def isMapped: Boolean =
+    trainedScale.nonEmpty
+
+  def resolved: ResolvedReferenceLine =
+    ResolvedReferenceLine(reference, coordinate, trainedScale)
+
 /** Output of the mapping-resolution phase: one plan per layer with effective data and its canonical
   * aesthetic mapping.
   */
@@ -8,7 +19,8 @@ private[intaglio] final case class LayerPlan[Row](
     layer: Layer[Row],
     data: Vector[Row],
     mapping: AesSpec[Row],
-    packageKey: AnyRef
+    packageKey: AnyRef,
+    annotation: Option[AnnotationPlan]
 )
 
 /** Existential package that keeps one layer's row type attached to every compiler input derived
@@ -22,6 +34,7 @@ private[intaglio] sealed trait PackedLayerPlan:
   final def layer: Layer[Row] = value.layer
   final def data: Vector[Row] = value.data
   final def mapping: AesSpec[Row] = value.mapping
+  final def annotation: Option[AnnotationPlan] = value.annotation
 
 private[intaglio] object PackedLayerPlan:
   type Aux[Row0] = PackedLayerPlan { type Row = Row0 }
@@ -42,6 +55,7 @@ private[intaglio] final case class StatPlan[Row](
   def layerIndex: Int = source.layerIndex
   def layer: Layer[Row] = source.layer
   def data: Vector[StatRow[Row]] = frame.rows
+  def annotation: Option[AnnotationPlan] = source.annotation
 
 /** Existential package for a statistically transformed layer. All operations except alignment of
   * two copies of the same package remain fully typed.
@@ -56,6 +70,7 @@ private[intaglio] sealed trait PackedStatPlan:
   final def mapping: AesSpec[StatRow[Row]] = value.mapping
   final def frame: StatFrame[Row] = value.frame
   final def packageKey: AnyRef = value.source.packageKey
+  final def annotation: Option[AnnotationPlan] = value.annotation
 
 private[intaglio] object PackedStatPlan:
   type Aux[Row0] = PackedStatPlan { type Row = Row0 }
@@ -91,7 +106,16 @@ private[intaglio] object PackedStatPlan:
     val mapping =
       if scales.yIsFree then replace(withX, local.mapping, Aesthetic.Y)
       else withX
-    PackedStatPlan(global.copy(mapping = mapping))
+    val annotation = global.annotation match
+      case Some(value)
+          if (value.reference.aesthetic == Aesthetic.X && scales.xIsFree) ||
+            (value.reference.aesthetic == Aesthetic.Y && scales.yIsFree) =>
+        local.annotation
+      case value =>
+        value
+    PackedStatPlan(
+      global.copy(mapping = mapping, source = global.source.copy(annotation = annotation))
+    )
 
   private def replace[Row, A](
       target: AesSpec[Row],
@@ -126,6 +150,11 @@ private[intaglio] object MappingPhase:
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plot.layers.length && result.isRight do
       val packed = plot.layers(idx)
+      val annotation = packed.layer.annotation.flatMap { reference =>
+        Option.when(reference.facetPolicy == AnnotationFacetPolicy.Repeat)(
+          AnnotationPlan(reference, reference.coordinate)
+        )
+      }
       result =
         for
           panelData <- packed.panelData(plot.data, facet, cell, idx)
@@ -134,7 +163,8 @@ private[intaglio] object MappingPhase:
             panelData,
             packed.effectiveMapping(plot.mapping),
             idx,
-            packed
+            packed,
+            annotation
           )
         yield
           out += PackedLayerPlan(plan)
@@ -152,7 +182,8 @@ private[intaglio] object MappingPhase:
       layer.effectiveData(plot.data),
       layer.effectiveMapping(plot.mapping),
       layerIndex,
-      layer
+      layer,
+      layer.annotation.map(reference => AnnotationPlan(reference, reference.coordinate))
     )
 
   private def planLayer[PlotRow](
@@ -165,7 +196,8 @@ private[intaglio] object MappingPhase:
       packed.effectiveData(plot.data),
       packed.effectiveMapping(plot.mapping),
       layerIndex,
-      packed
+      packed,
+      packed.layer.annotation.map(reference => AnnotationPlan(reference, reference.coordinate))
     ).map(PackedLayerPlan(_))
 
   private def planValues[Row](
@@ -173,12 +205,13 @@ private[intaglio] object MappingPhase:
       data: Vector[Row],
       mapping: AesSpec[Row],
       layerIndex: Int,
-      packageKey: AnyRef
+      packageKey: AnyRef,
+      annotation: Option[AnnotationPlan]
   ): Either[GraphicsError, LayerPlan[Row]] =
     if !isSupported(layer.geom) then Left(GraphicsError.UnsupportedGeom(layer.geom.label))
     else
       Layer.validate(layer, mapping).map { _ =>
-        LayerPlan(layerIndex, layer, data, mapping, packageKey)
+        LayerPlan(layerIndex, layer, data, mapping, packageKey, annotation)
       }
 
   private def isSupported(geom: Geom): Boolean =
@@ -614,10 +647,16 @@ private[intaglio] object ScalePhase:
                 )
               )
             case None =>
-              val observations = contributions.flatMap(_.observations)
               for
+                annotationObservations <- annotationObservations(
+                  resolution.plans,
+                  aesthetic,
+                  first.entry
+                )
+                observations = contributions.flatMap(_.observations) ++ annotationObservations
                 trained <- trainEntry(first.entry, observations, facetLocal)
-                plans <- rebind(resolution.plans, aesthetic, observations, facetLocal)
+                rebound <- rebind(resolution.plans, aesthetic, observations, facetLocal)
+                plans <- mapAnnotations(rebound, aesthetic, trained)
               yield ScaleResolution(
                 plans,
                 PlotScaleRegistry.from(resolution.registry.scales :+ trained.trained)
@@ -667,6 +706,100 @@ private[intaglio] object ScalePhase:
     left.name == right.name &&
     left.kind == right.kind &&
     left.training == right.training
+
+  private def annotationObservations(
+      plans: Vector[PackedStatPlan],
+      aesthetic: Aesthetic[?],
+      entry: RegisteredScale[?]
+  ): Either[GraphicsError, Vector[ScaleObservation]] =
+    val annotations = plans.flatMap(_.annotation).filter { annotation =>
+      annotation.reference.aesthetic == aesthetic &&
+      annotation.reference.scalePolicy == AnnotationScalePolicy.Train
+    }
+    if annotations.isEmpty then Right(Vector.empty)
+    else
+      entry.scale match
+        case _: ContinuousScale[?] =>
+          Right(annotations.map(annotation => ScaleObservation.Continuous(annotation.coordinate)))
+        case _ =>
+          val reference = annotations.head.reference
+          Left(
+            GraphicsError.AnnotationRequiresContinuousScale(
+              reference.orientation.label,
+              aesthetic.label,
+              entry.descriptor.name.value
+            )
+          )
+
+  private def mapAnnotations[EntryRow](
+      plans: Vector[PackedStatPlan],
+      aesthetic: Aesthetic[?],
+      trained: RegisteredScale[EntryRow]
+  ): Either[GraphicsError, Vector[PackedStatPlan]] =
+    val out = Vector.newBuilder[PackedStatPlan]
+    var index = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while index < plans.length && result.isRight do
+      result = mapAnnotation(plans(index), aesthetic, trained).map { plan =>
+        out += plan
+        ()
+      }
+      index += 1
+    result.map(_ => out.result())
+
+  private def mapAnnotation[EntryRow](
+      plan: PackedStatPlan,
+      aesthetic: Aesthetic[?],
+      trained: RegisteredScale[EntryRow]
+  ): Either[GraphicsError, PackedStatPlan] =
+    mapAnnotationTyped(plan.value, aesthetic, trained)
+
+  private def mapAnnotationTyped[Row, EntryRow](
+      plan: StatPlan[Row],
+      aesthetic: Aesthetic[?],
+      trained: RegisteredScale[EntryRow]
+  ): Either[GraphicsError, PackedStatPlan] =
+    plan.annotation match
+      case Some(annotation)
+          if annotation.reference.aesthetic == aesthetic &&
+            annotation.reference.scalePolicy == AnnotationScalePolicy.Train =>
+        mapAnnotationCoordinate(annotation, aesthetic, trained).map { coordinate =>
+          val resolved = annotation.copy(
+            coordinate = coordinate,
+            trainedScale = Some(trained.trained)
+          )
+          PackedStatPlan(plan.copy(source = plan.source.copy(annotation = Some(resolved))))
+        }
+      case _ =>
+        Right(PackedStatPlan(plan))
+
+  private def mapAnnotationCoordinate[EntryRow](
+      annotation: AnnotationPlan,
+      aesthetic: Aesthetic[?],
+      trained: RegisteredScale[EntryRow]
+  ): Either[GraphicsError, Double] =
+    trained.scale match
+      case continuous: ContinuousScale[?] =>
+        continuous
+          .asInstanceOf[ContinuousScale[Double]]
+          .mapValueResult(annotation.reference.coordinate)
+          .left
+          .map(failure =>
+            GraphicsError.AnnotationScaleMappingFailed(
+              annotation.reference.orientation.label,
+              aesthetic.label,
+              annotation.reference.coordinate,
+              failure.toString
+            )
+          )
+      case _ =>
+        Left(
+          GraphicsError.AnnotationRequiresContinuousScale(
+            annotation.reference.orientation.label,
+            aesthetic.label,
+            trained.descriptor.name.value
+          )
+        )
 
   private def rebind(
       plans: Vector[PackedStatPlan],
@@ -1131,12 +1264,48 @@ private[intaglio] object PositionPhase:
 private[intaglio] object GeomPhase:
   def lower[Row](
       layer: Layer[Row],
-      rows: Vector[ResolvedRow[Row]]
+      rows: Vector[ResolvedRow[Row]],
+      annotation: Option[ResolvedReferenceLine],
+      theme: Theme
   ): Either[GraphicsError, Vector[Grob]] =
-    layer.stat match
-      case _: Stat.Summary[?] => summaryGrobs(rows)
-      case _: Stat.Density[?] => densityGrobs(rows)
-      case _                  => lowerIdentity(layer.geom, rows)
+    annotation match
+      case Some(reference) =>
+        referenceLineGrob(reference, layer.params.getOrElse(theme.geom))
+      case None if layer.annotation.nonEmpty =>
+        // The layer is a valid annotation declaration that this facet panel explicitly excludes.
+        // Keep that distinct from a row-backed HLine/VLine, which remains an invalid contract.
+        Right(Vector.empty)
+      case None =>
+        layer.stat match
+          case _: Stat.Summary[?] => summaryGrobs(rows)
+          case _: Stat.Density[?] => densityGrobs(rows)
+          case _                  => lowerIdentity(layer.geom, rows)
+
+  private def referenceLineGrob(
+      annotation: ResolvedReferenceLine,
+      params: GraphicParams
+  ): Either[GraphicsError, Vector[Grob]] =
+    val coordinate = LengthExpr.nativeUnsafe(annotation.coordinate)
+    val (segment, name) = annotation.reference.orientation match
+      case ReferenceLineOrientation.Horizontal =>
+        (
+          Point(LengthExpr.npcUnsafe(0.0), coordinate) ->
+            Point(LengthExpr.npcUnsafe(1.0), coordinate),
+          "geom-hline"
+        )
+      case ReferenceLineOrientation.Vertical =>
+        (
+          Point(coordinate, LengthExpr.npcUnsafe(0.0)) ->
+            Point(coordinate, LengthExpr.npcUnsafe(1.0)),
+          "geom-vline"
+        )
+    Grob
+      .segments(
+        Vector(segment),
+        gp = params,
+        name = Some(GraphicsName.unsafe(name))
+      )
+      .map(Vector(_))
 
   private def lowerIdentity[Row](
       geom: Geom,
@@ -1161,10 +1330,8 @@ private[intaglio] object GeomPhase:
         ribbonGrobs(rows, "ribbon")
       case Geom.Area =>
         ribbonGrobs(rows, "area")
-      case Geom.HLine =>
-        horizontalLineGrob(rows)
-      case Geom.VLine =>
-        verticalLineGrob(rows)
+      case Geom.HLine | Geom.VLine =>
+        Left(GraphicsError.ReferenceLineRequiresAnnotation(geom.label))
       case Geom.Tile =>
         boundedRectGrobs(rows, "tile")
       case Geom.Polygon =>
@@ -1313,36 +1480,6 @@ private[intaglio] object GeomPhase:
           }
       idx += 1
     result.map(_ => out.result())
-
-  private def horizontalLineGrob[Row](
-      rows: Vector[ResolvedRow[Row]]
-  ): Either[GraphicsError, Vector[Grob]] =
-    rows.headOption match
-      case None      => Right(Vector.empty)
-      case Some(row) =>
-        val y = LengthExpr.nativeUnsafe(row.y)
-        Grob
-          .segments(
-            Vector(Point(LengthExpr.npcUnsafe(0.0), y) -> Point(LengthExpr.npcUnsafe(1.0), y)),
-            gp = row.gp,
-            name = Some(GraphicsName.unsafe("geom-hline"))
-          )
-          .map(Vector(_))
-
-  private def verticalLineGrob[Row](
-      rows: Vector[ResolvedRow[Row]]
-  ): Either[GraphicsError, Vector[Grob]] =
-    rows.headOption match
-      case None      => Right(Vector.empty)
-      case Some(row) =>
-        val x = LengthExpr.nativeUnsafe(row.x)
-        Grob
-          .segments(
-            Vector(Point(x, LengthExpr.npcUnsafe(0.0)) -> Point(x, LengthExpr.npcUnsafe(1.0))),
-            gp = row.gp,
-            name = Some(GraphicsName.unsafe("geom-vline"))
-          )
-          .map(Vector(_))
 
   private def pointGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
@@ -1516,6 +1653,7 @@ private[intaglio] object CoordPhase:
     TrainedLayer(
       layer.copy(
         rows = layer.rows.map(flipRow),
+        annotation = layer.annotation.map(_.flipped),
         grobs = layer.grobs.map(flipGrob)
       )
     )
@@ -1708,15 +1846,22 @@ private[intaglio] object LayoutPhase:
         if contributes then
           layer.rows.iterator.flatMap(row => positionValues(row, aesthetic)).toVector
         else Vector.empty
+      val annotationValues = layer.annotation.toVector.collect {
+        case annotation
+            if annotation.reference.scalePolicy == AnnotationScalePolicy.Train &&
+              annotation.reference.aesthetic.label == aesthetic =>
+          annotation.coordinate
+      }
+      val positionData = values ++ annotationValues
       layer.trainedScales.find(_.aesthetic == aesthetic) match
         case Some(scale) =>
           sawScaled = true
           if scale.descriptor.kind == ScaleKind.Continuous then
             range = range.train(Vector(0.0, 1.0))
-          range = range.train(values)
+          range = range.train(positionData)
         case None =>
-          if values.nonEmpty then sawUnscaledData = true
-          range = range.train(values)
+          if positionData.nonEmpty then sawUnscaledData = true
+          range = range.train(positionData)
       if layer.geom == Geom.Bar then
         if aesthetic == Aesthetic.X.label then
           val edges = layer.rows.iterator.flatMap { row =>
@@ -1739,7 +1884,12 @@ private[intaglio] object LayoutPhase:
         range = range.train(intervalValues)
     }
     if sawScaled && sawUnscaledData then Left(GraphicsError.MixedPositionScaling(aesthetic))
-    else range.requireTrained
+    else
+      range.requireTrained match
+        case Left(GraphicsError.EmptyContinuousRange) if layers.exists(_.annotation.nonEmpty) =>
+          Right(Interval.unsafe(0.0, 1.0))
+        case result =>
+          result
 
   private def positionValues(
       row: ResolvedRow[?],

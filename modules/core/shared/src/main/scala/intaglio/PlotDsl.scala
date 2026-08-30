@@ -307,11 +307,21 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     scaleFillContinuous(row => bandRows(row).levelMid, palette, name)
       .geomPolygon(params = Some(params))
 
-  def hline(y: Double, params: Option[GraphicParams] = None): PlotBuilder[Row, Position] =
-    addLayer(Right(Layer.hline(y, data = Some(data), params = params)))
+  def hline(
+      y: Double,
+      params: Option[GraphicParams] = None,
+      scale: AnnotationScalePolicy = AnnotationScalePolicy.Train,
+      facets: AnnotationFacetPolicy = AnnotationFacetPolicy.Repeat
+  ): PlotBuilder[Row, Position] =
+    addLayer(Right(Layer.hline(y, params = params, scale = scale, facets = facets)))
 
-  def vline(x: Double, params: Option[GraphicParams] = None): PlotBuilder[Row, Position] =
-    addLayer(Right(Layer.vline(x, data = Some(data), params = params)))
+  def vline(
+      x: Double,
+      params: Option[GraphicParams] = None,
+      scale: AnnotationScalePolicy = AnnotationScalePolicy.Train,
+      facets: AnnotationFacetPolicy = AnnotationFacetPolicy.Repeat
+  ): PlotBuilder[Row, Position] =
+    addLayer(Right(Layer.vline(x, params = params, scale = scale, facets = facets)))
 
   def facetWrap(
       value: Row => String,

@@ -134,6 +134,114 @@ class GeomSuite extends munit.FunSuite:
     assertEquals(plot.layers(2).grobs.length, 1)
   }
 
+  test("reference annotations render over empty data without retaining or resolving rows") {
+    val horizontal = Layer.hline[Observation](2.75, data = Some(data))
+    val vertical = Layer.vline[Observation](3.25, data = Some(data))
+
+    assertEquals(horizontal.data, None)
+    assertEquals(vertical.data, None)
+    assertEquals(horizontal.effectiveData(data), Vector.empty)
+    assertEquals(vertical.effectiveData(data), Vector.empty)
+
+    val specified =
+      Plot(Vector.empty[Observation])
+        .addLayer(horizontal)
+        .flatMap(_.addLayer(vertical))
+        .fold(error => fail(error.message), identity)
+    assert(specified.layers.forall(layer => !layer.inheritsPlotData))
+
+    val trained = PlotCompiler
+      .resolve(
+        specified,
+        PlotCompilerOptions(policy = Some(LayoutPolicy()), expansion = RangeExpansion.none)
+      )
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(trained.layers.map(_.dataSize), Vector(0, 0))
+    assert(trained.layers.forall(_.rows.isEmpty))
+    assert(trained.layers.forall(_.statFrame.rows.isEmpty))
+    assert(trained.layers.forall(_.mapping.bound.isEmpty))
+    assert(trained.layers.forall(_.annotation.nonEmpty))
+    assertEquals(trained.layers.map(_.grobs.length), Vector(1, 1))
+    assertEquals(trained.layout.map(_.xScale), Some(Interval.unsafe(3.25, 3.25)))
+    assertEquals(trained.layout.map(_.yScale), Some(Interval.unsafe(2.75, 2.75)))
+  }
+
+  test("reference annotation scale training and overlay policies are distinct") {
+    val yScale =
+      ContinuousScale
+        .train("y", data.map(_.y), Palette.numeric)
+        .fold(error => fail(error.message), identity)
+
+    def compile(scalePolicy: AnnotationScalePolicy, coordinate: Double): TrainedPlot =
+      Plot(data)
+        .withScale(ScaleBinding[Observation, Double, Double](Aesthetic.Y, _.y, yScale))
+        .flatMap(_.addLayer(Layer.point[Observation](_.x, _.y)))
+        .flatMap(_.addLayer(Layer.hline[Observation](coordinate, scale = scalePolicy)))
+        .flatMap(
+          PlotCompiler.resolve(
+            _,
+            PlotCompilerOptions(policy = Some(LayoutPolicy()), expansion = RangeExpansion.none)
+          )
+        )
+        .fold(error => fail(error.message), identity)
+
+    val trained = compile(AnnotationScalePolicy.Train, 10.0)
+    val trainedAnnotation = trained.layers(1).annotation.getOrElse(fail("missing annotation"))
+    assert(trainedAnnotation.isMapped)
+    assertEquals(trainedAnnotation.coordinate, 1.0)
+    assertEquals(trained.layers(1).trainedScales.map(_.aesthetic), Vector("y"))
+    assertEquals(
+      trained.scaleRegistry.forAesthetic(Aesthetic.Y).map(_.descriptor.domain),
+      Some(ScaleDomain.Continuous(Interval.unsafe(1.0, 10.0), Interval.unsafe(1.0, 10.0)))
+    )
+    assertEquals(trained.layout.map(_.yScale), Some(Interval.unsafe(0.0, 1.0)))
+
+    val overlay = compile(AnnotationScalePolicy.Overlay, 0.25)
+    val overlayAnnotation = overlay.layers(1).annotation.getOrElse(fail("missing annotation"))
+    assert(!overlayAnnotation.isMapped)
+    assertEquals(overlayAnnotation.coordinate, 0.25)
+    assertEquals(
+      overlay.scaleRegistry.forAesthetic(Aesthetic.Y).map(_.descriptor.domain),
+      Some(ScaleDomain.Continuous(Interval.unsafe(1.0, 2.5), Interval.unsafe(1.0, 2.5)))
+    )
+  }
+
+  test("invalid reference coordinates fail at the typed layer boundary") {
+    assert(Plot(data).addLayer(Layer.hline[Observation](Double.NaN)) match
+      case Left(GraphicsError.InvalidAnnotationCoordinate("horizontal", value)) => value.isNaN
+      case _                                                                    => false)
+
+    assertEquals(
+      Layer
+        .fromMapping(
+          Geom.HLine,
+          AesSpec.empty[Observation].withPosition(_ => 0.0, _ => 1.0),
+          inheritMapping = false
+        )
+        .left
+        .toOption,
+      Some(GraphicsError.ReferenceLineRequiresAnnotation("hline"))
+    )
+  }
+
+  test("training a numeric reference against a categorical position scale fails explicitly") {
+    val scale =
+      BandScale("group-y", DiscreteDomain.empty)
+        .fold(error => fail(error.message), identity)
+    val plot =
+      Plot(data)
+        .withScale(ScaleBinding[Observation, String, Double](Aesthetic.Y, _.group, scale))
+        .flatMap(_.addLayer(Layer.point[Observation](_.x, _.y)))
+        .flatMap(_.addLayer(Layer.hline[Observation](0.5)))
+        .fold(error => fail(error.message), identity)
+
+    assertEquals(
+      PlotCompiler.resolve(plot).left.toOption,
+      Some(GraphicsError.AnnotationRequiresContinuousScale("horizontal", "y", "group-y"))
+    )
+  }
+
   test("required extent aesthetics and row bounds remain typed failures") {
     val missing = Layer.fromMapping(
       Geom.Segment,

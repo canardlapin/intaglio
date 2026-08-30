@@ -84,6 +84,88 @@ class FacetSuite extends munit.FunSuite:
     )
   }
 
+  test("reference annotation facet participation is explicit and row-independent") {
+    val facet =
+      FacetSpec.wrap[Observation](_.condition).fold(error => fail(error.message), identity)
+
+    def resolve(policy: AnnotationFacetPolicy): TrainedPlot =
+      Plot(rows)
+        .withFacet(facet)
+        .addLayer(Layer.point[Observation](_.x, _.y))
+        .flatMap(
+          _.addLayer(
+            Layer.hline[Observation](50.0, facets = policy)
+          )
+        )
+        .flatMap(
+          PlotCompiler.resolve(
+            _,
+            PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
+          )
+        )
+        .fold(error => fail(error.message), identity)
+
+    val repeated = resolve(AnnotationFacetPolicy.Repeat)
+    assert(repeated.facetPanels.forall(_.layers(1).annotation.nonEmpty))
+    assert(repeated.facetPanels.forall(_.layers(1).dataSize == 0))
+    assert(repeated.facetPanels.forall(_.layers(1).rows.isEmpty))
+    assert(repeated.facetPanels.forall(_.layers(1).grobs.length == 1))
+
+    val excluded = resolve(AnnotationFacetPolicy.Exclude)
+    assert(excluded.facetPanels.forall(_.layers(1).annotation.isEmpty))
+    assert(excluded.facetPanels.forall(_.layers(1).grobs.isEmpty))
+  }
+
+  test("declared empty facets render repeated reference annotations") {
+    val facet =
+      FacetSpec
+        .wrap[Observation](_.condition, levels = Vector("control", "task"))
+        .fold(error => fail(error.message), identity)
+    val trained =
+      Plot(Vector.empty[Observation])
+        .withFacet(facet)
+        .addLayer(Layer.hline[Observation](0.5))
+        .flatMap(_.addLayer(Layer.vline[Observation](0.5)))
+        .flatMap(
+          PlotCompiler.resolve(
+            _,
+            PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
+          )
+        )
+        .fold(error => fail(error.message), identity)
+
+    assertEquals(trained.facetPanels.map(_.cell.label), Vector("control", "task"))
+    assert(trained.facetPanels.forall(_.layers.map(_.dataSize) == Vector(0, 0)))
+    assert(trained.facetPanels.forall(_.layers.map(_.grobs.length) == Vector(1, 1)))
+  }
+
+  test("free facet scales train and map repeated annotations panel-locally") {
+    val trained =
+      plot(rows)
+        .aes(_.x, _.y)
+        .scaleYContinuous()
+        .facetWrap(_.condition, scales = FacetScales.FreeY)
+        .geomPoint()
+        .hline(50.0)
+        .resolve
+        .fold(error => fail(error.message), identity)
+
+    val domains = trained.facetPanels.map { panel =>
+      panel.scaleRegistry.forAesthetic(Aesthetic.Y).map(_.descriptor.domain)
+    }
+    assertEquals(
+      domains,
+      Vector(
+        Some(ScaleDomain.Continuous(Interval.unsafe(0.0, 50.0), Interval.unsafe(0.0, 50.0))),
+        Some(ScaleDomain.Continuous(Interval.unsafe(50.0, 200.0), Interval.unsafe(50.0, 200.0)))
+      )
+    )
+    assertEquals(
+      trained.facetPanels.map(_.layers(1).annotation.map(_.coordinate)),
+      Vector(Some(1.0), Some(0.0))
+    )
+  }
+
   test("shared ranges union panels while free position scales train per panel") {
     def resolve(scales: FacetScales, scaled: Boolean): TrainedPlot =
       val builder =
