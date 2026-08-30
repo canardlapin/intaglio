@@ -1,8 +1,8 @@
 package intaglio
 
-/** Source-compatible name for the canonical aesthetic mapping. `AesSpec` owns both the precise
-  * public fields and the deterministic typed operations; there is no second environment
-  * representation.
+/** Source-compatible name for the canonical aesthetic mapping. `AesSpec` owns both the built-in
+  * typed accessors, open [[AestheticMap]] storage, and deterministic operations; there is no second
+  * environment representation.
   */
 type AesEnv[Row] = AesSpec[Row]
 
@@ -10,10 +10,9 @@ object AesEnv:
   def empty[Row]: AesEnv[Row] =
     AesSpec.empty[Row]
 
-/** A scaled aesthetic binding with its hidden input/output types kept together. Erased casts are
-  * confined to existential construction and to installing the compiler's one concrete scale back
-  * into mappings that share its declaration; observation and training remain typed inside this
-  * value.
+/** A scaled aesthetic binding with its hidden input/output types kept together. The only remaining
+  * erased cast installs the compiler's one concrete scale back into mappings that share its
+  * declaration; construction, observation, and training remain typed inside this value.
   */
 sealed trait RegisteredScale[Row]:
   type In
@@ -83,7 +82,7 @@ sealed trait RegisteredScale[Row]:
   ): AesSpec[Row] =
     val compatibleFacetCopy =
       allowCompatibleFacetCopy &&
-        aesthetic == source.aesthetic &&
+        (aesthetic eq source.aesthetic) &&
         descriptor.name == source.descriptor.name &&
         descriptor.kind == source.descriptor.kind &&
         descriptor.training == source.descriptor.training
@@ -91,7 +90,7 @@ sealed trait RegisteredScale[Row]:
       sharesDeclaration(source) || compatibleFacetCopy,
       "trained scale must come from the shared declaration"
     )
-    require(aesthetic == trained.aesthetic, "trained scale aesthetic must match")
+    require(aesthetic eq trained.aesthetic, "trained scale aesthetic must match")
     val concrete = trained.scale match
       case value: Scale[?, ?] => value.asInstanceOf[Scale[In, Out]]
       case _                  =>
@@ -99,13 +98,13 @@ sealed trait RegisteredScale[Row]:
     mapping.updated(aesthetic, AesValue.Scaled(value.value, concrete))
 
   final def declaration(layerIndex: Int): ScaleDeclaration =
-    ScaleDeclaration(layerIndex, aesthetic.label, descriptor.name, descriptor.kind)
+    ScaleDeclaration(layerIndex, aesthetic, descriptor.name, descriptor.kind)
 
   final def trained: TrainedScale =
     scale match
       case concrete: Scale[?, ?] =>
         TrainedScale(
-          aesthetic.label,
+          aesthetic,
           descriptor,
           concrete.asInstanceOf[Scale[In, Out]]
         )
@@ -125,18 +124,6 @@ object RegisteredScale:
       val aesthetic: Aesthetic[Out] = aesthetic0
       val value: AesValue.Scaled[Row, In, Out] = value0
 
-  /** `AesSpec.updated` is the type-safe construction boundary. Existential iteration erases that
-    * relation, so recover it once here and keep it packaged.
-    */
-  private[intaglio] def erased[Row](
-      aesthetic: Aesthetic[?],
-      value: AesValue.Scaled[Row, ?, ?]
-  ): RegisteredScale[Row] =
-    RegisteredScale(
-      aesthetic.asInstanceOf[Aesthetic[Any]],
-      value.asInstanceOf[AesValue.Scaled[Row, Any, Any]]
-    )
-
 /** Per-layer view of the plot-trained bindings in an effective aesthetic environment. Plot-wide
   * uniqueness and training live in `PlotScaleRegistry`; this view preserves layer provenance.
   */
@@ -148,7 +135,7 @@ final case class ScaleRegistry[Row] private (entries: Vector[RegisteredScale[Row
     entries.map(_.trained)
 
   def forAesthetic(aesthetic: Aesthetic[?]): Option[RegisteredScale[Row]] =
-    entries.find(_.aesthetic == aesthetic)
+    entries.find(_.aesthetic eq aesthetic)
 
 object ScaleRegistry:
   def fromMapping[Row](mapping: AesSpec[Row]): ScaleRegistry[Row] =
@@ -162,12 +149,12 @@ object ScaleRegistry:
   */
 final case class PlotScaleRegistry private (scales: Vector[TrainedScale]):
   require(
-    scales.map(_.aesthetic).distinct.length == scales.length,
+    scales.map(_.key).distinct.length == scales.length,
     "plot scales must be unique by aesthetic"
   )
 
   def forAesthetic(aesthetic: Aesthetic[?]): Option[TrainedScale] =
-    scales.find(_.aesthetic == aesthetic.label)
+    scales.find(_.key eq aesthetic)
 
 object PlotScaleRegistry:
   val empty: PlotScaleRegistry =

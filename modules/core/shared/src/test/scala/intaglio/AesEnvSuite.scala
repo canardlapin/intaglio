@@ -123,7 +123,14 @@ class AesEnvSuite extends munit.FunSuite:
 
     assertEquals(
       registry.declarations(4),
-      Vector(ScaleDeclaration(4, "x", GraphicsName.unsafe("inferred-x"), ScaleKind.Continuous))
+      Vector(
+        ScaleDeclaration(
+          4,
+          Aesthetic.X,
+          GraphicsName.unsafe("inferred-x"),
+          ScaleKind.Continuous
+        )
+      )
     )
     assertEquals(
       registry.forAesthetic(Aesthetic.X).map(_.descriptor.domain),

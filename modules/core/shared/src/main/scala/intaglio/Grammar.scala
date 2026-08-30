@@ -145,6 +145,10 @@ object RowMapping:
 
 sealed trait AesValue[Row, A]:
   def map(row: Row): Option[A]
+  private[intaglio] def registered(
+      aesthetic: Aesthetic[A]
+  ): Option[RegisteredScale[Row]] =
+    None
   private[intaglio] def mappedBand(row: Row): Option[Band] =
     None
   private[intaglio] def isDiscreteMapped: Boolean =
@@ -175,6 +179,11 @@ object AesValue:
 
     override def isScaled: Boolean =
       true
+
+    private[intaglio] override def registered(
+        aesthetic: Aesthetic[A]
+    ): Option[RegisteredScale[Row]] =
+      Some(RegisteredScale(aesthetic, this))
 
     private[intaglio] override def isDiscreteMapped: Boolean =
       scale.descriptor.kind == ScaleKind.Discrete
@@ -222,6 +231,130 @@ object AesValue:
       scale: ScaleValue[In, A]
   ): AesValue[Row, A] =
     Scaled(RowMapping.throwing(value), scale)
+
+/** Immutable heterogeneous aesthetic storage. The typed key and its `AesValue` remain packaged
+  * together; lookup exposes the stored value only when the requested key has identical reference
+  * identity.
+  */
+final class AestheticMap[Row] private (private val entries: Vector[AestheticMap.Entry[Row]]):
+  def get[A](aesthetic: Aesthetic[A]): Option[AesValue[Row, A]] =
+    entries.iterator.flatMap(_.get(aesthetic)).nextOption()
+
+  def contains(aesthetic: Aesthetic[?]): Boolean =
+    entries.exists(_.matches(aesthetic))
+
+  /** Core keys retain their historical declaration order. Ecosystem keys follow in insertion order.
+    */
+  def keys: Vector[Aesthetic[?]] =
+    entries.map(_.key)
+
+  def updated[A](aesthetic: Aesthetic[A], value: AesValue[Row, A]): AestheticMap[Row] =
+    entries.indexWhere(_.matches(aesthetic)) match
+      case -1 =>
+        val at = insertionIndex(aesthetic)
+        new AestheticMap(entries.patch(at, Vector(AestheticMap.Entry(aesthetic, value)), 0))
+      case index =>
+        new AestheticMap(entries.updated(index, AestheticMap.Entry(aesthetic, value)))
+
+  def removed(aesthetic: Aesthetic[?]): AestheticMap[Row] =
+    entries.indexWhere(_.matches(aesthetic)) match
+      case -1    => this
+      case index => new AestheticMap(entries.patch(index, Vector.empty, 1))
+
+  private[intaglio] def updatedOption[A](
+      aesthetic: Aesthetic[A],
+      value: Option[AesValue[Row, A]]
+  ): AestheticMap[Row] =
+    value.fold(removed(aesthetic))(updated(aesthetic, _))
+
+  private[intaglio] def inherit(parent: AestheticMap[Row]): AestheticMap[Row] =
+    val allKeys =
+      (keys ++ parent.keys).foldLeft(Vector.empty[Aesthetic[?]]) { (result, aesthetic) =>
+        if result.exists(_ eq aesthetic) then result else result :+ aesthetic
+      }
+    allKeys.foldLeft(AestheticMap.empty[Row]) { (result, aesthetic) =>
+      inheritAt(result, parent, aesthetic)
+    }
+
+  private[intaglio] def contramap[Input](f: Input => Row): AestheticMap[Input] =
+    new AestheticMap(entries.map(_.contramap(f)))
+
+  private[intaglio] def scaledEntries: Vector[RegisteredScale[Row]] =
+    keys.flatMap(scaledEntry)
+
+  private[intaglio] def scaledEntry(
+      aesthetic: Aesthetic[?]
+  ): Option[RegisteredScale[Row]] =
+    scaledEntryAt(aesthetic)
+
+  override def equals(other: Any): Boolean =
+    other match
+      case that: AestheticMap[?] => entries == that.entries
+      case _                     => false
+
+  override def hashCode(): Int =
+    entries.hashCode()
+
+  override def toString: String =
+    entries.mkString("AestheticMap(", ", ", ")")
+
+  private def insertionIndex(aesthetic: Aesthetic[?]): Int =
+    Aesthetic.builtInIndex(aesthetic) match
+      case None       => entries.length
+      case Some(rank) =>
+        entries.indexWhere { entry =>
+          Aesthetic.builtInIndex(entry.key).forall(_ > rank)
+        } match
+          case -1    => entries.length
+          case index => index
+
+  private def inheritAt[A](
+      result: AestheticMap[Row],
+      parent: AestheticMap[Row],
+      aesthetic: Aesthetic[A]
+  ): AestheticMap[Row] =
+    val selected =
+      get(aesthetic) match
+        case local @ Some(value) if value.isScaled => local
+        case local                                 =>
+          parent.get(aesthetic) match
+            case inherited @ Some(value) if value.isScaled => inherited
+            case inherited                                 => local.orElse(inherited)
+    selected.fold(result)(result.updated(aesthetic, _))
+
+  private def scaledEntryAt[A](aesthetic: Aesthetic[A]): Option[RegisteredScale[Row]] =
+    get(aesthetic).flatMap(_.registered(aesthetic))
+
+object AestheticMap:
+  private sealed trait Entry[Row]:
+    type Value
+    def key: Aesthetic[Value]
+    def value: AesValue[Row, Value]
+
+    final def matches(candidate: Aesthetic[?]): Boolean =
+      key eq candidate
+
+    /** Reference identity proves that `Value` and `A` are the same hidden type. This is the sole
+      * existential recovery cast in aesthetic storage.
+      */
+    final def get[A](candidate: Aesthetic[A]): Option[AesValue[Row, A]] =
+      Option.when(matches(candidate))(value.asInstanceOf[AesValue[Row, A]])
+
+    final def contramap[Input](f: Input => Row): Entry[Input] =
+      Entry(key, value.contramap(f))
+
+  private final case class TypedEntry[Row, A](
+      key: Aesthetic[A],
+      value: AesValue[Row, A]
+  ) extends Entry[Row]:
+    type Value = A
+
+  private object Entry:
+    def apply[Row, A](aesthetic: Aesthetic[A], value: AesValue[Row, A]): Entry[Row] =
+      TypedEntry(aesthetic, value)
+
+  def empty[Row]: AestheticMap[Row] =
+    new AestheticMap(Vector.empty)
 
 /** How a compiled layer chooses its group identity. Inference deliberately names the contributing
   * aesthetics; row-level keys retain their raw pre-palette categories separately.
@@ -273,67 +406,33 @@ enum RequiredAesthetic(val aesthetic: Aesthetic[?]):
   def isPresent[Row](mapping: AesSpec[Row]): Boolean =
     mapping.isBound(aesthetic)
 
-final case class AesSpec[Row](
-    x: Option[AesValue[Row, Double]] = None,
-    y: Option[AesValue[Row, Double]] = None,
-    xEnd: Option[AesValue[Row, Double]] = None,
-    yEnd: Option[AesValue[Row, Double]] = None,
-    xMin: Option[AesValue[Row, Double]] = None,
-    xMax: Option[AesValue[Row, Double]] = None,
-    yMin: Option[AesValue[Row, Double]] = None,
-    yMax: Option[AesValue[Row, Double]] = None,
-    color: Option[AesValue[Row, Rgba]] = None,
-    fill: Option[AesValue[Row, Rgba]] = None,
-    alpha: Option[AesValue[Row, Double]] = None,
-    size: Option[AesValue[Row, Double]] = None,
-    label: Option[AesValue[Row, String]] = None,
-    group: Option[AesValue[Row, String]] = None,
-    subpath: Option[AesValue[Row, String]] = None
-):
-  /** Typed lookup against the canonical aesthetic storage. */
+final class AesSpec[Row] private (val aesthetics: AestheticMap[Row]):
+  def x: Option[AesValue[Row, Double]] = get(Aesthetic.X)
+  def y: Option[AesValue[Row, Double]] = get(Aesthetic.Y)
+  def xEnd: Option[AesValue[Row, Double]] = get(Aesthetic.XEnd)
+  def yEnd: Option[AesValue[Row, Double]] = get(Aesthetic.YEnd)
+  def xMin: Option[AesValue[Row, Double]] = get(Aesthetic.XMin)
+  def xMax: Option[AesValue[Row, Double]] = get(Aesthetic.XMax)
+  def yMin: Option[AesValue[Row, Double]] = get(Aesthetic.YMin)
+  def yMax: Option[AesValue[Row, Double]] = get(Aesthetic.YMax)
+  def color: Option[AesValue[Row, Rgba]] = get(Aesthetic.Color)
+  def fill: Option[AesValue[Row, Rgba]] = get(Aesthetic.Fill)
+  def alpha: Option[AesValue[Row, Double]] = get(Aesthetic.Alpha)
+  def size: Option[AesValue[Row, Double]] = get(Aesthetic.Size)
+  def label: Option[AesValue[Row, String]] = get(Aesthetic.Label)
+  def group: Option[AesValue[Row, String]] = get(Aesthetic.Group)
+  def subpath: Option[AesValue[Row, String]] = get(Aesthetic.Subpath)
+
+  /** Typed lookup against the canonical heterogeneous aesthetic storage. */
   def get[A](aesthetic: Aesthetic[A]): Option[AesValue[Row, A]] =
-    aesthetic match
-      case Aesthetic.X       => x
-      case Aesthetic.Y       => y
-      case Aesthetic.XEnd    => xEnd
-      case Aesthetic.YEnd    => yEnd
-      case Aesthetic.XMin    => xMin
-      case Aesthetic.XMax    => xMax
-      case Aesthetic.YMin    => yMin
-      case Aesthetic.YMax    => yMax
-      case Aesthetic.Color   => color
-      case Aesthetic.Fill    => fill
-      case Aesthetic.Alpha   => alpha
-      case Aesthetic.Size    => size
-      case Aesthetic.Label   => label
-      case Aesthetic.Group   => group
-      case Aesthetic.Subpath => subpath
+    aesthetics.get(aesthetic)
 
   def isBound(aesthetic: Aesthetic[?]): Boolean =
-    aesthetic match
-      case Aesthetic.X       => x.nonEmpty
-      case Aesthetic.Y       => y.nonEmpty
-      case Aesthetic.XEnd    => xEnd.nonEmpty
-      case Aesthetic.YEnd    => yEnd.nonEmpty
-      case Aesthetic.XMin    => xMin.nonEmpty
-      case Aesthetic.XMax    => xMax.nonEmpty
-      case Aesthetic.YMin    => yMin.nonEmpty
-      case Aesthetic.YMax    => yMax.nonEmpty
-      case Aesthetic.Color   => color.nonEmpty
-      case Aesthetic.Fill    => fill.nonEmpty
-      case Aesthetic.Alpha   => alpha.nonEmpty
-      case Aesthetic.Size    => size.nonEmpty
-      case Aesthetic.Label   => label.nonEmpty
-      case Aesthetic.Group   => group.nonEmpty
-      case Aesthetic.Subpath => subpath.nonEmpty
+    aesthetics.contains(aesthetic)
 
-  /** Bound aesthetics in declaration order. */
+  /** Bound core aesthetics in their stable order, followed by ecosystem keys in insertion order. */
   def bound: Vector[Aesthetic[?]] =
-    val out = Vector.newBuilder[Aesthetic[?]]
-    Aesthetic.values.foreach { aesthetic =>
-      if isBound(aesthetic) then out += aesthetic
-    }
-    out.result()
+    aesthetics.keys
 
   /** Explicit `group` is authoritative. Otherwise, discrete style bindings form an interaction in
     * stable aesthetic declaration order. Position, label, and subpath mappings do not implicitly
@@ -353,22 +452,10 @@ final case class AesSpec[Row](
       else GroupingDecision.Inferred(inferred)
 
   def updated[A](aesthetic: Aesthetic[A], value: AesValue[Row, A]): AesSpec[Row] =
-    aesthetic match
-      case Aesthetic.X       => copy(x = Some(value))
-      case Aesthetic.Y       => copy(y = Some(value))
-      case Aesthetic.XEnd    => copy(xEnd = Some(value))
-      case Aesthetic.YEnd    => copy(yEnd = Some(value))
-      case Aesthetic.XMin    => copy(xMin = Some(value))
-      case Aesthetic.XMax    => copy(xMax = Some(value))
-      case Aesthetic.YMin    => copy(yMin = Some(value))
-      case Aesthetic.YMax    => copy(yMax = Some(value))
-      case Aesthetic.Color   => copy(color = Some(value))
-      case Aesthetic.Fill    => copy(fill = Some(value))
-      case Aesthetic.Alpha   => copy(alpha = Some(value))
-      case Aesthetic.Size    => copy(size = Some(value))
-      case Aesthetic.Label   => copy(label = Some(value))
-      case Aesthetic.Group   => copy(group = Some(value))
-      case Aesthetic.Subpath => copy(subpath = Some(value))
+    new AesSpec(aesthetics.updated(aesthetic, value))
+
+  def removed(aesthetic: Aesthetic[?]): AesSpec[Row] =
+    new AesSpec(aesthetics.removed(aesthetic))
 
   /** Register a scaled binding; a second scaled binding on the same aesthetic remains a typed
     * error.
@@ -384,85 +471,17 @@ final case class AesSpec[Row](
     * local, then parent.
     */
   def inherit(parent: AesSpec[Row]): AesSpec[Row] =
-    AesSpec(
-      x = inheritValue(x, parent.x),
-      y = inheritValue(y, parent.y),
-      xEnd = inheritValue(xEnd, parent.xEnd),
-      yEnd = inheritValue(yEnd, parent.yEnd),
-      xMin = inheritValue(xMin, parent.xMin),
-      xMax = inheritValue(xMax, parent.xMax),
-      yMin = inheritValue(yMin, parent.yMin),
-      yMax = inheritValue(yMax, parent.yMax),
-      color = inheritValue(color, parent.color),
-      fill = inheritValue(fill, parent.fill),
-      alpha = inheritValue(alpha, parent.alpha),
-      size = inheritValue(size, parent.size),
-      label = inheritValue(label, parent.label),
-      group = inheritValue(group, parent.group),
-      subpath = inheritValue(subpath, parent.subpath)
-    )
+    new AesSpec(aesthetics.inherit(parent.aesthetics))
 
   /** Scaled bindings in declaration order, each registered exactly once. */
   def scaledEntries: Vector[RegisteredScale[Row]] =
-    Aesthetic.values.toVector.flatMap(scaledEntry)
+    aesthetics.scaledEntries
 
   private[intaglio] def scaledEntry(aesthetic: Aesthetic[?]): Option[RegisteredScale[Row]] =
-    aesthetic match
-      case Aesthetic.X       => registered(Aesthetic.X, x)
-      case Aesthetic.Y       => registered(Aesthetic.Y, y)
-      case Aesthetic.XEnd    => registered(Aesthetic.XEnd, xEnd)
-      case Aesthetic.YEnd    => registered(Aesthetic.YEnd, yEnd)
-      case Aesthetic.XMin    => registered(Aesthetic.XMin, xMin)
-      case Aesthetic.XMax    => registered(Aesthetic.XMax, xMax)
-      case Aesthetic.YMin    => registered(Aesthetic.YMin, yMin)
-      case Aesthetic.YMax    => registered(Aesthetic.YMax, yMax)
-      case Aesthetic.Color   => registered(Aesthetic.Color, color)
-      case Aesthetic.Fill    => registered(Aesthetic.Fill, fill)
-      case Aesthetic.Alpha   => registered(Aesthetic.Alpha, alpha)
-      case Aesthetic.Size    => registered(Aesthetic.Size, size)
-      case Aesthetic.Label   => registered(Aesthetic.Label, label)
-      case Aesthetic.Group   => registered(Aesthetic.Group, group)
-      case Aesthetic.Subpath => registered(Aesthetic.Subpath, subpath)
-
-  private def registered[A](
-      aesthetic: Aesthetic[A],
-      value: Option[AesValue[Row, A]]
-  ): Option[RegisteredScale[Row]] =
-    value match
-      case Some(scaled: AesValue.Scaled[Row, ?, A]) =>
-        Some(RegisteredScale.erased(aesthetic, scaled))
-      case _ =>
-        None
-
-  private def inheritValue[A](
-      local: Option[AesValue[Row, A]],
-      parent: Option[AesValue[Row, A]]
-  ): Option[AesValue[Row, A]] =
-    local match
-      case Some(value) if value.isScaled => local
-      case _                             =>
-        parent match
-          case Some(value) if value.isScaled => parent
-          case parentValue                   => local.orElse(parentValue)
+    aesthetics.scaledEntry(aesthetic)
 
   def contramap[Input](f: Input => Row): AesSpec[Input] =
-    AesSpec(
-      x = x.map(_.contramap(f)),
-      y = y.map(_.contramap(f)),
-      xEnd = xEnd.map(_.contramap(f)),
-      yEnd = yEnd.map(_.contramap(f)),
-      xMin = xMin.map(_.contramap(f)),
-      xMax = xMax.map(_.contramap(f)),
-      yMin = yMin.map(_.contramap(f)),
-      yMax = yMax.map(_.contramap(f)),
-      color = color.map(_.contramap(f)),
-      fill = fill.map(_.contramap(f)),
-      alpha = alpha.map(_.contramap(f)),
-      size = size.map(_.contramap(f)),
-      label = label.map(_.contramap(f)),
-      group = group.map(_.contramap(f)),
-      subpath = subpath.map(_.contramap(f))
-    )
+    new AesSpec(aesthetics.contramap(f))
 
   def position: Option[Position2[Row]] =
     for
@@ -471,7 +490,7 @@ final case class AesSpec[Row](
     yield Position2(px, py)
 
   def withPosition(x: Row => Double, y: Row => Double): AesSpec[Row] =
-    copy(x = Some(AesValue.direct(x)), y = Some(AesValue.direct(y)))
+    updated(Aesthetic.X, AesValue.direct(x)).updated(Aesthetic.Y, AesValue.direct(y))
 
   def withSegment(
       x: Row => Double,
@@ -479,12 +498,9 @@ final case class AesSpec[Row](
       xEnd: Row => Double,
       yEnd: Row => Double
   ): AesSpec[Row] =
-    copy(
-      x = Some(AesValue.direct(x)),
-      y = Some(AesValue.direct(y)),
-      xEnd = Some(AesValue.direct(xEnd)),
-      yEnd = Some(AesValue.direct(yEnd))
-    )
+    withPosition(x, y)
+      .updated(Aesthetic.XEnd, AesValue.direct(xEnd))
+      .updated(Aesthetic.YEnd, AesValue.direct(yEnd))
 
   def withBounds(
       x: Row => Double,
@@ -494,14 +510,11 @@ final case class AesSpec[Row](
       yMin: Row => Double,
       yMax: Row => Double
   ): AesSpec[Row] =
-    copy(
-      x = Some(AesValue.direct(x)),
-      y = Some(AesValue.direct(y)),
-      xMin = Some(AesValue.direct(xMin)),
-      xMax = Some(AesValue.direct(xMax)),
-      yMin = Some(AesValue.direct(yMin)),
-      yMax = Some(AesValue.direct(yMax))
-    )
+    withPosition(x, y)
+      .updated(Aesthetic.XMin, AesValue.direct(xMin))
+      .updated(Aesthetic.XMax, AesValue.direct(xMax))
+      .updated(Aesthetic.YMin, AesValue.direct(yMin))
+      .updated(Aesthetic.YMax, AesValue.direct(yMax))
 
   def withYBounds(
       x: Row => Double,
@@ -509,54 +522,87 @@ final case class AesSpec[Row](
       yMin: Row => Double,
       yMax: Row => Double
   ): AesSpec[Row] =
-    copy(
-      x = Some(AesValue.direct(x)),
-      y = Some(AesValue.direct(y)),
-      yMin = Some(AesValue.direct(yMin)),
-      yMax = Some(AesValue.direct(yMax))
-    )
+    withPosition(x, y)
+      .updated(Aesthetic.YMin, AesValue.direct(yMin))
+      .updated(Aesthetic.YMax, AesValue.direct(yMax))
 
   def withColor(f: Row => Rgba): AesSpec[Row] =
-    copy(color = Some(AesValue.direct(f)))
+    updated(Aesthetic.Color, AesValue.direct(f))
 
   def withColor(value: Rgba): AesSpec[Row] =
-    copy(color = Some(AesValue.constant(value)))
+    updated(Aesthetic.Color, AesValue.constant(value))
 
   def withFill(f: Row => Rgba): AesSpec[Row] =
-    copy(fill = Some(AesValue.direct(f)))
+    updated(Aesthetic.Fill, AesValue.direct(f))
 
   def withFill(value: Rgba): AesSpec[Row] =
-    copy(fill = Some(AesValue.constant(value)))
+    updated(Aesthetic.Fill, AesValue.constant(value))
 
   def withAlpha(f: Row => Double): AesSpec[Row] =
-    copy(alpha = Some(AesValue.direct(f)))
+    updated(Aesthetic.Alpha, AesValue.direct(f))
 
   def withAlpha(value: Double): AesSpec[Row] =
-    copy(alpha = Some(AesValue.constant(value)))
+    updated(Aesthetic.Alpha, AesValue.constant(value))
 
   def withSize(f: Row => Double): AesSpec[Row] =
-    copy(size = Some(AesValue.direct(f)))
+    updated(Aesthetic.Size, AesValue.direct(f))
 
   def withSize(value: Double): AesSpec[Row] =
-    copy(size = Some(AesValue.constant(value)))
+    updated(Aesthetic.Size, AesValue.constant(value))
 
   def withLabel(f: Row => String): AesSpec[Row] =
-    copy(label = Some(AesValue.direct(f)))
+    updated(Aesthetic.Label, AesValue.direct(f))
 
   def withLabel(value: String): AesSpec[Row] =
-    copy(label = Some(AesValue.constant(value)))
+    updated(Aesthetic.Label, AesValue.constant(value))
 
   def withGroup(f: Row => String): AesSpec[Row] =
-    copy(group = Some(AesValue.direct(f)))
+    updated(Aesthetic.Group, AesValue.direct(f))
 
   def withGroup(value: String): AesSpec[Row] =
-    copy(group = Some(AesValue.constant(value)))
+    updated(Aesthetic.Group, AesValue.constant(value))
 
   def withSubpath(f: Row => String): AesSpec[Row] =
-    copy(subpath = Some(AesValue.direct(f)))
+    updated(Aesthetic.Subpath, AesValue.direct(f))
 
   def withSubpath(value: String): AesSpec[Row] =
-    copy(subpath = Some(AesValue.constant(value)))
+    updated(Aesthetic.Subpath, AesValue.constant(value))
+
+  /** Source-compatible built-in-field copy. Ecosystem mappings are retained unchanged. */
+  def copy(
+      x: Option[AesValue[Row, Double]] = this.x,
+      y: Option[AesValue[Row, Double]] = this.y,
+      xEnd: Option[AesValue[Row, Double]] = this.xEnd,
+      yEnd: Option[AesValue[Row, Double]] = this.yEnd,
+      xMin: Option[AesValue[Row, Double]] = this.xMin,
+      xMax: Option[AesValue[Row, Double]] = this.xMax,
+      yMin: Option[AesValue[Row, Double]] = this.yMin,
+      yMax: Option[AesValue[Row, Double]] = this.yMax,
+      color: Option[AesValue[Row, Rgba]] = this.color,
+      fill: Option[AesValue[Row, Rgba]] = this.fill,
+      alpha: Option[AesValue[Row, Double]] = this.alpha,
+      size: Option[AesValue[Row, Double]] = this.size,
+      label: Option[AesValue[Row, String]] = this.label,
+      group: Option[AesValue[Row, String]] = this.group,
+      subpath: Option[AesValue[Row, String]] = this.subpath
+  ): AesSpec[Row] =
+    val next = aesthetics
+      .updatedOption(Aesthetic.X, x)
+      .updatedOption(Aesthetic.Y, y)
+      .updatedOption(Aesthetic.XEnd, xEnd)
+      .updatedOption(Aesthetic.YEnd, yEnd)
+      .updatedOption(Aesthetic.XMin, xMin)
+      .updatedOption(Aesthetic.XMax, xMax)
+      .updatedOption(Aesthetic.YMin, yMin)
+      .updatedOption(Aesthetic.YMax, yMax)
+      .updatedOption(Aesthetic.Color, color)
+      .updatedOption(Aesthetic.Fill, fill)
+      .updatedOption(Aesthetic.Alpha, alpha)
+      .updatedOption(Aesthetic.Size, size)
+      .updatedOption(Aesthetic.Label, label)
+      .updatedOption(Aesthetic.Group, group)
+      .updatedOption(Aesthetic.Subpath, subpath)
+    new AesSpec(next)
 
   /** Compatibility view: `AesSpec` itself is the canonical environment. */
   def env: AesEnv[Row] =
@@ -565,9 +611,59 @@ final case class AesSpec[Row](
   def bindScale[In, A](binding: ScaleBinding[Row, In, A]): Either[GraphicsError, AesSpec[Row]] =
     bind(binding)
 
+  override def equals(other: Any): Boolean =
+    other match
+      case that: AesSpec[?] => aesthetics == that.aesthetics
+      case _                => false
+
+  override def hashCode(): Int =
+    aesthetics.hashCode()
+
+  override def toString: String =
+    s"AesSpec($aesthetics)"
+
 object AesSpec:
+  def apply[Row](
+      x: Option[AesValue[Row, Double]] = None,
+      y: Option[AesValue[Row, Double]] = None,
+      xEnd: Option[AesValue[Row, Double]] = None,
+      yEnd: Option[AesValue[Row, Double]] = None,
+      xMin: Option[AesValue[Row, Double]] = None,
+      xMax: Option[AesValue[Row, Double]] = None,
+      yMin: Option[AesValue[Row, Double]] = None,
+      yMax: Option[AesValue[Row, Double]] = None,
+      color: Option[AesValue[Row, Rgba]] = None,
+      fill: Option[AesValue[Row, Rgba]] = None,
+      alpha: Option[AesValue[Row, Double]] = None,
+      size: Option[AesValue[Row, Double]] = None,
+      label: Option[AesValue[Row, String]] = None,
+      group: Option[AesValue[Row, String]] = None,
+      subpath: Option[AesValue[Row, String]] = None
+  ): AesSpec[Row] =
+    val values = AestheticMap
+      .empty[Row]
+      .updatedOption(Aesthetic.X, x)
+      .updatedOption(Aesthetic.Y, y)
+      .updatedOption(Aesthetic.XEnd, xEnd)
+      .updatedOption(Aesthetic.YEnd, yEnd)
+      .updatedOption(Aesthetic.XMin, xMin)
+      .updatedOption(Aesthetic.XMax, xMax)
+      .updatedOption(Aesthetic.YMin, yMin)
+      .updatedOption(Aesthetic.YMax, yMax)
+      .updatedOption(Aesthetic.Color, color)
+      .updatedOption(Aesthetic.Fill, fill)
+      .updatedOption(Aesthetic.Alpha, alpha)
+      .updatedOption(Aesthetic.Size, size)
+      .updatedOption(Aesthetic.Label, label)
+      .updatedOption(Aesthetic.Group, group)
+      .updatedOption(Aesthetic.Subpath, subpath)
+    new AesSpec(values)
+
+  def fromAesthetics[Row](aesthetics: AestheticMap[Row]): AesSpec[Row] =
+    new AesSpec(aesthetics)
+
   def empty[Row]: AesSpec[Row] =
-    AesSpec()
+    new AesSpec(AestheticMap.empty)
 
   /** Compatibility identity for callers that previously normalized through the separate `AesEnv`
     * representation.

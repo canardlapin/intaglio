@@ -169,7 +169,7 @@ private[intaglio] object FacetCompiler:
     }
 
   private def registry(plans: Vector[PackedStatPlan]): PlotScaleRegistry =
-    val scales = Aesthetic.values.toVector.flatMap { aesthetic =>
+    val scales = ScalePhase.declaredAesthetics(plans).flatMap { aesthetic =>
       plans.iterator.flatMap(_.mapping.scaledEntry(aesthetic)).take(1).map(_.trained)
     }
     PlotScaleRegistry.from(scales)

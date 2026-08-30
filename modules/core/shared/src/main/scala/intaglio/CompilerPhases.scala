@@ -108,8 +108,8 @@ private[intaglio] object PackedStatPlan:
       else withX
     val annotation = global.annotation match
       case Some(value)
-          if (value.reference.aesthetic == Aesthetic.X && scales.xIsFree) ||
-            (value.reference.aesthetic == Aesthetic.Y && scales.yIsFree) =>
+          if ((value.reference.aesthetic eq Aesthetic.X) && scales.xIsFree) ||
+            ((value.reference.aesthetic eq Aesthetic.Y) && scales.yIsFree) =>
         local.annotation
       case value =>
         value
@@ -586,7 +586,7 @@ private[intaglio] object ScalePhase:
       theme: Theme = Theme.default
   ): Either[GraphicsError, ScaleResolution] =
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
-    Aesthetic.values.foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
+    declaredAesthetics(plans).foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
       (result, aesthetic) =>
         result.flatMap(
           trainAesthetic(
@@ -608,7 +608,7 @@ private[intaglio] object ScalePhase:
       theme: Theme = Theme.default
   ): Either[GraphicsError, ScaleResolution] =
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
-    Aesthetic.values.foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
+    declaredAesthetics(plans).foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
       (result, aesthetic) =>
         result.flatMap(
           trainAesthetic(
@@ -645,6 +645,19 @@ private[intaglio] object ScalePhase:
         )
       }
       .map(_.plans)
+
+  /** Every core and ecosystem key actually present in the plans, in deterministic declaration
+    * order. Scale training must discover open aesthetics from mappings rather than a closed global
+    * registry.
+    */
+  private[intaglio] def declaredAesthetics(
+      plans: Vector[PackedStatPlan]
+  ): Vector[Aesthetic[?]] =
+    plans.foldLeft(Vector.empty[Aesthetic[?]]) { (result, plan) =>
+      plan.mapping.bound.foldLeft(result) { (keys, aesthetic) =>
+        if keys.exists(_ eq aesthetic) then keys else keys :+ aesthetic
+      }
+    }
 
   def registry(plan: PackedStatPlan): ScaleRegistry[?] =
     registryTyped(plan.value)
@@ -751,7 +764,7 @@ private[intaglio] object ScalePhase:
       entry: RegisteredScale[?]
   ): Either[GraphicsError, Vector[ScaleObservation]] =
     val annotations = plans.flatMap(_.annotation).filter { annotation =>
-      annotation.reference.aesthetic == aesthetic &&
+      (annotation.reference.aesthetic eq aesthetic) &&
       annotation.reference.scalePolicy == AnnotationScalePolicy.Train
     }
     if annotations.isEmpty then Right(Vector.empty)
@@ -799,7 +812,7 @@ private[intaglio] object ScalePhase:
   ): Either[GraphicsError, PackedStatPlan] =
     plan.annotation match
       case Some(annotation)
-          if annotation.reference.aesthetic == aesthetic &&
+          if (annotation.reference.aesthetic eq aesthetic) &&
             annotation.reference.scalePolicy == AnnotationScalePolicy.Train =>
         mapAnnotationCoordinate(annotation, aesthetic, trained).map { coordinate =>
           val resolved = annotation.copy(
@@ -1060,7 +1073,7 @@ private[intaglio] object RowPhase:
           discreteGroupValue(Aesthetic.Alpha, alpha),
           discreteGroupValue(Aesthetic.Size, size)
         ).flatten
-        aesthetics.find(aesthetic => !values.exists(_.aesthetic == aesthetic)) match
+        aesthetics.find(aesthetic => !values.exists(_.aesthetic eq aesthetic)) match
           case Some(aesthetic) =>
             Left(PlotDropReason.GroupingCategoryUnavailable(aesthetic.label))
           case None =>
@@ -2003,8 +2016,8 @@ private[intaglio] object LayoutPhase:
       layers: Vector[TrainedLayer]
   ): Either[GraphicsError, (Interval, Interval)] =
     for
-      xRange <- positionRange(layers, Aesthetic.X.label)
-      yRange <- positionRange(layers, Aesthetic.Y.label)
+      xRange <- positionRange(layers, Aesthetic.X)
+      yRange <- positionRange(layers, Aesthetic.Y)
     yield (xRange, yRange)
 
   /** Union of the position ranges contributed by each layer. Scaled layers live in mapped unit
@@ -2015,15 +2028,15 @@ private[intaglio] object LayoutPhase:
     */
   private def positionRange(
       layers: Vector[TrainedLayer],
-      aesthetic: String
+      aesthetic: Aesthetic[Double]
   ): Either[GraphicsError, Interval] =
     var sawScaled = false
     var sawUnscaledData = false
     var range = ContinuousRange.empty
     layers.foreach { layer =>
       val contributes =
-        !(layer.geom == Geom.HLine && aesthetic == Aesthetic.X.label)
-          && !(layer.geom == Geom.VLine && aesthetic == Aesthetic.Y.label)
+        !(layer.geom == Geom.HLine && aesthetic == Aesthetic.X)
+          && !(layer.geom == Geom.VLine && aesthetic == Aesthetic.Y)
       val values =
         if contributes then
           layer.rows.iterator.flatMap(row => positionValues(row, aesthetic)).toVector
@@ -2031,11 +2044,11 @@ private[intaglio] object LayoutPhase:
       val annotationValues = layer.annotation.toVector.collect {
         case annotation
             if annotation.reference.scalePolicy == AnnotationScalePolicy.Train &&
-              annotation.reference.aesthetic.label == aesthetic =>
+              (annotation.reference.aesthetic eq aesthetic) =>
           annotation.coordinate
       }
       val positionData = values ++ annotationValues
-      layer.trainedScales.find(_.aesthetic == aesthetic) match
+      layer.trainedScales.find(_.key eq aesthetic) match
         case Some(scale) =>
           sawScaled = true
           if scale.descriptor.kind == ScaleKind.Continuous then
@@ -2045,7 +2058,7 @@ private[intaglio] object LayoutPhase:
           if positionData.nonEmpty then sawUnscaledData = true
           range = range.train(positionData)
       if layer.geom == Geom.Bar then
-        if aesthetic == Aesthetic.X.label then
+        if aesthetic == Aesthetic.X then
           val edges = layer.rows.iterator.flatMap { row =>
             val halfWidth =
               row.xBand
@@ -2055,8 +2068,8 @@ private[intaglio] object LayoutPhase:
             Iterator(row.x - halfWidth, row.x + halfWidth)
           }
           range = range.train(edges)
-        else if aesthetic == Aesthetic.Y.label then range = range.train(Iterator.single(0.0))
-      if aesthetic == Aesthetic.Y.label then
+        else if aesthetic == Aesthetic.Y then range = range.train(Iterator.single(0.0))
+      if aesthetic == Aesthetic.Y then
         val intervalValues = layer.rows.iterator.flatMap { row =>
           Iterator(
             row.computed.get(ComputedAesthetic.Lower),
@@ -2065,7 +2078,7 @@ private[intaglio] object LayoutPhase:
         }
         range = range.train(intervalValues)
     }
-    if sawScaled && sawUnscaledData then Left(GraphicsError.MixedPositionScaling(aesthetic))
+    if sawScaled && sawUnscaledData then Left(GraphicsError.MixedPositionScaling(aesthetic.label))
     else
       range.requireTrained match
         case Left(GraphicsError.EmptyContinuousRange) if layers.exists(_.annotation.nonEmpty) =>
@@ -2075,9 +2088,9 @@ private[intaglio] object LayoutPhase:
 
   private def positionValues(
       row: ResolvedRow[?],
-      aesthetic: String
+      aesthetic: Aesthetic[Double]
   ): Vector[Double] =
-    if aesthetic == Aesthetic.X.label then
+    if aesthetic == Aesthetic.X then
       Vector(Some(row.x), row.xEnd, row.xMin, row.xMax).flatten ++
         row.xBand.toVector.flatMap(band => Vector(band.lower, band.upper))
     else
@@ -2365,7 +2378,7 @@ private[intaglio] object GuidePhase:
     var result: Either[GraphicsError, Unit] = Right(())
     plotScales.scales.foreach { trained =>
       if result.isRight
-        && (trained.aesthetic == Aesthetic.Color.label || trained.aesthetic == Aesthetic.Fill.label)
+        && (trained.key == Aesthetic.Color || trained.key == Aesthetic.Fill)
         && seen.add(trained.descriptor.name.value)
       then
         trained.scale match

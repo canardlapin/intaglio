@@ -117,6 +117,34 @@ trained <- ggplot_build(p)
 The Scala examples above are compiled as JVM and Scala.js tests in
 `PlotDslSuite`; this is executable syntax, not documentation-only sugar.
 
+Ecosystem code can define a typed aesthetic without registering a string or
+editing core. The key has reference identity, so retain and reuse the same
+value for insertion and lookup:
+
+```scala
+val Confidence = Aesthetic.unsafe[Double]("confidence")
+
+val mapping = AesSpec.empty[Observation]
+  .updated(Confidence, AesValue.total(_ => 0.95))
+
+val confidence: Option[AesValue[Observation, Double]] =
+  mapping.get(Confidence)
+```
+
+`AestheticMap` is the immutable heterogeneous storage behind `AesSpec`. Core
+keys remain in their stable declaration order and extension keys follow in
+insertion order. Generic position encodings also carry the DSL prerequisite:
+
+```scala
+val x = ContinuousScaleSpec.numeric("time").orThrow
+val y = ContinuousScaleSpec.numeric("signal").orThrow
+
+val points = plot(rows)
+  .encode(Aesthetic.X, _.time, x)
+  .encode(Aesthetic.Y, _.signal, y)
+  .geomPoint()
+```
+
 Layers may also own a different row type. Independent layers supply their own
 data and mapping, and must state what happens if the plot is faceted:
 
@@ -229,12 +257,13 @@ ignored rather than retained.
   `GraphicsError.MappingEvaluationFailed`. Calling `RowMapping.apply`,
   `AesValue.map`, or `ScaleBinding.map` directly is the explicit convenience
   boundary that may throw; `PlotCompiler.resolve` and `compile` do not leak
-  mapping exceptions. `AesSpec` is the single canonical storage model: its
-  precise fields are the public API, while typed lookup and declaration-order
-  iteration use the same value through `Aesthetic[A]`. `AesEnv` is only a
-  source-compatible alias, not a normalized copy. Continuous scales consume
-  `Double`, discrete scales consume `String`, and the aesthetic they bind to
-  determines the rendered value type.
+  mapping exceptions. `AesSpec` is the single canonical mapping model: its
+  built-in accessors and open typed lookup are views over one `AestheticMap`.
+  The map packages each `Aesthetic[A]` key with its `AesValue[Row, A]`; exact
+  key identity is the only boundary at which a hidden value type is recovered.
+  `AesEnv` is only a source-compatible alias, not a normalized copy.
+  Continuous scales consume `Double`, discrete scales consume `String`, and
+  the aesthetic they bind to determines the rendered value type.
 - `PlotLayer` packages each layer's row type with its data, mapping, statistic,
   and facet policy. Same-row layers inherit plot data and mappings as before;
   independent layers do neither implicitly. Plot-global scales consume the

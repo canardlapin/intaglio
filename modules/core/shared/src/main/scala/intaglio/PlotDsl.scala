@@ -1,6 +1,7 @@
 package intaglio
 
 import scala.annotation.implicitNotFound
+import scala.annotation.targetName
 
 /** Select the final compiler theme's palette when a plotting DSL scale omits an explicit palette.
   * The marker keeps omission distinct from an explicitly supplied empty palette.
@@ -15,6 +16,11 @@ sealed trait PlotPosition[Row]
 
 object PlotPosition:
   final case class Empty[Row]() extends PlotPosition[Row]
+
+  /** Position keys supplied through generic `encode` rather than raw numeric `aes` accessors. */
+  final case class EncodedX[Row]() extends PlotPosition[Row]
+  final case class EncodedY[Row]() extends PlotPosition[Row]
+  final case class EncodedXY[Row]() extends PlotPosition[Row]
 
   sealed trait WithX[Row] extends PlotPosition[Row]:
     def x: Row => Double
@@ -41,6 +47,82 @@ sealed trait HasXY[Row, Position <: PlotPosition[Row]]:
 object HasXY:
   given xy[Row]: HasXY[Row, PlotPosition.XY[Row]] with
     def apply(position: PlotPosition.XY[Row]): PlotPosition.XY[Row] = position
+
+/** Proof that both position aesthetics are mapped, whether by raw numeric `aes` accessors or by
+  * typed scale encodings. Operations that need raw values before scale training continue to require
+  * [[HasXY]].
+  */
+@implicitNotFound(
+  "This plotting operation requires x and y mappings. Call .aes(x, y) or encode both position aesthetics first."
+)
+sealed trait HasMappedXY[Row, Position <: PlotPosition[Row]]
+
+object HasMappedXY:
+  given raw[Row]: HasMappedXY[Row, PlotPosition.XY[Row]] with {}
+  given encoded[Row]: HasMappedXY[Row, PlotPosition.EncodedXY[Row]] with {}
+
+  private[intaglio] def fromRawEvidence[Row, Position <: PlotPosition[Row]](
+      evidence: HasXY[Row, Position]
+  ): HasMappedXY[Row, Position] =
+    new HasMappedXY[Row, Position] {}
+
+sealed trait EncodesX[Row, Position <: PlotPosition[Row]]:
+  type Out <: PlotPosition[Row]
+  def apply(position: Position): Out
+
+object EncodesX:
+  given empty[Row]: EncodesX[Row, PlotPosition.Empty[Row]] with
+    type Out = PlotPosition.EncodedX[Row]
+    def apply(position: PlotPosition.Empty[Row]): Out = PlotPosition.EncodedX()
+
+  given rawX[Row]: EncodesX[Row, PlotPosition.X[Row]] with
+    type Out = PlotPosition.EncodedX[Row]
+    def apply(position: PlotPosition.X[Row]): Out = PlotPosition.EncodedX()
+
+  given rawXY[Row]: EncodesX[Row, PlotPosition.XY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.XY[Row]): Out = PlotPosition.EncodedXY()
+
+  given encodedX[Row]: EncodesX[Row, PlotPosition.EncodedX[Row]] with
+    type Out = PlotPosition.EncodedX[Row]
+    def apply(position: PlotPosition.EncodedX[Row]): Out = position
+
+  given encodedY[Row]: EncodesX[Row, PlotPosition.EncodedY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.EncodedY[Row]): Out = PlotPosition.EncodedXY()
+
+  given encodedXY[Row]: EncodesX[Row, PlotPosition.EncodedXY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.EncodedXY[Row]): Out = position
+
+sealed trait EncodesY[Row, Position <: PlotPosition[Row]]:
+  type Out <: PlotPosition[Row]
+  def apply(position: Position): Out
+
+object EncodesY:
+  given empty[Row]: EncodesY[Row, PlotPosition.Empty[Row]] with
+    type Out = PlotPosition.EncodedY[Row]
+    def apply(position: PlotPosition.Empty[Row]): Out = PlotPosition.EncodedY()
+
+  given rawX[Row]: EncodesY[Row, PlotPosition.X[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.X[Row]): Out = PlotPosition.EncodedXY()
+
+  given rawXY[Row]: EncodesY[Row, PlotPosition.XY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.XY[Row]): Out = PlotPosition.EncodedXY()
+
+  given encodedX[Row]: EncodesY[Row, PlotPosition.EncodedX[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.EncodedX[Row]): Out = PlotPosition.EncodedXY()
+
+  given encodedY[Row]: EncodesY[Row, PlotPosition.EncodedY[Row]] with
+    type Out = PlotPosition.EncodedY[Row]
+    def apply(position: PlotPosition.EncodedY[Row]): Out = position
+
+  given encodedXY[Row]: EncodesY[Row, PlotPosition.EncodedXY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.EncodedXY[Row]): Out = position
 
 /** An executable, inspectable plotting value.
   *
@@ -207,29 +289,61 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   ): PlotBuilder[Row, Position] =
     updateResult(result.flatMap(_.encode(aesthetic, value, scale)))
 
+  /** Position-specialized overload: generic scale encoding establishes the same compile-time x
+    * prerequisite as `aes`.
+    */
+  @targetName("encodePositionX")
+  def encode[In](
+      aesthetic: Aesthetic.X.type,
+      value: Row => In,
+      scale: ScaleValue[In, Double]
+  )(using transition: EncodesX[Row, Position]): PlotBuilder[Row, transition.Out] =
+    new PlotBuilder(
+      data,
+      transition(position),
+      result.flatMap(_.encode(aesthetic, value, scale)),
+      options
+    )
+
+  /** Position-specialized overload: generic scale encoding establishes the same compile-time y
+    * prerequisite as `aes`.
+    */
+  @targetName("encodePositionY")
+  def encode[In](
+      aesthetic: Aesthetic.Y.type,
+      value: Row => In,
+      scale: ScaleValue[In, Double]
+  )(using transition: EncodesY[Row, Position]): PlotBuilder[Row, transition.Out] =
+    new PlotBuilder(
+      data,
+      transition(position),
+      result.flatMap(_.encode(aesthetic, value, scale)),
+      options
+    )
+
   def geomPoint(
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None
-  )(using HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using HasMappedXY[Row, Position]): PlotBuilder[Row, Position] =
     addInheritedGeom(Geom.Point, data, params)
 
   def geomLine(
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None
-  )(using HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using HasMappedXY[Row, Position]): PlotBuilder[Row, Position] =
     addInheritedGeom(Geom.Line, data, params)
 
   def geomPolygon(
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None
-  )(using HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using HasMappedXY[Row, Position]): PlotBuilder[Row, Position] =
     addInheritedGeom(Geom.Polygon, data, params)
 
   def geomText(
       label: Row => String,
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None
-  )(using HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using HasMappedXY[Row, Position]): PlotBuilder[Row, Position] =
     addLayer(
       Layer.fromMapping(
         Geom.Text,
@@ -330,7 +444,7 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       contourRows: Row =:= ContourVertex,
       ev: HasXY[Row, Position]
   ): PlotBuilder[Row, Position] =
-    geomLine(params = params)
+    geomLine(params = params)(using HasMappedXY.fromRawEvidence(ev))
 
   /** Fill already-extracted contour bands. Each region is one compound polygon whose independently
     * closed subpaths retain explicit holes.
@@ -344,7 +458,7 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       ev: HasXY[Row, Position]
   ): PlotBuilder[Row, Position] =
     scaleFillContinuous(row => bandRows(row).levelMid, palette, name)
-      .geomPolygon(params = Some(params))
+      .geomPolygon(params = Some(params))(using HasMappedXY.fromRawEvidence(ev))
 
   def hline(
       y: Double,

@@ -220,16 +220,20 @@ final case class ResolvedReferenceLine(
 
 final case class ScaleDeclaration(
     layerIndex: Int,
-    aesthetic: String,
+    key: Aesthetic[?],
     scaleName: GraphicsName,
     kind: ScaleKind
-)
+):
+  def aesthetic: String =
+    key.label
 
 final case class TrainedScale(
-    aesthetic: String,
+    key: Aesthetic[?],
     descriptor: ScaleDescriptor,
     scale: Scale[?, ?]
-)
+):
+  def aesthetic: String =
+    key.label
 
 final case class ResolvedRow[Row](
     rowIndex: Int,
@@ -389,7 +393,7 @@ object PlotCompiler:
     val annotation = plan.annotation.map(_.resolved)
     val grouping = plan.mapping.groupingDecision
     val trainedScales = annotation.flatMap(_.trainedScale).fold(registry.trained) { scale =>
-      if registry.trained.exists(_.aesthetic == scale.aesthetic) then registry.trained
+      if registry.trained.exists(_.key eq scale.key) then registry.trained
       else registry.trained :+ scale
     }
     RowPhase.resolve(plan, theme).flatMap { case (rows, droppedRows) =>

@@ -15,22 +15,75 @@ extension (name: GraphicsName)
   def value: String =
     name
 
-enum Aesthetic[A](val label: String):
-  case X extends Aesthetic[Double]("x")
-  case Y extends Aesthetic[Double]("y")
-  case XEnd extends Aesthetic[Double]("xend")
-  case YEnd extends Aesthetic[Double]("yend")
-  case XMin extends Aesthetic[Double]("xmin")
-  case XMax extends Aesthetic[Double]("xmax")
-  case YMin extends Aesthetic[Double]("ymin")
-  case YMax extends Aesthetic[Double]("ymax")
-  case Color extends Aesthetic[Rgba]("color")
-  case Fill extends Aesthetic[Rgba]("fill")
-  case Alpha extends Aesthetic[Double]("alpha")
-  case Size extends Aesthetic[Double]("size")
-  case Label extends Aesthetic[String]("label")
-  case Group extends Aesthetic[String]("group")
-  case Subpath extends Aesthetic[String]("subpath")
+/** An open, typed aesthetic key. Keys use reference identity: two independently created keys may
+  * share a display label without becoming interchangeable. This lets heterogeneous mapping storage
+  * recover `A` only after proving that the requested key is the exact key used at insertion.
+  */
+final class Aesthetic[A] private (val name: GraphicsName):
+  def label: String =
+    name.value
+
+  override def toString: String =
+    s"Aesthetic($label)"
+
+object Aesthetic:
+  /** Define an ecosystem aesthetic without editing intaglio-core. Retain the returned key and use
+    * that same value for every typed lookup.
+    */
+  def apply[A](label: String): Either[GraphicsError, Aesthetic[A]] =
+    GraphicsName(label, "aesthetic").map(new Aesthetic(_))
+
+  def unsafe[A](label: String): Aesthetic[A] =
+    apply[A](label).orThrow
+
+  val X: Aesthetic[Double] = unsafe("x")
+  val Y: Aesthetic[Double] = unsafe("y")
+  val XEnd: Aesthetic[Double] = unsafe("xend")
+  val YEnd: Aesthetic[Double] = unsafe("yend")
+  val XMin: Aesthetic[Double] = unsafe("xmin")
+  val XMax: Aesthetic[Double] = unsafe("xmax")
+  val YMin: Aesthetic[Double] = unsafe("ymin")
+  val YMax: Aesthetic[Double] = unsafe("ymax")
+  val Color: Aesthetic[Rgba] = unsafe("color")
+  val Fill: Aesthetic[Rgba] = unsafe("fill")
+  val Alpha: Aesthetic[Double] = unsafe("alpha")
+  val Size: Aesthetic[Double] = unsafe("size")
+  val Label: Aesthetic[String] = unsafe("label")
+  val Group: Aesthetic[String] = unsafe("group")
+  val Subpath: Aesthetic[String] = unsafe("subpath")
+
+  /** Stable declaration order for the core keys. Custom keys follow these in their insertion order
+    * inside an [[AestheticMap]].
+    */
+  val builtIns: Vector[Aesthetic[?]] =
+    Vector(
+      X,
+      Y,
+      XEnd,
+      YEnd,
+      XMin,
+      XMax,
+      YMin,
+      YMax,
+      Color,
+      Fill,
+      Alpha,
+      Size,
+      Label,
+      Group,
+      Subpath
+    )
+
+  /** Source-compatible view of the former enum cases. Open keys are discovered from mappings, not
+    * from this finite core list.
+    */
+  def values: Array[Aesthetic[?]] =
+    builtIns.toArray
+
+  private[intaglio] def builtInIndex(aesthetic: Aesthetic[?]): Option[Int] =
+    builtIns.indexWhere(_ eq aesthetic) match
+      case -1    => None
+      case index => Some(index)
 
 enum PointShape:
   case Circle
