@@ -27,16 +27,25 @@ final case class SvgDocument(value: String):
   * are handled by the shared device lowering; this backend only formats numeric device primitives.
   */
 object SvgRenderer:
+  def render(plan: RenderPlan): Either[SvgRenderError, SvgDocument] =
+    render(plan, None)
+
+  def render(plan: RenderPlan, title: Option[String]): Either[SvgRenderError, SvgDocument] =
+    for
+      options <- SvgOptions(plan.context.width, plan.context.height, title)
+      deviceScene <- plan.deviceScene.left.map(SvgRenderError.Graphics(_))
+      serialized <- serialize(deviceScene, options)
+    yield SvgDocument(serialized)
+
   def render(
       scene: Scene,
       options: SvgOptions = SvgOptions.default
   ): Either[SvgRenderError, SvgDocument] =
     for
-      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left
+      context <- RenderContext(options.width, options.height).left
         .map(SvgRenderError.Graphics(_))
-      deviceScene <- DeviceScene.fromScene(scene, device).left.map(SvgRenderError.Graphics(_))
-      serialized <- serialize(deviceScene, options)
-    yield SvgDocument(serialized)
+      document <- render(RenderPlan(scene, context), options.title)
+    yield document
 
   private final class ClipRegistry:
     private val builder = Vector.newBuilder[DeviceClip]

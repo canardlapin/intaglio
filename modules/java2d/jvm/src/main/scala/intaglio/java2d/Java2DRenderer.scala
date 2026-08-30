@@ -325,16 +325,30 @@ object Java2DProgram:
     if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
 
 object Java2DRenderer:
+  def compile(plan: RenderPlan): Either[Java2DRenderError, Java2DProgram] =
+    for
+      resolved <- plan.deviceScene.left.map(Java2DRenderError.Graphics(_))
+      _ <- PatternTile.validate(resolved).left.map(Java2DRenderError.Graphics(_))
+    yield Java2DProgram.fromDevice(resolved)
+
   def compile(
       scene: Scene,
       options: Java2DOptions = Java2DOptions.default
   ): Either[Java2DRenderError, Java2DProgram] =
     for
-      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left
+      context <- RenderContext(options.width, options.height).left
         .map(Java2DRenderError.Graphics(_))
-      resolved <- DeviceScene.fromScene(scene, device).left.map(Java2DRenderError.Graphics(_))
-      _ <- PatternTile.validate(resolved).left.map(Java2DRenderError.Graphics(_))
-    yield Java2DProgram.fromDevice(resolved)
+      program <- compile(RenderPlan(scene, context))
+    yield program
+
+  def render(
+      plan: RenderPlan,
+      graphics: Graphics2D
+  ): Either[Java2DRenderError, Java2DProgram] =
+    compile(plan).map { program =>
+      draw(program, graphics)
+      program
+    }
 
   def render(
       scene: Scene,

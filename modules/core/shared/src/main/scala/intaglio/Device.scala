@@ -77,7 +77,11 @@ private object DeviceValue:
 /** Evaluates length expressions against a device frame. Locations resolve to device coordinates (y
   * flipped for y-up frames); extents resolve to non-directional pixel magnitudes.
   */
-final class LengthResolver(device: DeviceContext, val frame: DeviceFrame):
+final class LengthResolver(
+    device: DeviceContext,
+    val frame: DeviceFrame,
+    fontRegistry: FontRegistry = FontRegistry.passthrough
+):
   def x(expr: LengthExpr): Either[GraphicsError, Double] =
     eval(expr, horizontal = true, location = true).map(frame.x + _).flatMap(checked)
 
@@ -117,6 +121,9 @@ final class LengthResolver(device: DeviceContext, val frame: DeviceFrame):
       case Some(px) => DeviceValue.checked("font size", length.value * px)
       case None     =>
         Left(GraphicsError.UnresolvableLength(s"font size in unit '${length.unit}'"))
+
+  def fontFamily(requested: Option[String]): Option[String] =
+    fontRegistry.resolve(requested)
 
   /** Resolve a child viewport. The viewport origin is the lower-left corner of the child frame when
     * this frame is y-up, the upper-left when y-down.
@@ -264,8 +271,18 @@ final case class DeviceScene(width: Double, height: Double, elements: Vector[Dev
 
 object DeviceScene:
   def fromScene(scene: Scene, device: DeviceContext): Either[GraphicsError, DeviceScene] =
+    fromScene(scene, device, FontRegistry.passthrough)
+
+  def fromScene(scene: Scene, context: RenderContext): Either[GraphicsError, DeviceScene] =
+    fromScene(scene, context.deviceContext, context.fontRegistry)
+
+  private def fromScene(
+      scene: Scene,
+      device: DeviceContext,
+      fontRegistry: FontRegistry
+  ): Either[GraphicsError, DeviceScene] =
     for
-      elements <- lowerAll(scene.grobs, device, DeviceFrame.root(device))
+      elements <- lowerAll(scene.grobs, device, DeviceFrame.root(device), fontRegistry)
       resolved <- validate(DeviceScene(device.width, device.height, elements))
     yield resolved
 
@@ -420,13 +437,14 @@ object DeviceScene:
   private def lowerAll(
       grobs: Vector[Grob],
       device: DeviceContext,
-      frame: DeviceFrame
+      frame: DeviceFrame,
+      fontRegistry: FontRegistry
   ): Either[GraphicsError, Vector[DeviceElement]] =
     val out = Vector.newBuilder[DeviceElement]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < grobs.length && result.isRight do
-      result = lower(grobs(idx), device, frame).map { elements =>
+      result = lower(grobs(idx), device, frame, fontRegistry).map { elements =>
         out ++= elements
         ()
       }
@@ -444,12 +462,13 @@ object DeviceScene:
   private def lower(
       grob: Grob,
       device: DeviceContext,
-      frame: DeviceFrame
+      frame: DeviceFrame,
+      fontRegistry: FontRegistry
   ): Either[GraphicsError, Vector[DeviceElement]] =
     grob.viewport match
       case Some(viewport) =>
-        LengthResolver(device, frame).childFrame(viewport).flatMap { child =>
-          contents(grob, device, child).map { children =>
+        LengthResolver(device, frame, fontRegistry).childFrame(viewport).flatMap { child =>
+          contents(grob, device, child, fontRegistry).map { children =>
             val clip = viewport.clip match
               case Clip.On  => Some(DeviceClip(child.x, child.y, child.width, child.height))
               case Clip.Off => None
@@ -466,22 +485,23 @@ object DeviceScene:
       case None =>
         grob match
           case group: Grob.Group =>
-            lowerAll(group.children, device, frame).map { children =>
+            lowerAll(group.children, device, frame, fontRegistry).map { children =>
               Vector(DeviceElement.Group(group.name, None, None, children))
             }
           case other =>
-            contents(other, device, frame)
+            contents(other, device, frame, fontRegistry)
 
   private def contents(
       grob: Grob,
       device: DeviceContext,
-      frame: DeviceFrame
+      frame: DeviceFrame,
+      fontRegistry: FontRegistry
   ): Either[GraphicsError, Vector[DeviceElement]] =
     grob match
       case group: Grob.Group =>
-        lowerAll(group.children, device, frame)
+        lowerAll(group.children, device, frame, fontRegistry)
       case other =>
-        marks(other, LengthResolver(device, frame)).map(_.map(DeviceElement.Mark(_)))
+        marks(other, LengthResolver(device, frame, fontRegistry)).map(_.map(DeviceElement.Mark(_)))
 
   private def marks(
       grob: Grob,
@@ -517,20 +537,22 @@ object DeviceScene:
           x <- resolver.x(text.at.x)
           y <- resolver.y(text.at.y)
           fontPx <- resolver.fontSize(text.gp.fontSize)
-        yield Vector(
-          DevicePrimitive.TextRun(
-            text.label,
-            x,
-            y,
-            text.anchor.horizontal,
-            text.anchor.vertical,
-            deviceDegrees(text.rotationDegrees, resolver.frame),
-            fontPx,
-            text.gp.fontFamily,
-            text.gp,
-            text.name
+        yield
+          val fontFamily = resolver.fontFamily(text.gp.fontFamily)
+          Vector(
+            DevicePrimitive.TextRun(
+              text.label,
+              x,
+              y,
+              text.anchor.horizontal,
+              text.anchor.vertical,
+              deviceDegrees(text.rotationDegrees, resolver.frame),
+              fontPx,
+              fontFamily,
+              text.gp,
+              text.name
+            )
           )
-        )
       case image: Grob.Image =>
         imageMark(image, resolver)
       case group: Grob.Group =>

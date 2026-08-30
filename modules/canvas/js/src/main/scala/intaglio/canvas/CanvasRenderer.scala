@@ -576,16 +576,29 @@ private final class CanvasPatternCache:
         }
 
 object CanvasRenderer:
+  def compile(plan: RenderPlan): Either[CanvasRenderError, CanvasProgram] =
+    for
+      resolved <- plan.deviceScene.left.map(CanvasRenderError.Graphics(_))
+      _ <- PatternTile.validate(resolved).left.map(CanvasRenderError.Graphics(_))
+    yield CanvasProgram.fromDevice(resolved)
+
   def compile(
       scene: Scene,
       options: CanvasOptions = CanvasOptions.default
   ): Either[CanvasRenderError, CanvasProgram] =
     for
-      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left
+      context <- RenderContext(options.width, options.height).left
         .map(CanvasRenderError.Graphics(_))
-      resolved <- DeviceScene.fromScene(scene, device).left.map(CanvasRenderError.Graphics(_))
-      _ <- PatternTile.validate(resolved).left.map(CanvasRenderError.Graphics(_))
-    yield CanvasProgram.fromDevice(resolved)
+      program <- compile(RenderPlan(scene, context))
+    yield program
+
+  def render(
+      plan: RenderPlan,
+      context: CanvasRenderingContext2D
+  )(using factory: CanvasRasterFactory): Either[CanvasRenderError, CanvasProgram] =
+    compile(plan).flatMap { program =>
+      drawChecked(program, context).map(_ => program)
+    }
 
   def render(
       scene: Scene,

@@ -140,6 +140,12 @@ final case class PlotProgram[Row] private[intaglio] (
   def scene: Either[GraphicsError, Scene] =
     PlotCompiler.compile(plot, compilerOptions)
 
+  def resolve(context: RenderContext): Either[GraphicsError, TrainedPlot] =
+    PlotCompiler.resolve(plot, context, compilerOptions)
+
+  def renderPlan(context: RenderContext): Either[GraphicsError, RenderPlan] =
+    PlotCompiler.compile(plot, context, compilerOptions)
+
 /** Immutable user-facing plotting builder.
   *
   * Every operation returns another builder. Errors from checked scales, coordinates, and layer
@@ -548,6 +554,12 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
 
   def scene: Either[GraphicsError, Scene] =
     build.flatMap(_.scene)
+
+  def resolve(context: RenderContext): Either[GraphicsError, TrainedPlot] =
+    build.flatMap(_.resolve(context))
+
+  def renderPlan(context: RenderContext): Either[GraphicsError, RenderPlan] =
+    build.flatMap(_.renderPlan(context))
 
   private def resultMapping: AesSpec[Row] =
     result.toOption.map(_.mapping).getOrElse(AesSpec.empty)

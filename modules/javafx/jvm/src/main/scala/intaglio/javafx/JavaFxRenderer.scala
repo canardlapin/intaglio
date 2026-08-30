@@ -367,16 +367,30 @@ private[javafx] object JavaFxRaster:
     pixels
 
 object JavaFxRenderer:
+  def compile(plan: RenderPlan): Either[JavaFxRenderError, JavaFxProgram] =
+    for
+      resolved <- plan.deviceScene.left.map(JavaFxRenderError.Graphics(_))
+      _ <- PatternTile.validate(resolved).left.map(JavaFxRenderError.Graphics(_))
+    yield JavaFxProgram.fromDevice(resolved)
+
   def compile(
       scene: Scene,
       options: JavaFxOptions = JavaFxOptions.default
   ): Either[JavaFxRenderError, JavaFxProgram] =
     for
-      device <- DeviceContext(options.width.toDouble, options.height.toDouble).left
+      context <- RenderContext(options.width, options.height).left
         .map(JavaFxRenderError.Graphics(_))
-      resolved <- DeviceScene.fromScene(scene, device).left.map(JavaFxRenderError.Graphics(_))
-      _ <- PatternTile.validate(resolved).left.map(JavaFxRenderError.Graphics(_))
-    yield JavaFxProgram.fromDevice(resolved)
+      program <- compile(RenderPlan(scene, context))
+    yield program
+
+  def render(
+      plan: RenderPlan,
+      context: JavaFxGraphicsContext
+  ): Either[JavaFxRenderError, JavaFxProgram] =
+    compile(plan).map { program =>
+      draw(program, context)
+      program
+    }
 
   def render(
       scene: Scene,

@@ -16,6 +16,12 @@ final case class PlotSpec[Row](
   def scene: Either[GraphicsError, Scene] =
     PlotCompiler.compile(plot, compilerOptions)
 
+  def resolve(context: RenderContext): Either[GraphicsError, TrainedPlot] =
+    PlotCompiler.resolve(plot, context, compilerOptions)
+
+  def renderPlan(context: RenderContext): Either[GraphicsError, RenderPlan] =
+    PlotCompiler.compile(plot, context, compilerOptions)
+
   def program: PlotProgram[Row] =
     PlotProgram(plot, compilerOptions)
 

@@ -29,6 +29,44 @@ Consumers should export plot specifications or scenes into this module;
 platform renderers should consume `DeviceScene` values at a boundary. The
 artifact matrix and design commitments are in the [root README](../../README.md).
 
+## Render contexts
+
+Use `RenderContext` when plot layout must match a concrete output target. It
+binds device-pixel width and height, pixel density, text metrics, and immutable
+font-family resolution before `PlotCompiler` allocates any panel, axis, guide,
+or title region. Compilation returns a `RenderPlan`, which carries the same
+context through device lowering and into the backend:
+
+```scala
+val context = RenderContext.unsafe(
+  width = 1280,
+  height = 960,
+  pixelsPerInch = 192.0,
+  textMetrics = platformMetrics,
+  fontRegistry = FontRegistry {
+    case Some(requested) => installedFamilyFor(requested)
+    case None            => Some("Platform Sans")
+  }
+)
+
+val plan = program.flatMap(_.renderPlan(context))
+val svg = plan.flatMap(SvgRenderer.render)
+```
+
+`RenderContext(…)` is the checked constructor. The convenience `unsafe`
+constructor throws on non-positive dimensions or density. A `FontRegistry`
+must be deterministic for the lifetime of a context: its result is used both
+by family-aware `TextMetrics` during layout and by `DeviceScene` during text
+lowering. Recompile when the target changes; targets with the same physical
+size but proportionally scaled pixels and DPI preserve physical typography and
+spacing.
+
+The older `PlotCompiler.compile(plot)` and backend `(Scene, Options)` methods
+remain 96-DPI compatibility entry points. They create a default render context
+internally. New target-aware code should pass the `RenderPlan` directly so a
+backend cannot accidentally lower a scene with dimensions or font resolution
+different from those used for layout.
+
 ## Pattern fills
 
 `PatternRecipe` is the renderer-neutral fill-pattern contract. Its checked

@@ -72,7 +72,8 @@ final case class PlotCompilerOptions(
     margins: PanelMargins = PanelMargins.none,
     expansion: RangeExpansion = RangeExpansion.default,
     guides: GuidePolicy = GuidePolicy.NoGuides,
-    theme: Theme = Theme.default
+    theme: Theme = Theme.default,
+    renderContext: Option[RenderContext] = None
 )
 
 object PlotCompilerOptions:
@@ -299,6 +300,19 @@ object PlotCompiler:
   ): Either[GraphicsError, Scene] =
     resolve(plot, options).map(_.scene)
 
+  def compile[Row](
+      plot: Plot[Row],
+      context: RenderContext
+  ): Either[GraphicsError, RenderPlan] =
+    compile(plot, context, PlotCompilerOptions.default)
+
+  def compile[Row](
+      plot: Plot[Row],
+      context: RenderContext,
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, RenderPlan] =
+    resolve(plot, context, options).map(trained => RenderPlan(trained.scene, context))
+
   def resolve[Row](
       plot: Plot[Row],
       options: PlotCompilerOptions = PlotCompilerOptions.default
@@ -308,6 +322,19 @@ object PlotCompiler:
       case Some(facet) => FacetCompiler.resolve(plot, facet, resolvedOptions)
       case None        => resolveSingle(plot, resolvedOptions)
 
+  def resolve[Row](
+      plot: Plot[Row],
+      context: RenderContext
+  ): Either[GraphicsError, TrainedPlot] =
+    resolve(plot, context, PlotCompilerOptions.default)
+
+  def resolve[Row](
+      plot: Plot[Row],
+      context: RenderContext,
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, TrainedPlot] =
+    resolve(plot, options.copy(renderContext = Some(context)))
+
   private[intaglio] def effectiveOptions[Row](
       plot: Plot[Row],
       options: PlotCompilerOptions
@@ -316,14 +343,20 @@ object PlotCompiler:
       options.theme.panel.background.nonEmpty || options.theme.panel.grid.nonEmpty
     val effectiveOptions =
       if (
-          !plot.labels.isEmpty || themeNeedsLayout || plot.facet.nonEmpty || options.guides.requiresLayout
+          !plot.labels.isEmpty || themeNeedsLayout || plot.facet.nonEmpty || options.guides.requiresLayout || options.renderContext.nonEmpty
         )
         && options.layout.isEmpty && options.frame.isEmpty && options.policy.isEmpty
       then options.copy(policy = Some(options.theme.layout))
       else options
-    val layoutPolicy =
+    val themedLayoutPolicy =
       options.theme.layoutPolicy(effectiveOptions.policy.getOrElse(options.theme.layout))
-    effectiveOptions.copy(policy = effectiveOptions.policy.map(_ => layoutPolicy))
+    val layoutPolicy =
+      options.renderContext.fold(themedLayoutPolicy)(_.layoutPolicy(themedLayoutPolicy))
+    effectiveOptions.copy(
+      policy =
+        if options.renderContext.nonEmpty then Some(layoutPolicy)
+        else effectiveOptions.policy.map(_ => layoutPolicy)
+    )
 
   private def resolveSingle[Row](
       plot: Plot[Row],
