@@ -44,8 +44,8 @@ private[intaglio] object PackedLayerPlan:
       type Row = Row0
       val value: LayerPlan[Row] = plan
 
-/** A layer after its statistical transform. Every stat emits the same typed row envelope, so scale
-  * training remains plot-wide even when layers have different statistics.
+/** A layer after its statistical transform. Every stat emits a subtype of the shared typed row
+  * algebra, so scale training remains plot-wide even when layers have different statistics.
   */
 private[intaglio] final case class StatPlan[Row](
     source: LayerPlan[Row],
@@ -241,7 +241,7 @@ private[intaglio] object StatPhase:
   def transform[Row](plan: LayerPlan[Row]): Either[GraphicsError, StatPlan[Row]] =
     plan.layer.stat match
       case Stat.Identity =>
-        val rows = plan.data.map(row => StatRow(row, Vector(row), None, ComputedValues.empty))
+        val rows = plan.data.map(StatRow.Identity(_))
         val frame = StatFrame(rows, Set.empty)
         val mapping = plan.mapping.contramap[StatRow[Row]](_.source)
         Right(StatPlan(plan, frame, mapping))
@@ -293,11 +293,12 @@ private[intaglio] object StatPhase:
           groupKeys.flatMap { group =>
             groups.get((category, group)).map { bucket =>
               val members = bucket.toVector
-              StatRow(
+              StatRow.Counted(
                 source = members.head,
                 members = members,
-                category = Some(category),
-                computed = ComputedValues.counted(members.length, plan.data.length)
+                level = category,
+                count = members.length,
+                proportion = members.length.toDouble / plan.data.length.toDouble
               )
             }
           }
@@ -313,8 +314,21 @@ private[intaglio] object StatPhase:
   ): Either[GraphicsError, AesSpec[StatRow[Row]]] =
     BandScale(stat.scaleName.value, DiscreteDomain.empty, stat.padding).map { scale =>
       AesSpec[StatRow[Row]](
-        x = Some(AesValue.scaled(_.category.getOrElse(""), scale)),
-        y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Count).getOrElse(0.0))),
+        x = Some(
+          AesValue.scaled(
+            requiredOutput[Row, String]("count") { case output: StatRow.Counted[?] =>
+              output.level
+            },
+            scale
+          )
+        ),
+        y = Some(
+          AesValue.direct(
+            requiredOutput[Row, Double]("count") { case output: StatRow.Counted[?] =>
+              output.count.toDouble
+            }
+          )
+        ),
         group = stat.group.map(groupOf =>
           AesValue.direct(RowMapping.fromFunction(groupOf).contramap[StatRow[Row]](_.source))
         )
@@ -376,16 +390,18 @@ private[intaglio] object StatPhase:
               while binIndex < buckets.length do
                 val members = buckets(binIndex).toVector
                 if members.nonEmpty then
-                  rows += StatRow(
-                    members.head,
-                    members,
-                    None,
-                    ComputedValues.binned(
-                      members.length,
-                      plan.data.length,
-                      breaks(binIndex),
-                      breaks(binIndex + 1)
-                    )
+                  val binLower = breaks(binIndex)
+                  val binUpper = breaks(binIndex + 1)
+                  val binWidth = binUpper - binLower
+                  val count = members.length
+                  rows += StatRow.Binned(
+                    source = members.head,
+                    members = members,
+                    count = count,
+                    proportion = count.toDouble / plan.data.length.toDouble,
+                    density = count.toDouble / (plan.data.length.toDouble * binWidth),
+                    binLower = binLower,
+                    binUpper = binUpper
                   )
                 binIndex += 1
               val mapping = binMapping[Row]
@@ -394,8 +410,20 @@ private[intaglio] object StatPhase:
 
   private def binMapping[Row]: AesSpec[StatRow[Row]] =
     AesSpec(
-      x = Some(AesValue.direct(_.computed.get(ComputedAesthetic.BinMidpoint).getOrElse(0.0))),
-      y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Count).getOrElse(0.0)))
+      x = Some(
+        AesValue.direct(
+          requiredOutput[Row, Double]("bin") { case output: StatRow.Binned[?] =>
+            output.binMidpoint
+          }
+        )
+      ),
+      y = Some(
+        AesValue.direct(
+          requiredOutput[Row, Double]("bin") { case output: StatRow.Binned[?] =>
+            output.count.toDouble
+          }
+        )
+      )
     )
 
   /** ggplot2 histograms are right-closed by default: the first interval also owns its lower
@@ -440,11 +468,14 @@ private[intaglio] object StatPhase:
                   val values = observations.map(_._2)
                   val mean = values.sum / values.length.toDouble
                   val (lower, upper) = summaryBounds(values, mean, stat.interval)
-                  StatRow(
-                    observations.head._1,
-                    observations.map(_._1),
-                    None,
-                    ComputedValues.summarized(x, mean, lower, upper, values.length)
+                  StatRow.Summarized(
+                    source = observations.head._1,
+                    members = observations.map(_._1),
+                    position = x,
+                    mean = mean,
+                    lower = lower,
+                    upper = upper,
+                    count = values.length
                   )
                 }
                 val mapping = summaryMapping[Row]
@@ -474,8 +505,20 @@ private[intaglio] object StatPhase:
 
   private def summaryMapping[Row]: AesSpec[StatRow[Row]] =
     AesSpec(
-      x = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Position).getOrElse(0.0))),
-      y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Mean).getOrElse(0.0)))
+      x = Some(
+        AesValue.direct(
+          requiredOutput[Row, Double]("summary") { case output: StatRow.Summarized[?] =>
+            output.position
+          }
+        )
+      ),
+      y = Some(
+        AesValue.direct(
+          requiredOutput[Row, Double]("summary") { case output: StatRow.Summarized[?] =>
+            output.mean
+          }
+        )
+      )
     )
 
   private def densityFrame[Row](
@@ -497,11 +540,12 @@ private[intaglio] object StatPhase:
           val rows = Vector.tabulate(points) { idx =>
             val position = domain.lower + step * idx.toDouble
             val density = gaussianDensity(values, position, bandwidth)
-            StatRow(
-              plan.data.head,
-              plan.data,
-              None,
-              ComputedValues.densityAt(position, density, plan.data.length)
+            StatRow.Density(
+              source = plan.data.head,
+              members = plan.data,
+              position = position,
+              density = density,
+              sampleSize = plan.data.length
             )
           }
           val mapping = densityMapping[Row]
@@ -537,9 +581,37 @@ private[intaglio] object StatPhase:
 
   private def densityMapping[Row]: AesSpec[StatRow[Row]] =
     AesSpec(
-      x = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Position).getOrElse(0.0))),
-      y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Density).getOrElse(0.0)))
+      x = Some(
+        AesValue.direct(
+          requiredOutput[Row, Double]("density") { case output: StatRow.Density[?] =>
+            output.position
+          }
+        )
+      ),
+      y = Some(
+        AesValue.direct(
+          requiredOutput[Row, Double]("density") { case output: StatRow.Density[?] =>
+            output.density
+          }
+        )
+      )
     )
+
+  /** Adapt a statistic-specific total field to the common row envelope. A mismatched row is a
+    * checked mapping rejection, never a fabricated numeric default.
+    */
+  private def requiredOutput[Row, A](
+      expected: String
+  )(value: PartialFunction[StatRow[Row], A]): RowMapping[StatRow[Row], A] =
+    RowMapping.checked { row =>
+      value
+        .lift(row)
+        .toRight(
+          MappingFailure.Rejected(
+            s"expected '$expected' statistic output, found '${row.kind}'"
+          )
+        )
+    }
 
   private def gaussianDensity(values: Array[Double], position: Double, bandwidth: Double): Double =
     val normalizer = values.length.toDouble * bandwidth * math.sqrt(2.0 * math.Pi)
@@ -1001,7 +1073,7 @@ private[intaglio] object RowPhase:
       yield ResolvedRow(
         rowIndex = rowIndex,
         source = source.source,
-        computed = source.computed,
+        statRow = source,
         x = x,
         y = y,
         xBand = xBand,
@@ -1540,28 +1612,37 @@ private[intaglio] object GeomPhase:
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < rows.length && result.isRight do
       val row = rows(idx)
-      val lower = row.computed.get(ComputedAesthetic.Lower).getOrElse(row.y)
-      val upper = row.computed.get(ComputedAesthetic.Upper).getOrElse(row.y)
-      result = Grob
-        .segments(
-          Vector((Point.nativeUnsafe(row.x, lower), Point.nativeUnsafe(row.x, upper))),
-          gp = row.gp,
-          name = Some(GraphicsName.unsafe(s"stat-summary-interval-$idx"))
-        )
-        .flatMap { interval =>
-          Grob
-            .points(
-              Vector(row.point),
-              size = row.size,
+      row.statRow match
+        case output: StatRow.Summarized[?] =>
+          result = Grob
+            .segments(
+              Vector(
+                (
+                  Point.nativeUnsafe(row.x, output.lower),
+                  Point.nativeUnsafe(row.x, output.upper)
+                )
+              ),
               gp = row.gp,
-              name = Some(GraphicsName.unsafe(s"stat-summary-mean-$idx"))
+              name = Some(GraphicsName.unsafe(s"stat-summary-interval-$idx"))
             )
-            .map { point =>
-              out += interval
-              out += point
-              ()
+            .flatMap { interval =>
+              Grob
+                .points(
+                  Vector(row.point),
+                  size = row.size,
+                  gp = row.gp,
+                  name = Some(GraphicsName.unsafe(s"stat-summary-mean-$idx"))
+                )
+                .map { point =>
+                  out += interval
+                  out += point
+                  ()
+                }
             }
-        }
+        case other =>
+          result = Left(
+            GraphicsError.InvalidStatParameter("summary", "typed output row", other.kind)
+          )
       idx += 1
     result.map(_ => out.result())
 
@@ -1776,10 +1857,11 @@ private[intaglio] object GeomPhase:
       val upper = row.yMax.getOrElse(math.max(0.0, row.y))
       val height = upper - lower
       val centerY = lower + height / 2.0
-      val width =
-        row.xBand.map(_.width).orElse(row.computed.get(ComputedAesthetic.BinWidth)).getOrElse(0.9)
-      val statName =
-        if row.computed.get(ComputedAesthetic.BinWidth).nonEmpty then "bin" else "count"
+      val binWidth = row.statRow match
+        case output: StatRow.Binned[?] => Some(output.binWidth)
+        case _                         => None
+      val width = row.xBand.map(_.width).orElse(binWidth).getOrElse(0.9)
+      val statName = if binWidth.nonEmpty then "bin" else "count"
       result = Grob
         .rect(
           center = Point.nativeUnsafe(row.x, centerY),
@@ -2060,10 +2142,13 @@ private[intaglio] object LayoutPhase:
       if layer.geom == Geom.Bar then
         if aesthetic == Aesthetic.X then
           val edges = layer.rows.iterator.flatMap { row =>
+            val binWidth = row.statRow match
+              case output: StatRow.Binned[?] => Some(output.binWidth)
+              case _                         => None
             val halfWidth =
               row.xBand
                 .map(_.width)
-                .orElse(row.computed.get(ComputedAesthetic.BinWidth))
+                .orElse(binWidth)
                 .getOrElse(0.9) / 2.0
             Iterator(row.x - halfWidth, row.x + halfWidth)
           }
@@ -2071,10 +2156,9 @@ private[intaglio] object LayoutPhase:
         else if aesthetic == Aesthetic.Y then range = range.train(Iterator.single(0.0))
       if aesthetic == Aesthetic.Y then
         val intervalValues = layer.rows.iterator.flatMap { row =>
-          Iterator(
-            row.computed.get(ComputedAesthetic.Lower),
-            row.computed.get(ComputedAesthetic.Upper)
-          ).flatten
+          row.statRow match
+            case output: StatRow.Summarized[?] => Iterator(output.lower, output.upper)
+            case _                             => Iterator.empty
         }
         range = range.train(intervalValues)
     }

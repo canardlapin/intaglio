@@ -9,7 +9,11 @@ class StatSuite extends munit.FunSuite:
         .fold(error => fail(error.message), identity)
     val mapped = MappingPhase.plan(plot).fold(error => fail(error.message), identity)
     val stat = StatPhase.transform(mapped).fold(error => fail(error.message), identity).head.frame
+    val counted = stat.rows.collect { case output: StatRow.Counted[?] => output }
 
+    assertEquals(counted.length, stat.rows.length)
+    assertEquals(counted.map(_.level), StatCountParityFixture.levels)
+    assertEquals(counted.map(_.count), StatCountParityFixture.counts.map(_.toInt))
     assertEquals(stat.rows.flatMap(_.category), StatCountParityFixture.levels)
     assertEquals(
       stat.rows.flatMap(_.computed.get(ComputedAesthetic.Count)),
@@ -23,7 +27,32 @@ class StatSuite extends munit.FunSuite:
       stat.computedAesthetics,
       Set[ComputedAesthetic[?]](ComputedAesthetic.Count, ComputedAesthetic.Proportion)
     )
+    assertEquals(
+      StatFrame(stat.rows, Set.empty).computedAesthetics,
+      Set[ComputedAesthetic[?]](ComputedAesthetic.Count, ComputedAesthetic.Proportion)
+    )
     assertEquals(stat.rows.map(_.members.length), Vector(7, 10, 3, 10, 1, 1))
+  }
+
+  test("typed stat mappings reject the wrong output variant instead of inventing zero") {
+    val data = Vector("a", "b")
+    val layer = Layer.count[String](identity)
+    val plot = Plot(data)
+    val plan = MappingPhase
+      .planLayer(plot, layer, layerIndex = 0)
+      .flatMap(StatPhase.transform)
+      .fold(error => fail(error.message), identity)
+    val y = plan.mapping.get(Aesthetic.Y).getOrElse(fail("missing count y mapping"))
+
+    val evaluated = y match
+      case AesValue.Direct(value) =>
+        RowMapping.evaluateFunction(value, StatRow.Identity("not-a-count-output"))
+      case other => fail(s"expected direct count y mapping, found $other")
+
+    evaluated match
+      case Left((MappingContract.Checked, MappingFailure.Rejected(detail))) =>
+        assert(detail.contains("expected 'count' statistic output"))
+      case other => fail(s"expected a checked output mismatch, found $other")
   }
 
   test("computed count output trains x scale, derives labels, and lowers bars") {

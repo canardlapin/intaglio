@@ -238,7 +238,7 @@ final case class TrainedScale(
 final case class ResolvedRow[Row](
     rowIndex: Int,
     source: Row,
-    computed: ComputedValues,
+    statRow: StatRow[Row],
     x: Double,
     y: Double,
     xBand: Option[Band],
@@ -257,7 +257,10 @@ final case class ResolvedRow[Row](
     subpath: Option[String],
     gp: GraphicParams,
     size: ExtentExpr
-)
+):
+  /** Generic computed-aesthetic inspection derived from the retained typed stat output. */
+  def computed: ComputedValues =
+    statRow.computed
 
 final case class DroppedRow[Row](
     layerIndex: Int,

@@ -15,7 +15,13 @@ class ScientificStatSuite extends munit.FunSuite:
         )
         .fold(error => fail(error.message), identity)
     val layer = trained.layers.head
+    val output = layer.statFrame.rows.collect { case row: StatRow.Binned[?] => row }
 
+    assertEquals(output.length, layer.statFrame.rows.length)
+    assertEquals(output.map(_.count), Vector(1, 2))
+    assertEquals(output.map(_.binLower), Vector(0.0, 1.5))
+    assertEquals(output.map(_.binUpper), Vector(1.5, 5.0))
+    assertEquals(output.map(_.binMidpoint), Vector(0.75, 3.25))
     assertEquals(
       layer.statFrame.rows.flatMap(_.computed.get(ComputedAesthetic.Count)),
       ScientificStatParityFixture.histogramCounts
@@ -44,7 +50,13 @@ class ScientificStatSuite extends munit.FunSuite:
         )
         .fold(error => fail(error.message), identity)
     val layer = trained.layers.head
+    val output = layer.statFrame.rows.collect { case row: StatRow.Summarized[?] => row }
 
+    assertEquals(output.length, layer.statFrame.rows.length)
+    assertEquals(output.map(_.position), Vector(1.0, 2.0, 3.0))
+    assertEquals(output.map(_.mean), ScientificStatParityFixture.summaryMeans)
+    assertEquals(output.map(_.lower), ScientificStatParityFixture.summaryLower)
+    assertEquals(output.map(_.upper), ScientificStatParityFixture.summaryUpper)
     assertEquals(layer.rows.map(_.x), Vector(1.0, 2.0, 3.0))
     assertEquals(layer.rows.map(_.y), ScientificStatParityFixture.summaryMeans)
     assertEquals(
@@ -72,7 +84,11 @@ class ScientificStatSuite extends munit.FunSuite:
         .flatMap(PlotCompiler.resolve(_))
         .fold(error => fail(error.message), identity)
     val layer = trained.layers.head
+    val output = layer.statFrame.rows.collect { case row: StatRow.Density[?] => row }
 
+    assertEquals(output.length, layer.statFrame.rows.length)
+    assertEquals(output.map(_.position), ScientificStatParityFixture.densityGrid)
+    assert(output.forall(_.sampleSize == ScientificStatParityFixture.densityValues.length))
     assertEquals(layer.rows.map(_.x), ScientificStatParityFixture.densityGrid)
     layer.rows.map(_.y).zip(ScientificStatParityFixture.density).foreach {
       case (actual, expected) =>

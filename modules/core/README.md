@@ -117,6 +117,25 @@ trained <- ggplot_build(p)
 The Scala examples above are compiled as JVM and Scala.js tests in
 `PlotDslSuite`; this is executable syntax, not documentation-only sugar.
 
+Statistical layers retain their typed output rows in `StatFrame`. Count, bin,
+summary, and density results are distinct `StatRow` subtypes, so fields required
+by a statistic are total Scala values:
+
+```scala
+val bins = histogram.orThrow.layers.head.statFrame.rows.collect {
+  case row: StatRow.Binned[?] =>
+    (row.count, row.binLower, row.binUpper, row.binWidth, row.binMidpoint)
+}
+```
+
+`StatRow.Counted`, `Binned`, `Summarized`, and `Density` expose their own
+required fields directly. The compiler maps and lowers those fields from the
+typed subtype; a mismatched output variant is a checked mapping rejection, not
+a missing value replaced by zero. `row.computed` and
+`frame.computedAesthetics` remain generic inspection views derived from typed
+rows (with declared keys retained for an empty frame), rather than storage used
+to drive compilation.
+
 Ecosystem code can define a typed aesthetic without registering a string or
 editing core. The key has reference identity, so retain and reuse the same
 value for insertion and lookup:

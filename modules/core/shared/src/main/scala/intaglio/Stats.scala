@@ -16,8 +16,9 @@ enum ComputedAesthetic[A](val label: String):
   case BinWidth extends ComputedAesthetic[Double]("bin_width")
   case BinMidpoint extends ComputedAesthetic[Double]("bin_midpoint")
 
-/** A finite typed record of computed aesthetics. Future statistics can add fields without turning
-  * their output into a string-keyed map.
+/** A read-only compatibility view of values produced by a statistical transformation. The
+  * statistic-specific [[StatRow]] subtype owns every required field; this optional record is
+  * derived from that row for generic inspection only.
   */
 final case class ComputedValues private (
     count: Option[Double] = None,
@@ -46,72 +47,163 @@ final case class ComputedValues private (
       case ComputedAesthetic.BinWidth    => binWidth
       case ComputedAesthetic.BinMidpoint => binMidpoint
 
+  /** Computed keys present in this inspection view. */
+  def aesthetics: Set[ComputedAesthetic[?]] =
+    val out = Set.newBuilder[ComputedAesthetic[?]]
+    if count.nonEmpty then out += ComputedAesthetic.Count
+    if proportion.nonEmpty then out += ComputedAesthetic.Proportion
+    if density.nonEmpty then out += ComputedAesthetic.Density
+    if position.nonEmpty then out += ComputedAesthetic.Position
+    if mean.nonEmpty then out += ComputedAesthetic.Mean
+    if lower.nonEmpty then out += ComputedAesthetic.Lower
+    if upper.nonEmpty then out += ComputedAesthetic.Upper
+    if binLower.nonEmpty then out += ComputedAesthetic.BinLower
+    if binUpper.nonEmpty then out += ComputedAesthetic.BinUpper
+    if binWidth.nonEmpty then out += ComputedAesthetic.BinWidth
+    if binMidpoint.nonEmpty then out += ComputedAesthetic.BinMidpoint
+    out.result()
+
 object ComputedValues:
   val empty: ComputedValues =
     ComputedValues()
 
-  private[intaglio] def counted(count: Int, total: Int): ComputedValues =
-    ComputedValues(
-      count = Some(count.toDouble),
-      proportion = Some(count.toDouble / total.toDouble)
-    )
+  private[intaglio] def from[Row](row: StatRow[Row]): ComputedValues =
+    row match
+      case _: StatRow.Identity[?] =>
+        empty
+      case output: StatRow.Counted[?] =>
+        ComputedValues(
+          count = Some(output.count.toDouble),
+          proportion = Some(output.proportion)
+        )
+      case output: StatRow.Binned[?] =>
+        ComputedValues(
+          count = Some(output.count.toDouble),
+          proportion = Some(output.proportion),
+          density = Some(output.density),
+          binLower = Some(output.binLower),
+          binUpper = Some(output.binUpper),
+          binWidth = Some(output.binWidth),
+          binMidpoint = Some(output.binMidpoint)
+        )
+      case output: StatRow.Summarized[?] =>
+        ComputedValues(
+          count = Some(output.count.toDouble),
+          position = Some(output.position),
+          mean = Some(output.mean),
+          lower = Some(output.lower),
+          upper = Some(output.upper)
+        )
+      case output: StatRow.Density[?] =>
+        ComputedValues(
+          count = Some(output.count),
+          density = Some(output.density),
+          position = Some(output.position)
+        )
 
-  private[intaglio] def binned(
+/** One typed output row from a statistic. `members` makes aggregation inspectable; `source` is the
+  * stable representative used by source-oriented diagnostics. Required statistic outputs are
+  * ordinary fields on the corresponding subtype, never absent entries in an optional record.
+  */
+sealed trait StatRow[+Row]:
+  def source: Row
+  def members: Vector[Row]
+  def category: Option[String]
+  def kind: String
+
+  /** Generic inspection is deliberately derived from the typed output row. */
+  final def computed: ComputedValues =
+    ComputedValues.from(this)
+
+object StatRow:
+  /** Identity preserves one source row and has no computed fields. */
+  final case class Identity[+Row](source: Row) extends StatRow[Row]:
+    val members: Vector[Row] = Vector(source)
+    val category: Option[String] = None
+    val kind: String = "identity"
+
+  /** Required output of `stat_count`. */
+  final case class Counted[+Row](
+      source: Row,
+      members: Vector[Row],
+      level: String,
       count: Int,
-      total: Int,
+      proportion: Double
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(count == members.length, "`count` must equal `members.length`")
+    require(proportion.isFinite && proportion >= 0.0 && proportion <= 1.0)
+
+    val category: Option[String] = Some(level)
+    val kind: String = "count"
+
+  /** Required output of `stat_bin`. Width, midpoint, and density are total derived values. */
+  final case class Binned[+Row](
+      source: Row,
+      members: Vector[Row],
+      count: Int,
+      proportion: Double,
+      density: Double,
       binLower: Double,
       binUpper: Double
-  ): ComputedValues =
-    val width = binUpper - binLower
-    val frequency = count.toDouble
-    ComputedValues(
-      count = Some(frequency),
-      proportion = Some(frequency / total.toDouble),
-      density = Some(frequency / (total.toDouble * width)),
-      binLower = Some(binLower),
-      binUpper = Some(binUpper),
-      binWidth = Some(width),
-      binMidpoint = Some(binLower + width / 2.0)
-    )
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(count == members.length, "`count` must equal `members.length`")
+    require(proportion.isFinite && proportion >= 0.0 && proportion <= 1.0)
+    require(density.isFinite && density >= 0.0)
+    require(binLower.isFinite && binUpper.isFinite && binLower < binUpper)
 
-  private[intaglio] def summarized(
+    val category: Option[String] = None
+    val kind: String = "bin"
+    val binWidth: Double = binUpper - binLower
+    val binMidpoint: Double = binLower + binWidth / 2.0
+
+  /** Required output of `stat_summary`. */
+  final case class Summarized[+Row](
+      source: Row,
+      members: Vector[Row],
       position: Double,
       mean: Double,
       lower: Double,
       upper: Double,
       count: Int
-  ): ComputedValues =
-    ComputedValues(
-      count = Some(count.toDouble),
-      position = Some(position),
-      mean = Some(mean),
-      lower = Some(lower),
-      upper = Some(upper)
-    )
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(count == members.length, "`count` must equal `members.length`")
+    require(Vector(position, mean, lower, upper).forall(_.isFinite))
+    require(lower <= mean && mean <= upper, "summary bounds must contain the mean")
 
-  private[intaglio] def densityAt(position: Double, density: Double, count: Int): ComputedValues =
-    ComputedValues(
-      count = Some(density * count.toDouble),
-      density = Some(density),
-      position = Some(position)
-    )
+    val category: Option[String] = None
+    val kind: String = "summary"
 
-/** One output row from a statistic. `members` makes aggregation inspectable; `source` is the stable
-  * representative used by source-oriented diagnostics.
-  */
-final case class StatRow[Row] private[intaglio] (
-    source: Row,
-    members: Vector[Row],
-    category: Option[String],
-    computed: ComputedValues
-):
-  require(members.nonEmpty, "`members` must be non-empty")
+  /** Required output of `stat_density`. `count` is the ggplot-compatible scaled density. */
+  final case class Density[+Row](
+      source: Row,
+      members: Vector[Row],
+      position: Double,
+      density: Double,
+      sampleSize: Int
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(sampleSize == members.length, "`sampleSize` must equal `members.length`")
+    require(position.isFinite)
+    require(density.isFinite && density >= 0.0)
+
+    val category: Option[String] = None
+    val kind: String = "density"
+    val count: Double = density * sampleSize.toDouble
 
 /** Immutable, typed output of a statistical layer transformation. */
 final case class StatFrame[Row] private[intaglio] (
     rows: Vector[StatRow[Row]],
-    computedAesthetics: Set[ComputedAesthetic[?]]
-)
+    private val declaredAesthetics: Set[ComputedAesthetic[?]]
+):
+  /** The declaration remains available for an empty result; otherwise keys are derived from the
+    * typed rows themselves.
+    */
+  def computedAesthetics: Set[ComputedAesthetic[?]] =
+    if rows.isEmpty then declaredAesthetics
+    else rows.iterator.flatMap(_.computed.aesthetics).toSet
 
 enum CountOrder:
   /** Preserve the first occurrence of every category. */
