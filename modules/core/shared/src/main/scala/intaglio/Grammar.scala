@@ -566,6 +566,39 @@ object AesSpec:
   def fromEnv[Row](env: AesEnv[Row]): AesSpec[Row] =
     env
 
+/** Complete mapping contract for one built-in geom. Group-constant aesthetics may be mapped, but
+  * their resolved values must remain constant within each structural [[GroupKey]].
+  */
+final case class GeomAestheticContract private (
+    required: Vector[RequiredAesthetic],
+    optional: Vector[Aesthetic[?]],
+    groupConstant: Vector[Aesthetic[?]]
+):
+  require(required.map(_.aesthetic).distinct.length == required.length)
+  require(optional.distinct.length == optional.length)
+  require(required.forall(value => !optional.contains(value.aesthetic)))
+  require(groupConstant.distinct.length == groupConstant.length)
+  require(groupConstant.forall(optional.contains))
+  require(
+    groupConstant.forall(
+      Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha, Aesthetic.Size).contains
+    )
+  )
+
+  val supported: Vector[Aesthetic[?]] =
+    required.map(_.aesthetic) ++ optional
+
+  def supports(aesthetic: Aesthetic[?]): Boolean =
+    supported.contains(aesthetic)
+
+object GeomAestheticContract:
+  private[intaglio] def create(
+      required: Vector[RequiredAesthetic],
+      optional: Vector[Aesthetic[?]],
+      groupConstant: Vector[Aesthetic[?]] = Vector.empty
+  ): GeomAestheticContract =
+    new GeomAestheticContract(required, optional, groupConstant)
+
 enum Geom(val label: String):
   case Point extends Geom("point")
   case Line extends Geom("line")
@@ -581,37 +614,120 @@ enum Geom(val label: String):
   case Tile extends Geom("tile")
   case Polygon extends Geom("polygon")
 
-  def requiredAesthetics: Vector[RequiredAesthetic] =
+  lazy val contract: GeomAestheticContract =
     this match
-      case Point   => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
-      case Line    => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
-      case Polygon => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
-      case Text    => Vector(RequiredAesthetic.X, RequiredAesthetic.Y, RequiredAesthetic.Label)
-      case Bar     => Vector(RequiredAesthetic.X, RequiredAesthetic.Y)
-      case HLine | VLine => Vector.empty
-      case Segment       =>
-        Vector(
-          RequiredAesthetic.X,
-          RequiredAesthetic.Y,
-          RequiredAesthetic.XEnd,
-          RequiredAesthetic.YEnd
+      case Point =>
+        GeomAestheticContract.create(
+          required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+          optional = Vector(
+            Aesthetic.Color,
+            Aesthetic.Fill,
+            Aesthetic.Alpha,
+            Aesthetic.Size,
+            Aesthetic.Group
+          )
         )
-      case ErrorBar | Ribbon | Area =>
-        Vector(
-          RequiredAesthetic.X,
-          RequiredAesthetic.Y,
-          RequiredAesthetic.YMin,
-          RequiredAesthetic.YMax
+      case Line =>
+        GeomAestheticContract.create(
+          required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+          optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group),
+          groupConstant = Vector(Aesthetic.Color, Aesthetic.Alpha)
         )
+      case Text =>
+        GeomAestheticContract.create(
+          required = Vector(
+            RequiredAesthetic.X,
+            RequiredAesthetic.Y,
+            RequiredAesthetic.Label
+          ),
+          optional = Vector(
+            Aesthetic.Color,
+            Aesthetic.Fill,
+            Aesthetic.Alpha,
+            Aesthetic.Group
+          )
+        )
+      case Bar =>
+        GeomAestheticContract.create(
+          required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+          optional = Vector(
+            Aesthetic.Color,
+            Aesthetic.Fill,
+            Aesthetic.Alpha,
+            Aesthetic.Group
+          )
+        )
+      case Segment =>
+        GeomAestheticContract.create(
+          required = Vector(
+            RequiredAesthetic.X,
+            RequiredAesthetic.Y,
+            RequiredAesthetic.XEnd,
+            RequiredAesthetic.YEnd
+          ),
+          optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group)
+        )
+      case ErrorBar =>
+        GeomAestheticContract.create(
+          required = Vector(
+            RequiredAesthetic.X,
+            RequiredAesthetic.Y,
+            RequiredAesthetic.YMin,
+            RequiredAesthetic.YMax
+          ),
+          optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group)
+        )
+      case Ribbon | Area =>
+        GeomAestheticContract.create(
+          required = Vector(
+            RequiredAesthetic.X,
+            RequiredAesthetic.Y,
+            RequiredAesthetic.YMin,
+            RequiredAesthetic.YMax
+          ),
+          optional = Vector(
+            Aesthetic.Color,
+            Aesthetic.Fill,
+            Aesthetic.Alpha,
+            Aesthetic.Group
+          ),
+          groupConstant = Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha)
+        )
+      case HLine | VLine =>
+        GeomAestheticContract.create(Vector.empty, Vector.empty)
       case Rect | Tile =>
-        Vector(
-          RequiredAesthetic.X,
-          RequiredAesthetic.Y,
-          RequiredAesthetic.XMin,
-          RequiredAesthetic.XMax,
-          RequiredAesthetic.YMin,
-          RequiredAesthetic.YMax
+        GeomAestheticContract.create(
+          required = Vector(
+            RequiredAesthetic.X,
+            RequiredAesthetic.Y,
+            RequiredAesthetic.XMin,
+            RequiredAesthetic.XMax,
+            RequiredAesthetic.YMin,
+            RequiredAesthetic.YMax
+          ),
+          optional = Vector(
+            Aesthetic.Color,
+            Aesthetic.Fill,
+            Aesthetic.Alpha,
+            Aesthetic.Group
+          )
         )
+      case Polygon =>
+        GeomAestheticContract.create(
+          required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+          optional = Vector(
+            Aesthetic.Color,
+            Aesthetic.Fill,
+            Aesthetic.Alpha,
+            Aesthetic.Group,
+            Aesthetic.Subpath
+          ),
+          groupConstant = Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha)
+        )
+
+  /** Source-compatible required-aesthetic view. */
+  def requiredAesthetics: Vector[RequiredAesthetic] =
+    contract.required
 
 opaque type CoordinateRatio = Double
 
@@ -1025,7 +1141,7 @@ object Layer:
             (annotation.orientation == ReferenceLineOrientation.Vertical && layer.geom != Geom.VLine) =>
         Left(GraphicsError.InvalidAnnotationGeom(annotation.orientation.label, layer.geom.label))
       case Some(_) =>
-        Right(())
+        validate(layer.geom, mapping)
       case None if layer.geom == Geom.HLine || layer.geom == Geom.VLine =>
         Left(GraphicsError.ReferenceLineRequiresAnnotation(layer.geom.label))
       case None =>
@@ -1062,9 +1178,14 @@ object Layer:
       geom: Geom,
       mapping: AesSpec[Row]
   ): Either[GraphicsError, Unit] =
-    geom.requiredAesthetics.find(required => !required.isPresent(mapping)) match
+    geom.contract.required.find(required => !required.isPresent(mapping)) match
       case Some(aesthetic) => Left(GraphicsError.MissingAesthetic(geom.label, aesthetic.label))
-      case None            => Right(())
+      case None            =>
+        mapping.bound.find(aesthetic => !geom.contract.supports(aesthetic)) match
+          case Some(aesthetic) =>
+            Left(GraphicsError.UnsupportedGeomAesthetic(geom.label, aesthetic.label))
+          case None =>
+            Right(())
 
   private def midpoint[Row](lower: Row => Double, upper: Row => Double): Row => Double =
     RowMapping.zipWith(lower, upper)((lo, hi) => lo + (hi - lo) / 2.0)

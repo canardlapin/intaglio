@@ -274,6 +274,13 @@ ignored rather than retained.
   that decision and key, so a palette that maps two categories to the same
   visual value cannot accidentally merge lines, polygons, dodged marks, or
   stacks.
+- Every built-in geom publishes a `GeomAestheticContract` containing its
+  required, optional, and group-constant aesthetics. A bound aesthetic outside
+  that contract fails before row evaluation instead of being silently ignored.
+  Lines require resolved color and alpha to stay constant within a group;
+  ribbons, areas, and polygons additionally require constant fill. A violation
+  is a typed `VaryingGroupAesthetic` compiler error, never a first-row style
+  reduction.
 - Filled contours clip each regular-grid triangle against checked
   `ContourBreaks`, cancel internal edges, stitch oriented rings, and assign
   clockwise holes to the smallest containing counter-clockwise outer ring.

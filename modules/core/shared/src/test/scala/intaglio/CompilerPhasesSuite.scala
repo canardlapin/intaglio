@@ -384,6 +384,36 @@ class CompilerPhasesSuite extends munit.FunSuite:
     assertEquals(second.gp.stroke, Some(Rgba.unsafe(200, 100, 50)))
   }
 
+  test("group-constant styles are rejected before grouped lowering") {
+    val varyingColor = AesSpec
+      .empty[Obs]
+      .withGroup("all")
+      .withColor(row => if row.condition == "A" then Rgba.Black else Rgba.White)
+    val varyingFill = AesSpec
+      .empty[Obs]
+      .withGroup("all")
+      .withFill(row => if row.condition == "A" then Rgba.Black else Rgba.White)
+    val cases = Vector(
+      Layer.line[Obs](_.x, _.y, mapping = varyingColor) -> "color",
+      Layer.ribbon[Obs](_.x, row => row.y - 0.5, row => row.y + 0.5, mapping = varyingFill) ->
+        "fill",
+      Layer.area[Obs](_.x, _.y, mapping = varyingFill) -> "fill",
+      Layer.polygon[Obs](_.x, _.y, mapping = varyingFill) -> "fill"
+    )
+
+    cases.foreach { case (layer, aesthetic) =>
+      val error = Plot(data)
+        .addLayer(layer)
+        .flatMap(PlotCompiler.resolve(_))
+        .left
+        .toOption
+      assertEquals(
+        error,
+        Some(GraphicsError.VaryingGroupAesthetic(layer.geom.label, aesthetic, "all", 0, 2))
+      )
+    }
+  }
+
   test("single-row groups draw nothing, matching whole-layer semantics") {
     val sparse = Vector(Obs(0.0, 0.0, "A"), Obs(1.0, 1.0, "B"), Obs(2.0, 2.0, "B"))
     val plot = Plot(sparse)

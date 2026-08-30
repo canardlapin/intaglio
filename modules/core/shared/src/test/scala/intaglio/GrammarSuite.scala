@@ -78,6 +78,81 @@ class GrammarSuite extends munit.FunSuite:
     )
   }
 
+  test("every built-in geom publishes its complete aesthetic contract") {
+    def labels(values: Vector[Aesthetic[?]]): Vector[String] =
+      values.map(_.label)
+
+    val actual = Geom.values.toVector.map { geom =>
+      geom.label -> (
+        geom.contract.required.map(_.label),
+        labels(geom.contract.optional),
+        labels(geom.contract.groupConstant)
+      )
+    }.toMap
+    val markStyles = Vector("color", "fill", "alpha", "group")
+
+    assertEquals(
+      actual,
+      Map(
+        "point" -> (Vector("x", "y"), markStyles.patch(3, Vector("size"), 0), Vector.empty),
+        "line" -> (Vector("x", "y"), Vector("color", "alpha", "group"), Vector("color", "alpha")),
+        "text" -> (Vector("x", "y", "label"), markStyles, Vector.empty),
+        "rect" -> (
+          Vector("x", "y", "xmin", "xmax", "ymin", "ymax"),
+          markStyles,
+          Vector.empty
+        ),
+        "bar" -> (Vector("x", "y"), markStyles, Vector.empty),
+        "segment" -> (
+          Vector("x", "y", "xend", "yend"),
+          Vector("color", "alpha", "group"),
+          Vector.empty
+        ),
+        "errorbar" -> (
+          Vector("x", "y", "ymin", "ymax"),
+          Vector("color", "alpha", "group"),
+          Vector.empty
+        ),
+        "ribbon" -> (
+          Vector("x", "y", "ymin", "ymax"),
+          markStyles,
+          Vector("color", "fill", "alpha")
+        ),
+        "area" -> (
+          Vector("x", "y", "ymin", "ymax"),
+          markStyles,
+          Vector("color", "fill", "alpha")
+        ),
+        "hline" -> (Vector.empty, Vector.empty, Vector.empty),
+        "vline" -> (Vector.empty, Vector.empty, Vector.empty),
+        "tile" -> (
+          Vector("x", "y", "xmin", "xmax", "ymin", "ymax"),
+          markStyles,
+          Vector.empty
+        ),
+        "polygon" -> (
+          Vector("x", "y"),
+          markStyles :+ "subpath",
+          Vector("color", "fill", "alpha")
+        )
+      )
+    )
+  }
+
+  test("unsupported geom mappings fail at the typed layer boundary") {
+    val line = Layer.line[Observation](
+      _.time,
+      _.value,
+      mapping = AesSpec.empty[Observation].withFill(Rgba.Black),
+      inheritMapping = false
+    )
+
+    assertEquals(
+      Plot(data).addLayer(line).left.toOption,
+      Some(GraphicsError.UnsupportedGeomAesthetic("line", "fill"))
+    )
+  }
+
   test("plot layers inherit plot data and mappings without mutating either") {
     val plotMapping =
       AesSpec

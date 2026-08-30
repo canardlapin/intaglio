@@ -44,6 +44,14 @@ enum GraphicsError extends IntaglioError:
   case EmptyGeometry(kind: String)
   case InvalidGeometrySize(kind: String, minimum: Int, actual: Int)
   case MissingAesthetic(geom: String, aesthetic: String)
+  case UnsupportedGeomAesthetic(geom: String, aesthetic: String)
+  case VaryingGroupAesthetic(
+      geom: String,
+      aesthetic: String,
+      group: String,
+      firstRow: Int,
+      conflictingRow: Int
+  )
   case DuplicateScale(aesthetic: String)
   case ConflictingPlotScales(
       aesthetic: String,
@@ -189,6 +197,10 @@ enum GraphicsError extends IntaglioError:
         s"$kind geometry requires at least $minimum elements: found $actual"
       case MissingAesthetic(geom, aesthetic) =>
         s"geom '$geom' requires aesthetic '$aesthetic'"
+      case UnsupportedGeomAesthetic(geom, aesthetic) =>
+        s"geom '$geom' does not support aesthetic '$aesthetic'"
+      case VaryingGroupAesthetic(geom, aesthetic, group, firstRow, conflictingRow) =>
+        s"geom '$geom' requires aesthetic '$aesthetic' to be constant within group '$group', but rows $firstRow and $conflictingRow differ"
       case DuplicateScale(aesthetic) =>
         s"duplicate scale for aesthetic '$aesthetic'"
       case ConflictingPlotScales(

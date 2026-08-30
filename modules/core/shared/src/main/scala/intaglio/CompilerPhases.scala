@@ -1356,10 +1356,61 @@ private[intaglio] object GeomPhase:
         // Keep that distinct from a row-backed HLine/VLine, which remains an invalid contract.
         Right(Vector.empty)
       case None =>
-        layer.stat match
-          case _: Stat.Summary[?] => summaryGrobs(rows)
-          case _: Stat.Density[?] => densityGrobs(rows)
-          case _                  => lowerIdentity(layer.geom, rows)
+        validateGroupConstancy(layer.geom, rows).flatMap { _ =>
+          layer.stat match
+            case _: Stat.Summary[?] => summaryGrobs(rows)
+            case _: Stat.Density[?] => densityGrobs(rows)
+            case _                  => lowerIdentity(layer.geom, rows)
+        }
+
+  private def validateGroupConstancy[Row](
+      geom: Geom,
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Unit] =
+    val groups = groupInOrder(rows)
+    val aesthetics = geom.contract.groupConstant
+    var groupIndex = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while groupIndex < groups.length && result.isRight do
+      val group = groups(groupIndex)
+      if group.nonEmpty then
+        var aestheticIndex = 0
+        while aestheticIndex < aesthetics.length && result.isRight do
+          val aesthetic = aesthetics(aestheticIndex)
+          val first = group.head
+          val expected = groupAestheticValue(first, aesthetic)
+          group.tail.find(row => groupAestheticValue(row, aesthetic) != expected).foreach { row =>
+            result = Left(
+              GraphicsError.VaryingGroupAesthetic(
+                geom.label,
+                aesthetic.label,
+                first.groupKey.map(_.display).getOrElse("<ungrouped>"),
+                first.rowIndex,
+                row.rowIndex
+              )
+            )
+          }
+          aestheticIndex += 1
+      groupIndex += 1
+    result
+
+  private def groupAestheticValue(
+      row: ResolvedRow[?],
+      aesthetic: Aesthetic[?]
+  ): GroupAestheticValue =
+    aesthetic match
+      case Aesthetic.Color => GroupAestheticValue.Color(row.gp.stroke)
+      case Aesthetic.Fill  => GroupAestheticValue.Fill(row.gp.fill, row.gp.fillPattern)
+      case Aesthetic.Alpha => GroupAestheticValue.Alpha(row.gp.alpha)
+      case Aesthetic.Size  => GroupAestheticValue.Size(row.size)
+      case other           => GroupAestheticValue.Unsupported(other.label)
+
+  private enum GroupAestheticValue:
+    case Color(value: Option[Rgba])
+    case Fill(value: Option[Rgba], pattern: Option[PatternPaint])
+    case Alpha(value: Double)
+    case Size(value: ExtentExpr)
+    case Unsupported(aesthetic: String)
 
   private def referenceLineGrob(
       annotation: ResolvedReferenceLine,
