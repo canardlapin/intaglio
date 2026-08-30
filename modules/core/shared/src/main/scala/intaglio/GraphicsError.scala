@@ -23,6 +23,7 @@ enum GraphicsError extends IntaglioError:
   case InvalidContourTopology(detail: String)
   case InvalidAlpha(value: Double)
   case InvalidLineWidth(value: Double)
+  case InvalidPatternParameter(recipe: String, parameter: String, value: Double, expectation: String)
   case InvalidRotation(value: Double)
   case InvalidBreakCount(value: Int)
   case InvalidBreakWidth(value: Double)
@@ -117,6 +118,8 @@ enum GraphicsError extends IntaglioError:
         s"alpha must be finite and in [0, 1]: $value"
       case InvalidLineWidth(value) =>
         s"line width must be finite and >= 0: $value"
+      case InvalidPatternParameter(recipe, parameter, value, expectation) =>
+        s"$recipe pattern requires $parameter to be $expectation: $value"
       case InvalidRotation(value) =>
         s"rotation angle must be finite: $value"
       case InvalidBreakCount(value) =>

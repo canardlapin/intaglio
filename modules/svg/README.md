@@ -10,8 +10,8 @@ Current scope:
 
 - root SVG document options with explicit canvas size and optional title;
 - points, lines, segments, rectangles, circles, text, raster images, and groups;
-- basic graphical parameters: stroke, fill, alpha, line width/type, font family,
-  and font size;
+- basic graphical parameters: stroke, solid or validated pattern fill, alpha,
+  line width/type, font family, and font size;
 - resolved device-space groups with clip paths and optional rotation;
 - deterministic embedded RGBA PNG images with explicit nearest/smooth
   interpolation policy;
@@ -23,6 +23,15 @@ JVM tests additionally parse every conformance document with the platform XML
 parser; shared JVM/Scala.js tests pin identical serialization behavior.
 That is intentional: a backend should expose missing layout semantics instead of
 silently inventing device-specific behavior.
+
+Pattern fills serialize as deterministic `pattern-N` resources in stable
+first-use order. Structurally equal `PatternPaint` values share one definition;
+marks reference it with `fill="url(#pattern-N)"`. Definitions use absolute
+numeric device-pixel dimensions and `patternUnits="userSpaceOnUse"`, so there
+are no percentage or object-bounding-box semantics. Pattern ink/background
+alpha stays on the resource geometry, while mark alpha remains the element's
+`opacity` and applies once to the composited fill and outline. Resource IDs use
+`id`, never `data-name`, so definitions do not impersonate semantic marks.
 
 ## Visual gallery
 

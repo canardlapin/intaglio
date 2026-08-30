@@ -325,24 +325,25 @@ object DeviceScene:
           Vector(
             "disc center x" -> centerX,
             "disc center y" -> centerY,
-            "disc radius" -> radius,
-            "line width" -> gp.lineWidth
+            "disc radius" -> radius
           )
-        )
-      case DevicePrimitive.Polyline(points, _, gp, _) =>
-        validatePoints(points).flatMap(_ => DeviceValue.checked("line width", gp.lineWidth).map(_ => ()))
+        ).flatMap(_ => validateFillGraphicParams(gp))
+      case DevicePrimitive.Polyline(points, closed, gp, _) =>
+        validatePoints(points).flatMap { _ =>
+          if closed then validateFillGraphicParams(gp)
+          else DeviceValue.checked("line width", gp.lineWidth).map(_ => ())
+        }
       case DevicePrimitive.CompoundPolygon(rings, gp, _) =>
-        validatePointGroups(rings).flatMap(_ => DeviceValue.checked("line width", gp.lineWidth).map(_ => ()))
+        validatePointGroups(rings).flatMap(_ => validateFillGraphicParams(gp))
       case DevicePrimitive.RectShape(x, y, width, height, gp, _) =>
         validateNumbers(
           Vector(
             "rectangle x" -> x,
             "rectangle y" -> y,
             "rectangle width" -> width,
-            "rectangle height" -> height,
-            "line width" -> gp.lineWidth
+            "rectangle height" -> height
           )
-        )
+        ).flatMap(_ => validateFillGraphicParams(gp))
       case DevicePrimitive.TextRun(_, x, y, _, _, rotationDegrees, fontSizePx, _, _, _) =>
         validateNumbers(
           Vector(
@@ -362,6 +363,37 @@ object DeviceScene:
             "image alpha" -> alpha
           )
         )
+
+  private def validateFillGraphicParams(gp: GraphicParams): Either[GraphicsError, Unit] =
+    DeviceValue.checked("line width", gp.lineWidth).flatMap { _ =>
+      gp.fillPattern match
+        case None => Right(())
+        case Some(pattern) =>
+          val values = pattern.recipe match
+            case recipe: PatternRecipe.AngledHatch =>
+              Vector(
+                "pattern angle" -> recipe.angleDegrees,
+                "pattern spacing" -> recipe.spacing,
+                "pattern line width" -> recipe.lineWidth
+              )
+            case recipe: PatternRecipe.CrossHatch =>
+              Vector(
+                "pattern angle" -> recipe.angleDegrees,
+                "pattern spacing" -> recipe.spacing,
+                "pattern line width" -> recipe.lineWidth
+              )
+            case recipe: PatternRecipe.ParallelRules =>
+              Vector(
+                "pattern spacing" -> recipe.spacing,
+                "pattern line width" -> recipe.lineWidth
+              )
+            case recipe: PatternRecipe.Stipple =>
+              Vector(
+                "pattern spacing" -> recipe.spacing,
+                "pattern radius" -> recipe.radius
+              )
+          validateNumbers(values)
+    }
 
   private def validatePoints(points: Vector[DevicePoint]): Either[GraphicsError, Unit] =
     var idx = 0

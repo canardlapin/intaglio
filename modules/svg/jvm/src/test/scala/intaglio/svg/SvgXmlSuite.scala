@@ -23,6 +23,30 @@ class SvgXmlSuite extends munit.FunSuite:
     }
   }
 
+  test("pattern resources parse as XML without semantic mark names") {
+    val recipe = PatternRecipe.crossHatch(35.0, 8.0, 1.25).fold(error => fail(error.message), identity)
+    val rect = Grob.rectUnsafe(
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(0.5, 0.5),
+      gp = GraphicParams
+        .unsafe(stroke = None)
+        .withPatternFill(PatternPaint(recipe, Rgba.unsafe(20, 40, 60), Some(Rgba.White))),
+      name = Some(GraphicsName.unsafe("patterned-mark"))
+    )
+    val document = SvgRenderer
+      .render(Scene(Vector(rect)), SvgOptions.unsafe(width = 100, height = 80))
+      .fold(error => fail(error.message), identity)
+    val parsed = parse(document.value)
+    val pattern = parsed.getElementsByTagName("pattern").item(0)
+    val mark = parsed.getElementsByTagName("rect").item(0)
+
+    assertEquals(pattern.getAttributes.getNamedItem("id").getNodeValue, "pattern-0")
+    assertEquals(pattern.getAttributes.getNamedItem("patternUnits").getNodeValue, "userSpaceOnUse")
+    assertEquals(pattern.getAttributes.getNamedItem("data-name"), null)
+    assertEquals(mark.getAttributes.getNamedItem("data-name").getNodeValue, "patterned-mark")
+    assertEquals(mark.getAttributes.getNamedItem("fill").getNodeValue, "url(#pattern-0)")
+  }
+
   test("escaped text, attributes, and supplementary Unicode parse losslessly") {
     val name = GraphicsName.unsafe("name & <group> \"quoted\"")
     val text = Grob

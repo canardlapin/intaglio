@@ -229,6 +229,117 @@ object Rgba:
   val Transparent: Rgba =
     unsafe(0, 0, 0, 0.0)
 
+enum RuleOrientation:
+  case Horizontal
+  case Vertical
+
+/** A finite, backend-neutral recipe for a repeated fill pattern.
+  *
+  * Spacing, line width, and radius are measured in device pixels. Hatch
+  * angles are clockwise degrees from a vertical rule in the device's y-down
+  * coordinate system. Tiles start at `(0, 0)` in the current device coordinate
+  * system, repeat without shape-local re-anchoring, and follow enclosing
+  * viewport transforms. These semantics intentionally do not admit backend
+  * objects, callbacks, CSS, or raw SVG.
+  */
+sealed trait PatternRecipe:
+  def spacing: Double
+
+object PatternRecipe:
+  final case class AngledHatch private[PatternRecipe] (
+      angleDegrees: Double,
+      spacing: Double,
+      lineWidth: Double
+  ) extends PatternRecipe
+
+  final case class CrossHatch private[PatternRecipe] (
+      angleDegrees: Double,
+      spacing: Double,
+      lineWidth: Double
+  ) extends PatternRecipe
+
+  final case class ParallelRules private[PatternRecipe] (
+      orientation: RuleOrientation,
+      spacing: Double,
+      lineWidth: Double
+  ) extends PatternRecipe
+
+  final case class Stipple private[PatternRecipe] (
+      spacing: Double,
+      radius: Double
+  ) extends PatternRecipe
+
+  def angledHatch(
+      angleDegrees: Double,
+      spacing: Double,
+      lineWidth: Double
+  ): Either[GraphicsError, AngledHatch] =
+    for
+      _ <- finiteAngle("angled hatch", angleDegrees)
+      _ <- positive("angled hatch", "spacing", spacing)
+      _ <- positive("angled hatch", "line width", lineWidth)
+    yield new AngledHatch(angleDegrees, spacing, lineWidth)
+
+  def crossHatch(
+      angleDegrees: Double,
+      spacing: Double,
+      lineWidth: Double
+  ): Either[GraphicsError, CrossHatch] =
+    for
+      _ <- finiteAngle("cross-hatch", angleDegrees)
+      _ <- positive("cross-hatch", "spacing", spacing)
+      _ <- positive("cross-hatch", "line width", lineWidth)
+    yield new CrossHatch(angleDegrees, spacing, lineWidth)
+
+  def parallelRules(
+      orientation: RuleOrientation,
+      spacing: Double,
+      lineWidth: Double
+  ): Either[GraphicsError, ParallelRules] =
+    for
+      _ <- positive("parallel rules", "spacing", spacing)
+      _ <- positive("parallel rules", "line width", lineWidth)
+    yield new ParallelRules(orientation, spacing, lineWidth)
+
+  def stipple(spacing: Double, radius: Double): Either[GraphicsError, Stipple] =
+    for
+      _ <- positive("stipple", "spacing", spacing)
+      _ <- positive("stipple", "radius", radius)
+      _ <-
+        if radius <= spacing / 2.0 then Right(())
+        else
+          Left(
+            GraphicsError.InvalidPatternParameter(
+              "stipple",
+              "radius",
+              radius,
+              "no greater than half its spacing"
+            )
+          )
+    yield new Stipple(spacing, radius)
+
+  private def finiteAngle(recipe: String, value: Double): Either[GraphicsError, Unit] =
+    if value.isFinite then Right(())
+    else Left(GraphicsError.InvalidPatternParameter(recipe, "angle", value, "finite"))
+
+  private def positive(recipe: String, parameter: String, value: Double): Either[GraphicsError, Unit] =
+    if value.isFinite && value > 0.0 then Right(())
+    else Left(GraphicsError.InvalidPatternParameter(recipe, parameter, value, "finite and > 0"))
+
+/** Complete paint for one pattern fill.
+  *
+  * Ink and optional background retain their own RGBA values. A mark's
+  * [[GraphicParams.alpha]] is applied once to the composited pattern, so it
+  * multiplies the final ink/background result rather than replacing either
+  * channel alpha. Equality covers the full recipe and both colors, which lets
+  * renderers reuse resources without relying on object identity.
+  */
+final case class PatternPaint(
+    recipe: PatternRecipe,
+    ink: Rgba,
+    background: Option[Rgba] = None
+)
+
 final case class GraphicParams private (
     stroke: Option[Rgba] = Some(Rgba.Black),
     fill: Option[Rgba] = None,
@@ -238,8 +349,25 @@ final case class GraphicParams private (
     lineJoin: LineJoin = LineJoin.Miter,
     alpha: Double = 1.0,
     fontFamily: Option[String] = None,
-    fontSize: Length = Length.pointsUnsafe(12.0)
+    fontSize: Length = Length.pointsUnsafe(12.0),
+    fillPattern: Option[PatternPaint] = None
 ):
+  /** Retains the pre-pattern JVM constructor descriptor for compiled callers;
+    * Scala callers still enter through the checked companion constructors.
+    */
+  private[intaglio] def this(
+      stroke: Option[Rgba],
+      fill: Option[Rgba],
+      lineWidth: Double,
+      lineType: LineType,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      alpha: Double,
+      fontFamily: Option[String],
+      fontSize: Length
+  ) =
+    this(stroke, fill, lineWidth, lineType, lineCap, lineJoin, alpha, fontFamily, fontSize, None)
+
   require(lineWidth.isFinite && lineWidth >= 0.0, "`lineWidth` must be finite and >= 0")
   require(alpha.isFinite && alpha >= 0.0 && alpha <= 1.0, "`alpha` must be in [0, 1]")
 
@@ -261,9 +389,18 @@ final case class GraphicParams private (
           copy(
             stroke = stroke.orElse(this.stroke),
             fill = fill.orElse(this.fill),
-            alpha = alpha.getOrElse(this.alpha)
+            alpha = alpha.getOrElse(this.alpha),
+            fillPattern = if fill.isDefined then None else this.fillPattern
           )
         )
+
+  /** Replace the solid fill channel with a validated pattern paint. */
+  def withPatternFill(pattern: PatternPaint): GraphicParams =
+    copy(fill = None, fillPattern = Some(pattern))
+
+  /** Replace the pattern fill channel with an ordinary optional solid fill. */
+  def withSolidFill(color: Option[Rgba]): GraphicParams =
+    copy(fill = color, fillPattern = None)
 
 object GraphicParams:
   def checked(
@@ -279,7 +416,21 @@ object GraphicParams:
   ): Either[GraphicsError, GraphicParams] =
     if !lineWidth.isFinite || lineWidth < 0.0 then Left(GraphicsError.InvalidLineWidth(lineWidth))
     else if !alpha.isFinite || alpha < 0.0 || alpha > 1.0 then Left(GraphicsError.InvalidAlpha(alpha))
-    else Right(new GraphicParams(stroke, fill, lineWidth, lineType, lineCap, lineJoin, alpha, fontFamily, fontSize))
+    else
+      Right(
+        new GraphicParams(
+          stroke,
+          fill,
+          lineWidth,
+          lineType,
+          lineCap,
+          lineJoin,
+          alpha,
+          fontFamily,
+          fontSize,
+          None
+        )
+      )
 
   def unsafe(
       stroke: Option[Rgba] = Some(Rgba.Black),

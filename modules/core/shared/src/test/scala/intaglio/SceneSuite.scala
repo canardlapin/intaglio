@@ -75,6 +75,66 @@ class SceneSuite extends munit.FunSuite:
     assertEquals(gp.lineJoin, LineJoin.Miter)
   }
 
+  test("pattern recipes reject non-finite and non-positive geometry") {
+    val invalid = Vector(
+      PatternRecipe.angledHatch(Double.NaN, 8.0, 1.0),
+      PatternRecipe.angledHatch(Double.PositiveInfinity, 8.0, 1.0),
+      PatternRecipe.crossHatch(Double.NegativeInfinity, 8.0, 1.0),
+      PatternRecipe.angledHatch(30.0, Double.NaN, 1.0),
+      PatternRecipe.crossHatch(30.0, Double.PositiveInfinity, 1.0),
+      PatternRecipe.parallelRules(RuleOrientation.Horizontal, Double.NegativeInfinity, 1.0),
+      PatternRecipe.parallelRules(RuleOrientation.Vertical, 0.0, 1.0),
+      PatternRecipe.parallelRules(RuleOrientation.Vertical, -1.0, 1.0),
+      PatternRecipe.angledHatch(30.0, 8.0, Double.NaN),
+      PatternRecipe.crossHatch(30.0, 8.0, Double.PositiveInfinity),
+      PatternRecipe.parallelRules(RuleOrientation.Horizontal, 8.0, Double.NegativeInfinity),
+      PatternRecipe.parallelRules(RuleOrientation.Horizontal, 8.0, 0.0),
+      PatternRecipe.parallelRules(RuleOrientation.Horizontal, 8.0, -1.0),
+      PatternRecipe.stipple(0.0, 1.0),
+      PatternRecipe.stipple(8.0, Double.NaN),
+      PatternRecipe.stipple(8.0, Double.PositiveInfinity),
+      PatternRecipe.stipple(8.0, -1.0)
+    )
+
+    invalid.foreach { result =>
+      assert(result.left.toOption.exists(_.isInstanceOf[GraphicsError.InvalidPatternParameter]))
+    }
+  }
+
+  test("stipple radius must fit its tile") {
+    assert(PatternRecipe.stipple(8.0, 4.0).isRight)
+    assertEquals(
+      PatternRecipe.stipple(8.0, 4.0001).left.toOption,
+      Some(
+        GraphicsError.InvalidPatternParameter(
+          "stipple",
+          "radius",
+          4.0001,
+          "no greater than half its spacing"
+        )
+      )
+    )
+  }
+
+  test("pattern fill is explicit and mutually exclusive with solid fill") {
+    val recipe = PatternRecipe.angledHatch(30.0, 8.0, 1.5).fold(error => fail(error.message), identity)
+    val paint = PatternPaint(recipe, Rgba.Black, Some(Rgba.White))
+    val solid = GraphicParams.unsafe(fill = Some(Rgba.unsafe(10, 20, 30)))
+    val patterned = solid.withPatternFill(paint)
+
+    assertEquals(patterned.fill, None)
+    assertEquals(patterned.fillPattern, Some(paint))
+    assertEquals(patterned.withSolidFill(Some(Rgba.White)).fill, Some(Rgba.White))
+    assertEquals(patterned.withSolidFill(Some(Rgba.White)).fillPattern, None)
+  }
+
+  test("pattern recipe equality is structural across independent construction") {
+    val first = PatternRecipe.crossHatch(45.0, 6.0, 0.75)
+    val second = PatternRecipe.crossHatch(45.0, 6.0, 0.75)
+
+    assertEquals(first, second)
+  }
+
   test("length expressions preserve symbolic unit composition") {
     val expr =
       LengthExpr.npcUnsafe(0.5) + LengthExpr(Length.pointsUnsafe(2.0)) - LengthExpr.nativeUnsafe(1.0)

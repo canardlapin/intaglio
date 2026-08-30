@@ -28,10 +28,17 @@ class CompilerPhasesSuite extends munit.FunSuite:
       .flatMap(_.addLayer(Layer.line[Obs](_.x, _.y)))
       .fold(e => fail(e.message), identity)
 
+  private val compilerPattern =
+    PatternPaint(
+      PatternRecipe.angledHatch(37.0, 7.0, 1.25).fold(error => fail(error.message), identity),
+      Rgba.unsafe(44, 55, 66, 0.8),
+      Some(Rgba.unsafe(210, 220, 230, 0.4))
+    )
+
   private val nonDefaultGraphicParams =
     GraphicParams.unsafe(
       stroke = Some(Rgba.unsafe(11, 22, 33)),
-      fill = Some(Rgba.unsafe(44, 55, 66)),
+      fill = None,
       lineWidth = 2.75,
       lineType = LineType.Dashed,
       lineCap = LineCap.Round,
@@ -39,7 +46,7 @@ class CompilerPhasesSuite extends munit.FunSuite:
       alpha = 0.65,
       fontFamily = Some("CompilerPhasesSuite"),
       fontSize = Length.pointsUnsafe(17.0)
-    )
+    ).withPatternFill(compilerPattern)
 
   private def resolvePointLayer(mapping: AesSpec[Obs]): TrainedLayer =
     val plot =
@@ -155,16 +162,19 @@ class CompilerPhasesSuite extends munit.FunSuite:
     val colorOnly = resolvePointLayer(AesSpec.empty[Obs].withColor(mappedStroke)).rows.head.gp
     assertEquals(colorOnly.stroke, Some(mappedStroke))
     assertEquals(colorOnly.fill, nonDefaultGraphicParams.fill)
+    assertEquals(colorOnly.fillPattern, nonDefaultGraphicParams.fillPattern)
     assertEqualsDouble(colorOnly.alpha, nonDefaultGraphicParams.alpha, 1e-12)
 
     val fillOnly = resolvePointLayer(AesSpec.empty[Obs].withFill(mappedFill)).rows.head.gp
     assertEquals(fillOnly.stroke, nonDefaultGraphicParams.stroke)
     assertEquals(fillOnly.fill, Some(mappedFill))
+    assertEquals(fillOnly.fillPattern, None)
     assertEqualsDouble(fillOnly.alpha, nonDefaultGraphicParams.alpha, 1e-12)
 
     val alphaOnly = resolvePointLayer(AesSpec.empty[Obs].withAlpha(0.25)).rows.head.gp
     assertEquals(alphaOnly.stroke, nonDefaultGraphicParams.stroke)
     assertEquals(alphaOnly.fill, nonDefaultGraphicParams.fill)
+    assertEquals(alphaOnly.fillPattern, nonDefaultGraphicParams.fillPattern)
     assertEqualsDouble(alphaOnly.alpha, 0.25, 1e-12)
 
     val expectedUnmappedFields = (

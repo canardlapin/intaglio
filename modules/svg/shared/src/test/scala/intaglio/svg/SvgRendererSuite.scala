@@ -201,6 +201,169 @@ class SvgRendererSuite extends munit.FunSuite:
     assert(svg.contains("""<rect data-name="centered-rect" stroke="#000000" fill="#0a141e" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" opacity="0.75" x="40" y="30" width="20" height="40" />"""))
   }
 
+  test("serializes every validated pattern recipe in absolute user-space units") {
+    val angled = PatternRecipe.angledHatch(30.0, 8.0, 1.5).fold(error => fail(error.message), identity)
+    val crossed = PatternRecipe.crossHatch(45.0, 10.0, 2.0).fold(error => fail(error.message), identity)
+    val rules = PatternRecipe
+      .parallelRules(RuleOrientation.Horizontal, 6.0, 0.75)
+      .fold(error => fail(error.message), identity)
+    val stipple = PatternRecipe.stipple(12.0, 2.5).fold(error => fail(error.message), identity)
+    val paints = Vector(angled, crossed, rules, stipple).map { recipe =>
+      GraphicParams.unsafe(stroke = None).withPatternFill(PatternPaint(recipe, Rgba.unsafe(20, 40, 60)))
+    }
+    val grobs = Vector(
+      Grob.rectUnsafe(Point.npcUnsafe(0.2, 0.2), Size.npcUnsafe(0.2, 0.2), gp = paints(0)),
+      Grob.polygonUnsafe(
+        Vector(Point.npcUnsafe(0.4, 0.1), Point.npcUnsafe(0.6, 0.1), Point.npcUnsafe(0.5, 0.3)),
+        gp = paints(1)
+      ),
+      Grob.circleUnsafe(Point.npcUnsafe(0.7, 0.2), ExtentExpr.npcUnsafe(0.1), gp = paints(2)),
+      Grob.compoundPolygonUnsafe(
+        Vector(Vector(Point.npcUnsafe(0.1, 0.6), Point.npcUnsafe(0.3, 0.6), Point.npcUnsafe(0.2, 0.8))),
+        gp = paints(3)
+      )
+    )
+
+    val svg = render(Scene(grobs), SvgOptions.unsafe(width = 100, height = 100))
+
+    assert(svg.contains("""<pattern id="pattern-0" x="0" y="0" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(30)">"""))
+    assert(svg.contains("""<line x1="0" y1="0" x2="0" y2="8" stroke="#14283c" stroke-width="1.5" />"""))
+    assert(svg.contains("""<pattern id="pattern-1" x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">"""))
+    assert(svg.contains("""<line x1="0" y1="0" x2="10" y2="0" stroke="#14283c" stroke-width="2" />"""))
+    assert(svg.contains("""<pattern id="pattern-2" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse">"""))
+    assert(svg.contains("""<line x1="0" y1="0" x2="6" y2="0" stroke="#14283c" stroke-width="0.75" />"""))
+    assert(svg.contains("""<pattern id="pattern-3" x="0" y="0" width="12" height="12" patternUnits="userSpaceOnUse">"""))
+    assert(svg.contains("""<circle cx="6" cy="6" r="2.5" fill="#14283c" />"""))
+    assert(!svg.contains("%"))
+  }
+
+  test("deduplicates complete pattern paints in stable first-use order") {
+    val firstRecipe = PatternRecipe.angledHatch(20.0, 7.0, 1.0).fold(error => fail(error.message), identity)
+    val equalRecipe = PatternRecipe.angledHatch(20.0, 7.0, 1.0).fold(error => fail(error.message), identity)
+    val secondRecipe = PatternRecipe.stipple(9.0, 2.0).fold(error => fail(error.message), identity)
+    val first = PatternPaint(firstRecipe, Rgba.unsafe(10, 20, 30), Some(Rgba.unsafe(230, 240, 250)))
+    val equalFirst = PatternPaint(equalRecipe, Rgba.unsafe(10, 20, 30), Some(Rgba.unsafe(230, 240, 250)))
+    val second = PatternPaint(secondRecipe, Rgba.unsafe(80, 90, 100))
+    val grobs = Vector(
+      Grob.rectUnsafe(
+        Point.npcUnsafe(0.2, 0.5),
+        Size.npcUnsafe(0.2, 0.4),
+        gp = GraphicParams.unsafe(stroke = None).withPatternFill(first),
+        name = Some(GraphicsName.unsafe("first-pattern"))
+      ),
+      Grob.rectUnsafe(
+        Point.npcUnsafe(0.5, 0.5),
+        Size.npcUnsafe(0.2, 0.4),
+        gp = GraphicParams.unsafe(stroke = None).withPatternFill(second),
+        name = Some(GraphicsName.unsafe("second-pattern"))
+      ),
+      Grob.rectUnsafe(
+        Point.npcUnsafe(0.8, 0.5),
+        Size.npcUnsafe(0.2, 0.4),
+        gp = GraphicParams.unsafe(stroke = None).withPatternFill(equalFirst),
+        name = Some(GraphicsName.unsafe("equal-pattern"))
+      )
+    )
+
+    val firstRender = render(Scene(grobs), SvgOptions.unsafe(width = 120, height = 80))
+    val secondRender = render(Scene(grobs), SvgOptions.unsafe(width = 120, height = 80))
+
+    assertEquals(firstRender, secondRender)
+    assertEquals(occurrences(firstRender, "<pattern id="), 2)
+    assertEquals(occurrences(firstRender, """fill="url(#pattern-0)""""), 2)
+    assertEquals(occurrences(firstRender, """fill="url(#pattern-1)""""), 1)
+    assert(firstRender.indexOf("""<pattern id="pattern-0"""") < firstRender.indexOf("""<pattern id="pattern-1""""))
+    assertEquals(occurrences(firstRender, "data-name="), 3)
+    assertEquals(occurrences(firstRender, "<line "), 1)
+  }
+
+  test("pattern serialization matches one shared JVM and Scala.js byte oracle") {
+    val recipe = PatternRecipe.stipple(8.0, 2.0).fold(error => fail(error.message), identity)
+    val mark = Grob.rectUnsafe(
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(0.5, 0.5),
+      gp = GraphicParams
+        .unsafe(stroke = None)
+        .withPatternFill(
+          PatternPaint(recipe, Rgba.unsafe(10, 20, 30, 0.5), Some(Rgba.unsafe(240, 241, 242, 0.25)))
+        ),
+      name = Some(GraphicsName.unsafe("pattern-oracle"))
+    )
+    val expected =
+      """<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80" viewBox="0 0 100 80">
+        |  <rect data-name="pattern-oracle" stroke="none" fill="url(#pattern-0)" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" x="25" y="20" width="50" height="40" />
+        |  <defs>
+        |    <pattern id="pattern-0" x="0" y="0" width="8" height="8" patternUnits="userSpaceOnUse">
+        |      <rect x="0" y="0" width="8" height="8" fill="#f0f1f2" fill-opacity="0.25" />
+        |      <circle cx="4" cy="4" r="2" fill="#0a141e" fill-opacity="0.5" />
+        |    </pattern>
+        |  </defs>
+        |</svg>
+        |""".stripMargin
+
+    assertEquals(render(Scene(Vector(mark)), SvgOptions.unsafe(width = 100, height = 80)), expected)
+  }
+
+  test("keeps pattern ink, background, and element alpha composition explicit") {
+    val recipe = PatternRecipe.crossHatch(-35.0, 8.0, 1.25).fold(error => fail(error.message), identity)
+    val paint = PatternPaint(
+      recipe,
+      Rgba.unsafe(12, 34, 56, 0.4),
+      Some(Rgba.unsafe(210, 220, 230, 0.25))
+    )
+    val patterned = Grob.polygonUnsafe(
+      Vector(Point.npcUnsafe(0.1, 0.1), Point.npcUnsafe(0.9, 0.1), Point.npcUnsafe(0.5, 0.9)),
+      gp = GraphicParams
+        .unsafe(stroke = Some(Rgba.unsafe(90, 80, 70, 0.6)), alpha = 0.5)
+        .withPatternFill(paint),
+      name = Some(GraphicsName.unsafe("pattern-polygon"))
+    )
+    val solid = Grob.rectUnsafe(
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(0.1, 0.1),
+      gp = GraphicParams.unsafe(stroke = None, fill = Some(Rgba.unsafe(1, 2, 3, 0.7))),
+      name = Some(GraphicsName.unsafe("solid-rect"))
+    )
+
+    val svg = render(Scene(Vector(patterned, solid)), SvgOptions.unsafe(width = 100, height = 100))
+
+    assert(svg.contains("""data-name="pattern-polygon" stroke="#5a5046" stroke-opacity="0.6" fill="url(#pattern-0)"""))
+    assert(svg.contains("""opacity="0.5"""))
+    assert(svg.contains("""<rect x="0" y="0" width="8" height="8" fill="#d2dce6" fill-opacity="0.25" />"""))
+    assertEquals(occurrences(svg, """stroke="#0c2238" stroke-opacity="0.4""""), 2)
+    assert(svg.contains("""data-name="solid-rect" stroke="none" fill="#010203" fill-opacity="0.7"""))
+    assert(!svg.contains("data-name=\"pattern-0\""))
+  }
+
+  test("does not reinterpret pattern fills on open lines or text") {
+    val recipe = PatternRecipe.angledHatch(45.0, 8.0, 1.0).fold(error => fail(error.message), identity)
+    val params = GraphicParams
+      .unsafe(stroke = Some(Rgba.unsafe(120, 30, 40)))
+      .withPatternFill(PatternPaint(recipe, Rgba.Black))
+    val lineGrob = Grob
+      .lines(
+        Vector(Point.npcUnsafe(0.0, 0.0), Point.npcUnsafe(1.0, 1.0)),
+        gp = params,
+        name = Some(GraphicsName.unsafe("open-line"))
+      )
+      .fold(error => fail(error.message), identity)
+    val textGrob = Grob
+      .text(
+        "plain text",
+        Point.npcUnsafe(0.5, 0.5),
+        gp = params,
+        name = Some(GraphicsName.unsafe("plain-text"))
+      )
+      .fold(error => fail(error.message), identity)
+
+    val svg = render(Scene(Vector(lineGrob, textGrob)), SvgOptions.unsafe(width = 100, height = 80))
+
+    assert(svg.contains("""data-name="open-line" stroke="#781e28" fill="none"""))
+    assert(svg.contains("""data-name="plain-text" fill="#781e28" stroke="none"""))
+    assert(!svg.contains("<pattern"))
+    assert(!svg.contains("url(#pattern-"))
+  }
+
   test("anchors rectangles from their scene-space corners") {
     val bottomLeft =
       Grob.rect(

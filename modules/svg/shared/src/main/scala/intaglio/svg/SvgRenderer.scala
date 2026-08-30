@@ -46,23 +46,39 @@ object SvgRenderer:
     def defs: Vector[(String, DeviceClip)] =
       builder.result().zipWithIndex.map { case (clip, idx) => (s"clip-$idx", clip) }
 
+  private final class PatternRegistry:
+    private var paints = Vector.empty[PatternPaint]
+
+    def register(paint: PatternPaint): String =
+      val existing = paints.indexOf(paint)
+      if existing >= 0 then s"pattern-$existing"
+      else
+        val id = s"pattern-${paints.length}"
+        paints = paints :+ paint
+        id
+
+    def defs: Vector[(String, PatternPaint)] =
+      paints.zipWithIndex.map { case (paint, idx) => (s"pattern-$idx", paint) }
+
   private def serialize(scene: DeviceScene, options: SvgOptions): Either[SvgRenderError, String] =
     validateDocument(scene, options).map(_ => serializeValidated(scene, options))
 
   private def serializeValidated(scene: DeviceScene, options: SvgOptions): String =
     val out = new StringBuilder
     val clips = new ClipRegistry
+    val patterns = new PatternRegistry
     line(
       out,
       0,
       s"""<svg xmlns="http://www.w3.org/2000/svg" width="${options.width}" height="${options.height}" viewBox="0 0 ${options.width} ${options.height}">"""
     )
     options.title.foreach(title => line(out, 1, s"<title>${escapeText(title)}</title>"))
-    scene.elements.foreach(writeElement(_, out, 1, clips))
-    val defs = clips.defs
-    if defs.nonEmpty then
+    scene.elements.foreach(writeElement(_, out, 1, clips, patterns))
+    val clipDefs = clips.defs
+    val patternDefs = patterns.defs
+    if clipDefs.nonEmpty || patternDefs.nonEmpty then
       line(out, 1, "<defs>")
-      defs.foreach { case (id, clip) =>
+      clipDefs.foreach { case (id, clip) =>
         line(out, 2, s"""<clipPath id="$id">""")
         line(
           out,
@@ -70,6 +86,9 @@ object SvgRenderer:
           s"""<rect x="${format(clip.x)}" y="${format(clip.y)}" width="${format(clip.width)}" height="${format(clip.height)}" />"""
         )
         line(out, 2, "</clipPath>")
+      }
+      patternDefs.foreach { case (id, paint) =>
+        writePatternDefinition(id, paint, out, 2)
       }
       line(out, 1, "</defs>")
     line(out, 0, "</svg>")
@@ -148,10 +167,16 @@ object SvgRenderer:
       (value >= 0xe000 && value <= 0xfffd) ||
       (value >= 0x10000 && value <= 0x10ffff)
 
-  private def writeElement(element: DeviceElement, out: StringBuilder, indent: Int, clips: ClipRegistry): Unit =
+  private def writeElement(
+      element: DeviceElement,
+      out: StringBuilder,
+      indent: Int,
+      clips: ClipRegistry,
+      patterns: PatternRegistry
+  ): Unit =
     element match
       case DeviceElement.Mark(primitive) =>
-        writePrimitive(primitive, out, indent)
+        writePrimitive(primitive, out, indent, patterns)
       case DeviceElement.Group(name, clip, rotation, children) =>
         val nameAttr = name.map(n => s""" data-name="${escapeAttr(n.value)}"""").getOrElse("")
         val clipAttr = clip.map(c => s""" clip-path="url(#${clips.register(c)})"""").getOrElse("")
@@ -159,20 +184,25 @@ object SvgRenderer:
           .map(r => s""" transform="rotate(${format(r.degrees)} ${format(r.pivotX)} ${format(r.pivotY)})"""")
           .getOrElse("")
         line(out, indent, s"<g$nameAttr$clipAttr$rotateAttr>")
-        children.foreach(writeElement(_, out, indent + 1, clips))
+        children.foreach(writeElement(_, out, indent + 1, clips, patterns))
         line(out, indent, "</g>")
 
-  private def writePrimitive(primitive: DevicePrimitive, out: StringBuilder, indent: Int): Unit =
+  private def writePrimitive(
+      primitive: DevicePrimitive,
+      out: StringBuilder,
+      indent: Int,
+      patterns: PatternRegistry
+  ): Unit =
     primitive match
       case DevicePrimitive.Disc(cx, cy, radius, gp, name) =>
         line(
           out,
           indent,
-          s"""<circle${commonAttrs(name, gp)} cx="${format(cx)}" cy="${format(cy)}" r="${format(radius)}" />"""
+          s"""<circle${commonAttrs(name, gp, patterns)} cx="${format(cx)}" cy="${format(cy)}" r="${format(radius)}" />"""
         )
       case DevicePrimitive.Polyline(points, closed, gp, name) =>
         val coords = points.map(p => s"${format(p.x)},${format(p.y)}").mkString(" ")
-        if closed then line(out, indent, s"""<polygon${commonAttrs(name, gp)} points="$coords" />""")
+        if closed then line(out, indent, s"""<polygon${commonAttrs(name, gp, patterns)} points="$coords" />""")
         else line(out, indent, s"""<polyline${lineAttrs(name, gp)} points="$coords" />""")
       case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
         val path = rings.map { ring =>
@@ -180,12 +210,12 @@ object SvgRenderer:
           val rest = ring.tail.map(point => s"L ${format(point.x)} ${format(point.y)}").mkString(" ")
           s"M ${format(start.x)} ${format(start.y)} $rest Z"
         }.mkString(" ")
-        line(out, indent, s"""<path${commonAttrs(name, gp)} fill-rule="nonzero" d="$path" />""")
+        line(out, indent, s"""<path${commonAttrs(name, gp, patterns)} fill-rule="nonzero" d="$path" />""")
       case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
         line(
           out,
           indent,
-          s"""<rect${commonAttrs(name, gp)} x="${format(x)}" y="${format(y)}" width="${format(width)}" height="${format(height)}" />"""
+          s"""<rect${commonAttrs(name, gp, patterns)} x="${format(x)}" y="${format(y)}" width="${format(width)}" height="${format(height)}" />"""
         )
       case DevicePrimitive.TextRun(label, x, y, horizontal, vertical, rotationDegrees, fontSizePx, fontFamily, gp, name) =>
         val rotation =
@@ -208,17 +238,82 @@ object SvgRenderer:
           s"""<image$nameAttr data-pixel-width="${image.width}" data-pixel-height="${image.height}" x="${format(x)}" y="${format(y)}" width="${format(width)}" height="${format(height)}" preserveAspectRatio="none" image-rendering="$rendering"$opacityAttr href="${PngEncoder.dataUri(image)}" />"""
         )
 
-  private def commonAttrs(name: Option[GraphicsName], gp: GraphicParams): String =
+  private def commonAttrs(name: Option[GraphicsName], gp: GraphicParams, patterns: PatternRegistry): String =
     val attrs = new StringBuilder
     name.foreach(n => attrs.append(s""" data-name="${escapeAttr(n.value)}""""))
     appendPaint(attrs, "stroke", gp.stroke)
-    appendPaint(attrs, "fill", gp.fill)
+    gp.fillPattern match
+      case Some(pattern) => attrs.append(s""" fill="url(#${patterns.register(pattern)})"""")
+      case None          => appendPaint(attrs, "fill", gp.fill)
     attrs.append(s""" stroke-width="${format(gp.lineWidth)}"""")
     attrs.append(s""" stroke-linecap="${lineCap(gp.lineCap)}"""")
     attrs.append(s""" stroke-linejoin="${lineJoin(gp.lineJoin)}"""")
     lineTypeAttr(gp.lineType).foreach(attrs.append)
     if gp.alpha != 1.0 then attrs.append(s""" opacity="${format(gp.alpha)}"""")
     attrs.result()
+
+  private def writePatternDefinition(id: String, paint: PatternPaint, out: StringBuilder, indent: Int): Unit =
+    val transform = paint.recipe match
+      case recipe: PatternRecipe.AngledHatch =>
+        s""" patternTransform="rotate(${format(recipe.angleDegrees)})""""
+      case recipe: PatternRecipe.CrossHatch =>
+        s""" patternTransform="rotate(${format(recipe.angleDegrees)})""""
+      case _: PatternRecipe.ParallelRules => ""
+      case _: PatternRecipe.Stipple      => ""
+    val spacing = paint.recipe.spacing
+    line(
+      out,
+      indent,
+      s"""<pattern id="$id" x="0" y="0" width="${format(spacing)}" height="${format(spacing)}" patternUnits="userSpaceOnUse"$transform>"""
+    )
+    paint.background.foreach { color =>
+      val attrs = new StringBuilder
+      appendPaint(attrs, "fill", Some(color))
+      line(
+        out,
+        indent + 1,
+        s"""<rect x="0" y="0" width="${format(spacing)}" height="${format(spacing)}"${attrs.result()} />"""
+      )
+    }
+    paint.recipe match
+      case recipe: PatternRecipe.AngledHatch =>
+        writePatternLine(paint.ink, recipe.lineWidth, true, spacing, out, indent + 1)
+      case recipe: PatternRecipe.CrossHatch =>
+        writePatternLine(paint.ink, recipe.lineWidth, true, spacing, out, indent + 1)
+        writePatternLine(paint.ink, recipe.lineWidth, false, spacing, out, indent + 1)
+      case recipe: PatternRecipe.ParallelRules =>
+        writePatternLine(
+          paint.ink,
+          recipe.lineWidth,
+          recipe.orientation == RuleOrientation.Vertical,
+          spacing,
+          out,
+          indent + 1
+        )
+      case recipe: PatternRecipe.Stipple =>
+        val attrs = new StringBuilder
+        appendPaint(attrs, "fill", Some(paint.ink))
+        line(
+          out,
+          indent + 1,
+          s"""<circle cx="${format(spacing / 2.0)}" cy="${format(spacing / 2.0)}" r="${format(recipe.radius)}"${attrs.result()} />"""
+        )
+    line(out, indent, "</pattern>")
+
+  private def writePatternLine(
+      ink: Rgba,
+      width: Double,
+      vertical: Boolean,
+      spacing: Double,
+      out: StringBuilder,
+      indent: Int
+  ): Unit =
+    val attrs = new StringBuilder
+    appendPaint(attrs, "stroke", Some(ink))
+    val coordinates =
+      if vertical then s"""x1="0" y1="0" x2="0" y2="${format(spacing)}""""
+      else s"""x1="0" y1="0" x2="${format(spacing)}" y2="0""""
+    line(out, indent, s"""<line $coordinates${attrs.result()} stroke-width="${format(width)}" />""")
 
   private def lineAttrs(name: Option[GraphicsName], gp: GraphicParams): String =
     val attrs = new StringBuilder

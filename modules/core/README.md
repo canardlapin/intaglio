@@ -29,6 +29,40 @@ Consumers should export plot specifications or scenes into this module;
 platform renderers should consume `DeviceScene` values at a boundary. The
 artifact matrix and design commitments are in the [root README](../../README.md).
 
+## Pattern fills
+
+`PatternRecipe` is the renderer-neutral fill-pattern contract. Its checked
+constructors admit only angled hatch, cross-hatch, horizontal or vertical
+parallel rules, and stipple recipes. A `PatternPaint` pairs one recipe with an
+explicit ink color and optional solid background; it never stores SVG, CSS,
+callbacks, or backend objects.
+
+```scala
+val recipe = PatternRecipe.angledHatch(
+  angleDegrees = 45.0,
+  spacing = 8.0,
+  lineWidth = 1.25
+)
+val params = recipe.map { value =>
+  GraphicParams
+    .unsafe(stroke = Some(Rgba.Black), alpha = 0.8)
+    .withPatternFill(PatternPaint(value, Rgba.unsafe(30, 80, 120), Some(Rgba.White)))
+}
+```
+
+Pattern spacing, line width, and stipple radius are device pixels. Hatch angles
+are clockwise degrees from a vertical rule in the y-down device coordinate
+system. The repeated tile starts at `(0, 0)` in the current device coordinate
+system, does not restart at each mark's bounding box, and follows enclosing
+viewport transforms. Ink and background keep their own RGBA values; the
+`GraphicParams.alpha` value is then applied once to the composited mark.
+
+Ordinary `GraphicParams.unsafe(fill = Some(color))` and `checked` calls retain
+their existing signatures and behavior. `withPatternFill` replaces that solid
+fill channel, while `withSolidFill` explicitly switches back. Patterns affect
+only primitives that already have a fill channel: discs, closed polygons,
+compound polygons, and rectangles. Text, images, and open lines are unchanged.
+
 ## Plotting DSL
 
 The ordinary entry point is a small immutable Scala DSL. Position mappings
