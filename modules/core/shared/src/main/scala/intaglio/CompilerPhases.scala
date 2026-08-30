@@ -402,10 +402,11 @@ private[intaglio] object BuiltinStatRuntime:
             case _ =>
               val buckets =
                 Array.fill(breaks.length - 1)(scala.collection.mutable.ArrayBuffer.empty[Input])
+              val lookup = HistogramBins.lookup(stat.bins, breaks)
               var rowIndex = 0
               while rowIndex < data.length do
                 val value = values(rowIndex)
-                val binIndex = findBin(value, breaks)
+                val binIndex = lookup.index(value)
                 if binIndex >= 0 then buckets(binIndex) += data(rowIndex)
                 rowIndex += 1
               val rows = Vector.newBuilder[StatRow.Binned[Input]]
@@ -441,18 +442,6 @@ private[intaglio] object BuiltinStatRuntime:
       x = Some(AesValue.total(_.binMidpoint)),
       y = Some(AesValue.total(_.count.toDouble))
     )
-
-  /** ggplot2 histograms are right-closed by default: the first interval also owns its lower
-    * boundary, while an internal break belongs to the bin on its left.
-    */
-  private def findBin(value: Double, breaks: Vector[Double]): Int =
-    var idx = 0
-    var found = -1
-    while idx < breaks.length - 1 && found < 0 do
-      val aboveLower = if idx == 0 then value >= breaks(idx) else value > breaks(idx)
-      if aboveLower && value <= breaks(idx + 1) then found = idx
-      idx += 1
-    found
 
   def summary[Row, Input <: Row](
       stat: Stat.Summary[Row],

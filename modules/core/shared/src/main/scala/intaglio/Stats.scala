@@ -469,6 +469,14 @@ object BinWidth:
   */
 sealed trait HistogramBins
 
+private[intaglio] enum HistogramLookupStrategy:
+  case RegularArithmetic
+  case ExplicitBinarySearch
+
+private[intaglio] sealed trait HistogramBinLookup:
+  def strategy: HistogramLookupStrategy
+  def index(value: Double): Int
+
 object HistogramBins:
   private final case class ByCount(value: BinCount) extends HistogramBins
   private final case class ByWidth(value: BinWidth) extends HistogramBins
@@ -527,6 +535,67 @@ object HistogramBins:
 
   private[intaglio] def isExplicit(spec: HistogramBins): Boolean =
     spec.isInstanceOf[AtBreaks]
+
+  /** Bind a partition to its lookup algorithm once, outside the observation loop. Generated
+    * count/width partitions use constant-time arithmetic with bounded neighboring-bin correction
+    * for floating-point boundaries. Explicit breaks use a right-closed lower-bound binary search.
+    */
+  private[intaglio] def lookup(
+      spec: HistogramBins,
+      breaks: Vector[Double]
+  ): HistogramBinLookup =
+    require(breaks.length >= 2, "histogram lookup requires at least two breaks")
+    spec match
+      case _: ByCount | _: ByWidth => RegularHistogramLookup(breaks)
+      case _: AtBreaks             => ExplicitHistogramLookup(breaks)
+
+  private final class RegularHistogramLookup(breaks: Vector[Double]) extends HistogramBinLookup:
+    override val strategy: HistogramLookupStrategy =
+      HistogramLookupStrategy.RegularArithmetic
+
+    private val lower = breaks.head
+    private val upper = breaks.last
+    private val binCount = breaks.length - 1
+    private val lastBin = binCount - 1
+    private val span = upper - lower
+
+    override def index(value: Double): Int =
+      if !value.isFinite || value < lower || value > upper then -1
+      else if value <= lower then 0
+      else if value >= upper then lastBin
+      else
+        val fraction =
+          if span.isFinite then (value - lower) / span
+          else
+            val scale = math.max(math.abs(lower), math.abs(upper))
+            ((value / scale) - (lower / scale)) / ((upper / scale) - (lower / scale))
+        val estimated = math.max(0, math.min(lastBin, math.ceil(fraction * binCount).toInt - 1))
+        if owns(estimated, value) then estimated
+        else if estimated > 0 && owns(estimated - 1, value) then estimated - 1
+        else if estimated < lastBin && owns(estimated + 1, value) then estimated + 1
+        else estimated
+
+    private def owns(bin: Int, value: Double): Boolean =
+      val aboveLower = if bin == 0 then value >= breaks(0) else value > breaks(bin)
+      aboveLower && value <= breaks(bin + 1)
+
+  private final class ExplicitHistogramLookup(breaks: Vector[Double]) extends HistogramBinLookup:
+    override val strategy: HistogramLookupStrategy =
+      HistogramLookupStrategy.ExplicitBinarySearch
+
+    private val lower = breaks.head
+    private val upper = breaks.last
+
+    override def index(value: Double): Int =
+      if !value.isFinite || value < lower || value > upper then -1
+      else
+        var left = 1
+        var right = breaks.length - 1
+        while left < right do
+          val middle = left + (right - left) / 2
+          if value <= breaks(middle) then right = middle
+          else left = middle + 1
+        left - 1
 
 enum SummaryInterval:
   /** Arithmetic mean plus or minus one sample standard error. */
