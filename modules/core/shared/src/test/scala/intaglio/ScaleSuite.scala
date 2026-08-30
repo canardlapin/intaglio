@@ -186,6 +186,72 @@ class ScaleSuite extends munit.FunSuite:
     assertEquals(Breaks.countUnsafe(3)(Interval.unsafe(0.0, 10.0)), Vector(0.0, 5.0, 10.0))
   }
 
+  test("checked break generation rejects sub-ULP non-progress on every iterative path") {
+    val range = Interval.unsafe(1.0e16, 1.0e16 + 4.0)
+
+    val failures = Vector(
+      Breaks.countUnsafe(5).generate(range),
+      Breaks.prettyUnsafe().generate(range),
+      Breaks.width(0.5).flatMap(_.generate(range))
+    )
+
+    failures.foreach { result =>
+      assert(result.left.toOption.exists {
+        case GraphicsError.BreakGenerationDidNotProgress(_, previous, next) =>
+          previous == next && previous >= range.lower
+        case _ => false
+      })
+    }
+  }
+
+  test("every break policy has a deterministic output cap and typed overflow") {
+    assertEquals(
+      Breaks.count(Breaks.MaximumOutputSize + 1).left.toOption,
+      Some(
+        GraphicsError.BreakOutputLimitExceeded(
+          "count",
+          Breaks.MaximumOutputSize + 1,
+          Breaks.MaximumOutputSize
+        )
+      )
+    )
+    assertEquals(
+      Breaks.pretty(Breaks.MaximumOutputSize + 1).left.toOption,
+      Some(
+        GraphicsError.BreakOutputLimitExceeded(
+          "pretty",
+          Breaks.MaximumOutputSize + 1,
+          Breaks.MaximumOutputSize
+        )
+      )
+    )
+
+    val tooManyFixedWidth = Breaks
+      .width(1.0)
+      .flatMap(_.generate(Interval.unsafe(0.0, Breaks.MaximumOutputSize.toDouble)))
+    assertEquals(
+      tooManyFixedWidth.left.toOption,
+      Some(
+        GraphicsError.BreakOutputLimitExceeded(
+          "width",
+          Breaks.MaximumOutputSize + 1,
+          Breaks.MaximumOutputSize
+        )
+      )
+    )
+  }
+
+  test("custom break policies receive finite, ordered, and bounded output validation") {
+    val duplicate = new Breaks:
+      override def apply(range: Interval): Vector[Double] =
+        Vector(range.lower, range.lower)
+
+    assertEquals(
+      duplicate.generate(Interval.unsafe(2.0, 3.0)).left.toOption,
+      Some(GraphicsError.BreakGenerationDidNotProgress("custom", 2.0, 2.0))
+    )
+  }
+
   test("default pretty breaks use readable 1/2/5 steps for ordinary ranges") {
     val interval = Interval.unsafe(0.0, 31.0)
     val breaks = Breaks.default(interval)

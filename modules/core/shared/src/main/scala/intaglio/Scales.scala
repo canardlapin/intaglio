@@ -137,16 +137,53 @@ object TransformDomain:
 trait Breaks:
   def apply(range: Interval): Vector[Double]
 
+  /** Checked generation for compiler and library code. The legacy `apply` method remains the
+    * explicit throwing convenience boundary; built-in generators implement both methods from the
+    * same bounded computation. Custom generators receive output validation by default.
+    */
+  def generate(range: Interval): Either[GraphicsError, Vector[Double]] =
+    Breaks.validateOutput("custom", apply(range))
+
 object Breaks:
+  /** No built-in break generator can emit more values than this. */
+  val MaximumOutputSize: Int = 10000
+
+  private val MaximumScaleIterations = 1024
+
+  private abstract class CheckedBreaks(val generator: String) extends Breaks:
+    protected def runChecked(range: Interval): Either[GraphicsError, Vector[Double]]
+
+    final override def apply(range: Interval): Vector[Double] =
+      runChecked(range).orThrow
+
+    final override def generate(range: Interval): Either[GraphicsError, Vector[Double]] =
+      runChecked(range)
+
+  private def checked(
+      generator: String
+  )(run: Interval => Either[GraphicsError, Vector[Double]]): Breaks =
+    new CheckedBreaks(generator):
+      override protected def runChecked(
+          range: Interval
+      ): Either[GraphicsError, Vector[Double]] =
+        run(range)
+
   def count(n: Int): Either[GraphicsError, Breaks] =
     if n < 1 then Left(GraphicsError.InvalidBreakCount(n))
+    else if n > MaximumOutputSize then
+      Left(GraphicsError.BreakOutputLimitExceeded("count", n, MaximumOutputSize))
     else
-      Right(new Breaks:
-        override def apply(range: Interval): Vector[Double] =
-          if n == 1 then Vector((range.lower + range.upper) / 2.0)
-          else
-            val step = range.width / (n - 1).toDouble
-            Vector.tabulate(n)(i => range.lower + step * i))
+      Right(
+        checked("count") { range =>
+          val values =
+            if n == 1 then Vector(midpoint(range))
+            else
+              Vector.tabulate(n) { index =>
+                interpolate(range, index.toDouble / (n - 1).toDouble)
+              }
+          validateOutput("count", values)
+        }
+      )
 
   def countUnsafe(n: Int): Breaks =
     count(n).orThrow
@@ -159,18 +196,23 @@ object Breaks:
     */
   def pretty(targetCount: Int = 5): Either[GraphicsError, Breaks] =
     if targetCount < 1 then Left(GraphicsError.InvalidBreakCount(targetCount))
+    else if targetCount > MaximumOutputSize then
+      Left(GraphicsError.BreakOutputLimitExceeded("pretty", targetCount, MaximumOutputSize))
     else
-      Right(new Breaks:
-        override def apply(range: Interval): Vector[Double] =
-          if range.lower == range.upper then Vector(range.lower)
-          else if targetCount == 1 then Vector(midpoint(range))
+      Right(
+        checked("pretty") { range =>
+          if range.lower == range.upper then Right(Vector(range.lower))
+          else if targetCount == 1 then Right(Vector(midpoint(range)))
           else
             val rawStep = targetStep(range, targetCount)
-            if !rawStep.isFinite || rawStep <= 0.0 then boundaryFallback(range)
+            if !rawStep.isFinite || rawStep <= 0.0 then Right(boundaryFallback(range))
             else
-              val step = niceStep(rawStep)
-              if !step.isFinite || step <= 0.0 then boundaryFallback(range)
-              else prettyGrid(range, step, targetCount))
+              niceStep(rawStep).flatMap { step =>
+                if !step.isFinite || step <= 0.0 then Right(boundaryFallback(range))
+                else prettyGrid(range, step, targetCount)
+              }
+        }
+      )
 
   def prettyUnsafe(targetCount: Int = 5): Breaks =
     pretty(targetCount).orThrow
@@ -178,25 +220,70 @@ object Breaks:
   def width(width: Double, offset: Double = 0.0): Either[GraphicsError, Breaks] =
     if !width.isFinite || width <= 0.0 then Left(GraphicsError.InvalidBreakWidth(width))
     else
-      Right(new Breaks:
-        override def apply(range: Interval): Vector[Double] =
+      Right(
+        checked("width") { range =>
           val first = math.ceil((range.lower - offset) / width) * width + offset
-          val buf = Vector.newBuilder[Double]
-          var x = first
-          while x <= range.upper + width * 1e-12 do
-            buf += x
-            x += width
-          buf.result())
+          if !first.isFinite then Left(GraphicsError.NonFiniteBreak("width", first))
+          else
+            val tolerance = math.abs(width) * 1e-12
+            val expandedUpper = range.upper + tolerance
+            val upperLimit = if expandedUpper.isFinite then expandedUpper else range.upper
+            val out = Vector.newBuilder[Double]
+            var candidate = normalizeZero(first)
+            var emitted = 0
+            var iterations = 0
+            var done = false
+            var error: Option[GraphicsError] = None
+            while !done && error.isEmpty do
+              if iterations > MaximumOutputSize then
+                error = Some(
+                  GraphicsError.BreakIterationLimitExceeded(
+                    "width",
+                    MaximumOutputSize + 1
+                  )
+                )
+              else if !candidate.isFinite then
+                error = Some(GraphicsError.NonFiniteBreak("width", candidate))
+              else if candidate > upperLimit then done = true
+              else if emitted >= MaximumOutputSize then
+                error = Some(
+                  GraphicsError.BreakOutputLimitExceeded(
+                    "width",
+                    emitted + 1,
+                    MaximumOutputSize
+                  )
+                )
+              else
+                if range.contains(candidate) then
+                  out += candidate
+                  emitted += 1
+                if candidate >= range.upper then done = true
+                else
+                  val next = normalizeZero(candidate + width)
+                  if !next.isFinite then error = Some(GraphicsError.NonFiniteBreak("width", next))
+                  else if next <= candidate then
+                    error = Some(
+                      GraphicsError.BreakGenerationDidNotProgress("width", candidate, next)
+                    )
+                  else candidate = next
+              iterations += 1
+            error match
+              case Some(value) => Left(value)
+              case None        => Right(out.result())
+        }
+      )
 
   val log10: Breaks =
-    new Breaks:
-      override def apply(range: Interval): Vector[Double] =
+    checked("log10") { range =>
+      val values =
         if range.upper <= 0.0 then Vector.empty
         else
           val lo = math.ceil(math.log10(math.max(range.lower, Double.MinPositiveValue))).toInt
           val hi = math.floor(math.log10(range.upper)).toInt
           if hi < lo then Vector.empty
           else Vector.tabulate(hi - lo + 1)(i => math.pow(10.0, lo + i))
+      validateOutput("log10", values)
+    }
 
   val default: Breaks =
     prettyUnsafe()
@@ -219,15 +306,39 @@ object Breaks:
   /** Nearest 1/2/5 power-of-ten step using D3-style geometric thresholds. Repeated IEEE scaling
     * avoids platform-specific `log10` edge behavior.
     */
-  private def niceStep(rawStep: Double): Double =
+  private def niceStep(rawStep: Double): Either[GraphicsError, Double] =
     var fraction = rawStep
     var power = 1.0
-    while fraction >= 10.0 && power.isFinite do
-      fraction /= 10.0
-      power *= 10.0
-    while fraction < 1.0 && power > 0.0 do
-      fraction *= 10.0
-      power /= 10.0
+    var iterations = 0
+    while fraction >= 10.0 && power.isFinite && iterations < MaximumScaleIterations do
+      val nextFraction = fraction / 10.0
+      val nextPower = power * 10.0
+      if nextFraction == fraction then
+        return Left(
+          GraphicsError.BreakGenerationDidNotProgress("pretty-step", fraction, nextFraction)
+        )
+      fraction = nextFraction
+      power = nextPower
+      iterations += 1
+    if fraction >= 10.0 && power.isFinite then
+      return Left(
+        GraphicsError.BreakIterationLimitExceeded("pretty-step", MaximumScaleIterations)
+      )
+
+    while fraction < 1.0 && power > 0.0 && iterations < MaximumScaleIterations do
+      val nextFraction = fraction * 10.0
+      val nextPower = power / 10.0
+      if nextFraction == fraction then
+        return Left(
+          GraphicsError.BreakGenerationDidNotProgress("pretty-step", fraction, nextFraction)
+        )
+      fraction = nextFraction
+      power = nextPower
+      iterations += 1
+    if fraction < 1.0 && power > 0.0 then
+      return Left(
+        GraphicsError.BreakIterationLimitExceeded("pretty-step", MaximumScaleIterations)
+      )
 
     val factor =
       if fraction >= Sqrt50 then 10.0
@@ -235,30 +346,65 @@ object Breaks:
       else if fraction >= Sqrt2 then 2.0
       else 1.0
     val candidate = factor * power
-    if candidate.isFinite && candidate > 0.0 then candidate
-    else if power.isFinite && power > 0.0 then power
-    else rawStep
+    if candidate.isFinite && candidate > 0.0 then Right(candidate)
+    else if power.isFinite && power > 0.0 then Right(power)
+    else Right(rawStep)
 
-  private def prettyGrid(range: Interval, step: Double, targetCount: Int): Vector[Double] =
+  private def prettyGrid(
+      range: Interval,
+      step: Double,
+      targetCount: Int
+  ): Either[GraphicsError, Vector[Double]] =
     val firstIndex = math.ceil(range.lower / step)
     val first = firstIndex * step
-    val out = Vector.newBuilder[Double]
-    val maxTicks = targetCount.toLong * 4L + 16L
-    var offset = 0L
-    var previous = Double.NegativeInfinity
-    var candidate = gridValue(firstIndex, first, offset, step)
-    var continue = candidate.isFinite && candidate <= range.upper && offset < maxTicks
-    while continue do
-      if range.contains(candidate) && candidate > previous then
-        out += candidate
-        previous = candidate
-      offset += 1L
-      val next = gridValue(firstIndex, first, offset, step)
-      continue = next.isFinite && next > candidate && next <= range.upper && offset < maxTicks
-      candidate = next
+    if !firstIndex.isFinite then Left(GraphicsError.NonFiniteBreak("pretty", firstIndex))
+    else if !first.isFinite then Left(GraphicsError.NonFiniteBreak("pretty", first))
+    else
+      val out = Vector.newBuilder[Double]
+      val targetBound = targetCount.toLong * 4L + 16L
+      val maxTicks = math.min(targetBound, MaximumOutputSize.toLong).toInt
+      var offset = 0L
+      var emitted = 0
+      var iterations = 0
+      var previous = Double.NegativeInfinity
+      var candidate = gridValue(firstIndex, first, offset, step)
+      var done = false
+      var error: Option[GraphicsError] = None
+      while !done && error.isEmpty do
+        if iterations > maxTicks then
+          error = Some(GraphicsError.BreakIterationLimitExceeded("pretty", maxTicks + 1))
+        else if !candidate.isFinite then
+          error = Some(GraphicsError.NonFiniteBreak("pretty", candidate))
+        else if candidate > range.upper then done = true
+        else if emitted >= maxTicks then
+          error = Some(
+            GraphicsError.BreakOutputLimitExceeded("pretty", emitted + 1, maxTicks)
+          )
+        else if candidate <= previous then
+          error = Some(
+            GraphicsError.BreakGenerationDidNotProgress("pretty", previous, candidate)
+          )
+        else
+          if range.contains(candidate) then
+            out += candidate
+            emitted += 1
+          previous = candidate
+          if candidate >= range.upper then done = true
+          else
+            offset += 1L
+            val next = gridValue(firstIndex, first, offset, step)
+            if next <= candidate then
+              error = Some(
+                GraphicsError.BreakGenerationDidNotProgress("pretty", candidate, next)
+              )
+            else candidate = next
+        iterations += 1
 
-    val result = out.result()
-    if result.nonEmpty then result else Vector(midpoint(range))
+      error match
+        case Some(value) => Left(value)
+        case None        =>
+          val result = out.result()
+          if result.nonEmpty then Right(result) else Right(Vector(midpoint(range)))
 
   private def boundaryFallback(range: Interval): Vector[Double] =
     if range.lower == range.upper then Vector(range.lower)
@@ -266,6 +412,34 @@ object Breaks:
 
   private def normalizeZero(value: Double): Double =
     if value == 0.0 then 0.0 else value
+
+  private def interpolate(range: Interval, fraction: Double): Double =
+    val width = range.width
+    if width.isFinite then range.lower + width * fraction
+    else range.lower * (1.0 - fraction) + range.upper * fraction
+
+  private[intaglio] def validateOutput(
+      generator: String,
+      values: Vector[Double]
+  ): Either[GraphicsError, Vector[Double]] =
+    if values.length > MaximumOutputSize then
+      Left(
+        GraphicsError.BreakOutputLimitExceeded(generator, values.length, MaximumOutputSize)
+      )
+    else
+      var index = 0
+      var previous = Double.NegativeInfinity
+      var error: Option[GraphicsError] = None
+      while index < values.length && error.isEmpty do
+        val value = values(index)
+        if !value.isFinite then error = Some(GraphicsError.NonFiniteBreak(generator, value))
+        else if index > 0 && value <= previous then
+          error = Some(GraphicsError.BreakGenerationDidNotProgress(generator, previous, value))
+        else previous = value
+        index += 1
+      error match
+        case Some(value) => Left(value)
+        case None        => Right(values)
 
   private def gridValue(firstIndex: Double, first: Double, offset: Long, step: Double): Double =
     val offsetDouble = offset.toDouble
@@ -591,8 +765,12 @@ final case class ContinuousScale[A] private (
         }
       )
 
+  def breaksResult: Either[GraphicsError, Vector[Double]] =
+    transform.breaks.generate(domain).map(_.filter(domain.contains))
+
+  /** Explicit throwing convenience for callers that have already validated the break policy. */
   def breaks: Vector[Double] =
-    transform.breaks(domain).filter(domain.contains)
+    breaksResult.orThrow
 
   def labels: Vector[String] =
     transform.labeler(breaks)

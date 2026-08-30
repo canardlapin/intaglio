@@ -32,6 +32,10 @@ enum GraphicsError extends IntaglioError:
   case InvalidRotation(value: Double)
   case InvalidBreakCount(value: Int)
   case InvalidBreakWidth(value: Double)
+  case NonFiniteBreak(generator: String, value: Double)
+  case BreakGenerationDidNotProgress(generator: String, previous: Double, next: Double)
+  case BreakOutputLimitExceeded(generator: String, attempted: Int, maximum: Int)
+  case BreakIterationLimitExceeded(generator: String, maximum: Int)
   case InvalidBand(center: Double, width: Double)
   case InvalidBandPadding(value: Double)
   case EmptyPalette
@@ -142,6 +146,14 @@ enum GraphicsError extends IntaglioError:
         s"break count must be >= 1: $value"
       case InvalidBreakWidth(value) =>
         s"break width must be finite and > 0: $value"
+      case NonFiniteBreak(generator, value) =>
+        s"break generator '$generator' produced a non-finite value: $value"
+      case BreakGenerationDidNotProgress(generator, previous, next) =>
+        s"break generator '$generator' did not make floating-point progress: $previous -> $next"
+      case BreakOutputLimitExceeded(generator, attempted, maximum) =>
+        s"break generator '$generator' attempted $attempted values; maximum is $maximum"
+      case BreakIterationLimitExceeded(generator, maximum) =>
+        s"break generator '$generator' exceeded its deterministic iteration limit of $maximum"
       case InvalidBand(center, width) =>
         s"band center must be finite and width must be finite and > 0: ($center, $width)"
       case InvalidBandPadding(value) =>

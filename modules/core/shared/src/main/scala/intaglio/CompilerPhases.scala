@@ -1896,23 +1896,24 @@ private[intaglio] object GuidePhase:
     * data domain; positions are the mapped unit-space coordinates the rows were resolved into.
     */
   private def scaledTicks(scale: ContinuousScale[?]): Either[GraphicsError, Vector[AxisTick]] =
-    val breaks = scale.breaks
-    val labels = scale.labels
-    if labels.length != breaks.length then
-      Left(GraphicsError.AxisLabelCountMismatch(breaks.length, labels.length))
-    else
-      val out = Vector.newBuilder[AxisTick]
-      var idx = 0
-      var result: Either[GraphicsError, Unit] = Right(())
-      while idx < breaks.length && result.isRight do
-        result = scale.transform.transform(breaks(idx)).flatMap { transformed =>
-          AxisTick(scale.transformedDomain.rescale(transformed), labels(idx)).map { tick =>
-            out += tick
-            ()
+    scale.breaksResult.flatMap { breaks =>
+      val labels = scale.transform.labeler(breaks)
+      if labels.length != breaks.length then
+        Left(GraphicsError.AxisLabelCountMismatch(breaks.length, labels.length))
+      else
+        val out = Vector.newBuilder[AxisTick]
+        var idx = 0
+        var result: Either[GraphicsError, Unit] = Right(())
+        while idx < breaks.length && result.isRight do
+          result = scale.transform.transform(breaks(idx)).flatMap { transformed =>
+            AxisTick(scale.transformedDomain.rescale(transformed), labels(idx)).map { tick =>
+              out += tick
+              ()
+            }
           }
-        }
-        idx += 1
-      result.map(_ => out.result())
+          idx += 1
+        result.map(_ => out.result())
+    }
 
   /** One guide per distinct color/fill scale: discrete scales become keyed legends and continuous
     * scales become sampled colorbars. The layout solver measures and places the resulting stack

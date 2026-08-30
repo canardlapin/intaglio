@@ -120,3 +120,14 @@ class AxisSuite extends munit.FunSuite:
       Some(GraphicsError.AxisLabelCountMismatch(3, 1))
     )
   }
+
+  test("tick generation propagates checked floating-point break failures") {
+    val range = Interval.unsafe(1.0e16, 1.0e16 + 4.0)
+    val result = Axis.ticks(range, Breaks.width(0.5).toOption.get)
+
+    assert(result.left.toOption.exists {
+      case GraphicsError.BreakGenerationDidNotProgress("width", previous, next) =>
+        previous == next && previous == range.lower
+      case _ => false
+    })
+  }

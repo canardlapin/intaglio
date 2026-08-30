@@ -213,20 +213,22 @@ object Axis:
       breaks: Breaks = Breaks.default,
       labeler: Labeler = Labeler.default
   ): Either[GraphicsError, Vector[AxisTick]] =
-    val values = breaks(range).filter(range.contains)
-    val labels = labeler(values)
-    if labels.length != values.length then
-      Left(GraphicsError.AxisLabelCountMismatch(values.length, labels.length))
-    else
-      val out = Vector.newBuilder[AxisTick]
-      var idx = 0
-      var result: Either[GraphicsError, Unit] = Right(())
-      while idx < values.length && result.isRight do
-        AxisTick(values(idx), labels(idx)) match
-          case Right(tick) => out += tick
-          case Left(error) => result = Left(error)
-        idx += 1
-      result.map(_ => out.result())
+    breaks.generate(range).flatMap { generated =>
+      val values = generated.filter(range.contains)
+      val labels = labeler(values)
+      if labels.length != values.length then
+        Left(GraphicsError.AxisLabelCountMismatch(values.length, labels.length))
+      else
+        val out = Vector.newBuilder[AxisTick]
+        var idx = 0
+        var result: Either[GraphicsError, Unit] = Right(())
+        while idx < values.length && result.isRight do
+          AxisTick(values(idx), labels(idx)) match
+            case Right(tick) => out += tick
+            case Left(error) => result = Left(error)
+          idx += 1
+        result.map(_ => out.result())
+    }
 
   private def validate(
       range: Interval,
