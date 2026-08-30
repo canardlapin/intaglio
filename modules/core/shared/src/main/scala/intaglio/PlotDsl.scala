@@ -2,6 +2,12 @@ package intaglio
 
 import scala.annotation.implicitNotFound
 
+/** Select the final compiler theme's palette when a plotting DSL scale omits an explicit palette.
+  * The marker keeps omission distinct from an explicitly supplied empty palette.
+  */
+object ThemePalette:
+  case object Default
+
 /** Position mapping states carried by [[PlotBuilder]]. They make geom prerequisites visible to the
   * Scala compiler without exposing compiler phases or requiring a macro-based syntax layer.
   */
@@ -133,29 +139,62 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   def scaleColorDiscrete(
       value: Row => String,
       levels: Vector[String] = Vector.empty,
-      colors: Vector[Rgba] = options.theme.palettes.discrete,
+      colors: Vector[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
       name: String = "color",
       overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
   ): PlotBuilder[Row, Position] =
-    bindDiscrete(Aesthetic.Color, value, levels, colors, name, overflow)
+    colors match
+      case ThemePalette.Default =>
+        bindThemeDiscrete(Aesthetic.Color, value, levels, name, overflow)
+      case explicit: Vector[?] =>
+        bindDiscrete(
+          Aesthetic.Color,
+          value,
+          levels,
+          explicit.asInstanceOf[Vector[Rgba]],
+          name,
+          overflow
+        )
 
   def scaleFillDiscrete(
       value: Row => String,
       levels: Vector[String] = Vector.empty,
-      colors: Vector[Rgba] = options.theme.palettes.discrete,
+      colors: Vector[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
       name: String = "fill",
       overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
   ): PlotBuilder[Row, Position] =
-    bindDiscrete(Aesthetic.Fill, value, levels, colors, name, overflow)
+    colors match
+      case ThemePalette.Default =>
+        bindThemeDiscrete(Aesthetic.Fill, value, levels, name, overflow)
+      case explicit: Vector[?] =>
+        bindDiscrete(
+          Aesthetic.Fill,
+          value,
+          levels,
+          explicit.asInstanceOf[Vector[Rgba]],
+          name,
+          overflow
+        )
 
   def scaleFillContinuous(
       value: Row => Double,
-      palette: Palette[Rgba] = options.theme.palettes.continuousPalette,
+      palette: Palette[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
       name: String = "fill",
       transform: Transform = Transform.identity,
       oob: OobPolicy = OobPolicy.Censor
   ): PlotBuilder[Row, Position] =
-    bindContinuous(Aesthetic.Fill, value, name, palette, transform, oob)
+    palette match
+      case ThemePalette.Default =>
+        bindThemeContinuous(Aesthetic.Fill, value, name, transform, oob)
+      case explicit: Palette[?] =>
+        bindContinuous(
+          Aesthetic.Fill,
+          value,
+          name,
+          explicit.asInstanceOf[Palette[Rgba]],
+          transform,
+          oob
+        )
 
   /** Bind a scale you built yourself — a log transform, a fixed domain, a bespoke palette — without
     * dropping to the low-level `Plot` API. The builder fixes `Row`, so no `ScaleBinding` type
@@ -269,7 +308,7 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     * hierarchy.
     */
   def geomHeatmap(
-      palette: Palette[Rgba] = options.theme.palettes.continuousPalette,
+      palette: Palette[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
       name: String = "value",
       transform: Transform = Transform.identity,
       oob: OobPolicy = OobPolicy.Censor,
@@ -297,7 +336,7 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     * closed subpaths retain explicit holes.
     */
   def geomFilledContour(
-      palette: Palette[Rgba] = options.theme.palettes.continuousPalette,
+      palette: Palette[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
       name: String = "level",
       params: GraphicParams = GraphicParams.unsafe(stroke = None)
   )(using
@@ -426,6 +465,39 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       yield plot
     updateResult(next)
 
+  private def bindThemeContinuous(
+      aesthetic: Aesthetic[Rgba],
+      value: Row => Double,
+      name: String,
+      transform: Transform,
+      oob: OobPolicy
+  ): PlotBuilder[Row, Position] =
+    val next =
+      for
+        current <- result
+        observations <- evaluateScaleMapping(aesthetic.label, value)
+        seed <- ContinuousScale.train(
+          name,
+          observations,
+          Theme.default.palettes.continuousPalette,
+          transform,
+          oob
+        )
+        scale = ThemeResolvedScale[Double, Rgba](
+          seed,
+          theme =>
+            ContinuousScale.train(
+              name,
+              observations,
+              theme.palettes.continuousPalette,
+              transform,
+              oob
+            )
+        )
+        plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
+      yield plot
+    updateResult(next)
+
   private def bindDiscrete(
       aesthetic: Aesthetic[Rgba],
       value: Row => String,
@@ -442,6 +514,39 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
         domain <- DiscreteDomain.ordered(declared)
         palette <- DiscretePalette.values(colors, overflow)
         scale <- DiscreteScale(name, domain, palette)
+        plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
+      yield plot
+    updateResult(next)
+
+  private def bindThemeDiscrete(
+      aesthetic: Aesthetic[Rgba],
+      value: Row => String,
+      levels: Vector[String],
+      name: String,
+      overflow: PaletteOverflowPolicy
+  ): PlotBuilder[Row, Position] =
+    val next =
+      for
+        current <- result
+        observations <- evaluateScaleMapping(aesthetic.label, value)
+        declared = if levels.nonEmpty then levels else observations.distinct
+        domain <- DiscreteDomain.ordered(declared)
+        seed <- DiscreteScale(
+          name,
+          domain,
+          DiscretePalette.valuesUnsafe(
+            Theme.default.palettes.discrete,
+            PaletteOverflowPolicy.Cycle
+          )
+        )
+        scale = ThemeResolvedScale[String, Rgba](
+          seed,
+          theme =>
+            for
+              palette <- DiscretePalette.values(theme.palettes.discrete, overflow)
+              resolved <- DiscreteScale(name, domain, palette)
+            yield resolved
+        )
         plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
       yield plot
     updateResult(next)
@@ -505,7 +610,6 @@ def plot[Row](data: IterableOnce[Row]): PlotBuilder[Row, PlotPosition.Empty[Row]
     PlotPosition.Empty(),
     Right(Plot(rows)),
     PlotCompilerOptions(
-      policy = Some(theme.layoutPolicy),
       guides = GuidePolicy.Derived(),
       theme = theme
     )

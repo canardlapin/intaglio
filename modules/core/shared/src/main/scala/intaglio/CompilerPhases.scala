@@ -581,27 +581,50 @@ private[intaglio] object ScalePhase:
       observations: Vector[ScaleObservation]
   )
 
-  def train(plans: Vector[PackedStatPlan]): Either[GraphicsError, ScaleResolution] =
+  def train(
+      plans: Vector[PackedStatPlan],
+      theme: Theme = Theme.default
+  ): Either[GraphicsError, ScaleResolution] =
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
     Aesthetic.values.foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
       (result, aesthetic) =>
-        result.flatMap(trainAesthetic(_, aesthetic, facetLocal = false, unifyFacetCopies = false))
+        result.flatMap(
+          trainAesthetic(
+            _,
+            aesthetic,
+            facetLocal = false,
+            unifyFacetCopies = false,
+            theme = theme
+          )
+        )
     }
 
   /** Facet statistics are transformed panel-by-panel, so a computed stat may construct equivalent
     * scale values more than once. Copies are unified only when they retain the same source layer
     * and compatible descriptor; distinct plot layers keep the ordinary strict conflict rule.
     */
-  def trainFacets(plans: Vector[PackedStatPlan]): Either[GraphicsError, ScaleResolution] =
+  def trainFacets(
+      plans: Vector[PackedStatPlan],
+      theme: Theme = Theme.default
+  ): Either[GraphicsError, ScaleResolution] =
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
     Aesthetic.values.foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
       (result, aesthetic) =>
-        result.flatMap(trainAesthetic(_, aesthetic, facetLocal = false, unifyFacetCopies = true))
+        result.flatMap(
+          trainAesthetic(
+            _,
+            aesthetic,
+            facetLocal = false,
+            unifyFacetCopies = true,
+            theme = theme
+          )
+        )
     }
 
   def trainFacetPositions(
       plans: Vector[PackedStatPlan],
-      scales: FacetScales
+      scales: FacetScales,
+      theme: Theme = Theme.default
   ): Either[GraphicsError, Vector[PackedStatPlan]] =
     val aesthetics =
       Vector(
@@ -611,7 +634,15 @@ private[intaglio] object ScalePhase:
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
     aesthetics
       .foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) { (result, aesthetic) =>
-        result.flatMap(trainAesthetic(_, aesthetic, facetLocal = true, unifyFacetCopies = false))
+        result.flatMap(
+          trainAesthetic(
+            _,
+            aesthetic,
+            facetLocal = true,
+            unifyFacetCopies = false,
+            theme = theme
+          )
+        )
       }
       .map(_.plans)
 
@@ -625,7 +656,8 @@ private[intaglio] object ScalePhase:
       resolution: ScaleResolution,
       aesthetic: Aesthetic[?],
       facetLocal: Boolean,
-      unifyFacetCopies: Boolean
+      unifyFacetCopies: Boolean,
+      theme: Theme
   ): Either[GraphicsError, ScaleResolution] =
     contributions(resolution.plans, aesthetic).flatMap { contributions =>
       contributions.headOption match
@@ -654,8 +686,8 @@ private[intaglio] object ScalePhase:
                   first.entry
                 )
                 observations = contributions.flatMap(_.observations) ++ annotationObservations
-                trained <- trainEntry(first.entry, observations, facetLocal)
-                rebound <- rebind(resolution.plans, aesthetic, observations, facetLocal)
+                trained <- trainEntry(first.entry, observations, facetLocal, theme)
+                rebound <- rebind(resolution.plans, aesthetic, observations, facetLocal, theme)
                 plans <- mapAnnotations(rebound, aesthetic, trained)
               yield ScaleResolution(
                 plans,
@@ -718,8 +750,8 @@ private[intaglio] object ScalePhase:
     }
     if annotations.isEmpty then Right(Vector.empty)
     else
-      entry.scale match
-        case _: ContinuousScale[?] =>
+      entry.descriptor.kind match
+        case ScaleKind.Continuous =>
           Right(annotations.map(annotation => ScaleObservation.Continuous(annotation.coordinate)))
         case _ =>
           val reference = annotations.head.reference
@@ -805,14 +837,15 @@ private[intaglio] object ScalePhase:
       plans: Vector[PackedStatPlan],
       aesthetic: Aesthetic[?],
       observations: Vector[ScaleObservation],
-      facetLocal: Boolean
+      facetLocal: Boolean,
+      theme: Theme
   ): Either[GraphicsError, Vector[PackedStatPlan]] =
     val out = Vector.newBuilder[PackedStatPlan]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plans.length && result.isRight do
       val plan = plans(idx)
-      result = rebindPlan(plan, aesthetic, observations, facetLocal).map { rebound =>
+      result = rebindPlan(plan, aesthetic, observations, facetLocal, theme).map { rebound =>
         out += rebound
         ()
       }
@@ -823,31 +856,36 @@ private[intaglio] object ScalePhase:
       plan: PackedStatPlan,
       aesthetic: Aesthetic[?],
       observations: Vector[ScaleObservation],
-      facetLocal: Boolean
+      facetLocal: Boolean,
+      theme: Theme
   ): Either[GraphicsError, PackedStatPlan] =
-    rebindTyped(plan.value, aesthetic, observations, facetLocal)
+    rebindTyped(plan.value, aesthetic, observations, facetLocal, theme)
 
   private def rebindTyped[Row](
       plan: StatPlan[Row],
       aesthetic: Aesthetic[?],
       observations: Vector[ScaleObservation],
-      facetLocal: Boolean
+      facetLocal: Boolean,
+      theme: Theme
   ): Either[GraphicsError, PackedStatPlan] =
     plan.mapping.scaledEntry(aesthetic) match
       case None =>
         Right(PackedStatPlan(plan))
       case Some(entry) =>
-        trainEntry(entry, observations, facetLocal).map { trained =>
+        trainEntry(entry, observations, facetLocal, theme).map { trained =>
           PackedStatPlan(plan.copy(mapping = trained.install(plan.mapping)))
         }
 
   private def trainEntry[EntryRow](
       entry: RegisteredScale[EntryRow],
       observations: Vector[ScaleObservation],
-      facetLocal: Boolean
+      facetLocal: Boolean,
+      theme: Theme
   ): Either[GraphicsError, RegisteredScale[EntryRow]] =
-    if facetLocal then entry.trainFacet(observations)
-    else entry.trainPlotWide(observations)
+    entry.resolveTheme(theme).flatMap { resolved =>
+      if facetLocal then resolved.trainFacet(observations)
+      else resolved.trainPlotWide(observations)
+    }
 
 /** Phase 4 — row evaluation: map each stat row through the canonical aesthetic mapping, keeping
   * typed drop diagnostics for rows a renderer must skip.

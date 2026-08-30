@@ -302,14 +302,16 @@ class GuideDerivationSuite extends munit.FunSuite:
     }
   }
 
-  test("derived guides without a frame or layout remain a typed error") {
-    assertEquals(
-      PlotCompiler
-        .resolve(directPlot, PlotCompilerOptions(guides = GuidePolicy.Derived()))
-        .left
-        .toOption,
-      Some(GraphicsError.MissingLayout("guides"))
-    )
+  test("derived guides resolve the final theme layout when no layout is explicit") {
+    val theme = Theme.minimal.copy(layout = Theme.minimal.layout.copy(outerMarginPt = 31.0))
+    val options = PlotCompilerOptions(guides = GuidePolicy.Derived(), theme = theme)
+    val trained =
+      PlotCompiler.resolve(directPlot, options).fold(error => fail(error.message), identity)
+    val effective = PlotCompiler.effectiveOptions(directPlot, options)
+
+    assert(trained.layout.nonEmpty)
+    assert(trained.guides.nonEmpty)
+    assertEquals(effective.policy.map(_.outerMarginPt), Some(theme.layout.outerMarginPt))
   }
 
   test("explicit empty guides still compile without a layout") {

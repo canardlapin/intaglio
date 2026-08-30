@@ -41,7 +41,7 @@ private[intaglio] object FacetCompiler:
         for
           facetLayout <- facet.layout(allData)
           panelStats <- transformPanels(plot, facet, facetLayout)
-          globalScales <- ScalePhase.trainFacets(panelStats.flatMap(_.plans))
+          globalScales <- ScalePhase.trainFacets(panelStats.flatMap(_.plans), options.theme)
           globalLayers <- PlotCompiler.resolveLayers(globalScales.plans, options.theme)
           globalLogical <- LayoutPhase.panelRanges(globalLayers)
           globalCoordinates <- CoordPhase.transform(plot.coord, globalLayers, Some(globalLogical))
@@ -139,7 +139,7 @@ private[intaglio] object FacetCompiler:
               )
             )
           then Right(global)
-          else ScalePhase.trainFacetPositions(panel.plans, scales)
+          else ScalePhase.trainFacetPositions(panel.plans, scales, options.theme)
         merged = global.zip(localPlans).map { case (globalPlan, localPlan) =>
           PackedStatPlan.mergePositionScales(globalPlan, localPlan, scales)
         }

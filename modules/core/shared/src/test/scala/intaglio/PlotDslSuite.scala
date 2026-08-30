@@ -14,6 +14,16 @@ class PlotDslSuite extends munit.FunSuite:
       Observation(1.0, 2.5, "task")
     )
 
+  private val callOrderTheme =
+    Theme.minimal.copy(
+      palettes = ThemePalettes(
+        discrete = Vector(Rgba.unsafe(90, 10, 30), Rgba.unsafe(15, 120, 70)),
+        continuousLow = Rgba.unsafe(12, 34, 56),
+        continuousHigh = Rgba.unsafe(210, 180, 40)
+      ),
+      layout = Theme.minimal.layout.copy(outerMarginPt = 37.0, legendGapPt = 23.0)
+    )
+
   test("point and line programs compose mappings, scales, labels, and theme concisely") {
     val program =
       plot(rows)
@@ -35,6 +45,104 @@ class PlotDslSuite extends munit.FunSuite:
     assertEquals(trained.droppedRows, Vector.empty)
     assertEquals(trained.trainedScales.map(_.aesthetic), Vector("color"))
     assert(trained.guides.nonEmpty)
+  }
+
+  test("theme, scale, labels, and geom declarations are permutation invariant") {
+    val declarations = Vector("theme", "scales", "labels", "geom")
+
+    def program(order: Vector[String]): PlotProgram[Observation] =
+      val initial = plot(rows).aes(_.x, _.y)
+      order
+        .foldLeft(initial) { (builder, declaration) =>
+          declaration match
+            case "theme"  => builder.theme(callOrderTheme)
+            case "scales" =>
+              builder
+                .scaleColorDiscrete(_.group, levels = Vector("control", "task"))
+                .scaleFillContinuous(_.y)
+            case "labels" => builder.title("Call order").axisTitles("x", "y")
+            case "geom"   => builder.geomPoint()
+            case other    => fail(s"unknown declaration: $other")
+        }
+        .build
+        .fold(error => fail(error.message), identity)
+
+    val programs = declarations.permutations.map(order => program(order.toVector)).toVector
+    val trained = programs.map(_.resolve.fold(error => fail(error.message), identity))
+    val snapshots = trained.map { plot =>
+      (
+        plot.scene,
+        plot.layers.head.rows.map(_.gp.stroke),
+        plot.layers.head.rows.map(_.gp.fill),
+        plot.layout
+      )
+    }
+
+    snapshots.tail.foreach(snapshot => assertEquals(snapshot, snapshots.head))
+    assertEquals(
+      trained.head.layers.head.rows.map(_.gp.stroke),
+      Vector(
+        Some(callOrderTheme.palettes.discrete(0)),
+        Some(callOrderTheme.palettes.discrete(0)),
+        Some(callOrderTheme.palettes.discrete(1)),
+        Some(callOrderTheme.palettes.discrete(1))
+      )
+    )
+    assertEquals(
+      trained.head.layers.head.rows.head.gp.fill,
+      Some(callOrderTheme.palettes.continuousLow)
+    )
+    assertEquals(
+      trained.head.layers.head.rows.last.gp.fill,
+      Some(callOrderTheme.palettes.continuousHigh)
+    )
+
+    val effective = PlotCompiler.effectiveOptions(programs.head.plot, programs.head.compilerOptions)
+    assertEquals(effective.policy.map(_.outerMarginPt), Some(callOrderTheme.layout.outerMarginPt))
+    assertEquals(effective.policy.map(_.legendGapPt), Some(callOrderTheme.layout.legendGapPt))
+  }
+
+  test("explicit palettes and layout policies remain authoritative") {
+    val explicitColors = Vector(Rgba.unsafe(1, 2, 3), Rgba.unsafe(4, 5, 6))
+    val explicitLow = Rgba.unsafe(7, 8, 9)
+    val explicitHigh = Rgba.unsafe(240, 230, 220)
+    val explicitGradient = Palette.gradient(explicitLow, explicitHigh)
+
+    def resolved(themeFirst: Boolean): TrainedPlot =
+      val initial = plot(rows).aes(_.x, _.y)
+      val themed = if themeFirst then initial.theme(callOrderTheme) else initial
+      val scaled = themed
+        .scaleColorDiscrete(
+          _.group,
+          levels = Vector("control", "task"),
+          colors = explicitColors
+        )
+        .scaleFillContinuous(_.y, palette = explicitGradient)
+        .geomPoint()
+      val complete = if themeFirst then scaled else scaled.theme(callOrderTheme)
+      complete.resolve.fold(error => fail(error.message), identity)
+
+    val before = resolved(themeFirst = true)
+    val after = resolved(themeFirst = false)
+    assertEquals(before.scene, after.scene)
+    assertEquals(before.layers.head.rows.head.gp.stroke, Some(explicitColors.head))
+    assertEquals(before.layers.head.rows.last.gp.stroke, Some(explicitColors.last))
+    assertEquals(before.layers.head.rows.head.gp.fill, Some(explicitLow))
+    assertEquals(before.layers.head.rows.last.gp.fill, Some(explicitHigh))
+
+    val explicitPolicy = LayoutPolicy(outerMarginPt = 3.0, legendGapPt = 5.0)
+    val program = plot(rows)
+      .aes(_.x, _.y)
+      .geomPoint()
+      .compilerOptions(
+        PlotCompilerOptions(policy = Some(explicitPolicy), guides = GuidePolicy.Derived())
+      )
+      .theme(callOrderTheme)
+      .build
+      .fold(error => fail(error.message), identity)
+    val effective = PlotCompiler.effectiveOptions(program.plot, program.compilerOptions)
+    assertEquals(effective.policy.map(_.outerMarginPt), Some(explicitPolicy.outerMarginPt))
+    assertEquals(effective.policy.map(_.legendGapPt), Some(explicitPolicy.legendGapPt))
   }
 
   test("the DSL adds independent typed layers only with an explicit facet policy") {
@@ -164,7 +272,7 @@ class PlotDslSuite extends munit.FunSuite:
         .aes(_.x, _.y)
         .scaleColorDiscrete(_.group)
         .geomPoint()
-        .build
+        .resolve
     assertEquals(
       publicationDefault.left.toOption,
       Some(GraphicsError.DiscretePaletteOverflow("color", 7, 6))

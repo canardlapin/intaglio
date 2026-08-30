@@ -298,9 +298,13 @@ ignored rather than retained.
   text grobs for every backend.
 - Themes are values, not ambient state or a selector cascade. Compilation
   resolves one `Theme` into complete leaf `GraphicParams`; explicit layer and
-  guide styles win locally. The layout solver measures the same themed font
-  families and point sizes later emitted as text, while panel backgrounds and
-  tick-aligned grids are ordinary renderer-neutral grobs beneath the data.
+  guide styles win locally. Omitted DSL palettes and layout policies are
+  resolved from that final theme during scale training and layout assembly, so
+  moving `.theme(...)` before or after scale, label, or geom declarations does
+  not change the plot. Explicit palettes, panel layouts, frames, and layout
+  policies remain authoritative. The layout solver measures the same themed
+  font families and point sizes later emitted as text, while panel backgrounds
+  and tick-aligned grids are ordinary renderer-neutral grobs beneath the data.
   `TextMetrics.estimate` remains the deterministic portable default. Callers
   may explicitly inject `Java2DTextMetrics` or `CanvasTextMetrics` through
   `LayoutPolicy.metrics` when layouts should reflect a fixed platform font

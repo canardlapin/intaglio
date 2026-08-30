@@ -308,7 +308,9 @@ object PlotCompiler:
     val themeNeedsLayout =
       options.theme.panel.background.nonEmpty || options.theme.panel.grid.nonEmpty
     val effectiveOptions =
-      if (!plot.labels.isEmpty || themeNeedsLayout || plot.facet.nonEmpty)
+      if (
+          !plot.labels.isEmpty || themeNeedsLayout || plot.facet.nonEmpty || options.guides.requiresLayout
+        )
         && options.layout.isEmpty && options.frame.isEmpty && options.policy.isEmpty
       then options.copy(policy = Some(options.theme.layout))
       else options
@@ -324,7 +326,7 @@ object PlotCompiler:
     for
       plans <- MappingPhase.plan(plot)
       statPlans <- StatPhase.transform(plans)
-      scales <- ScalePhase.train(statPlans)
+      scales <- ScalePhase.train(statPlans, resolvedOptions.theme)
       logicalLayers <- resolveLayers(scales.plans, resolvedOptions.theme)
       logicalRanges <- LayoutPhase.panelRangesFor(resolvedOptions, logicalLayers)
       specs <- GuidePhase.specs(

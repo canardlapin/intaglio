@@ -69,6 +69,11 @@ sealed trait RegisteredScale[Row]:
       RegisteredScale(aesthetic, AesValue.Scaled(value.value, trained))
     }
 
+  final def resolveTheme(theme: Theme): Either[GraphicsError, RegisteredScale[Row]] =
+    scale.resolveTheme(theme).map { resolved =>
+      RegisteredScale(aesthetic, AesValue.Scaled(value.value, resolved))
+    }
+
   final def install(mapping: AesSpec[Row]): AesSpec[Row] =
     mapping.updated(aesthetic, value)
 

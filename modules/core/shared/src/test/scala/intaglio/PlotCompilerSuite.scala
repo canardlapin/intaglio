@@ -546,22 +546,28 @@ class PlotCompilerSuite extends munit.FunSuite:
     assertEquals(axis.viewport.map(_.clip), Some(Clip.Off))
   }
 
-  test("guide options require an explicit layout") {
+  test("explicit guide options resolve theme layout defaults") {
     val plot =
       Plot(data)
         .addLayer(Layer.point[Observation](_.time, _.value))
         .toOption
         .get
 
+    val theme = Theme.default.copy(layout = Theme.default.layout.copy(outerMarginPt = 29.0))
+    val options = PlotCompilerOptions(
+      guides = GuidePolicy.Explicit(Vector(GuideSpec.Axis(AxisSide.Left))),
+      theme = theme
+    )
+    val trained = PlotCompiler.resolve(plot, options).fold(error => fail(error.message), identity)
+
+    assert(trained.layout.nonEmpty)
     assertEquals(
-      PlotCompiler
-        .resolve(
-          plot,
-          PlotCompilerOptions(guides = GuidePolicy.Explicit(Vector(GuideSpec.Axis(AxisSide.Left))))
-        )
-        .left
-        .toOption,
-      Some(GraphicsError.MissingLayout("guides"))
+      trained.guides.map(_.spec).collect { case axis: GuideSpec.Axis => axis.side },
+      Vector(AxisSide.Left)
+    )
+    assertEquals(
+      PlotCompiler.effectiveOptions(plot, options).policy.map(_.outerMarginPt),
+      Some(theme.layout.outerMarginPt)
     )
   }
 

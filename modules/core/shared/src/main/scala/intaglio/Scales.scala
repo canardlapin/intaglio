@@ -1099,6 +1099,58 @@ trait Scale[-In, +Out]:
   ): Either[GraphicsError, Scale[In, Out]] =
     trainPlotWide(observations)
 
+  /** Resolve compiler-owned theme defaults without changing explicitly constructed scales. */
+  private[intaglio] def resolveTheme(theme: Theme): Either[GraphicsError, Scale[In, Out]] =
+    Right(this)
+
+/** A scale declaration whose palette comes from the final compiler theme. The seed carries the
+  * declaration's domain, descriptor, and observation semantics so the ordinary scale phase can
+  * inspect it; row mapping always receives the concrete scale returned by `resolveTheme`.
+  */
+private[intaglio] final class ThemeResolvedScale[In, Out] private (
+    seed: Scale[In, Out],
+    resolve: Theme => Either[GraphicsError, Scale[In, Out]]
+) extends Scale[In, Out]:
+  override def name: GraphicsName =
+    seed.name
+
+  override def descriptor: ScaleDescriptor =
+    seed.descriptor
+
+  override def mapValue(value: In): Option[Out] =
+    seed.mapValue(value)
+
+  override def mapValueResult(value: In): Either[ScaleMapFailure, Out] =
+    seed.mapValueResult(value)
+
+  private[intaglio] override def observation(value: In): Option[ScaleObservation] =
+    seed.observation(value)
+
+  private[intaglio] override def mappedBand(value: In): Option[Band] =
+    seed.mappedBand(value)
+
+  private[intaglio] override def trainPlotWide(
+      observations: IterableOnce[ScaleObservation]
+  ): Either[GraphicsError, Scale[In, Out]] =
+    seed.trainPlotWide(observations)
+
+  private[intaglio] override def trainFacet(
+      observations: IterableOnce[ScaleObservation]
+  ): Either[GraphicsError, Scale[In, Out]] =
+    seed.trainFacet(observations)
+
+  private[intaglio] override def resolveTheme(
+      theme: Theme
+  ): Either[GraphicsError, Scale[In, Out]] =
+    resolve(theme)
+
+private[intaglio] object ThemeResolvedScale:
+  def apply[In, Out](
+      seed: Scale[In, Out],
+      resolve: Theme => Either[GraphicsError, Scale[In, Out]]
+  ): Scale[In, Out] =
+    new ThemeResolvedScale(seed, resolve)
+
 final case class ScaleBinding[Row, In, Out](
     aesthetic: Aesthetic[Out],
     value: Row => In,
