@@ -65,6 +65,9 @@ class SceneConformanceSuite extends munit.FunSuite:
               gp.stroke == stroke && gp.fill == fill && gp.lineWidth == lineWidth &&
               gp.lineType == lineType && gp.lineCap == lineCap && gp.lineJoin == lineJoin && gp.alpha == alpha
             }
+        case RenderRequirement.PatternFill(name, paint, alpha) =>
+          primitiveName(primitive).contains(name) &&
+            primitiveParams(primitive).exists(gp => gp.fillPattern.contains(paint) && gp.alpha == alpha)
         case RenderRequirement.Text(name, horizontal, vertical, rotated) =>
           primitive match
             case DevicePrimitive.TextRun(_, _, _, h, v, rotation, _, _, _, primitiveName) =>
@@ -127,6 +130,7 @@ class SceneConformanceSuite extends munit.FunSuite:
       groups,
       Set[ConformanceGroup](
         ConformanceGroup.Primitive,
+        ConformanceGroup.PatternFill,
         ConformanceGroup.Layout,
         ConformanceGroup.Guide,
         ConformanceGroup.CompiledPlot

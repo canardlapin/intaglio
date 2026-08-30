@@ -60,7 +60,8 @@ final case class JavaFxPaint(
     dash: JavaFxLineDash,
     lineCap: LineCap,
     lineJoin: LineJoin,
-    opacity: Double
+    opacity: Double,
+    fillPattern: Option[PatternPaint] = None
 )
 
 object JavaFxPaint:
@@ -72,12 +73,41 @@ object JavaFxPaint:
       JavaFxLineDash.fromLineType(gp.lineType),
       gp.lineCap,
       gp.lineJoin,
-      gp.alpha
+      gp.alpha,
+      gp.fillPattern
     )
 
   def text(gp: GraphicParams): JavaFxPaint =
     val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
-    JavaFxPaint(None, Some(JavaFxColor.fromRgba(color)), 0.0, JavaFxLineDash.Solid, gp.lineCap, gp.lineJoin, gp.alpha)
+    JavaFxPaint(
+      None,
+      Some(JavaFxColor.fromRgba(color)),
+      0.0,
+      JavaFxLineDash.Solid,
+      gp.lineCap,
+      gp.lineJoin,
+      gp.alpha,
+      None
+    )
+
+final case class JavaFxDrawProfile(
+    patternRequests: Int,
+    patternCacheHits: Int,
+    patternCacheMisses: Int
+)
+
+private final class JavaFxDrawAccumulator:
+  private var patternRequests = 0
+  private var patternCacheHits = 0
+  private var patternCacheMisses = 0
+
+  def recordPattern(hit: Boolean): Unit =
+    patternRequests += 1
+    if hit then patternCacheHits += 1
+    else patternCacheMisses += 1
+
+  def result: JavaFxDrawProfile =
+    JavaFxDrawProfile(patternRequests, patternCacheHits, patternCacheMisses)
 
 /** Deterministic JavaFX Canvas operations in device coordinates. Group effects
   * deliberately record rotation before clipping: the clip is installed in the
@@ -238,6 +268,8 @@ trait JavaFxGraphicsContext:
   def fillOval(x: Double, y: Double, width: Double, height: Double): Unit
   def strokeOval(x: Double, y: Double, width: Double, height: Double): Unit
   def setFill(color: JavaFxColor): Unit
+  /** Install a native pattern fill and report whether its cached resource was reused. */
+  def setPatternFill(pattern: PatternPaint): Boolean
   def setStroke(color: JavaFxColor): Unit
   def setLineWidth(width: Double): Unit
   def setLineCap(cap: LineCap): Unit
@@ -269,6 +301,7 @@ object JavaFxRenderer:
     for
       device <- DeviceContext(options.width.toDouble, options.height.toDouble).left.map(JavaFxRenderError.Graphics(_))
       resolved <- DeviceScene.fromScene(scene, device).left.map(JavaFxRenderError.Graphics(_))
+      _ <- PatternTile.validate(resolved).left.map(JavaFxRenderError.Graphics(_))
     yield JavaFxProgram.fromDevice(resolved)
 
   def render(
@@ -282,7 +315,11 @@ object JavaFxRenderer:
     }
 
   def draw(program: JavaFxProgram, context: JavaFxGraphicsContext): Unit =
+    drawProfile(program, context)
+
+  def drawProfile(program: JavaFxProgram, context: JavaFxGraphicsContext): JavaFxDrawProfile =
     var openGroups = 0
+    val accumulator = new JavaFxDrawAccumulator
     try
       program.commands.foreach {
         case JavaFxCommand.Save(_) =>
@@ -292,14 +329,19 @@ object JavaFxRenderer:
           context.restore()
           openGroups -= 1
         case command =>
-          execute(command, context)
+          execute(command, context, accumulator)
       }
     finally
       while openGroups > 0 do
         context.restore()
         openGroups -= 1
+    accumulator.result
 
-  private def execute(command: JavaFxCommand, context: JavaFxGraphicsContext): Unit =
+  private def execute(
+      command: JavaFxCommand,
+      context: JavaFxGraphicsContext,
+      accumulator: JavaFxDrawAccumulator
+  ): Unit =
     command match
       case JavaFxCommand.Save(_) | JavaFxCommand.Restore(_) =>
         ()
@@ -316,8 +358,7 @@ object JavaFxRenderer:
           val x = centerX - radius
           val y = centerY - radius
           val size = radius * 2.0
-          paint.fill.foreach { color =>
-            context.setFill(color.combined(paint.opacity))
+          fill(context, paint, accumulator) {
             context.fillOval(x, y, size, size)
           }
           paint.stroke.foreach { color =>
@@ -331,7 +372,7 @@ object JavaFxRenderer:
           context.moveTo(points.head.x, points.head.y)
           points.tail.foreach(point => context.lineTo(point.x, point.y))
           if closed then context.closePath()
-          paintPath(context, paint)
+          paintPath(context, paint, closed, accumulator)
         }
       case JavaFxCommand.CompoundPolygon(rings, paint, _) =>
         withSaved(context) {
@@ -341,13 +382,13 @@ object JavaFxRenderer:
             ring.tail.foreach(point => context.lineTo(point.x, point.y))
             context.closePath()
           }
-          paintPath(context, paint)
+          paintPath(context, paint, true, accumulator)
         }
       case JavaFxCommand.Rectangle(x, y, width, height, paint, _) =>
         withSaved(context) {
           context.beginPath()
           context.rect(x, y, width, height)
-          paintPath(context, paint)
+          paintPath(context, paint, true, accumulator)
         }
       case JavaFxCommand.Text(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, paint, _) =>
         withSaved(context) {
@@ -374,15 +415,34 @@ object JavaFxRenderer:
     try body
     finally context.restore()
 
-  private def paintPath(context: JavaFxGraphicsContext, paint: JavaFxPaint): Unit =
-    paint.fill.foreach { color =>
-      context.setFill(color.combined(paint.opacity))
-      context.fillPath()
-    }
+  private def paintPath(
+      context: JavaFxGraphicsContext,
+      paint: JavaFxPaint,
+      allowFill: Boolean,
+      accumulator: JavaFxDrawAccumulator
+  ): Unit =
+    if allowFill then fill(context, paint, accumulator)(context.fillPath())
     paint.stroke.foreach { color =>
       strokeState(context, paint, color)
       context.strokePath()
     }
+
+  private def fill(
+      context: JavaFxGraphicsContext,
+      paint: JavaFxPaint,
+      accumulator: JavaFxDrawAccumulator
+  )(draw: => Unit): Unit =
+    paint.fillPattern match
+      case Some(pattern) =>
+        accumulator.recordPattern(context.setPatternFill(pattern))
+        context.setGlobalAlpha(paint.opacity)
+        try draw
+        finally context.setGlobalAlpha(1.0)
+      case None =>
+        paint.fill.foreach { color =>
+          context.setFill(color.combined(paint.opacity))
+          draw
+        }
 
   /** JavaFX save/restore does not cover all stroke geometry, so every stroke
     * installs the complete backend-neutral state explicitly.

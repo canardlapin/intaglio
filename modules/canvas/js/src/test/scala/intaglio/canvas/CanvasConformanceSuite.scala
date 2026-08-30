@@ -31,6 +31,11 @@ class CanvasConformanceSuite extends munit.FunSuite:
               paint.opacity == alpha
             }
           }
+        case RenderRequirement.PatternFill(name, pattern, alpha) =>
+          out.commands.exists { command =>
+            commandName(command).contains(name) &&
+            commandPaint(command).exists(paint => paint.fillPattern.contains(pattern) && paint.opacity == alpha)
+          }
         case RenderRequirement.Text(name, horizontal, vertical, rotated) =>
           out.commands.exists {
             case CanvasCommand.Text(_, _, _, h, v, rotation, _, _, _, commandName) =>

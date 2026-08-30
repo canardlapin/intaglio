@@ -1,6 +1,6 @@
 package intaglio.java2d
 
-import java.awt.{AlphaComposite, BasicStroke, Color, Font, Graphics2D, RenderingHints, Shape}
+import java.awt.{AlphaComposite, BasicStroke, Color, Font, Graphics2D, RenderingHints, Shape, TexturePaint}
 import java.awt.geom.{AffineTransform, Ellipse2D, Path2D, Rectangle2D}
 import java.awt.image.BufferedImage
 import scala.collection.mutable
@@ -64,7 +64,8 @@ final case class Java2DPaint(
     dash: Java2DLineDash,
     lineCap: LineCap,
     lineJoin: LineJoin,
-    opacity: Double
+    opacity: Double,
+    fillPattern: Option[PatternPaint] = None
 )
 
 object Java2DPaint:
@@ -76,12 +77,41 @@ object Java2DPaint:
       Java2DLineDash.fromLineType(gp.lineType),
       gp.lineCap,
       gp.lineJoin,
-      gp.alpha
+      gp.alpha,
+      gp.fillPattern
     )
 
   def text(gp: GraphicParams): Java2DPaint =
     val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
-    Java2DPaint(None, Some(Java2DColor.fromRgba(color)), 0.0, Java2DLineDash.Solid, gp.lineCap, gp.lineJoin, gp.alpha)
+    Java2DPaint(
+      None,
+      Some(Java2DColor.fromRgba(color)),
+      0.0,
+      Java2DLineDash.Solid,
+      gp.lineCap,
+      gp.lineJoin,
+      gp.alpha,
+      None
+    )
+
+final case class Java2DDrawProfile(
+    patternRequests: Int,
+    patternCacheHits: Int,
+    patternCacheMisses: Int
+)
+
+private final class Java2DDrawAccumulator:
+  private var patternRequests = 0
+  private var patternCacheHits = 0
+  private var patternCacheMisses = 0
+
+  def recordPattern(hit: Boolean): Unit =
+    patternRequests += 1
+    if hit then patternCacheHits += 1
+    else patternCacheMisses += 1
+
+  def result: Java2DDrawProfile =
+    Java2DDrawProfile(patternRequests, patternCacheHits, patternCacheMisses)
 
 enum Java2DCommand:
   case Save(name: Option[GraphicsName])
@@ -220,6 +250,7 @@ object Java2DRenderer:
     for
       device <- DeviceContext(options.width.toDouble, options.height.toDouble).left.map(Java2DRenderError.Graphics(_))
       resolved <- DeviceScene.fromScene(scene, device).left.map(Java2DRenderError.Graphics(_))
+      _ <- PatternTile.validate(resolved).left.map(Java2DRenderError.Graphics(_))
     yield Java2DProgram.fromDevice(resolved)
 
   def render(
@@ -233,8 +264,13 @@ object Java2DRenderer:
     }
 
   def draw(program: Java2DProgram, graphics: Graphics2D): Unit =
+    drawProfile(program, graphics)
+
+  def drawProfile(program: Java2DProgram, graphics: Graphics2D): Java2DDrawProfile =
     var stack = List(graphics)
     val images = mutable.HashMap.empty[RasterImage, BufferedImage]
+    val patterns = mutable.HashMap.empty[PatternPaint, TexturePaint]
+    val accumulator = new Java2DDrawAccumulator
     try
       program.commands.foreach {
         case Java2DCommand.Save(_) =>
@@ -243,15 +279,18 @@ object Java2DRenderer:
           stack.head.dispose()
           stack = stack.tail
         case command =>
-          execute(command, stack.head, images)
+          execute(command, stack.head, images, patterns, accumulator)
       }
     finally
       stack.takeWhile(_ ne graphics).foreach(_.dispose())
+    accumulator.result
 
   private def execute(
       command: Java2DCommand,
       graphics: Graphics2D,
-      images: mutable.Map[RasterImage, BufferedImage]
+      images: mutable.Map[RasterImage, BufferedImage],
+      patterns: mutable.Map[PatternPaint, TexturePaint],
+      accumulator: Java2DDrawAccumulator
   ): Unit =
     command match
       case Java2DCommand.Rotate(degrees, pivotX, pivotY) =>
@@ -262,14 +301,17 @@ object Java2DRenderer:
         paintShape(
           graphics,
           new Ellipse2D.Double(centerX - radius, centerY - radius, radius * 2.0, radius * 2.0),
-          paint
+          paint,
+          true,
+          patterns,
+          accumulator
         )
       case Java2DCommand.Polyline(points, closed, paint, _) =>
         val path = new Path2D.Double()
         path.moveTo(points.head.x, points.head.y)
         points.tail.foreach(point => path.lineTo(point.x, point.y))
         if closed then path.closePath()
-        paintShape(graphics, path, paint)
+        paintShape(graphics, path, paint, closed, patterns, accumulator)
       case Java2DCommand.CompoundPolygon(rings, paint, _) =>
         val path = new Path2D.Double(Path2D.WIND_NON_ZERO)
         rings.foreach { ring =>
@@ -277,9 +319,16 @@ object Java2DRenderer:
           ring.tail.foreach(point => path.lineTo(point.x, point.y))
           path.closePath()
         }
-        paintShape(graphics, path, paint)
+        paintShape(graphics, path, paint, true, patterns, accumulator)
       case Java2DCommand.Rectangle(x, y, width, height, paint, _) =>
-        paintShape(graphics, new Rectangle2D.Double(x, y, width, height), paint)
+        paintShape(
+          graphics,
+          new Rectangle2D.Double(x, y, width, height),
+          paint,
+          true,
+          patterns,
+          accumulator
+        )
       case Java2DCommand.Text(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, paint, _) =>
         withCopy(graphics) { copy =>
           antialias(copy)
@@ -316,19 +365,53 @@ object Java2DRenderer:
       case Java2DCommand.Save(_) | Java2DCommand.Restore(_) =>
         ()
 
-  private def paintShape(graphics: Graphics2D, shape: Shape, paint: Java2DPaint): Unit =
+  private def paintShape(
+      graphics: Graphics2D,
+      shape: Shape,
+      paint: Java2DPaint,
+      allowFill: Boolean,
+      patterns: mutable.Map[PatternPaint, TexturePaint],
+      accumulator: Java2DDrawAccumulator
+  ): Unit =
     withCopy(graphics) { copy =>
       antialias(copy)
-      paint.fill.foreach { color =>
-        copy.setColor(color.awt(paint.opacity))
-        copy.fill(shape)
-      }
+      if allowFill then
+        paint.fillPattern match
+          case Some(pattern) =>
+            copy.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, paint.opacity.toFloat))
+            copy.setPaint(resolvePattern(pattern, patterns, accumulator))
+            copy.fill(shape)
+          case None =>
+            paint.fill.foreach { color =>
+              copy.setColor(color.awt(paint.opacity))
+              copy.fill(shape)
+            }
       paint.stroke.foreach { color =>
+        copy.setComposite(AlphaComposite.SrcOver)
         copy.setColor(color.awt(paint.opacity))
         copy.setStroke(stroke(paint))
         copy.draw(shape)
       }
     }
+
+  private def resolvePattern(
+      paint: PatternPaint,
+      patterns: mutable.Map[PatternPaint, TexturePaint],
+      accumulator: Java2DDrawAccumulator
+  ): TexturePaint =
+    patterns.get(paint) match
+      case Some(pattern) =>
+        accumulator.recordPattern(hit = true)
+        pattern
+      case None =>
+        val tile = PatternTile.fromPaint(paint).fold(error => throw new IllegalStateException(error.message), identity)
+        val pattern = new TexturePaint(
+          buffered(tile.image),
+          new Rectangle2D.Double(0.0, 0.0, tile.width, tile.height)
+        )
+        patterns.update(paint, pattern)
+        accumulator.recordPattern(hit = false)
+        pattern
 
   private def stroke(paint: Java2DPaint): BasicStroke =
     val cap = paint.lineCap match

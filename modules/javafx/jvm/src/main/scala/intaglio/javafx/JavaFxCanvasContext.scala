@@ -3,7 +3,7 @@ package intaglio.javafx
 import javafx.geometry.VPos
 import javafx.scene.canvas.GraphicsContext
 import javafx.scene.image.{Image, PixelFormat, WritableImage}
-import javafx.scene.paint.Color
+import javafx.scene.paint.{Color, ImagePattern}
 import javafx.scene.shape.{StrokeLineCap, StrokeLineJoin}
 import javafx.scene.text.{Font, TextAlignment}
 import scala.collection.mutable
@@ -17,6 +17,7 @@ import intaglio.*
   */
 final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphicsContext:
   private val images = mutable.HashMap.empty[RasterImage, Image]
+  private val patterns = mutable.HashMap.empty[PatternPaint, ImagePattern]
 
   override def save(): Unit =
     context.save()
@@ -62,6 +63,12 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
 
   override def setFill(color: JavaFxColor): Unit =
     context.setFill(fx(color))
+
+  override def setPatternFill(pattern: PatternPaint): Boolean =
+    val hit = patterns.contains(pattern)
+    val resource = patterns.getOrElseUpdate(pattern, imagePattern(pattern))
+    context.setFill(resource)
+    hit
 
   override def setStroke(color: JavaFxColor): Unit =
     context.setStroke(fx(color))
@@ -122,6 +129,10 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
 
   private def fx(color: JavaFxColor): Color =
     Color.rgb(color.red, color.green, color.blue, color.alpha.max(0.0).min(1.0))
+
+  private def imagePattern(pattern: PatternPaint): ImagePattern =
+    val tile = PatternTile.fromPaint(pattern).fold(error => throw new IllegalStateException(error.message), identity)
+    new ImagePattern(writable(tile.image), 0.0, 0.0, tile.width, tile.height, false)
 
   private def writable(image: RasterImage): WritableImage =
     val output = new WritableImage(image.width, image.height)

@@ -1,6 +1,6 @@
 package intaglio.javafx
 
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ArrayBuffer, HashSet}
 import intaglio.*
 
 /** Records every drawing call so the interpreter is exercised without
@@ -13,10 +13,13 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   var lastJoin: Option[LineJoin] = None
   var lastStroke: Option[JavaFxColor] = None
   var lastFill: Option[JavaFxColor] = None
+  var lastPattern: Option[PatternPaint] = None
+  val patternResources: HashSet[PatternPaint] = HashSet.empty
   var lastFont: (Option[String], Double) = (None, 0.0)
   var lastAlign: Option[HJust] = None
   var lastBaseline: Option[VJust] = None
   var globalAlpha: Double = 1.0
+  val globalAlphaValues: ArrayBuffer[Double] = ArrayBuffer.empty
   var imageSmoothing: Boolean = true
   var drawnImage: Option[RasterImage] = None
   var drawnBounds: Vector[Double] = Vector.empty
@@ -38,6 +41,12 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   override def setFill(color: JavaFxColor): Unit =
     calls += "setFill"
     lastFill = Some(color)
+  override def setPatternFill(pattern: PatternPaint): Boolean =
+    calls += "setPatternFill"
+    lastPattern = Some(pattern)
+    val hit = patternResources.contains(pattern)
+    patternResources += pattern
+    hit
   override def setStroke(color: JavaFxColor): Unit =
     calls += "setStroke"
     lastStroke = Some(color)
@@ -64,6 +73,7 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   override def setGlobalAlpha(alpha: Double): Unit =
     calls += "setGlobalAlpha"
     globalAlpha = alpha
+    globalAlphaValues += alpha
   override def setImageSmoothing(enabled: Boolean): Unit =
     calls += "setImageSmoothing"
     imageSmoothing = enabled
@@ -148,6 +158,75 @@ class JavaFxRendererSuite extends munit.FunSuite:
     assertEquals(context.lastCap, Some(LineCap.Round))
     assertEquals(context.lastJoin, Some(LineJoin.Bevel))
     assertEquals(context.lastStroke, Some(JavaFxColor(10, 20, 30, 1.0)))
+  }
+
+  test("pattern resources are reused across every fill-bearing primitive") {
+    val recipe = PatternRecipe.crossHatch(30.0, 10.0, 1.5).fold(error => fail(error.message), identity)
+    val pattern = PatternPaint(recipe, Rgba.Black, Some(Rgba.White))
+    val params = GraphicParams.unsafe(stroke = None, alpha = 0.8).withPatternFill(pattern)
+    val grobs = Vector(
+      Grob.rectUnsafe(
+        Point.npcUnsafe(0.15, 0.25),
+        Size.npcUnsafe(0.2, 0.3),
+        gp = params,
+        name = Some(GraphicsName.unsafe("pattern-rect"))
+      ),
+      Grob.circleUnsafe(
+        Point.npcUnsafe(0.4, 0.25),
+        ExtentExpr.npcUnsafe(0.1),
+        gp = params,
+        name = Some(GraphicsName.unsafe("pattern-disc"))
+      ),
+      Grob.polygonUnsafe(
+        Vector(Point.npcUnsafe(0.55, 0.1), Point.npcUnsafe(0.75, 0.1), Point.npcUnsafe(0.65, 0.4)),
+        gp = params,
+        name = Some(GraphicsName.unsafe("pattern-polygon"))
+      ),
+      Grob.compoundPolygonUnsafe(
+        Vector(Vector(Point.npcUnsafe(0.1, 0.6), Point.npcUnsafe(0.9, 0.6), Point.npcUnsafe(0.5, 0.9))),
+        gp = params,
+        name = Some(GraphicsName.unsafe("pattern-compound"))
+      )
+    )
+    val program = JavaFxRenderer
+      .compile(Scene(grobs), JavaFxOptions.unsafe(width = 100, height = 80))
+      .fold(error => fail(error.message), identity)
+    val context = RecordingFxContext()
+
+    val cold = JavaFxRenderer.drawProfile(program, context)
+    val warm = JavaFxRenderer.drawProfile(program, context)
+
+    assertEquals(cold, JavaFxDrawProfile(4, 3, 1))
+    assertEquals(warm, JavaFxDrawProfile(4, 4, 0))
+    assertEquals(context.patternResources.toSet, Set(pattern))
+    assertEquals(context.lastPattern, Some(pattern))
+    assert(context.globalAlphaValues.contains(0.8))
+    assertEquals(context.globalAlpha, 1.0)
+    val paints = program.commands.collect {
+      case JavaFxCommand.Disc(_, _, _, paint, _)             => paint
+      case JavaFxCommand.Polyline(_, true, paint, _)         => paint
+      case JavaFxCommand.CompoundPolygon(_, paint, _)        => paint
+      case JavaFxCommand.Rectangle(_, _, _, _, paint, _)     => paint
+    }
+    assertEquals(paints.length, 4)
+    assert(paints.forall(_.fillPattern.contains(pattern)))
+    assert(paints.forall(_.opacity == 0.8))
+  }
+
+  test("oversized raster patterns fail at the typed compile boundary") {
+    val recipe = PatternRecipe
+      .parallelRules(RuleOrientation.Vertical, PatternTile.MaxAxisPixels.toDouble + 1.0, 1.0)
+      .fold(error => fail(error.message), identity)
+    val rect = Grob.rectUnsafe(
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(0.5, 0.5),
+      gp = GraphicParams.unsafe(stroke = None).withPatternFill(PatternPaint(recipe, Rgba.Black))
+    )
+
+    assert(JavaFxRenderer.compile(Scene(Vector(rect))).left.toOption.exists {
+      case JavaFxRenderError.Graphics(GraphicsError.InvalidPatternParameter("raster", "spacing", _, _)) => true
+      case _                                                                                               => false
+    })
   }
 
   test("text runs carry anchor, font, and combined fill opacity") {

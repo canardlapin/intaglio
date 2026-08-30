@@ -3,6 +3,7 @@ package intaglio.canvas
 import scala.scalajs.js
 import scala.scalajs.js.typedarray.{Uint8Array, Uint8ClampedArray, Uint32Array}
 import scala.collection.mutable
+import scala.util.control.NonFatal
 import intaglio.*
 
 final case class CanvasOptions private (width: Int, height: Int)
@@ -21,6 +22,7 @@ object CanvasOptions:
 enum CanvasRenderError extends IntaglioError:
   case InvalidCanvasSize(width: Int, height: Int)
   case InvalidRasterCacheCapacity(value: Int)
+  case PatternResourceFailure(detail: String)
   case Graphics(error: GraphicsError)
 
   def message: String =
@@ -29,6 +31,8 @@ enum CanvasRenderError extends IntaglioError:
         s"Canvas size must be positive: ${width}x$height"
       case InvalidRasterCacheCapacity(value) =>
         s"Canvas raster cache capacity must be non-negative; got $value"
+      case PatternResourceFailure(detail) =>
+        s"Canvas pattern resource failed: $detail"
       case Graphics(error) =>
         error.message
 
@@ -69,7 +73,8 @@ final case class CanvasPaint(
     dash: CanvasLineDash,
     lineCap: LineCap,
     lineJoin: LineJoin,
-    opacity: Double
+    opacity: Double,
+    fillPattern: Option[PatternPaint] = None
 )
 
 object CanvasPaint:
@@ -81,12 +86,22 @@ object CanvasPaint:
       CanvasLineDash.fromLineType(gp.lineType),
       gp.lineCap,
       gp.lineJoin,
-      gp.alpha
+      gp.alpha,
+      gp.fillPattern
     )
 
   def text(gp: GraphicParams): CanvasPaint =
     val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
-    CanvasPaint(None, Some(CanvasColor.fromRgba(color)), 0.0, CanvasLineDash.Solid, gp.lineCap, gp.lineJoin, gp.alpha)
+    CanvasPaint(
+      None,
+      Some(CanvasColor.fromRgba(color)),
+      0.0,
+      CanvasLineDash.Solid,
+      gp.lineCap,
+      gp.lineJoin,
+      gp.alpha,
+      None
+    )
 
 /** Deterministic Canvas 2D operations in device coordinates. Group effects
   * deliberately record rotation before clipping: the clip is installed in
@@ -229,6 +244,10 @@ trait CanvasImageData extends js.Object:
 trait CanvasImageSource extends js.Object
 
 @js.native
+trait CanvasPattern extends js.Object:
+  def setTransform(transform: js.Any): Unit = js.native
+
+@js.native
 trait CanvasElement extends CanvasImageSource:
   var width: Int = js.native
   var height: Int = js.native
@@ -268,6 +287,7 @@ trait CanvasRenderingContext2D extends js.Object:
   def createImageData(width: Int, height: Int): CanvasImageData = js.native
   def putImageData(image: CanvasImageData, x: Double, y: Double): Unit = js.native
   def drawImage(image: CanvasImageSource, x: Double, y: Double, width: Double, height: Double): Unit = js.native
+  def createPattern(image: CanvasImageSource, repetition: String): CanvasPattern = js.native
 
 trait CanvasRasterFactory:
   def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource
@@ -362,20 +382,26 @@ final case class CanvasDrawProfile(
   imageRequests: Int,
   cacheHits: Int,
   cacheMisses: Int,
-  uploadedBytes: Long
+  uploadedBytes: Long,
+  patternRequests: Int = 0,
+  patternCacheHits: Int = 0,
+  patternCacheMisses: Int = 0
 ):
   def hitRate: Double =
     if imageRequests == 0 then 1.0 else cacheHits.toDouble / imageRequests
 
 object CanvasDrawProfile:
   val Zero: CanvasDrawProfile =
-    CanvasDrawProfile(0, 0, 0, 0L)
+    CanvasDrawProfile(0, 0, 0, 0L, 0, 0, 0)
 
 private final class CanvasDrawAccumulator:
   private var imageRequests = 0
   private var cacheHits = 0
   private var cacheMisses = 0
   private var uploadedBytes = 0L
+  private var patternRequests = 0
+  private var patternCacheHits = 0
+  private var patternCacheMisses = 0
 
   def recordImage(hit: Boolean, bytes: Long): Unit =
     imageRequests += 1
@@ -384,14 +410,65 @@ private final class CanvasDrawAccumulator:
       cacheMisses += 1
       uploadedBytes += bytes
 
+  def recordPattern(hit: Boolean): Unit =
+    patternRequests += 1
+    if hit then patternCacheHits += 1
+    else patternCacheMisses += 1
+
   def result: CanvasDrawProfile =
-    CanvasDrawProfile(imageRequests, cacheHits, cacheMisses, uploadedBytes)
+    CanvasDrawProfile(
+      imageRequests,
+      cacheHits,
+      cacheMisses,
+      uploadedBytes,
+      patternRequests,
+      patternCacheHits,
+      patternCacheMisses
+    )
+
+private final class CanvasPatternCache:
+  private val entries = mutable.ArrayBuffer.empty[(PatternPaint, CanvasPattern)]
+
+  def resolve(
+      paint: PatternPaint,
+      context: CanvasRenderingContext2D
+  )(using factory: CanvasRasterFactory): Either[CanvasRenderError, (CanvasPattern, Boolean)] =
+    entries.indexWhere(_._1 == paint) match
+      case index if index >= 0 =>
+        Right(entries(index)._2 -> true)
+      case _ =>
+        PatternTile.fromPaint(paint).left.map(CanvasRenderError.Graphics(_)).flatMap { tile =>
+          try
+            val source = factory.create(tile.image, context)
+            val pattern = context.createPattern(source, "repeat")
+            if pattern == null then Left(CanvasRenderError.PatternResourceFailure("createPattern returned null"))
+            else
+              val scaleX = tile.width / tile.image.width.toDouble
+              val scaleY = tile.height / tile.image.height.toDouble
+              if scaleX != 1.0 || scaleY != 1.0 then
+                pattern.setTransform(
+                  js.Dynamic.literal(
+                    a = scaleX,
+                    b = 0.0,
+                    c = 0.0,
+                    d = scaleY,
+                    e = 0.0,
+                    f = 0.0
+                  )
+                )
+              entries += paint -> pattern
+              Right(pattern -> false)
+          catch
+            case NonFatal(_) =>
+              Left(CanvasRenderError.PatternResourceFailure("native pattern creation threw an exception"))
+        }
 
 object CanvasRenderer:
   def compile(scene: Scene, options: CanvasOptions = CanvasOptions.default): Either[CanvasRenderError, CanvasProgram] =
     for
       device <- DeviceContext(options.width.toDouble, options.height.toDouble).left.map(CanvasRenderError.Graphics(_))
       resolved <- DeviceScene.fromScene(scene, device).left.map(CanvasRenderError.Graphics(_))
+      _ <- PatternTile.validate(resolved).left.map(CanvasRenderError.Graphics(_))
     yield CanvasProgram.fromDevice(resolved)
 
   def render(
@@ -399,90 +476,106 @@ object CanvasRenderer:
       context: CanvasRenderingContext2D,
       options: CanvasOptions = CanvasOptions.default
   )(using factory: CanvasRasterFactory): Either[CanvasRenderError, CanvasProgram] =
-    compile(scene, options).map { program =>
-      draw(program, context)
-      program
+    compile(scene, options).flatMap { program =>
+      drawChecked(program, context).map(_ => program)
     }
 
   def draw(program: CanvasProgram, context: CanvasRenderingContext2D)(using factory: CanvasRasterFactory): Unit =
+    drawChecked(program, context).orThrow
+
+  def drawChecked(
+      program: CanvasProgram,
+      context: CanvasRenderingContext2D
+  )(using factory: CanvasRasterFactory): Either[CanvasRenderError, CanvasDrawProfile] =
     val imageCount = program.commands.count(_.isInstanceOf[CanvasCommand.Image])
-    drawCached(program, context, CanvasRasterCache.empty(imageCount))
+    drawCachedChecked(program, context, CanvasRasterCache.empty(imageCount))
 
   def drawCached(
       program: CanvasProgram,
       context: CanvasRenderingContext2D,
       cache: CanvasRasterCache
   )(using factory: CanvasRasterFactory): CanvasDrawProfile =
+    drawCachedChecked(program, context, cache).orThrow
+
+  def drawCachedChecked(
+      program: CanvasProgram,
+      context: CanvasRenderingContext2D,
+      cache: CanvasRasterCache
+  )(using factory: CanvasRasterFactory): Either[CanvasRenderError, CanvasDrawProfile] =
     var openGroups = 0
     val accumulator = new CanvasDrawAccumulator
+    val patterns = new CanvasPatternCache
+    var result: Either[CanvasRenderError, Unit] = Right(())
     try
       var commandIndex = 0
-      while commandIndex < program.commands.length do
+      while commandIndex < program.commands.length && result.isRight do
         val command = program.commands(commandIndex)
-        command match
-          case CanvasCommand.Save(_) =>
-            execute(command, context, cache, accumulator)
-            openGroups += 1
-          case CanvasCommand.Restore(_) =>
-            execute(command, context, cache, accumulator)
-            openGroups -= 1
-          case _ =>
-            execute(command, context, cache, accumulator)
+        result = execute(command, context, cache, patterns, accumulator)
+        if result.isRight then
+          command match
+            case CanvasCommand.Save(_)    => openGroups += 1
+            case CanvasCommand.Restore(_) => openGroups -= 1
+            case _                        => ()
         commandIndex += 1
     finally
       while openGroups > 0 do
         context.restore()
         openGroups -= 1
-    accumulator.result
+    result.map(_ => accumulator.result)
 
   private def execute(
       command: CanvasCommand,
       context: CanvasRenderingContext2D,
       cache: CanvasRasterCache,
+      patterns: CanvasPatternCache,
       accumulator: CanvasDrawAccumulator
-  )(using factory: CanvasRasterFactory): Unit =
+  )(using factory: CanvasRasterFactory): Either[CanvasRenderError, Unit] =
     command match
       case CanvasCommand.Save(_) =>
         context.save()
+        Right(())
       case CanvasCommand.Restore(_) =>
         context.restore()
+        Right(())
       case CanvasCommand.Rotate(degrees, pivotX, pivotY) =>
         context.translate(pivotX, pivotY)
         context.rotate(degrees * math.Pi / 180.0)
         context.translate(-pivotX, -pivotY)
+        Right(())
       case CanvasCommand.ClipRect(x, y, width, height) =>
         context.beginPath()
         context.rect(x, y, width, height)
         context.clip()
+        Right(())
       case CanvasCommand.Disc(centerX, centerY, radius, paint, _) =>
-        withSaved(context) {
+        withSavedEither(context) {
           context.beginPath()
           context.arc(centerX, centerY, radius, 0.0, math.Pi * 2.0, false)
-          paintPath(context, paint)
+          paintPath(context, paint, true, patterns, accumulator)
         }
       case CanvasCommand.Polyline(points, closed, paint, _) =>
-        withSaved(context) {
+        withSavedEither(context) {
           context.beginPath()
           context.moveTo(points.head.x, points.head.y)
           points.tail.foreach(point => context.lineTo(point.x, point.y))
           if closed then context.closePath()
-          paintPath(context, paint)
+          paintPath(context, paint, closed, patterns, accumulator)
         }
       case CanvasCommand.CompoundPolygon(rings, paint, _) =>
-        withSaved(context) {
+        withSavedEither(context) {
           context.beginPath()
           rings.foreach { ring =>
             context.moveTo(ring.head.x, ring.head.y)
             ring.tail.foreach(point => context.lineTo(point.x, point.y))
             context.closePath()
           }
-          paintPath(context, paint)
+          paintPath(context, paint, true, patterns, accumulator)
         }
       case CanvasCommand.Rectangle(x, y, width, height, paint, _) =>
-        withSaved(context) {
+        withSavedEither(context) {
           context.beginPath()
           context.rect(x, y, width, height)
-          paintPath(context, paint)
+          paintPath(context, paint, true, patterns, accumulator)
         }
       case CanvasCommand.Text(label, x, y, horizontal, vertical, rotation, fontSize, fontFamily, paint, _) =>
         withSaved(context) {
@@ -498,6 +591,7 @@ object CanvasRenderer:
             context.rotate(rotation * math.Pi / 180.0)
             context.fillText(label, 0.0, 0.0)
         }
+        Right(())
       case CanvasCommand.Image(image, x, y, width, height, interpolation, alpha, _) =>
         val (source, hit) = cache.resolve(image, context)
         withSaved(context) {
@@ -506,29 +600,58 @@ object CanvasRenderer:
           context.drawImage(source, x, y, width, height)
         }
         accumulator.recordImage(hit, image.dimensions.pixelCount.toLong * 4L)
+        Right(())
 
   private def withSaved(context: CanvasRenderingContext2D)(body: => Unit): Unit =
     context.save()
     try body
     finally context.restore()
 
-  private def paintPath(context: CanvasRenderingContext2D, paint: CanvasPaint): Unit =
-    paint.fill.foreach { color =>
-      context.fillStyle = color.css
-      context.globalAlpha = paint.opacity * color.alpha
-      context.fill()
-    }
-    paint.stroke.foreach { color =>
-      context.strokeStyle = color.css
-      context.globalAlpha = paint.opacity * color.alpha
-      context.lineWidth = paint.lineWidth
-      context.lineCap = canvasLineCap(paint.lineCap)
-      context.lineJoin = canvasLineJoin(paint.lineJoin)
-      val dash = paint.dash match
-        case CanvasLineDash.Solid           => js.Array[Double]()
-        case CanvasLineDash.Pattern(values) => js.Array(values*)
-      context.setLineDash(dash)
-      context.stroke()
+  private def withSavedEither(
+      context: CanvasRenderingContext2D
+  )(body: => Either[CanvasRenderError, Unit]): Either[CanvasRenderError, Unit] =
+    context.save()
+    try body
+    finally context.restore()
+
+  private def paintPath(
+      context: CanvasRenderingContext2D,
+      paint: CanvasPaint,
+      allowFill: Boolean,
+      patterns: CanvasPatternCache,
+      accumulator: CanvasDrawAccumulator
+  )(using factory: CanvasRasterFactory): Either[CanvasRenderError, Unit] =
+    val filled =
+      if !allowFill then Right(())
+      else
+        paint.fillPattern match
+          case Some(pattern) =>
+            patterns.resolve(pattern, context).map { case (resource, hit) =>
+              accumulator.recordPattern(hit)
+              context.fillStyle = resource
+              context.globalAlpha = paint.opacity
+              context.fill()
+            }
+          case None =>
+            paint.fill.foreach { color =>
+              context.fillStyle = color.css
+              context.globalAlpha = paint.opacity * color.alpha
+              context.fill()
+            }
+            Right(())
+    filled.map { _ =>
+      paint.stroke.foreach { color =>
+        context.strokeStyle = color.css
+        context.globalAlpha = paint.opacity * color.alpha
+        context.lineWidth = paint.lineWidth
+        context.lineCap = canvasLineCap(paint.lineCap)
+        context.lineJoin = canvasLineJoin(paint.lineJoin)
+        val dash = paint.dash match
+          case CanvasLineDash.Solid           => js.Array[Double]()
+          case CanvasLineDash.Pattern(values) => js.Array(values*)
+        context.setLineDash(dash)
+        context.stroke()
+      }
     }
 
   private def canvasLineCap(value: LineCap): String =

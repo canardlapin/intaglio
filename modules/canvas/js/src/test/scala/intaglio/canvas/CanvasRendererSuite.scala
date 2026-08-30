@@ -99,6 +99,129 @@ class CanvasRendererSuite extends munit.FunSuite:
     assertEquals(context.lineJoin, "bevel")
   }
 
+  test("pattern resources are reused across every fill-bearing primitive") {
+    var tileCreates = 0
+    given CanvasRasterFactory with
+      def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource =
+        tileCreates += 1
+        js.Dynamic.literal().asInstanceOf[CanvasImageSource]
+
+    var patternCreates = 0
+    var transforms = 0
+    var fills = 0
+    val patternResource = js.Dynamic
+      .literal(
+        setTransform = ((_: js.Any) => transforms += 1): js.Function1[js.Any, Unit]
+      )
+      .asInstanceOf[CanvasPattern]
+    val context = js.Dynamic
+      .literal(
+        save = (() => ()): js.Function0[Unit],
+        restore = (() => ()): js.Function0[Unit],
+        beginPath = (() => ()): js.Function0[Unit],
+        closePath = (() => ()): js.Function0[Unit],
+        fill = (() => fills += 1): js.Function0[Unit],
+        stroke = (() => ()): js.Function0[Unit],
+        moveTo = ((_: Double, _: Double) => ()): js.Function2[Double, Double, Unit],
+        lineTo = ((_: Double, _: Double) => ()): js.Function2[Double, Double, Unit],
+        rect = ((_: Double, _: Double, _: Double, _: Double) => ()): js.Function4[Double, Double, Double, Double, Unit],
+        arc = ((_: Double, _: Double, _: Double, _: Double, _: Double, _: Boolean) => ()): js.Function6[Double, Double, Double, Double, Double, Boolean, Unit],
+        setLineDash = ((_: js.Array[Double]) => ()): js.Function1[js.Array[Double], Unit],
+        createPattern = ((_: CanvasImageSource, repetition: String) =>
+          patternCreates += 1
+          assertEquals(repetition, "repeat")
+          patternResource): js.Function2[CanvasImageSource, String, CanvasPattern],
+        strokeStyle = "",
+        fillStyle = "",
+        globalAlpha = 1.0,
+        lineWidth = 1.0,
+        lineCap = "",
+        lineJoin = ""
+      )
+      .asInstanceOf[CanvasRenderingContext2D]
+    val recipe = PatternRecipe.crossHatch(30.0, 10.5, 1.5).fold(error => fail(error.message), identity)
+    val pattern = PatternPaint(recipe, Rgba.Black, Some(Rgba.White))
+    val params = GraphicParams.unsafe(stroke = None, alpha = 0.8).withPatternFill(pattern)
+    val grobs = Vector(
+      Grob.rectUnsafe(Point.npcUnsafe(0.15, 0.25), Size.npcUnsafe(0.2, 0.3), gp = params),
+      Grob.circleUnsafe(Point.npcUnsafe(0.4, 0.25), ExtentExpr.npcUnsafe(0.1), gp = params),
+      Grob.polygonUnsafe(
+        Vector(Point.npcUnsafe(0.55, 0.1), Point.npcUnsafe(0.75, 0.1), Point.npcUnsafe(0.65, 0.4)),
+        gp = params
+      ),
+      Grob.compoundPolygonUnsafe(
+        Vector(Vector(Point.npcUnsafe(0.1, 0.6), Point.npcUnsafe(0.9, 0.6), Point.npcUnsafe(0.5, 0.9))),
+        gp = params
+      )
+    )
+    val program = CanvasRenderer
+      .compile(Scene(grobs), CanvasOptions.unsafe(width = 100, height = 80))
+      .fold(error => fail(error.message), identity)
+
+    val profile = CanvasRenderer.drawChecked(program, context).fold(error => fail(error.message), identity)
+
+    assertEquals(profile, CanvasDrawProfile(0, 0, 0, 0L, 4, 3, 1))
+    assertEquals(tileCreates, 1)
+    assertEquals(patternCreates, 1)
+    assertEquals(transforms, 1)
+    assertEquals(fills, 4)
+    val paints = program.commands.collect {
+      case CanvasCommand.Disc(_, _, _, paint, _)             => paint
+      case CanvasCommand.Polyline(_, true, paint, _)         => paint
+      case CanvasCommand.CompoundPolygon(_, paint, _)        => paint
+      case CanvasCommand.Rectangle(_, _, _, _, paint, _)     => paint
+    }
+    assertEquals(paints.length, 4)
+    assert(paints.forall(_.fillPattern.contains(pattern)))
+    assert(paints.forall(_.opacity == 0.8))
+  }
+
+  test("native Canvas pattern failure remains typed") {
+    given CanvasRasterFactory with
+      def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource =
+        js.Dynamic.literal().asInstanceOf[CanvasImageSource]
+
+    val context = js.Dynamic
+      .literal(
+        save = (() => ()): js.Function0[Unit],
+        restore = (() => ()): js.Function0[Unit],
+        beginPath = (() => ()): js.Function0[Unit],
+        rect = ((_: Double, _: Double, _: Double, _: Double) => ()): js.Function4[Double, Double, Double, Double, Unit],
+        createPattern = ((_: CanvasImageSource, _: String) => null.asInstanceOf[CanvasPattern]): js.Function2[CanvasImageSource, String, CanvasPattern],
+        fillStyle = "",
+        globalAlpha = 1.0
+      )
+      .asInstanceOf[CanvasRenderingContext2D]
+    val recipe = PatternRecipe.stipple(8.0, 2.0).fold(error => fail(error.message), identity)
+    val rect = Grob.rectUnsafe(
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(0.5, 0.5),
+      gp = GraphicParams.unsafe(stroke = None).withPatternFill(PatternPaint(recipe, Rgba.Black))
+    )
+    val program = CanvasRenderer.compile(Scene(Vector(rect))).fold(error => fail(error.message), identity)
+
+    assertEquals(
+      CanvasRenderer.drawChecked(program, context).left.toOption,
+      Some(CanvasRenderError.PatternResourceFailure("createPattern returned null"))
+    )
+  }
+
+  test("oversized raster patterns fail at the typed compile boundary") {
+    val recipe = PatternRecipe
+      .parallelRules(RuleOrientation.Vertical, PatternTile.MaxAxisPixels.toDouble + 1.0, 1.0)
+      .fold(error => fail(error.message), identity)
+    val rect = Grob.rectUnsafe(
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(0.5, 0.5),
+      gp = GraphicParams.unsafe(stroke = None).withPatternFill(PatternPaint(recipe, Rgba.Black))
+    )
+
+    assert(CanvasRenderer.compile(Scene(Vector(rect))).left.toOption.exists {
+      case CanvasRenderError.Graphics(GraphicsError.InvalidPatternParameter("raster", "spacing", _, _)) => true
+      case _                                                                                               => false
+    })
+  }
+
   test("invalid canvas dimensions return typed errors") {
     assertEquals(
       CanvasOptions(width = 0, height = 20).left.toOption,

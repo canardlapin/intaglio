@@ -3,6 +3,7 @@ package intaglio
 /** Behavioral family a conformance case exercises. */
 enum ConformanceGroup:
   case Primitive
+  case PatternFill
   case Layout
   case Guide
   case CompiledPlot
@@ -32,6 +33,7 @@ enum RenderRequirement:
       lineJoin: LineJoin,
       alpha: Double
   )
+  case PatternFill(name: GraphicsName, paint: PatternPaint, alpha: Double)
   case Text(name: GraphicsName, horizontal: HJust, vertical: VJust, rotated: Boolean)
   case Image(
       name: GraphicsName,
@@ -48,6 +50,8 @@ enum RenderRequirement:
         s"group '${name.value}' with clipped=$clipped and rotated=$rotated"
       case Style(name, _, _, lineWidth, lineType, lineCap, lineJoin, alpha) =>
         s"style '${name.value}' with lineWidth=$lineWidth, lineType=$lineType, lineCap=$lineCap, lineJoin=$lineJoin, alpha=$alpha"
+      case PatternFill(name, paint, alpha) =>
+        s"pattern fill '${name.value}' with recipe=${paint.recipe}, ink=${paint.ink}, background=${paint.background}, alpha=$alpha"
       case Text(name, horizontal, vertical, rotated) =>
         s"text '${name.value}' with anchor=($horizontal,$vertical) and rotated=$rotated"
       case Image(name, dimensions, interpolation, alpha) =>
@@ -127,6 +131,7 @@ object RendererConformance:
       line <- lineCase
       shapes <- shapeCase
       rectAndCircle <- rectCircleCase
+      patternFills <- patternFillCase
       text <- textCase
       image <- imageCase
       clipped <- clippedViewportCase
@@ -167,6 +172,7 @@ object RendererConformance:
       line,
       shapes,
       rectAndCircle,
+      patternFills,
       text,
       image,
       clipped,
@@ -319,6 +325,76 @@ object RendererConformance:
       ConformanceGroup.Primitive,
       Scene(Vector(rect, circle)),
       Vector(GraphicsName.unsafe("conformance-rect"), GraphicsName.unsafe("conformance-circle"))
+    )
+
+  def patternFillCase: Either[GraphicsError, ConformanceCase] =
+    val angledName = GraphicsName.unsafe("conformance-pattern-angled")
+    val crossedName = GraphicsName.unsafe("conformance-pattern-crossed")
+    val rulesName = GraphicsName.unsafe("conformance-pattern-rules")
+    val stippleName = GraphicsName.unsafe("conformance-pattern-stipple")
+    for
+      angledRecipe <- PatternRecipe.angledHatch(30.0, 12.0, 1.5)
+      crossedRecipe <- PatternRecipe.crossHatch(45.0, 12.0, 1.5)
+      rulesRecipe <- PatternRecipe.parallelRules(RuleOrientation.Horizontal, 12.0, 2.0)
+      stippleRecipe <- PatternRecipe.stipple(12.0, 2.5)
+      angledPaint = PatternPaint(angledRecipe, Rgba.unsafe(25, 35, 45, 0.8), Some(Rgba.White))
+      crossedPaint = PatternPaint(crossedRecipe, Rgba.unsafe(55, 65, 75), Some(Rgba.unsafe(230, 235, 240, 0.6)))
+      rulesPaint = PatternPaint(rulesRecipe, Rgba.unsafe(85, 95, 105, 0.7))
+      stipplePaint = PatternPaint(stippleRecipe, Rgba.unsafe(115, 125, 135), Some(Rgba.White))
+      angled <- Grob.rect(
+        Point.npcUnsafe(0.2, 0.25),
+        Size.npcUnsafe(0.25, 0.3),
+        gp = GraphicParams.unsafe(stroke = None, alpha = 0.85).withPatternFill(angledPaint),
+        name = Some(angledName)
+      )
+      crossed <- Grob.circle(
+        Point.npcUnsafe(0.45, 0.25),
+        ExtentExpr.npcUnsafe(0.12),
+        gp = GraphicParams.unsafe(stroke = None, alpha = 0.75).withPatternFill(crossedPaint),
+        name = Some(crossedName)
+      )
+      rules <- Grob.polygon(
+        Vector(
+          Point.npcUnsafe(0.6, 0.1),
+          Point.npcUnsafe(0.85, 0.1),
+          Point.npcUnsafe(0.725, 0.4)
+        ),
+        gp = GraphicParams.unsafe(stroke = None, alpha = 0.65).withPatternFill(rulesPaint),
+        name = Some(rulesName)
+      )
+      stipple <- Grob.compoundPolygon(
+        Vector(
+          Vector(
+            Point.npcUnsafe(0.2, 0.55),
+            Point.npcUnsafe(0.8, 0.55),
+            Point.npcUnsafe(0.8, 0.9),
+            Point.npcUnsafe(0.2, 0.9)
+          ),
+          Vector(
+            Point.npcUnsafe(0.4, 0.65),
+            Point.npcUnsafe(0.6, 0.65),
+            Point.npcUnsafe(0.6, 0.8),
+            Point.npcUnsafe(0.4, 0.8)
+          )
+        ),
+        gp = GraphicParams.unsafe(stroke = None, alpha = 0.55).withPatternFill(stipplePaint),
+        name = Some(stippleName)
+      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("pattern-fills"),
+      ConformanceGroup.PatternFill,
+      Scene(Vector(angled, crossed, rules, stipple)),
+      Vector(angledName, crossedName, rulesName, stippleName),
+      Vector(
+        RenderRequirement.Primitive(angledName, RenderPrimitiveKind.Rectangle),
+        RenderRequirement.PatternFill(angledName, angledPaint, 0.85),
+        RenderRequirement.Primitive(crossedName, RenderPrimitiveKind.Disc),
+        RenderRequirement.PatternFill(crossedName, crossedPaint, 0.75),
+        RenderRequirement.Primitive(rulesName, RenderPrimitiveKind.Polygon),
+        RenderRequirement.PatternFill(rulesName, rulesPaint, 0.65),
+        RenderRequirement.Primitive(stippleName, RenderPrimitiveKind.Polygon),
+        RenderRequirement.PatternFill(stippleName, stipplePaint, 0.55)
+      )
     )
 
   def textCase: Either[GraphicsError, ConformanceCase] =
