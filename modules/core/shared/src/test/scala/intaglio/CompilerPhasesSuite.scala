@@ -195,7 +195,7 @@ class CompilerPhasesSuite extends munit.FunSuite:
     val plot = groupedLinePlot
     val mapped = MappingPhase.plan(plot).fold(e => fail(e.message), identity).head
     val plan = StatPhase.transform(mapped.value).fold(e => fail(e.message), identity)
-    val (rows, dropped) = RowPhase.resolve(plan).fold(e => fail(e.message), identity)
+    val (rows, dropped) = RowPhase.resolve(plan.value).fold(e => fail(e.message), identity)
 
     assertEquals(dropped, Vector.empty)
     assertEquals(rows.map(_.group), Vector(Some("A"), Some("A"), Some("B"), Some("B"), Some("A")))

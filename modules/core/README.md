@@ -136,6 +136,34 @@ a missing value replaced by zero. `row.computed` and
 rows (with declared keys retained for an empty frame), rather than storage used
 to drive compilation.
 
+`Stat` is an open public transform contract. Its single compiler entry point is
+polymorphic in the current input subtype:
+
+```scala
+def compute[Input <: Row](
+  batch: StatBatch[Input],
+  context: StatContext
+): Either[StatError, StatResult[Input]]
+```
+
+`StatBatch` supplies stable indexed inputs and the effective input mapping;
+`StatContext` distinguishes plot-level from concrete `FacetCell` execution.
+`StatResult` is an existential package: an extension's exact `StatRow` subtype
+stays attached to its exact `AesSpec`, so output mappings can be total functions
+over required fields. The compiler validates that output mapping against the
+selected geom, but has no registry or match statement for stat implementations.
+External stats normally select `StatLowering.Geom` and map their result to an
+ordinary geom.
+
+Every implementation also publishes a `StatContract` with explicit
+`inputPreservation`, `grouping`, `summarization`, `rejection`, input-`mapping`,
+`geometry`, and `lowering` policies. Built-in identity, count, bin, summary, and
+density stats execute through this same interface. Expected accessor and
+precondition failures are `StatError` values; the compiler adds layer
+provenance when translating them to `GraphicsError`. The shared
+`external.stat.OpenStatSuite` is an executable consumer-package example that
+defines a new stat and output row without package-private access.
+
 Ecosystem code can define a typed aesthetic without registering a string or
 editing core. The key has reference identity, so retain and reuse the same
 value for insertion and lookup:

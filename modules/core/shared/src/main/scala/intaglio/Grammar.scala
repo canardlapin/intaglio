@@ -1250,33 +1250,38 @@ object Layer:
       case None if layer.geom == Geom.HLine || layer.geom == Geom.VLine =>
         Left(GraphicsError.ReferenceLineRequiresAnnotation(layer.geom.label))
       case None =>
-        layer.stat match
-          case Stat.Identity =>
-            validate(layer.geom, mapping)
-          case _: Stat.Count[?] =>
-            validateComputedStat(layer, mapping, Geom.Bar)
-          case _: Stat.Bin[?] =>
-            validateComputedStat(layer, mapping, Geom.Bar)
-          case _: Stat.Summary[?] =>
-            validateComputedStat(layer, mapping, Geom.Point)
-          case _: Stat.Density[?] =>
-            validateComputedStat(layer, mapping, Geom.Line)
+        for
+          _ <- validateStatGeometry(layer.stat, layer.geom)
+          _ <- layer.stat.contract.mapping match
+            case StatMappingPolicy.Preserve => validate(layer.geom, mapping)
+            case StatMappingPolicy.Replace  => validateReplacedMapping(layer.stat, mapping)
+            case StatMappingPolicy.Consume  => Right(())
+        yield ()
 
-  private def validateComputedStat[Row](
-      layer: Layer[Row],
-      mapping: AesSpec[Row],
-      expectedGeom: Geom
+  private def validateStatGeometry(
+      stat: Stat[?],
+      geom: Geom
   ): Either[GraphicsError, Unit] =
-    if layer.geom != expectedGeom then
-      Left(GraphicsError.InvalidStatGeom(layer.stat.label, layer.geom.label))
-    else if mapping.x.nonEmpty then
-      Left(GraphicsError.StatAestheticConflict(layer.stat.label, Aesthetic.X.label))
+    stat.contract.geometry match
+      case StatGeometryPolicy.Any =>
+        Right(())
+      case StatGeometryPolicy.Require(expected) if geom == expected =>
+        Right(())
+      case StatGeometryPolicy.Require(_) =>
+        Left(GraphicsError.InvalidStatGeom(stat.label, geom.label))
+
+  private def validateReplacedMapping[Row](
+      stat: Stat[Row],
+      mapping: AesSpec[Row]
+  ): Either[GraphicsError, Unit] =
+    if mapping.x.nonEmpty then
+      Left(GraphicsError.StatAestheticConflict(stat.label, Aesthetic.X.label))
     else if mapping.y.nonEmpty then
-      Left(GraphicsError.StatAestheticConflict(layer.stat.label, Aesthetic.Y.label))
+      Left(GraphicsError.StatAestheticConflict(stat.label, Aesthetic.Y.label))
     else
       mapping.bound.headOption match
         case Some(aesthetic) =>
-          Left(GraphicsError.UnsupportedStatAesthetic(layer.stat.label, aesthetic.label))
+          Left(GraphicsError.UnsupportedStatAesthetic(stat.label, aesthetic.label))
         case None => Right(())
 
   private[intaglio] def validate[Row](

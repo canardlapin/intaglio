@@ -73,6 +73,8 @@ enum GraphicsError extends IntaglioError:
   case StatAestheticConflict(stat: String, aesthetic: String)
   case UnsupportedStatAesthetic(stat: String, aesthetic: String)
   case InvalidStatParameter(stat: String, parameter: String, value: String)
+  case InvalidStatResult(stat: String, detail: String)
+  case StatRejected(stat: String, detail: String)
   case InvalidPositionParameter(
       position: String,
       parameter: String,
@@ -224,6 +226,10 @@ enum GraphicsError extends IntaglioError:
         s"stat '$stat' does not yet aggregate input aesthetic '$aesthetic'"
       case InvalidStatParameter(stat, parameter, value) =>
         s"stat '$stat' requires a valid $parameter: $value"
+      case InvalidStatResult(stat, detail) =>
+        s"stat '$stat' returned an invalid result: $detail"
+      case StatRejected(stat, detail) =>
+        s"stat '$stat' rejected its input: $detail"
       case InvalidPositionParameter(position, parameter, value, expectation) =>
         s"position '$position' requires $parameter to be $expectation: $value"
       case InvalidPositionGeom(position, geom) =>

@@ -100,12 +100,14 @@ object ComputedValues:
           density = Some(output.density),
           position = Some(output.position)
         )
+      case _ =>
+        empty
 
 /** One typed output row from a statistic. `members` makes aggregation inspectable; `source` is the
   * stable representative used by source-oriented diagnostics. Required statistic outputs are
   * ordinary fields on the corresponding subtype, never absent entries in an optional record.
   */
-sealed trait StatRow[+Row]:
+trait StatRow[+Row]:
   def source: Row
   def members: Vector[Row]
   def category: Option[String]
@@ -204,6 +206,212 @@ final case class StatFrame[Row] private[intaglio] (
   def computedAesthetics: Set[ComputedAesthetic[?]] =
     if rows.isEmpty then declaredAesthetics
     else rows.iterator.flatMap(_.computed.aesthetics).toSet
+
+/** How output rows retain their source observations. Extension laws can verify this declaration
+  * against the `source` and `members` carried by each [[StatRow]].
+  */
+enum StatInputPreservation:
+  /** Exactly one output per input, with that input preserved as the sole member. */
+  case OneToOne
+
+  /** Outputs aggregate non-empty subsets and retain every contributing member. */
+  case AggregateMembers
+
+  /** Generated outputs retain the complete input batch as their members. */
+  case WholeBatch
+
+  /** An extension publishes a more specific preservation contract. */
+  case Custom(description: String)
+
+/** The grouping unit a statistic promises to use. */
+enum StatGroupingPolicy:
+  case None
+  case DiscreteKeys
+  case NumericPositions
+  case HistogramBins
+  case WholeBatch
+  case Custom(description: String)
+
+/** The reduction or generation performed within each grouping unit. */
+enum StatSummarizationPolicy:
+  case Identity
+  case Frequency
+  case MeanInterval
+  case KernelDensity
+  case Custom(description: String)
+
+/** What happens when an input accessor, value, or statistical precondition is rejected. */
+enum StatRejectionPolicy:
+  /** One rejected input fails the statistical transform for the complete layer or facet batch. */
+  case FailBatch
+
+  /** An extension publishes a different policy and implements it inside `Stat.compute`. */
+  case Custom(description: String)
+
+/** Relationship between the layer's input mapping and the statistic's output mapping. */
+enum StatMappingPolicy:
+  /** Preserve the input mapping by contramapping it over one-to-one output rows. */
+  case Preserve
+
+  /** Require an empty input mapping; the statistic owns its complete output mapping. */
+  case Replace
+
+  /** Let the statistic inspect and consume the input mapping before publishing an output mapping.
+    */
+  case Consume
+
+/** Geometry compatibility declared before a statistical transform runs. */
+enum StatGeometryPolicy:
+  case Any
+  case Require(geom: Geom)
+
+/** Existing renderer-neutral lowering path selected by a statistical result. Custom statistics
+  * normally use [[StatLowering.Geom]], mapping their typed output to an ordinary geometry.
+  */
+enum StatLowering:
+  case Geom
+  case Summary
+  case Density
+
+/** Public, inspectable behavioral contract for a statistic. */
+final case class StatContract(
+    inputPreservation: StatInputPreservation,
+    grouping: StatGroupingPolicy,
+    summarization: StatSummarizationPolicy,
+    rejection: StatRejectionPolicy,
+    mapping: StatMappingPolicy,
+    geometry: StatGeometryPolicy,
+    lowering: StatLowering
+)
+
+/** Whether a typed statistic is running over plot-level data or one concrete facet batch. */
+enum StatScope:
+  case Plot
+  case Facet(cell: FacetCell)
+
+/** Compiler context supplied to every built-in and external statistic. */
+final case class StatContext(layerIndex: Int, geom: Geom, scope: StatScope):
+  require(layerIndex >= 0, "`layerIndex` must be non-negative")
+
+/** One source row with its stable position in the current plot or facet batch. */
+final case class StatInput[+Row](index: Int, value: Row)
+
+/** Immutable typed input to [[Stat.compute]]. The effective input mapping is retained for
+  * statistics that declare [[StatMappingPolicy.Consume]]. `evaluate` is the public safe boundary
+  * for row accessors: non-fatal mapping failures remain values with their original row index.
+  */
+final class StatBatch[Row] private (
+    val inputs: Vector[StatInput[Row]],
+    val mapping: AesSpec[Row]
+):
+  def rows: Vector[Row] =
+    inputs.map(_.value)
+
+  def size: Int =
+    inputs.length
+
+  def isEmpty: Boolean =
+    inputs.isEmpty
+
+  def evaluate[A](
+      aesthetic: String,
+      accessor: Row => A
+  ): Either[StatError, Vector[A]] =
+    val out = Vector.newBuilder[A]
+    var index = 0
+    var result: Either[StatError, Unit] = Right(())
+    while index < inputs.length && result.isRight do
+      val input = inputs(index)
+      RowMapping.evaluateFunction(accessor, input.value) match
+        case Right(value) =>
+          out += value
+        case Left((contract, failure)) =>
+          result = Left(
+            StatError.MappingEvaluationFailed(
+              aesthetic,
+              input.index,
+              contract,
+              failure
+            )
+          )
+      index += 1
+    result.map(_ => out.result())
+
+object StatBatch:
+  def apply[Row](rows: Vector[Row], mapping: AesSpec[Row]): StatBatch[Row] =
+    new StatBatch(rows.zipWithIndex.map((value, index) => StatInput(index, value)), mapping)
+
+/** Typed failures returned by an open statistic before the compiler translates layer provenance
+  * into the ordinary [[GraphicsError]] channel.
+  */
+enum StatError extends IntaglioError:
+  case MappingEvaluationFailed(
+      aesthetic: String,
+      rowIndex: Int,
+      contract: MappingContract,
+      failure: MappingFailure
+  )
+  case NonFiniteInput(aesthetic: String, value: Double)
+  case InsufficientData(minimum: Int, actual: Int)
+  case InputOutsideBins(value: Double, lower: Double, upper: Double)
+  case Rejected(detail: String)
+
+  def message: String =
+    this match
+      case MappingEvaluationFailed(aesthetic, rowIndex, contract, failure) =>
+        s"mapping '$aesthetic' failed at row $rowIndex under the ${contract.label} contract: ${failure.message}"
+      case NonFiniteInput(aesthetic, value) =>
+        s"input '$aesthetic' must be finite: $value"
+      case InsufficientData(minimum, actual) =>
+        s"requires at least $minimum observations: found $actual"
+      case InputOutsideBins(value, lower, upper) =>
+        s"value $value is outside explicit breaks [$lower, $upper]"
+      case Rejected(detail) =>
+        detail
+
+  private[intaglio] def toGraphicsError(stat: String, layerIndex: Int): GraphicsError =
+    this match
+      case MappingEvaluationFailed(aesthetic, rowIndex, contract, failure) =>
+        GraphicsError.MappingEvaluationFailed(
+          s"stat '$stat'",
+          Some(layerIndex),
+          aesthetic,
+          rowIndex,
+          contract,
+          failure
+        )
+      case NonFiniteInput(aesthetic, value) =>
+        GraphicsError.NonFiniteStatInput(stat, aesthetic, value)
+      case InsufficientData(minimum, actual) =>
+        GraphicsError.InsufficientStatData(stat, minimum, actual)
+      case InputOutsideBins(value, lower, upper) =>
+        GraphicsError.StatInputOutsideBins(value, lower, upper)
+      case Rejected(detail) =>
+        GraphicsError.StatRejected(stat, detail)
+
+/** Existential package retaining a statistic's precise output-row subtype with its mapping. */
+sealed trait StatResult[Row]:
+  type Output <: StatRow[Row]
+  def rows: Vector[Output]
+  def mapping: AesSpec[Output]
+  def emptyComputedAesthetics: Set[ComputedAesthetic[?]]
+
+  final def frame: StatFrame[Row] =
+    StatFrame(rows, emptyComputedAesthetics)
+
+object StatResult:
+  type Aux[Row, Output0 <: StatRow[Row]] = StatResult[Row] { type Output = Output0 }
+
+  def apply[Row, Output0 <: StatRow[Row]](
+      outputRows: Vector[Output0],
+      outputMapping: AesSpec[Output0],
+      emptyAesthetics: Set[ComputedAesthetic[?]] = Set.empty
+  ): Aux[Row, Output0] =
+    new StatResult[Row]:
+      type Output = Output0
+      val rows: Vector[Output] = outputRows
+      val mapping: AesSpec[Output] = outputMapping
+      val emptyComputedAesthetics: Set[ComputedAesthetic[?]] = emptyAesthetics
 
 enum CountOrder:
   /** Preserve the first occurrence of every category. */
@@ -421,12 +629,38 @@ private[intaglio] object DensityMath:
     val fraction = position - lower.toDouble
     sorted(lower) + fraction * (sorted(upper) - sorted(lower))
 
-sealed trait Stat[-Row]:
+/** Open typed statistical transform. Implementations receive an indexed typed batch plus compiler
+  * context and return an existential package that keeps their exact output-row subtype attached to
+  * its aesthetic mapping.
+  */
+trait Stat[-Row]:
   def label: String
+  def contract: StatContract
+
+  def compute[Input <: Row](
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult[Input]]
 
 object Stat:
   case object Identity extends Stat[Any]:
     override val label: String = "identity"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.OneToOne,
+        StatGroupingPolicy.None,
+        StatSummarizationPolicy.Identity,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Preserve,
+        StatGeometryPolicy.Any,
+        StatLowering.Geom
+      )
+
+    override def compute[Input](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Identity[Input]]] =
+      BuiltinStatRuntime.identity(batch, context)
 
   final case class Count[Row](
       x: Row => String,
@@ -436,10 +670,42 @@ object Stat:
       group: Option[Row => String] = None
   ) extends Stat[Row]:
     override val label: String = "count"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.DiscreteKeys,
+        StatSummarizationPolicy.Frequency,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Bar),
+        StatLowering.Geom
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Counted[Input]]] =
+      BuiltinStatRuntime.count(this, batch, context)
 
   final case class Bin[Row](x: Row => Double, bins: HistogramBins = HistogramBins.default)
       extends Stat[Row]:
     override val label: String = "bin"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.HistogramBins,
+        StatSummarizationPolicy.Frequency,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Bar),
+        StatLowering.Geom
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Binned[Input]]] =
+      BuiltinStatRuntime.bin(this, batch, context)
 
   final case class Summary[Row](
       x: Row => Double,
@@ -447,7 +713,39 @@ object Stat:
       interval: SummaryInterval = SummaryInterval.StandardError
   ) extends Stat[Row]:
     override val label: String = "summary"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.NumericPositions,
+        StatSummarizationPolicy.MeanInterval,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Point),
+        StatLowering.Summary
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Summarized[Input]]] =
+      BuiltinStatRuntime.summary(this, batch, context)
 
   final case class Density[Row](x: Row => Double, config: DensityConfig = DensityConfig.default)
       extends Stat[Row]:
     override val label: String = "density"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.WholeBatch,
+        StatGroupingPolicy.WholeBatch,
+        StatSummarizationPolicy.KernelDensity,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Line),
+        StatLowering.Density
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Density[Input]]] =
+      BuiltinStatRuntime.density(this, batch, context)

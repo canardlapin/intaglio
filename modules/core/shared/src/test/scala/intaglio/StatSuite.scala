@@ -1,6 +1,39 @@
 package intaglio
 
+import scala.compiletime.testing.typeCheckErrors
+
 class StatSuite extends munit.FunSuite:
+
+  test("built-in stats execute through the public batch, context, result, and policy contract") {
+    val count = Stat.Count[String](identity, order = CountOrder.Lexicographic)
+    val result = count
+      .compute(
+        StatBatch(Vector("b", "a", "b"), AesSpec.empty[String]),
+        StatContext(layerIndex = 2, geom = Geom.Bar, scope = StatScope.Plot)
+      )
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(result.rows.map(_.level), Vector("a", "b"))
+    assertEquals(result.rows.map(_.count), Vector(1, 2))
+    assertEquals(count.contract.inputPreservation, StatInputPreservation.AggregateMembers)
+    assertEquals(count.contract.grouping, StatGroupingPolicy.DiscreteKeys)
+    assertEquals(count.contract.summarization, StatSummarizationPolicy.Frequency)
+    assertEquals(count.contract.rejection, StatRejectionPolicy.FailBatch)
+    assertEquals(count.contract.mapping, StatMappingPolicy.Replace)
+    assertEquals(count.contract.geometry, StatGeometryPolicy.Require(Geom.Bar))
+    assertEquals(count.contract.lowering, StatLowering.Geom)
+
+    assertEquals(Stat.Identity.contract.inputPreservation, StatInputPreservation.OneToOne)
+    assertEquals(Stat.Bin[Double](identity).contract.grouping, StatGroupingPolicy.HistogramBins)
+    assertEquals(
+      Stat.Summary[(Double, Double)](_._1, _._2).contract.summarization,
+      StatSummarizationPolicy.MeanInterval
+    )
+    assertEquals(
+      Stat.Density[Double](identity).contract.inputPreservation,
+      StatInputPreservation.WholeBatch
+    )
+  }
 
   test("stat count matches R table and ggplot2 stat_count parity fixture") {
     val plot =
@@ -34,25 +67,19 @@ class StatSuite extends munit.FunSuite:
     assertEquals(stat.rows.map(_.members.length), Vector(7, 10, 3, 10, 1, 1))
   }
 
-  test("typed stat mappings reject the wrong output variant instead of inventing zero") {
-    val data = Vector("a", "b")
-    val layer = Layer.count[String](identity)
-    val plot = Plot(data)
-    val plan = MappingPhase
-      .planLayer(plot, layer, layerIndex = 0)
-      .flatMap(StatPhase.transform)
-      .fold(error => fail(error.message), identity)
-    val y = plan.mapping.get(Aesthetic.Y).getOrElse(fail("missing count y mapping"))
+  test("typed stat mappings cannot receive the wrong output variant") {
+    val errors = typeCheckErrors("""
+      import intaglio.*
+      val stat = Stat.Count[String](identity)
+      val result = stat.compute(
+        StatBatch(Vector("a", "b"), AesSpec.empty[String]),
+        StatContext(0, Geom.Bar, StatScope.Plot)
+      ).toOption.get
+      val y = result.mapping.get(Aesthetic.Y).get
+      y.map(StatRow.Identity("not-a-count-output"))
+    """)
 
-    val evaluated = y match
-      case AesValue.Direct(value) =>
-        RowMapping.evaluateFunction(value, StatRow.Identity("not-a-count-output"))
-      case other => fail(s"expected direct count y mapping, found $other")
-
-    evaluated match
-      case Left((MappingContract.Checked, MappingFailure.Rejected(detail))) =>
-        assert(detail.contains("expected 'count' statistic output"))
-      case other => fail(s"expected a checked output mismatch, found $other")
+    assert(errors.nonEmpty)
   }
 
   test("computed count output trains x scale, derives labels, and lowers bars") {

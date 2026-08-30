@@ -388,8 +388,8 @@ object PlotCompiler:
   ): Either[GraphicsError, TrainedLayer] =
     resolveTypedLayer(plan.value, theme)
 
-  private def resolveTypedLayer[Row](
-      plan: StatPlan[Row],
+  private def resolveTypedLayer[Row, Output <: StatRow[Row]](
+      plan: StatPlan[Row, Output],
       theme: Theme
   ): Either[GraphicsError, TrainedLayer] =
     val registry = ScaleRegistry.fromMapping(plan.mapping)
@@ -401,25 +401,33 @@ object PlotCompiler:
     }
     RowPhase.resolve(plan, theme).flatMap { case (rows, droppedRows) =>
       PositionPhase.adjust(plan.layer, rows).flatMap { adjusted =>
-        GeomPhase.lower(plan.layer, adjusted, annotation, theme).map { grobs =>
-          TrainedLayer(
-            ResolvedLayer(
-              layerIndex = plan.layerIndex,
-              geom = plan.layer.geom,
-              stat = plan.layer.stat,
-              position = plan.layer.position,
-              dataSize = plan.source.data.length,
-              mapping = plan.source.mapping,
-              annotation = annotation,
-              grouping = grouping,
-              statFrame = plan.frame,
-              scaleDeclarations = registry.declarations(plan.layerIndex),
-              trainedScales = trainedScales,
-              rows = adjusted,
-              droppedRows = droppedRows,
-              grobs = grobs
-            )
+        GeomPhase
+          .lower(
+            plan.layer,
+            plan.layer.stat.contract.lowering,
+            adjusted,
+            annotation,
+            theme
           )
-        }
+          .map { grobs =>
+            TrainedLayer(
+              ResolvedLayer(
+                layerIndex = plan.layerIndex,
+                geom = plan.layer.geom,
+                stat = plan.layer.stat,
+                position = plan.layer.position,
+                dataSize = plan.source.data.length,
+                mapping = plan.source.mapping,
+                annotation = annotation,
+                grouping = grouping,
+                statFrame = plan.frame,
+                scaleDeclarations = registry.declarations(plan.layerIndex),
+                trainedScales = trainedScales,
+                rows = adjusted,
+                droppedRows = droppedRows,
+                grobs = grobs
+              )
+            )
+          }
       }
     }
