@@ -126,10 +126,27 @@ class CompilerPhasesSuite extends munit.FunSuite:
   test("scale phase trains one declaration from distinct layer extractors") {
     val first = Vector(Obs(0.0, 10.0, "A"))
     val second = Vector(Obs(100.0, 200.0, "B"))
-    val scale =
-      ContinuousScale
-        .train("shared-x", first.map(_.x), Palette.numeric)
-        .fold(error => fail(error.message), identity)
+    var trainingCalls = 0
+    val scale = new ScaleSpec[Double, Double]:
+      override val name: GraphicsName = GraphicsName.unsafe("shared-x")
+      override val kind: ScaleKind = ScaleKind.Continuous
+
+      private[intaglio] override def observation(value: Double): Option[ScaleObservation] =
+        Some(ScaleObservation.Continuous(value))
+
+      private[intaglio] override def trainSpec(
+          observations: Vector[ScaleObservation],
+          theme: Theme,
+          facetLocal: Boolean
+      ): Either[GraphicsError, Scale[Double, Double]] =
+        trainingCalls += 1
+        assertEquals(theme, Theme.default)
+        assertEquals(facetLocal, false)
+        ContinuousScale.train(
+          name.value,
+          observations.collect { case ScaleObservation.Continuous(value) => value },
+          Palette.numeric
+        )
 
     def layer(rows: Vector[Obs], x: Obs => Double): Layer[Obs] =
       val mapping =
@@ -151,10 +168,21 @@ class CompilerPhasesSuite extends munit.FunSuite:
     val statPlans = StatPhase.transform(plans).fold(error => fail(error.message), identity)
     val scales = ScalePhase.train(statPlans).fold(error => fail(error.message), identity)
 
+    assertEquals(trainingCalls, 1)
     assertEquals(scales.registry.scales.length, 1)
     assertEquals(
       scales.registry.scales.head.descriptor.domain,
       ScaleDomain.Continuous(Interval.unsafe(0.0, 200.0), Interval.unsafe(0.0, 200.0))
+    )
+    val installed = scales.plans.map { plan =>
+      ScalePhase
+        .registry(plan)
+        .forAesthetic(Aesthetic.X)
+        .fold(fail("trained x scale was not rebound to a layer"))(_.trained.scale)
+    }
+    assert(installed.head.asInstanceOf[AnyRef] eq installed(1).asInstanceOf[AnyRef])
+    assert(
+      installed.head.asInstanceOf[AnyRef] eq scales.registry.scales.head.scale.asInstanceOf[AnyRef]
     )
     val resolved = scales.plans.map { plan =>
       RowPhase.resolve(plan.value).fold(error => fail(error.message), identity)._1.head.x

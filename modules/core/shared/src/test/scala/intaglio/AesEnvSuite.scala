@@ -111,6 +111,26 @@ class AesEnvSuite extends munit.FunSuite:
     assertEquals(trained.map(_.descriptor.kind), Vector(ScaleKind.Continuous, ScaleKind.Discrete))
   }
 
+  test("ScaleRegistry inspects an untrained spec without pretending it is a trained scale") {
+    val spec = ContinuousScaleSpec
+      .numeric("inferred-x")
+      .fold(error => fail(error.message), identity)
+    val mapping = AesEnv
+      .empty[Row]
+      .bind(ScaleBinding[Row, Double, Double](Aesthetic.X, _.x, spec))
+      .fold(error => fail(error.message), identity)
+    val registry = ScaleRegistry.fromMapping(mapping)
+
+    assertEquals(
+      registry.declarations(4),
+      Vector(ScaleDeclaration(4, "x", GraphicsName.unsafe("inferred-x"), ScaleKind.Continuous))
+    )
+    assertEquals(
+      registry.forAesthetic(Aesthetic.X).map(_.descriptor.domain),
+      Some(ScaleDomain.Unspecified)
+    )
+  }
+
   test("registry lookup by aesthetic finds the registered scale") {
     val mapping = AesEnv
       .empty[Row]

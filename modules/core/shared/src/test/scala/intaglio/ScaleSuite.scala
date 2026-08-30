@@ -1,6 +1,31 @@
 package intaglio
 
 class ScaleSuite extends munit.FunSuite:
+  test("scale specs are row-free inferred declarations distinct from fixed scales") {
+    val inferred = ContinuousScaleSpec
+      .numeric("x")
+      .fold(error => fail(error.message), identity)
+    val themed = ContinuousScaleSpec
+      .themeRgba("fill")
+      .fold(error => fail(error.message), identity)
+    val discrete = DiscreteScaleSpec
+      .themeRgba("condition", Vector("control"))
+      .fold(error => fail(error.message), identity)
+    val fixed = ContinuousScale
+      .fixed("x", Vector(0.0, 10.0), Palette.numeric)
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(inferred.descriptor.domain, ScaleDomain.Unspecified)
+    assertEquals(inferred.descriptor.training, ScaleTraining.PlotWide)
+    assertEquals(themed.paletteSource, ScalePaletteSource.ThemeDefault)
+    assertEquals(discrete.declaredLevels, Vector("control"))
+    assertEquals(discrete.descriptor.domain, ScaleDomain.Unspecified)
+    assertEquals(fixed.descriptor.training, ScaleTraining.Fixed)
+    assertEquals(
+      fixed.descriptor.domain,
+      ScaleDomain.Continuous(Interval.unsafe(0.0, 10.0), Interval.unsafe(0.0, 10.0))
+    )
+  }
 
   test("continuous ranges train as an associative union over finite values") {
     val left =

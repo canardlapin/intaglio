@@ -196,14 +196,14 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
           oob
         )
 
-  /** Bind a scale you built yourself — a log transform, a fixed domain, a bespoke palette — without
-    * dropping to the low-level `Plot` API. The builder fixes `Row`, so no `ScaleBinding` type
-    * parameters appear: `encode(Aesthetic.X, _.x, xScale)`.
+  /** Bind a row-free [[ScaleSpec]] or an already prepared [[Scale]] — a log transform, a fixed
+    * domain, a bespoke palette — without dropping to the low-level `Plot` API. The builder fixes
+    * `Row`, so no `ScaleBinding` type parameters appear: `encode(Aesthetic.X, _.x, xScale)`.
     */
   def encode[In, Out](
       aesthetic: Aesthetic[Out],
       value: Row => In,
-      scale: Scale[In, Out]
+      scale: ScaleValue[In, Out]
   ): PlotBuilder[Row, Position] =
     updateResult(result.flatMap(_.encode(aesthetic, value, scale)))
 
@@ -459,9 +459,8 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val next =
       for
         current <- result
-        observations <- evaluateScaleMapping(aesthetic.label, value)
-        scale <- ContinuousScale.train(name, observations, palette, transform, oob)
-        plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
+        spec <- ContinuousScaleSpec(name, palette, transform, oob)
+        plot <- current.withScale(ScaleBinding(aesthetic, value, spec))
       yield plot
     updateResult(next)
 
@@ -475,26 +474,8 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val next =
       for
         current <- result
-        observations <- evaluateScaleMapping(aesthetic.label, value)
-        seed <- ContinuousScale.train(
-          name,
-          observations,
-          Theme.default.palettes.continuousPalette,
-          transform,
-          oob
-        )
-        scale = ThemeResolvedScale[Double, Rgba](
-          seed,
-          theme =>
-            ContinuousScale.train(
-              name,
-              observations,
-              theme.palettes.continuousPalette,
-              transform,
-              oob
-            )
-        )
-        plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
+        spec <- ContinuousScaleSpec.themeRgba(name, transform, oob)
+        plot <- current.withScale(ScaleBinding(aesthetic, value, spec))
       yield plot
     updateResult(next)
 
@@ -509,12 +490,9 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val next =
       for
         current <- result
-        observations <- evaluateScaleMapping(aesthetic.label, value)
-        declared = if levels.nonEmpty then levels else observations.distinct
-        domain <- DiscreteDomain.ordered(declared)
         palette <- DiscretePalette.values(colors, overflow)
-        scale <- DiscreteScale(name, domain, palette)
-        plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
+        spec <- DiscreteScaleSpec(name, levels, palette)
+        plot <- current.withScale(ScaleBinding(aesthetic, value, spec))
       yield plot
     updateResult(next)
 
@@ -528,53 +506,10 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val next =
       for
         current <- result
-        observations <- evaluateScaleMapping(aesthetic.label, value)
-        declared = if levels.nonEmpty then levels else observations.distinct
-        domain <- DiscreteDomain.ordered(declared)
-        seed <- DiscreteScale(
-          name,
-          domain,
-          DiscretePalette.valuesUnsafe(
-            Theme.default.palettes.discrete,
-            PaletteOverflowPolicy.Cycle
-          )
-        )
-        scale = ThemeResolvedScale[String, Rgba](
-          seed,
-          theme =>
-            for
-              palette <- DiscretePalette.values(theme.palettes.discrete, overflow)
-              resolved <- DiscreteScale(name, domain, palette)
-            yield resolved
-        )
-        plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
+        spec <- DiscreteScaleSpec.themeRgba(name, levels, overflow)
+        plot <- current.withScale(ScaleBinding(aesthetic, value, spec))
       yield plot
     updateResult(next)
-
-  private def evaluateScaleMapping[A](
-      aesthetic: String,
-      mapping: Row => A
-  ): Either[GraphicsError, Vector[A]] =
-    val out = Vector.newBuilder[A]
-    var rowIndex = 0
-    var evaluated: Either[GraphicsError, Unit] = Right(())
-    while rowIndex < data.length && evaluated.isRight do
-      RowMapping.evaluateFunction(mapping, data(rowIndex)) match
-        case Right(value) =>
-          out += value
-        case Left((contract, failure)) =>
-          evaluated = Left(
-            GraphicsError.MappingEvaluationFailed(
-              "scale declaration",
-              None,
-              aesthetic,
-              rowIndex,
-              contract,
-              failure
-            )
-          )
-      rowIndex += 1
-    evaluated.map(_ => out.result())
 
   private def mapAesthetics(f: AesSpec[Row] => AesSpec[Row]): PlotBuilder[Row, Position] =
     updateResult(result.flatMap(current => current.withMapping(f(current.mapping))))

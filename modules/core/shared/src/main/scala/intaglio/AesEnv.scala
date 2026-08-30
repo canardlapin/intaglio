@@ -10,9 +10,10 @@ object AesEnv:
   def empty[Row]: AesEnv[Row] =
     AesSpec.empty[Row]
 
-/** A scaled aesthetic binding with its hidden input/output types kept together. The only erased
-  * cast packages an existentially typed `Scaled` value; all observation and retraining operations
-  * are typed again inside this value.
+/** A scaled aesthetic binding with its hidden input/output types kept together. Erased casts are
+  * confined to existential construction and to installing the compiler's one concrete scale back
+  * into mappings that share its declaration; observation and training remain typed inside this
+  * value.
   */
 sealed trait RegisteredScale[Row]:
   type In
@@ -21,7 +22,7 @@ sealed trait RegisteredScale[Row]:
   def aesthetic: Aesthetic[Out]
   def value: AesValue.Scaled[Row, In, Out]
 
-  final def scale: Scale[In, Out] =
+  final def scale: ScaleValue[In, Out] =
     value.scale
 
   final def descriptor: ScaleDescriptor =
@@ -55,33 +56,61 @@ sealed trait RegisteredScale[Row]:
       rowIndex += 1
     result.map(_ => out.result())
 
-  final def trainPlotWide(
-      observations: Vector[ScaleObservation]
+  final def train(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
   ): Either[GraphicsError, RegisteredScale[Row]] =
-    scale.trainPlotWide(observations).map { trained =>
-      RegisteredScale(aesthetic, AesValue.Scaled(value.value, trained))
-    }
-
-  final def trainFacet(
-      observations: Vector[ScaleObservation]
-  ): Either[GraphicsError, RegisteredScale[Row]] =
-    scale.trainFacet(observations).map { trained =>
-      RegisteredScale(aesthetic, AesValue.Scaled(value.value, trained))
-    }
-
-  final def resolveTheme(theme: Theme): Either[GraphicsError, RegisteredScale[Row]] =
-    scale.resolveTheme(theme).map { resolved =>
-      RegisteredScale(aesthetic, AesValue.Scaled(value.value, resolved))
+    scale.trainDeclaration(observations, theme, facetLocal).map { trained =>
+      RegisteredScale(
+        aesthetic,
+        AesValue.Scaled(value.value, trained)
+      )
     }
 
   final def install(mapping: AesSpec[Row]): AesSpec[Row] =
     mapping.updated(aesthetic, value)
 
+  /** Install the one scale trained from the shared declaration. `sharesDeclaration` proves that
+    * this entry has the same hidden input/output types as `trained`; the cast is localized at that
+    * existential identity boundary.
+    */
+  private[intaglio] final def installTrainedFrom(
+      source: RegisteredScale[?],
+      trained: RegisteredScale[?],
+      mapping: AesSpec[Row],
+      allowCompatibleFacetCopy: Boolean
+  ): AesSpec[Row] =
+    val compatibleFacetCopy =
+      allowCompatibleFacetCopy &&
+        aesthetic == source.aesthetic &&
+        descriptor.name == source.descriptor.name &&
+        descriptor.kind == source.descriptor.kind &&
+        descriptor.training == source.descriptor.training
+    require(
+      sharesDeclaration(source) || compatibleFacetCopy,
+      "trained scale must come from the shared declaration"
+    )
+    require(aesthetic == trained.aesthetic, "trained scale aesthetic must match")
+    val concrete = trained.scale match
+      case value: Scale[?, ?] => value.asInstanceOf[Scale[In, Out]]
+      case _                  =>
+        throw new IllegalStateException("compiler attempted to install an untrained scale spec")
+    mapping.updated(aesthetic, AesValue.Scaled(value.value, concrete))
+
   final def declaration(layerIndex: Int): ScaleDeclaration =
     ScaleDeclaration(layerIndex, aesthetic.label, descriptor.name, descriptor.kind)
 
   final def trained: TrainedScale =
-    TrainedScale(aesthetic.label, descriptor, scale)
+    scale match
+      case concrete: Scale[?, ?] =>
+        TrainedScale(
+          aesthetic.label,
+          descriptor,
+          concrete.asInstanceOf[Scale[In, Out]]
+        )
+      case _ =>
+        throw new IllegalStateException("scale spec reached a trained-scale inspection boundary")
 
 object RegisteredScale:
   type Aux[Row, In0, Out0] = RegisteredScale[Row] { type In = In0; type Out = Out0 }

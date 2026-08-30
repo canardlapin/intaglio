@@ -168,10 +168,10 @@ object AesValue:
     override def map(row: Row): Option[A] =
       Some(value)
 
-  final case class Scaled[Row, In, A](value: Row => In, scale: Scale[In, A])
+  final case class Scaled[Row, In, A](value: Row => In, scale: ScaleValue[In, A])
       extends AesValue[Row, A]:
     override def map(row: Row): Option[A] =
-      scale.mapValue(value(row))
+      scale.mapDeclaredValue(value(row))
 
     override def isScaled: Boolean =
       true
@@ -199,19 +199,28 @@ object AesValue:
   def constant[Row, A](value: A): AesValue[Row, A] =
     Constant(value)
 
-  def scaled[Row, In, A](value: Row => In, scale: Scale[In, A]): AesValue[Row, A] =
+  def scaled[Row, In, A](
+      value: Row => In,
+      scale: ScaleValue[In, A]
+  ): AesValue[Row, A] =
     Scaled(value, scale)
 
-  def scaledTotal[Row, In, A](value: Row => In, scale: Scale[In, A]): AesValue[Row, A] =
+  def scaledTotal[Row, In, A](
+      value: Row => In,
+      scale: ScaleValue[In, A]
+  ): AesValue[Row, A] =
     Scaled(RowMapping.total(value), scale)
 
   def scaledChecked[Row, In, A](
       value: Row => Either[MappingFailure, In],
-      scale: Scale[In, A]
+      scale: ScaleValue[In, A]
   ): AesValue[Row, A] =
     Scaled(RowMapping.checked(value), scale)
 
-  def scaledThrowing[Row, In, A](value: Row => In, scale: Scale[In, A]): AesValue[Row, A] =
+  def scaledThrowing[Row, In, A](
+      value: Row => In,
+      scale: ScaleValue[In, A]
+  ): AesValue[Row, A] =
     Scaled(RowMapping.throwing(value), scale)
 
 /** How a compiled layer chooses its group identity. Inference deliberately names the contributing
@@ -1343,13 +1352,14 @@ final case class Plot[Row] private (
   def withScale[In, A](binding: ScaleBinding[Row, In, A]): Either[GraphicsError, Plot[Row]] =
     mapping.bindScale(binding).flatMap(withMapping)
 
-  /** Bind a prepared scale to an aesthetic through a row accessor. The plot already fixes `Row`, so
-    * callers never spell the `ScaleBinding` type parameters: `encode(Aesthetic.X, _.x, xScale)`.
+  /** Bind a row-free [[ScaleSpec]] or an already prepared [[Scale]] through a row accessor. The
+    * plot already fixes `Row`, so callers never spell the `ScaleBinding` type parameters:
+    * `encode(Aesthetic.X, _.x, xScale)`.
     */
   def encode[In, Out](
       aesthetic: Aesthetic[Out],
       value: Row => In,
-      scale: Scale[In, Out]
+      scale: ScaleValue[In, Out]
   ): Either[GraphicsError, Plot[Row]] =
     withScale(ScaleBinding(aesthetic, value, scale))
 

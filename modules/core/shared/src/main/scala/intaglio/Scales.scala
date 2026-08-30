@@ -1074,7 +1074,31 @@ object BandScale:
   ): Either[GraphicsError, BandScale] =
     apply(name, domain, padding, ScaleTraining.Fixed)
 
-trait Scale[-In, +Out]:
+/** A typed scale declaration carried by an aesthetic mapping. A declaration is either an untrained
+  * [[ScaleSpec]] or an already prepared [[Scale]]. The compiler trains declarations and installs
+  * concrete scales before row mapping.
+  */
+trait ScaleValue[-In, +Out]:
+  def name: GraphicsName
+  def descriptor: ScaleDescriptor
+
+  private[intaglio] def mapDeclaredValue(value: In): Option[Out]
+
+  private[intaglio] def mapDeclaredValueResult(value: In): Either[ScaleMapFailure, Out]
+
+  private[intaglio] def observation(value: In): Option[ScaleObservation] =
+    None
+
+  private[intaglio] def mappedBand(value: In): Option[Band] =
+    None
+
+  private[intaglio] def trainDeclaration(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[In, Out]]
+
+trait Scale[-In, +Out] extends ScaleValue[In, Out]:
   def name: GraphicsName
   def mapValue(value: In): Option[Out]
   def descriptor: ScaleDescriptor =
@@ -1083,10 +1107,10 @@ trait Scale[-In, +Out]:
   def mapValueResult(value: In): Either[ScaleMapFailure, Out] =
     mapValue(value).toRight(ScaleMapFailure.OutOfDomain(name.value, value.toString))
 
-  private[intaglio] def observation(value: In): Option[ScaleObservation] =
+  private[intaglio] override def observation(value: In): Option[ScaleObservation] =
     None
 
-  private[intaglio] def mappedBand(value: In): Option[Band] =
+  private[intaglio] override def mappedBand(value: In): Option[Band] =
     None
 
   private[intaglio] def trainPlotWide(
@@ -1099,68 +1123,234 @@ trait Scale[-In, +Out]:
   ): Either[GraphicsError, Scale[In, Out]] =
     trainPlotWide(observations)
 
-  /** Resolve compiler-owned theme defaults without changing explicitly constructed scales. */
+  private[intaglio] final override def mapDeclaredValue(value: In): Option[Out] =
+    mapValue(value)
+
+  private[intaglio] final override def mapDeclaredValueResult(
+      value: In
+  ): Either[ScaleMapFailure, Out] =
+    mapValueResult(value)
+
   private[intaglio] def resolveTheme(theme: Theme): Either[GraphicsError, Scale[In, Out]] =
     Right(this)
 
-/** A scale declaration whose palette comes from the final compiler theme. The seed carries the
-  * declaration's domain, descriptor, and observation semantics so the ordinary scale phase can
-  * inspect it; row mapping always receives the concrete scale returned by `resolveTheme`.
+  private[intaglio] final override def trainDeclaration(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[In, Out]] =
+    resolveTheme(theme).flatMap { resolved =>
+      if facetLocal then resolved.trainFacet(observations)
+      else resolved.trainPlotWide(observations)
+    }
+
+/** An untrained scale declaration. Specs contain configuration only: constructing one never
+  * inspects rows or invents a provisional domain. Its descriptor therefore has an unspecified
+  * domain until the compiler replaces it with a concrete [[Scale]].
   */
-private[intaglio] final class ThemeResolvedScale[In, Out] private (
-    seed: Scale[In, Out],
-    resolve: Theme => Either[GraphicsError, Scale[In, Out]]
-) extends Scale[In, Out]:
-  override def name: GraphicsName =
-    seed.name
+trait ScaleSpec[In, Out] extends ScaleValue[In, Out]:
+  def kind: ScaleKind
 
-  override def descriptor: ScaleDescriptor =
-    seed.descriptor
+  final override def descriptor: ScaleDescriptor =
+    ScaleDescriptor(name, kind, ScaleDomain.Unspecified, ScaleTraining.PlotWide)
 
-  override def mapValue(value: In): Option[Out] =
-    seed.mapValue(value)
+  private[intaglio] final override def mapDeclaredValue(value: In): Option[Out] =
+    None
 
-  override def mapValueResult(value: In): Either[ScaleMapFailure, Out] =
-    seed.mapValueResult(value)
+  private[intaglio] final override def mapDeclaredValueResult(
+      value: In
+  ): Either[ScaleMapFailure, Out] =
+    Left(ScaleMapFailure.OutOfDomain(name.value, "untrained scale declaration"))
 
-  private[intaglio] override def observation(value: In): Option[ScaleObservation] =
-    seed.observation(value)
+  private[intaglio] def trainSpec(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[In, Out]]
 
-  private[intaglio] override def mappedBand(value: In): Option[Band] =
-    seed.mappedBand(value)
-
-  private[intaglio] override def trainPlotWide(
-      observations: IterableOnce[ScaleObservation]
+  private[intaglio] final override def trainDeclaration(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
   ): Either[GraphicsError, Scale[In, Out]] =
-    seed.trainPlotWide(observations)
+    trainSpec(observations, theme, facetLocal)
 
-  private[intaglio] override def trainFacet(
-      observations: IterableOnce[ScaleObservation]
-  ): Either[GraphicsError, Scale[In, Out]] =
-    seed.trainFacet(observations)
+enum ScalePaletteSource:
+  case Explicit
+  case ThemeDefault
 
-  private[intaglio] override def resolveTheme(
-      theme: Theme
-  ): Either[GraphicsError, Scale[In, Out]] =
-    resolve(theme)
+final class ContinuousScaleSpec[A] private (
+    val name: GraphicsName,
+    val transform: Transform,
+    val oob: OobPolicy,
+    val paletteSource: ScalePaletteSource,
+    palette: Theme => Palette[A]
+) extends ScaleSpec[Double, A]:
+  override val kind: ScaleKind =
+    ScaleKind.Continuous
 
-private[intaglio] object ThemeResolvedScale:
-  def apply[In, Out](
-      seed: Scale[In, Out],
-      resolve: Theme => Either[GraphicsError, Scale[In, Out]]
-  ): Scale[In, Out] =
-    new ThemeResolvedScale(seed, resolve)
+  private[intaglio] override def observation(value: Double): Option[ScaleObservation] =
+    Some(ScaleObservation.Continuous(value))
+
+  private[intaglio] override def trainSpec(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[Double, A]] =
+    ContinuousScale.train(
+      name.value,
+      observations.collect { case ScaleObservation.Continuous(value) => value },
+      palette(theme),
+      transform,
+      oob,
+      ScaleTraining.PlotWide
+    )
+
+object ContinuousScaleSpec:
+  def apply[A](
+      name: String,
+      palette: Palette[A],
+      transform: Transform = Transform.identity,
+      oob: OobPolicy = OobPolicy.Censor
+  ): Either[GraphicsError, ContinuousScaleSpec[A]] =
+    GraphicsName(name, "continuous scale spec").map { scaleName =>
+      new ContinuousScaleSpec(
+        scaleName,
+        transform,
+        oob,
+        ScalePaletteSource.Explicit,
+        _ => palette
+      )
+    }
+
+  def numeric(
+      name: String,
+      transform: Transform = Transform.identity,
+      oob: OobPolicy = OobPolicy.Censor
+  ): Either[GraphicsError, ContinuousScaleSpec[Double]] =
+    apply(name, Palette.numeric, transform, oob)
+
+  def themeRgba(
+      name: String,
+      transform: Transform = Transform.identity,
+      oob: OobPolicy = OobPolicy.Censor
+  ): Either[GraphicsError, ContinuousScaleSpec[Rgba]] =
+    GraphicsName(name, "continuous scale spec").map { scaleName =>
+      new ContinuousScaleSpec(
+        scaleName,
+        transform,
+        oob,
+        ScalePaletteSource.ThemeDefault,
+        _.palettes.continuousPalette
+      )
+    }
+
+final class DiscreteScaleSpec[A] private (
+    val name: GraphicsName,
+    val declaredDomain: DiscreteDomain,
+    val paletteSource: ScalePaletteSource,
+    palette: Theme => Either[GraphicsError, DiscretePalette[A]]
+) extends ScaleSpec[String, A]:
+  override val kind: ScaleKind =
+    ScaleKind.Discrete
+
+  def declaredLevels: Vector[String] =
+    declaredDomain.levels
+
+  private[intaglio] override def observation(value: String): Option[ScaleObservation] =
+    Some(ScaleObservation.Discrete(value))
+
+  private[intaglio] override def trainSpec(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[String, A]] =
+    for
+      domain <- declaredDomain.train(
+        observations.collect { case ScaleObservation.Discrete(value) => value }
+      )
+      resolvedPalette <- palette(theme)
+      scale <- DiscreteScale(name.value, domain, resolvedPalette, ScaleTraining.PlotWide)
+    yield scale
+
+object DiscreteScaleSpec:
+  def apply[A](
+      name: String,
+      declaredLevels: Vector[String],
+      palette: DiscretePalette[A]
+  ): Either[GraphicsError, DiscreteScaleSpec[A]] =
+    for
+      scaleName <- GraphicsName(name, "discrete scale spec")
+      domain <- DiscreteDomain.ordered(declaredLevels)
+    yield new DiscreteScaleSpec(
+      scaleName,
+      domain,
+      ScalePaletteSource.Explicit,
+      _ => Right(palette)
+    )
+
+  def themeRgba(
+      name: String,
+      declaredLevels: Vector[String] = Vector.empty,
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
+  ): Either[GraphicsError, DiscreteScaleSpec[Rgba]] =
+    for
+      scaleName <- GraphicsName(name, "discrete scale spec")
+      domain <- DiscreteDomain.ordered(declaredLevels)
+    yield new DiscreteScaleSpec(
+      scaleName,
+      domain,
+      ScalePaletteSource.ThemeDefault,
+      theme => DiscretePalette.values(theme.palettes.discrete, overflow)
+    )
+
+final class BandScaleSpec private (
+    val name: GraphicsName,
+    val declaredDomain: DiscreteDomain,
+    val padding: BandPadding
+) extends ScaleSpec[String, Double]:
+  override val kind: ScaleKind =
+    ScaleKind.Band
+
+  def declaredLevels: Vector[String] =
+    declaredDomain.levels
+
+  private[intaglio] override def observation(value: String): Option[ScaleObservation] =
+    Some(ScaleObservation.Discrete(value))
+
+  private[intaglio] override def mappedBand(value: String): Option[Band] =
+    None
+
+  private[intaglio] override def trainSpec(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[String, Double]] =
+    declaredDomain
+      .train(observations.collect { case ScaleObservation.Discrete(value) => value })
+      .flatMap(BandScale(name.value, _, padding, ScaleTraining.PlotWide))
+
+object BandScaleSpec:
+  def apply(
+      name: String,
+      declaredLevels: Vector[String] = Vector.empty,
+      padding: BandPadding = BandPadding.default
+  ): Either[GraphicsError, BandScaleSpec] =
+    for
+      scaleName <- GraphicsName(name, "band scale spec")
+      domain <- DiscreteDomain.ordered(declaredLevels)
+    yield new BandScaleSpec(scaleName, domain, padding)
 
 final case class ScaleBinding[Row, In, Out](
     aesthetic: Aesthetic[Out],
     value: Row => In,
-    scale: Scale[In, Out]
+    scale: ScaleValue[In, Out]
 ):
   /** Convenience evaluation outside compilation. Like `RowMapping.apply`, this method may throw;
     * `PlotCompiler` uses the checked mapping boundary instead.
     */
   def map(row: Row): Option[Out] =
-    scale.mapValue(value(row))
+    scale.mapDeclaredValue(value(row))
 
   def toAesValue: AesValue[Row, Out] =
     AesValue.scaled(value, scale)
@@ -1169,20 +1359,20 @@ object ScaleBinding:
   def total[Row, In, Out](
       aesthetic: Aesthetic[Out],
       value: Row => In,
-      scale: Scale[In, Out]
+      scale: ScaleValue[In, Out]
   ): ScaleBinding[Row, In, Out] =
     ScaleBinding(aesthetic, RowMapping.total(value), scale)
 
   def checked[Row, In, Out](
       aesthetic: Aesthetic[Out],
       value: Row => Either[MappingFailure, In],
-      scale: Scale[In, Out]
+      scale: ScaleValue[In, Out]
   ): ScaleBinding[Row, In, Out] =
     ScaleBinding(aesthetic, RowMapping.checked(value), scale)
 
   def throwing[Row, In, Out](
       aesthetic: Aesthetic[Out],
       value: Row => In,
-      scale: Scale[In, Out]
+      scale: ScaleValue[In, Out]
   ): ScaleBinding[Row, In, Out] =
     ScaleBinding(aesthetic, RowMapping.throwing(value), scale)

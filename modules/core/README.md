@@ -193,6 +193,14 @@ ignored rather than retained.
 - Continuous scales retain both raw data domains and transformed domains:
   palette mapping uses transformed coordinates, while breaks and labels remain
   in the raw data domain.
+- `ScaleSpec` is the row-free declaration algebra used by the plotting DSL.
+  Constructing a spec never evaluates a row or invents a provisional domain;
+  its domain is `ScaleDomain.Unspecified` until compilation. The compiler
+  collects observations from every contributing layer at the plot or facet
+  scope, trains the declaration once, and installs that same concrete `Scale`
+  in every layer mapping. `ContinuousScale.fixed`, `DiscreteScale.fixed`, and
+  `BandScale.fixed` remain the distinct public contract for known domains that
+  must not expand.
 - Scale training is plot-global: every layer bound to an aesthetic contributes
   observations to one shared scale before rows are mapped. Reusing one scale
   declaration across layers therefore gives one coordinate or palette

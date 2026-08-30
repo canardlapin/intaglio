@@ -256,6 +256,50 @@ class FacetSuite extends munit.FunSuite:
     assertEquals(continuous.guides.count(_.spec.isInstanceOf[GuideSpec.Colorbar]), 1)
   }
 
+  test("scale specs train once at the global scope and once per free panel scope") {
+    var trainingScopes = Vector.empty[(Boolean, Vector[Double])]
+    val xSpec = new ScaleSpec[Double, Double]:
+      override val name: GraphicsName = GraphicsName.unsafe("counted-facet-x")
+      override val kind: ScaleKind = ScaleKind.Continuous
+
+      private[intaglio] override def observation(value: Double): Option[ScaleObservation] =
+        Some(ScaleObservation.Continuous(value))
+
+      private[intaglio] override def trainSpec(
+          observations: Vector[ScaleObservation],
+          theme: Theme,
+          facetLocal: Boolean
+      ): Either[GraphicsError, Scale[Double, Double]] =
+        assertEquals(theme, Theme.default)
+        val values = observations.collect { case ScaleObservation.Continuous(value) => value }
+        trainingScopes :+= facetLocal -> values
+        ContinuousScale.train(name.value, values, Palette.numeric)
+
+    val trained = plot(rows)
+      .aes(_.x, _.y)
+      .encode(Aesthetic.X, _.x, xSpec)
+      .facetWrap(_.condition, scales = FacetScales.FreeX)
+      .geomPoint()
+      .resolve
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(
+      trainingScopes,
+      Vector(
+        false -> Vector(0.0, 1.0, 10.0, 20.0),
+        true -> Vector(0.0, 1.0),
+        true -> Vector(10.0, 20.0)
+      )
+    )
+    assertEquals(
+      trained.facetPanels.map(_.scaleRegistry.forAesthetic(Aesthetic.X).map(_.descriptor.domain)),
+      Vector(
+        Some(ScaleDomain.Continuous(Interval.unsafe(0.0, 1.0), Interval.unsafe(0.0, 1.0))),
+        Some(ScaleDomain.Continuous(Interval.unsafe(10.0, 20.0), Interval.unsafe(10.0, 20.0)))
+      )
+    )
+  }
+
   test("free dimensions render panel-local axes while shared dimensions suppress inner axes") {
     val gridRows =
       Vector(

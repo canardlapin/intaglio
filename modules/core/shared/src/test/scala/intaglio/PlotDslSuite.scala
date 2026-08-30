@@ -165,6 +165,37 @@ class PlotDslSuite extends munit.FunSuite:
     assertEquals(trained.layers.map(_.dataSize), Vector(rows.length, overlays.length))
   }
 
+  test("row-free specs train empty base plots from populated layer data") {
+    var xEvaluations = 0
+    val x: Observation => Double = row =>
+      xEvaluations += 1
+      row.x
+
+    val program = plot(Vector.empty[Observation])
+      .aes(x, _.y)
+      .scaleXContinuous()
+      .scaleColorDiscrete(_.group)
+      .geomPoint(data = Some(rows))
+      .build
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(xEvaluations, 0, "declaring and building a scale must not inspect rows")
+    val trained = program.resolve.fold(error => fail(error.message), identity)
+    val xDomain = trained.scaleRegistry.forAesthetic(Aesthetic.X).map(_.descriptor.domain)
+    val colorDomain = trained.scaleRegistry.forAesthetic(Aesthetic.Color).map(_.descriptor.domain)
+
+    assert(xEvaluations > 0)
+    assertEquals(
+      xDomain,
+      Some(ScaleDomain.Continuous(Interval.unsafe(0.0, 1.0), Interval.unsafe(0.0, 1.0)))
+    )
+    assertEquals(
+      colorDomain,
+      Some(ScaleDomain.Discrete(Vector("control", "task"), ordered = true))
+    )
+    assertEquals(trained.layers.head.dataSize, rows.length)
+  }
+
   test("canonical histogram, summary, and density programs expose trained plots") {
     val histogram =
       plot(rows)
@@ -234,24 +265,24 @@ class PlotDslSuite extends munit.FunSuite:
     assertEquals(invalidCoord.left.toOption, Some(GraphicsError.InvalidCoordinateRatio(0.0)))
   }
 
-  test("eager DSL scale declaration retains mapping exceptions as typed errors") {
+  test("row-free scale declarations defer mapping failures to compiler training") {
     val x = RowMapping.throwing[Observation, Double] { row =>
       if row.group == "task" then throw new IllegalStateException("task x unavailable")
       else row.x
     }
 
-    val built =
+    val resolved =
       plot(rows)
         .aes(x, _.y)
         .scaleXContinuous()
         .geomPoint()
-        .build
+        .resolve
 
-    assert(built match
+    assert(resolved match
       case Left(
             GraphicsError.MappingEvaluationFailed(
-              "scale declaration",
-              None,
+              "scale training",
+              Some(0),
               "x",
               2,
               MappingContract.Throwing,

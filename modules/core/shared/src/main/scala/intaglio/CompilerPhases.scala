@@ -687,7 +687,13 @@ private[intaglio] object ScalePhase:
                 )
                 observations = contributions.flatMap(_.observations) ++ annotationObservations
                 trained <- trainEntry(first.entry, observations, facetLocal, theme)
-                rebound <- rebind(resolution.plans, aesthetic, observations, facetLocal, theme)
+                rebound <- rebind(
+                  resolution.plans,
+                  aesthetic,
+                  first.entry,
+                  trained,
+                  unifyFacetCopies
+                )
                 plans <- mapAnnotations(rebound, aesthetic, trained)
               yield ScaleResolution(
                 plans,
@@ -836,18 +842,19 @@ private[intaglio] object ScalePhase:
   private def rebind(
       plans: Vector[PackedStatPlan],
       aesthetic: Aesthetic[?],
-      observations: Vector[ScaleObservation],
-      facetLocal: Boolean,
-      theme: Theme
+      source: RegisteredScale[?],
+      trained: RegisteredScale[?],
+      allowCompatibleFacetCopy: Boolean
   ): Either[GraphicsError, Vector[PackedStatPlan]] =
     val out = Vector.newBuilder[PackedStatPlan]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plans.length && result.isRight do
       val plan = plans(idx)
-      result = rebindPlan(plan, aesthetic, observations, facetLocal, theme).map { rebound =>
-        out += rebound
-        ()
+      result = rebindPlan(plan, aesthetic, source, trained, allowCompatibleFacetCopy).map {
+        rebound =>
+          out += rebound
+          ()
       }
       idx += 1
     result.map(_ => out.result())
@@ -855,26 +862,35 @@ private[intaglio] object ScalePhase:
   private def rebindPlan(
       plan: PackedStatPlan,
       aesthetic: Aesthetic[?],
-      observations: Vector[ScaleObservation],
-      facetLocal: Boolean,
-      theme: Theme
+      source: RegisteredScale[?],
+      trained: RegisteredScale[?],
+      allowCompatibleFacetCopy: Boolean
   ): Either[GraphicsError, PackedStatPlan] =
-    rebindTyped(plan.value, aesthetic, observations, facetLocal, theme)
+    rebindTyped(plan.value, aesthetic, source, trained, allowCompatibleFacetCopy)
 
   private def rebindTyped[Row](
       plan: StatPlan[Row],
       aesthetic: Aesthetic[?],
-      observations: Vector[ScaleObservation],
-      facetLocal: Boolean,
-      theme: Theme
+      source: RegisteredScale[?],
+      trained: RegisteredScale[?],
+      allowCompatibleFacetCopy: Boolean
   ): Either[GraphicsError, PackedStatPlan] =
     plan.mapping.scaledEntry(aesthetic) match
       case None =>
         Right(PackedStatPlan(plan))
       case Some(entry) =>
-        trainEntry(entry, observations, facetLocal, theme).map { trained =>
-          PackedStatPlan(plan.copy(mapping = trained.install(plan.mapping)))
-        }
+        Right(
+          PackedStatPlan(
+            plan.copy(
+              mapping = entry.installTrainedFrom(
+                source,
+                trained,
+                plan.mapping,
+                allowCompatibleFacetCopy
+              )
+            )
+          )
+        )
 
   private def trainEntry[EntryRow](
       entry: RegisteredScale[EntryRow],
@@ -882,10 +898,7 @@ private[intaglio] object ScalePhase:
       facetLocal: Boolean,
       theme: Theme
   ): Either[GraphicsError, RegisteredScale[EntryRow]] =
-    entry.resolveTheme(theme).flatMap { resolved =>
-      if facetLocal then resolved.trainFacet(observations)
-      else resolved.trainPlotWide(observations)
-    }
+    entry.train(observations, theme, facetLocal)
 
 /** Phase 4 — row evaluation: map each stat row through the canonical aesthetic mapping, keeping
   * typed drop diagnostics for rows a renderer must skip.
@@ -1159,7 +1172,7 @@ private[intaglio] object RowPhase:
           .map(toMappingDropReason(aesthetic, rowIndex, _))
           .flatMap { input =>
             scaled.scale
-              .mapValueResult(input)
+              .mapDeclaredValueResult(input)
               .map { output =>
                 val rawDiscreteCategory =
                   if scaled.scale.descriptor.kind == ScaleKind.Discrete then
