@@ -1,5 +1,148 @@
 package intaglio
 
+import scala.util.control.NonFatal
+
+/** The promise attached to a user-supplied row mapping.
+  *
+  *   - [[MappingContract.Total]] says the mapping is defined for every row. The compiler still
+  *     catches a violated promise at its public `Either` boundary.
+  *   - [[MappingContract.Checked]] lets the mapping reject a row with a typed [[MappingFailure]].
+  *   - [[MappingContract.Throwing]] explicitly admits a partial function that may throw. Legacy
+  *     `Row => A` mappings use this contract.
+  */
+enum MappingContract(val label: String):
+  case Total extends MappingContract("total")
+  case Checked extends MappingContract("checked")
+  case Throwing extends MappingContract("throwing")
+
+/** A mapping failure before scale-domain validation. Fatal JVM errors are never captured. */
+enum MappingFailure:
+  case Rejected(detail: String)
+  case Threw(exceptionType: String, detail: String)
+
+  def message: String =
+    this match
+      case Rejected(detail)             => detail
+      case Threw(exceptionType, detail) => s"$exceptionType: $detail"
+
+object MappingFailure:
+  private[intaglio] def fromThrowable(error: Throwable): MappingFailure =
+    error match
+      case mapping: MappingException => mapping.failure
+      case _                         =>
+        val detail = Option(error.getMessage).filter(_.nonEmpty).getOrElse("no message")
+        MappingFailure.Threw(error.getClass.getName, detail)
+
+private[intaglio] final class MappingException(val failure: MappingFailure)
+    extends RuntimeException(failure.message)
+
+/** A `Row => A` carrying an explicit failure contract. Because it remains a `Function1`, it can be
+  * passed anywhere Intaglio already accepts a row accessor without changing existing signatures.
+  * Public compiler methods evaluate it through [[RowMapping.evaluate]]; calling `apply` directly is
+  * the deliberate throwing convenience boundary.
+  */
+sealed trait RowMapping[-Row, +A] extends (Row => A):
+  def contract: MappingContract
+  def evaluate(row: Row): Either[MappingFailure, A]
+
+  final override def apply(row: Row): A =
+    evaluate(row) match
+      case Right(value)  => value
+      case Left(failure) => throw new MappingException(failure)
+
+  /** Precompose a row projection. The declared contract is retained; any non-fatal exception from
+    * the projection is still captured as a violated mapping contract.
+    */
+  final def contramap[Input](f: Input => Row): RowMapping[Input, A] =
+    RowMapping.instance(contract, input => evaluate(f(input)))
+
+  final def map[B](f: A => B): RowMapping[Row, B] =
+    RowMapping.instance(contract, row => evaluate(row).map(f))
+
+object RowMapping:
+  private[intaglio] type Problem = (MappingContract, MappingFailure)
+
+  private final case class Impl[-Row, +A](
+      contract: MappingContract,
+      run: Row => Either[MappingFailure, A]
+  ) extends RowMapping[Row, A]:
+    def evaluate(row: Row): Either[MappingFailure, A] =
+      try run(row)
+      catch case NonFatal(error) => Left(MappingFailure.fromThrowable(error))
+
+  private def instance[Row, A](
+      contract: MappingContract,
+      run: Row => Either[MappingFailure, A]
+  ): RowMapping[Row, A] =
+    Impl(contract, run)
+
+  /** Declare a mapping that is defined for every row. Exceptions violate that promise but are still
+    * caught at compiler boundaries.
+    */
+  def total[Row, A](value: Row => A): RowMapping[Row, A] =
+    instance(MappingContract.Total, row => Right(value(row)))
+
+  /** Declare a mapping whose expected rejections are values rather than exceptions. */
+  def checked[Row, A](
+      value: Row => Either[MappingFailure, A]
+  ): RowMapping[Row, A] =
+    instance(MappingContract.Checked, value)
+
+  /** String-valued convenience constructor for ordinary validation failures. */
+  def checkedMessage[Row, A](value: Row => Either[String, A]): RowMapping[Row, A] =
+    checked(row => value(row).left.map(MappingFailure.Rejected(_)))
+
+  /** Declare a mapping that may throw. Non-fatal exceptions become typed diagnostics when compiled.
+    */
+  def throwing[Row, A](value: Row => A): RowMapping[Row, A] =
+    instance(MappingContract.Throwing, row => Right(value(row)))
+
+  private[intaglio] def fromFunction[Row, A](value: Row => A): RowMapping[Row, A] =
+    value match
+      case mapping: RowMapping[?, ?] =>
+        mapping.asInstanceOf[RowMapping[Row, A]]
+      case _ =>
+        throwing(value)
+
+  private[intaglio] def evaluateFunction[Row, A](
+      value: Row => A,
+      row: Row
+  ): Either[Problem, A] =
+    val mapping = fromFunction(value)
+    mapping.evaluate(row).left.map(mapping.contract -> _)
+
+  private[intaglio] def capture[A](
+      contract: MappingContract
+  )(value: => A): Either[Problem, A] =
+    try Right(value)
+    catch case NonFatal(error) => Left(contract -> MappingFailure.fromThrowable(error))
+
+  private[intaglio] def zipWith[Row, A, B, C](
+      left: Row => A,
+      right: Row => B
+  )(combine: (A, B) => C): RowMapping[Row, C] =
+    val leftMapping = fromFunction(left)
+    val rightMapping = fromFunction(right)
+    val contract = combinedContract(leftMapping.contract, rightMapping.contract)
+    instance(
+      contract,
+      row =>
+        for
+          a <- leftMapping.evaluate(row)
+          b <- rightMapping.evaluate(row)
+        yield combine(a, b)
+    )
+
+  private def combinedContract(
+      left: MappingContract,
+      right: MappingContract
+  ): MappingContract =
+    if left == MappingContract.Throwing || right == MappingContract.Throwing then
+      MappingContract.Throwing
+    else if left == MappingContract.Checked || right == MappingContract.Checked then
+      MappingContract.Checked
+    else MappingContract.Total
+
 sealed trait AesValue[Row, A]:
   def map(row: Row): Option[A]
   private[intaglio] def mappedBand(row: Row): Option[Band] =
@@ -9,9 +152,10 @@ sealed trait AesValue[Row, A]:
 
   def contramap[Input](f: Input => Row): AesValue[Input, A] =
     this match
-      case AesValue.Direct(value)        => AesValue.direct(input => value(f(input)))
-      case AesValue.Constant(value)      => AesValue.constant(value)
-      case AesValue.Scaled(value, scale) => AesValue.scaled(input => value(f(input)), scale)
+      case AesValue.Direct(value)   => AesValue.direct(RowMapping.fromFunction(value).contramap(f))
+      case AesValue.Constant(value) => AesValue.constant(value)
+      case AesValue.Scaled(value, scale) =>
+        AesValue.scaled(RowMapping.fromFunction(value).contramap(f), scale)
 
 object AesValue:
   final case class Direct[Row, A](value: Row => A) extends AesValue[Row, A]:
@@ -36,11 +180,34 @@ object AesValue:
   def direct[Row, A](value: Row => A): AesValue[Row, A] =
     Direct(value)
 
+  def total[Row, A](value: Row => A): AesValue[Row, A] =
+    Direct(RowMapping.total(value))
+
+  def checked[Row, A](
+      value: Row => Either[MappingFailure, A]
+  ): AesValue[Row, A] =
+    Direct(RowMapping.checked(value))
+
+  def throwing[Row, A](value: Row => A): AesValue[Row, A] =
+    Direct(RowMapping.throwing(value))
+
   def constant[Row, A](value: A): AesValue[Row, A] =
     Constant(value)
 
   def scaled[Row, In, A](value: Row => In, scale: Scale[In, A]): AesValue[Row, A] =
     Scaled(value, scale)
+
+  def scaledTotal[Row, In, A](value: Row => In, scale: Scale[In, A]): AesValue[Row, A] =
+    Scaled(RowMapping.total(value), scale)
+
+  def scaledChecked[Row, In, A](
+      value: Row => Either[MappingFailure, In],
+      scale: Scale[In, A]
+  ): AesValue[Row, A] =
+    Scaled(RowMapping.checked(value), scale)
+
+  def scaledThrowing[Row, In, A](value: Row => In, scale: Scale[In, A]): AesValue[Row, A] =
+    Scaled(RowMapping.throwing(value), scale)
 
 final case class Position2[Row](x: AesValue[Row, Double], y: AesValue[Row, Double]):
   def map(row: Row): Option[(Double, Double)] =
@@ -590,9 +757,9 @@ object Layer:
       data,
       mapping.withYBounds(
         x,
-        row => y(row) / 2.0,
-        row => math.min(0.0, y(row)),
-        row => math.max(0.0, y(row))
+        RowMapping.fromFunction(y).map(_ / 2.0),
+        RowMapping.fromFunction(y).map(math.min(0.0, _)),
+        RowMapping.fromFunction(y).map(math.max(0.0, _))
       ),
       inheritMapping = false,
       params
@@ -642,10 +809,10 @@ object Layer:
       mapping.withBounds(
         x,
         y,
-        row => x(row) - width(row) / 2.0,
-        row => x(row) + width(row) / 2.0,
-        row => y(row) - height(row) / 2.0,
-        row => y(row) + height(row) / 2.0
+        RowMapping.zipWith(x, width)(_ - _ / 2.0),
+        RowMapping.zipWith(x, width)(_ + _ / 2.0),
+        RowMapping.zipWith(y, height)(_ - _ / 2.0),
+        RowMapping.zipWith(y, height)(_ + _ / 2.0)
       ),
       inheritMapping = false,
       params
@@ -769,7 +936,7 @@ object Layer:
       case None            => Right(())
 
   private def midpoint[Row](lower: Row => Double, upper: Row => Double): Row => Double =
-    row => lower(row) + (upper(row) - lower(row)) / 2.0
+    RowMapping.zipWith(lower, upper)((lo, hi) => lo + (hi - lo) / 2.0)
 
 /** One plot layer with its row type kept together with its data, mapping, and statistic. `PlotRow`
   * is the plot-level row type; `Row` may differ for an explicitly independent layer.
@@ -793,8 +960,9 @@ sealed trait PlotLayer[PlotRow]:
   private[intaglio] def panelData(
       plotData: Vector[PlotRow],
       facet: FacetSpec[PlotRow],
-      cell: FacetCell
-  ): Vector[Row]
+      cell: FacetCell,
+      layerIndex: Int
+  ): Either[GraphicsError, Vector[Row]]
 
 object PlotLayer:
   type Aux[PlotRow, Row0] = PlotLayer[PlotRow] { type Row = Row0 }
@@ -818,9 +986,10 @@ object PlotLayer:
     private[intaglio] def panelData(
         plotData: Vector[PlotRow],
         facet: FacetSpec[PlotRow],
-        cell: FacetCell
-    ): Vector[Row] =
-      effectiveData(plotData).filter(facet.contains(cell, _))
+        cell: FacetCell,
+        layerIndex: Int
+    ): Either[GraphicsError, Vector[Row]] =
+      facet.panelData(cell, effectiveData(plotData), layerIndex)
 
   private final case class Independent[PlotRow, Row0](
       layer: Layer[Row0],
@@ -845,9 +1014,32 @@ object PlotLayer:
     private[intaglio] def panelData(
         plotData: Vector[PlotRow],
         facet: FacetSpec[PlotRow],
-        cell: FacetCell
-    ): Vector[Row] =
-      effectiveData(plotData).filter(policy.includes(cell, _))
+        cell: FacetCell,
+        layerIndex: Int
+    ): Either[GraphicsError, Vector[Row]] =
+      val rows = effectiveData(plotData)
+      val out = Vector.newBuilder[Row]
+      var rowIndex = 0
+      var result: Either[GraphicsError, Unit] = Right(())
+      while rowIndex < rows.length && result.isRight do
+        policy.evaluate(cell, rows(rowIndex)) match
+          case Right(true) =>
+            out += rows(rowIndex)
+          case Right(false) =>
+            ()
+          case Left((contract, failure)) =>
+            result = Left(
+              GraphicsError.MappingEvaluationFailed(
+                "facet membership",
+                Some(layerIndex),
+                "facet-policy",
+                rowIndex,
+                contract,
+                failure
+              )
+            )
+        rowIndex += 1
+      result.map(_ => out.result())
 
   def inherited[Row](layer: Layer[Row]): PlotLayer.Aux[Row, Row] =
     Inherited(layer)

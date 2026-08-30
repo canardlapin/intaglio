@@ -274,6 +274,127 @@ class PlotCompilerSuite extends munit.FunSuite:
     assertEquals(line.points, Vector(Point.nativeUnsafe(0.0, 1.0), Point.nativeUnsafe(2.0, 3.0)))
   }
 
+  test("checked and violated-total mappings become row diagnostics with provenance") {
+    val checkedX = RowMapping.checkedMessage[Observation, Double] { row =>
+      Either.cond(row.condition != "bad-checked", row.time, "checked rejection")
+    }
+    val totalY = RowMapping.total[Observation, Double] { row =>
+      if row.condition == "bad-total" then throw new IllegalStateException("total violation")
+      else row.value
+    }
+    val rows = Vector(
+      Observation(0.0, 1.0, "good"),
+      Observation(1.0, 2.0, "bad-checked"),
+      Observation(2.0, 3.0, "bad-total")
+    )
+    val plot = Plot(rows).addLayer(Layer.point(checkedX, totalY)).toOption.get
+
+    val trained = PlotCompiler.resolve(plot).fold(error => fail(error.message), identity)
+
+    assertEquals(trained.layers.head.rows.map(_.rowIndex), Vector(0))
+    assertEquals(
+      trained.layers.head.droppedRows.map(_.reason),
+      Vector(
+        PlotDropReason.MappingEvaluationFailed(
+          "x",
+          1,
+          MappingContract.Checked,
+          MappingFailure.Rejected("checked rejection")
+        ),
+        PlotDropReason.MappingEvaluationFailed(
+          "y",
+          2,
+          MappingContract.Total,
+          MappingFailure.Threw(classOf[IllegalStateException].getName, "total violation")
+        )
+      )
+    )
+  }
+
+  test("throwing scaled mappings fail scale training through GraphicsError") {
+    val scale =
+      ContinuousScale
+        .train("x", data.map(_.time), Palette.numeric)
+        .fold(error => fail(error.message), identity)
+    val value = RowMapping.throwing[Observation, Double] { row =>
+      if row.condition == "B" then throw new IllegalArgumentException("cannot train B")
+      else row.time
+    }
+    val plot =
+      Plot(data)
+        .withScale(ScaleBinding(Aesthetic.X, value, scale))
+        .flatMap(_.addLayer(Layer.point[Observation](_.time, _.value)))
+        .fold(error => fail(error.message), identity)
+
+    assert(PlotCompiler.resolve(plot) match
+      case Left(
+            GraphicsError.MappingEvaluationFailed(
+              "scale training",
+              Some(0),
+              "x",
+              2,
+              MappingContract.Throwing,
+              MappingFailure.Threw(_, "cannot train B")
+            )
+          ) =>
+        true
+      case _ => false)
+  }
+
+  test("stat extractor exceptions remain inside the compiler Either") {
+    val x = RowMapping.throwing[Observation, Double] { row =>
+      if row.condition == "B" then throw new IllegalArgumentException("bad histogram row")
+      else row.time
+    }
+    val plot =
+      Plot(data)
+        .addLayer(Layer.histogram(x))
+        .fold(error => fail(error.message), identity)
+
+    assert(PlotCompiler.resolve(plot) match
+      case Left(
+            GraphicsError.MappingEvaluationFailed(
+              "stat 'bin'",
+              Some(0),
+              "x",
+              2,
+              MappingContract.Throwing,
+              MappingFailure.Threw(_, "bad histogram row")
+            )
+          ) =>
+        true
+      case _ => false)
+  }
+
+  test("facet mapping rejections remain inside the compiler Either") {
+    val facetValue = RowMapping.checkedMessage[Observation, String] { row =>
+      Either.cond(row.condition != "B", row.condition, "facet rejected B")
+    }
+    val facet =
+      FacetSpec
+        .wrap(facetValue)
+        .fold(error => fail(error.message), identity)
+    val plot =
+      Plot(data)
+        .addLayer(Layer.point[Observation](_.time, _.value))
+        .map(_.withFacet(facet))
+        .fold(error => fail(error.message), identity)
+
+    assertEquals(
+      PlotCompiler.resolve(plot).left.toOption,
+      Some(
+        GraphicsError.MappingEvaluationFailed(
+          "facet layout",
+          None,
+          "facet",
+          2,
+          MappingContract.Checked,
+          MappingFailure.Rejected("facet rejected B")
+        )
+      )
+    )
+  }
+
   test("scaled label mappings can drop text rows without failing the whole plot") {
     val domain = DiscreteDomain.ordered(Vector("A")).toOption.get
     val scale =

@@ -11,6 +11,30 @@ class GrammarSuite extends munit.FunSuite:
       Observation(2.0, 3.0, "B")
     )
 
+  test("row mappings expose total, checked, and throwing contracts") {
+    val total = RowMapping.total[Observation, Double](_.time)
+    val checked = RowMapping.checkedMessage[Observation, Double] { row =>
+      Either.cond(row.time >= 0.0, row.time, "negative time")
+    }
+    val throwing = RowMapping.throwing[Observation, Double] { row =>
+      if row.condition == "B" then throw new IllegalStateException("bad condition")
+      else row.value
+    }
+
+    assertEquals(total.contract, MappingContract.Total)
+    assertEquals(total.evaluate(data.head), Right(0.0))
+    assertEquals(checked.contract, MappingContract.Checked)
+    assertEquals(checked.evaluate(data.head), Right(0.0))
+    assertEquals(
+      checked.evaluate(Observation(-1.0, 0.0, "bad")),
+      Left(MappingFailure.Rejected("negative time"))
+    )
+    assertEquals(throwing.contract, MappingContract.Throwing)
+    assert(throwing.evaluate(data.last) match
+      case Left(MappingFailure.Threw(_, "bad condition")) => true
+      case _                                              => false)
+  }
+
   test("typed layers carry required position aesthetics by construction") {
     val layer = Layer.point[Observation](_.time, _.value)
     val mapping = layer.effectiveMapping(AesSpec.empty)

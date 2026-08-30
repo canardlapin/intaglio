@@ -52,6 +52,14 @@ enum GraphicsError extends IntaglioError:
       conflictingLayer: Int,
       conflictingScale: String
   )
+  case MappingEvaluationFailed(
+      stage: String,
+      layerIndex: Option[Int],
+      aesthetic: String,
+      rowIndex: Int,
+      contract: MappingContract,
+      failure: MappingFailure
+  )
   case UnsupportedGeom(geom: String)
   case InvalidStatGeom(stat: String, geom: String)
   case StatAestheticConflict(stat: String, aesthetic: String)
@@ -181,6 +189,9 @@ enum GraphicsError extends IntaglioError:
             conflictingScale
           ) =>
         s"aesthetic '$aesthetic' uses different plot scales in layers $firstLayer ('$firstScale') and $conflictingLayer ('$conflictingScale'); bind one scale at plot level or reuse the same scale declaration"
+      case MappingEvaluationFailed(stage, layerIndex, aesthetic, rowIndex, contract, failure) =>
+        val layer = layerIndex.fold("")(index => s" in layer $index")
+        s"$stage mapping '$aesthetic'$layer failed at row $rowIndex under the ${contract.label} contract: ${failure.message}"
       case UnsupportedGeom(geom) =>
         s"unsupported geom '$geom'"
       case InvalidStatGeom(stat, geom) =>

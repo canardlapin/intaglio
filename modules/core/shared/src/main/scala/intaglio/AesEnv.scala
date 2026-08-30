@@ -30,12 +30,30 @@ sealed trait RegisteredScale[Row]:
   final def sharesDeclaration(that: RegisteredScale[?]): Boolean =
     scale.asInstanceOf[AnyRef] eq that.scale.asInstanceOf[AnyRef]
 
-  final def observations(rows: Vector[Row]): Vector[ScaleObservation] =
+  final def observations(
+      rows: Vector[Row],
+      layerIndex: Int
+  ): Either[GraphicsError, Vector[ScaleObservation]] =
     val out = Vector.newBuilder[ScaleObservation]
-    rows.foreach { row =>
-      scale.observation(value.value(row)).foreach(out += _)
-    }
-    out.result()
+    var rowIndex = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while rowIndex < rows.length && result.isRight do
+      RowMapping.evaluateFunction(value.value, rows(rowIndex)) match
+        case Right(input) =>
+          scale.observation(input).foreach(out += _)
+        case Left((contract, failure)) =>
+          result = Left(
+            GraphicsError.MappingEvaluationFailed(
+              "scale training",
+              Some(layerIndex),
+              aesthetic.label,
+              rowIndex,
+              contract,
+              failure
+            )
+          )
+      rowIndex += 1
+    result.map(_ => out.result())
 
   final def trainPlotWide(
       observations: Vector[ScaleObservation]

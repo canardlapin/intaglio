@@ -126,16 +126,19 @@ private[intaglio] object MappingPhase:
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plot.layers.length && result.isRight do
       val packed = plot.layers(idx)
-      result = planValues(
-        packed.layer,
-        packed.panelData(plot.data, facet, cell),
-        packed.effectiveMapping(plot.mapping),
-        idx,
-        packed
-      ).map { plan =>
-        out += PackedLayerPlan(plan)
-        ()
-      }
+      result =
+        for
+          panelData <- packed.panelData(plot.data, facet, cell, idx)
+          plan <- planValues(
+            packed.layer,
+            panelData,
+            packed.effectiveMapping(plot.mapping),
+            idx,
+            packed
+          )
+        yield
+          out += PackedLayerPlan(plan)
+          ()
       idx += 1
     result.map(_ => out.result())
 
@@ -232,37 +235,45 @@ private[intaglio] object StatPhase:
         )
       }
     else
-      val keys = plan.data.map(stat.x)
-      val categories = stat.order.arrange(keys)
-      val groupKeys = stat.group match
-        case None          => Vector(None)
-        case Some(groupOf) => plan.data.map(row => Some(groupOf(row))).distinct
-      val groups = scala.collection.mutable.HashMap
-        .empty[(String, Option[String]), scala.collection.mutable.ArrayBuffer[Row]]
-      plan.data.zip(keys).foreach { case (row, key) =>
-        val group = stat.group.map(_(row))
-        groups.getOrElseUpdate((key, group), scala.collection.mutable.ArrayBuffer.empty) += row
-      }
-      val rows = categories.flatMap { category =>
-        groupKeys.flatMap { group =>
-          groups.get((category, group)).map { bucket =>
-            val members = bucket.toVector
-            StatRow(
-              source = members.head,
-              members = members,
-              category = Some(category),
-              computed = ComputedValues.counted(members.length, plan.data.length)
-            )
+      for
+        keys <- evaluateStatMapping(plan, stat.label, Aesthetic.X.label, stat.x)
+        rowGroups <- stat.group match
+          case None =>
+            Right(Vector.fill(plan.data.length)(Option.empty[String]))
+          case Some(groupOf) =>
+            evaluateStatMapping(plan, stat.label, Aesthetic.Group.label, groupOf)
+              .map(_.map(Some(_)))
+        mapping <- countMapping[Row](stat)
+      yield
+        val categories = stat.order.arrange(keys)
+        val groupKeys = rowGroups.distinct
+        val groups = scala.collection.mutable.HashMap
+          .empty[(String, Option[String]), scala.collection.mutable.ArrayBuffer[Row]]
+        var rowIndex = 0
+        while rowIndex < plan.data.length do
+          val key = keys(rowIndex)
+          val group = rowGroups(rowIndex)
+          groups.getOrElseUpdate((key, group), scala.collection.mutable.ArrayBuffer.empty) +=
+            plan.data(rowIndex)
+          rowIndex += 1
+        val rows = categories.flatMap { category =>
+          groupKeys.flatMap { group =>
+            groups.get((category, group)).map { bucket =>
+              val members = bucket.toVector
+              StatRow(
+                source = members.head,
+                members = members,
+                category = Some(category),
+                computed = ComputedValues.counted(members.length, plan.data.length)
+              )
+            }
           }
         }
-      }
-      countMapping[Row](stat).map { mapping =>
         StatPlan(
           plan,
           StatFrame(rows, Set(ComputedAesthetic.Count, ComputedAesthetic.Proportion)),
           mapping
         )
-      }
 
   private def countMapping[Row](
       stat: Stat.Count[Row]
@@ -271,7 +282,9 @@ private[intaglio] object StatPhase:
       AesSpec[StatRow[Row]](
         x = Some(AesValue.scaled(_.category.getOrElse(""), scale)),
         y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Count).getOrElse(0.0))),
-        group = stat.group.map(groupOf => AesValue.direct(row => groupOf(row.source)))
+        group = stat.group.map(groupOf =>
+          AesValue.direct(RowMapping.fromFunction(groupOf).contramap[StatRow[Row]](_.source))
+        )
       )
     }
 
@@ -302,48 +315,49 @@ private[intaglio] object StatPhase:
       plan: LayerPlan[Row],
       stat: Stat.Bin[Row]
   ): Either[GraphicsError, StatPlan[Row]] =
-    val values = plan.data.map(stat.x)
-    firstNonFinite(values) match
-      case Some(value) =>
-        Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
-      case None if values.isEmpty =>
-        val mapping = binMapping[Row]
-        Right(StatPlan(plan, StatFrame(Vector.empty, binAesthetics), mapping))
-      case None =>
-        val breaks = HistogramBins.partition(stat.bins, values.min, values.max)
-        val lower = breaks.head
-        val upper = breaks.last
-        values.find(value => value < lower || value > upper) match
-          case Some(value) if HistogramBins.isExplicit(stat.bins) =>
-            Left(GraphicsError.StatInputOutsideBins(value, lower, upper))
-          case _ =>
-            val buckets =
-              Array.fill(breaks.length - 1)(scala.collection.mutable.ArrayBuffer.empty[Row])
-            var rowIndex = 0
-            while rowIndex < plan.data.length do
-              val value = values(rowIndex)
-              val binIndex = findBin(value, breaks)
-              if binIndex >= 0 then buckets(binIndex) += plan.data(rowIndex)
-              rowIndex += 1
-            val rows = Vector.newBuilder[StatRow[Row]]
-            var binIndex = 0
-            while binIndex < buckets.length do
-              val members = buckets(binIndex).toVector
-              if members.nonEmpty then
-                rows += StatRow(
-                  members.head,
-                  members,
-                  None,
-                  ComputedValues.binned(
-                    members.length,
-                    plan.data.length,
-                    breaks(binIndex),
-                    breaks(binIndex + 1)
+    evaluateStatMapping(plan, stat.label, Aesthetic.X.label, stat.x).flatMap { values =>
+      firstNonFinite(values) match
+        case Some(value) =>
+          Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
+        case None if values.isEmpty =>
+          val mapping = binMapping[Row]
+          Right(StatPlan(plan, StatFrame(Vector.empty, binAesthetics), mapping))
+        case None =>
+          val breaks = HistogramBins.partition(stat.bins, values.min, values.max)
+          val lower = breaks.head
+          val upper = breaks.last
+          values.find(value => value < lower || value > upper) match
+            case Some(value) if HistogramBins.isExplicit(stat.bins) =>
+              Left(GraphicsError.StatInputOutsideBins(value, lower, upper))
+            case _ =>
+              val buckets =
+                Array.fill(breaks.length - 1)(scala.collection.mutable.ArrayBuffer.empty[Row])
+              var rowIndex = 0
+              while rowIndex < plan.data.length do
+                val value = values(rowIndex)
+                val binIndex = findBin(value, breaks)
+                if binIndex >= 0 then buckets(binIndex) += plan.data(rowIndex)
+                rowIndex += 1
+              val rows = Vector.newBuilder[StatRow[Row]]
+              var binIndex = 0
+              while binIndex < buckets.length do
+                val members = buckets(binIndex).toVector
+                if members.nonEmpty then
+                  rows += StatRow(
+                    members.head,
+                    members,
+                    None,
+                    ComputedValues.binned(
+                      members.length,
+                      plan.data.length,
+                      breaks(binIndex),
+                      breaks(binIndex + 1)
+                    )
                   )
-                )
-              binIndex += 1
-            val mapping = binMapping[Row]
-            Right(StatPlan(plan, StatFrame(rows.result(), binAesthetics), mapping))
+                binIndex += 1
+              val mapping = binMapping[Row]
+              Right(StatPlan(plan, StatFrame(rows.result(), binAesthetics), mapping))
+    }
 
   private def binMapping[Row]: AesSpec[StatRow[Row]] =
     AesSpec(
@@ -367,39 +381,42 @@ private[intaglio] object StatPhase:
       plan: LayerPlan[Row],
       stat: Stat.Summary[Row]
   ): Either[GraphicsError, StatPlan[Row]] =
-    val xs = plan.data.map(stat.x)
-    val ys = plan.data.map(stat.y)
-    firstNonFinite(xs) match
-      case Some(value) =>
-        Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
-      case None =>
-        firstNonFinite(ys) match
+    for
+      xs <- evaluateStatMapping(plan, stat.label, Aesthetic.X.label, stat.x)
+      ys <- evaluateStatMapping(plan, stat.label, Aesthetic.Y.label, stat.y)
+      transformed <-
+        firstNonFinite(xs) match
           case Some(value) =>
-            Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.Y.label, value))
+            Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
           case None =>
-            val groups = scala.collection.mutable.HashMap
-              .empty[Double, scala.collection.mutable.ArrayBuffer[(Row, Double)]]
-            var idx = 0
-            while idx < plan.data.length do
-              groups.getOrElseUpdate(xs(idx), scala.collection.mutable.ArrayBuffer.empty) += ((
-                plan.data(idx),
-                ys(idx)
-              ))
-              idx += 1
-            val rows = groups.keys.toVector.sorted.map { x =>
-              val observations = groups(x).toVector
-              val values = observations.map(_._2)
-              val mean = values.sum / values.length.toDouble
-              val (lower, upper) = summaryBounds(values, mean, stat.interval)
-              StatRow(
-                observations.head._1,
-                observations.map(_._1),
-                None,
-                ComputedValues.summarized(x, mean, lower, upper, values.length)
-              )
-            }
-            val mapping = summaryMapping[Row]
-            Right(StatPlan(plan, StatFrame(rows, summaryAesthetics), mapping))
+            firstNonFinite(ys) match
+              case Some(value) =>
+                Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.Y.label, value))
+              case None =>
+                val groups = scala.collection.mutable.HashMap
+                  .empty[Double, scala.collection.mutable.ArrayBuffer[(Row, Double)]]
+                var idx = 0
+                while idx < plan.data.length do
+                  groups.getOrElseUpdate(xs(idx), scala.collection.mutable.ArrayBuffer.empty) += ((
+                    plan.data(idx),
+                    ys(idx)
+                  ))
+                  idx += 1
+                val rows = groups.keys.toVector.sorted.map { x =>
+                  val observations = groups(x).toVector
+                  val values = observations.map(_._2)
+                  val mean = values.sum / values.length.toDouble
+                  val (lower, upper) = summaryBounds(values, mean, stat.interval)
+                  StatRow(
+                    observations.head._1,
+                    observations.map(_._1),
+                    None,
+                    ComputedValues.summarized(x, mean, lower, upper, values.length)
+                  )
+                }
+                val mapping = summaryMapping[Row]
+                Right(StatPlan(plan, StatFrame(rows, summaryAesthetics), mapping))
+    yield transformed
 
   private def summaryBounds(
       values: Vector[Double],
@@ -432,33 +449,58 @@ private[intaglio] object StatPhase:
       plan: LayerPlan[Row],
       stat: Stat.Density[Row]
   ): Either[GraphicsError, StatPlan[Row]] =
-    val values = Array.ofDim[Double](plan.data.length)
-    var valueIndex = 0
-    while valueIndex < plan.data.length do
-      values(valueIndex) = stat.x(plan.data(valueIndex))
-      valueIndex += 1
-    firstNonFinite(values) match
-      case Some(value) =>
-        Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
-      case None if values.length < 2 =>
-        Left(GraphicsError.InsufficientStatData(stat.label, 2, values.length))
-      case None =>
-        val bandwidth = stat.config.bandwidth.map(_.toDouble).getOrElse(DensityMath.nrd0(values))
-        val domain = stat.config.domain.getOrElse(Interval.unsafe(values.min, values.max))
-        val points = stat.config.points.toInt
-        val step = domain.width / (points - 1).toDouble
-        val rows = Vector.tabulate(points) { idx =>
-          val position = domain.lower + step * idx.toDouble
-          val density = gaussianDensity(values, position, bandwidth)
-          StatRow(
-            plan.data.head,
-            plan.data,
-            None,
-            ComputedValues.densityAt(position, density, plan.data.length)
+    evaluateStatMapping(plan, stat.label, Aesthetic.X.label, stat.x).flatMap { mapped =>
+      val values = mapped.toArray
+      firstNonFinite(values) match
+        case Some(value) =>
+          Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
+        case None if values.length < 2 =>
+          Left(GraphicsError.InsufficientStatData(stat.label, 2, values.length))
+        case None =>
+          val bandwidth = stat.config.bandwidth.map(_.toDouble).getOrElse(DensityMath.nrd0(values))
+          val domain = stat.config.domain.getOrElse(Interval.unsafe(values.min, values.max))
+          val points = stat.config.points.toInt
+          val step = domain.width / (points - 1).toDouble
+          val rows = Vector.tabulate(points) { idx =>
+            val position = domain.lower + step * idx.toDouble
+            val density = gaussianDensity(values, position, bandwidth)
+            StatRow(
+              plan.data.head,
+              plan.data,
+              None,
+              ComputedValues.densityAt(position, density, plan.data.length)
+            )
+          }
+          val mapping = densityMapping[Row]
+          Right(StatPlan(plan, StatFrame(rows, densityAesthetics), mapping))
+    }
+
+  private def evaluateStatMapping[Row, A](
+      plan: LayerPlan[Row],
+      stat: String,
+      aesthetic: String,
+      mapping: Row => A
+  ): Either[GraphicsError, Vector[A]] =
+    val out = Vector.newBuilder[A]
+    var rowIndex = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while rowIndex < plan.data.length && result.isRight do
+      RowMapping.evaluateFunction(mapping, plan.data(rowIndex)) match
+        case Right(value) =>
+          out += value
+        case Left((contract, failure)) =>
+          result = Left(
+            GraphicsError.MappingEvaluationFailed(
+              s"stat '$stat'",
+              Some(plan.layerIndex),
+              aesthetic,
+              rowIndex,
+              contract,
+              failure
+            )
           )
-        }
-        val mapping = densityMapping[Row]
-        Right(StatPlan(plan, StatFrame(rows, densityAesthetics), mapping))
+      rowIndex += 1
+    result.map(_ => out.result())
 
   private def densityMapping[Row]: AesSpec[StatRow[Row]] =
     AesSpec(
@@ -552,48 +594,68 @@ private[intaglio] object ScalePhase:
       facetLocal: Boolean,
       unifyFacetCopies: Boolean
   ): Either[GraphicsError, ScaleResolution] =
-    val contributions = resolution.plans.flatMap(contribution(_, aesthetic))
-    contributions.headOption match
-      case None =>
-        Right(resolution)
-      case Some(first) =>
-        contributions.find { contribution =>
-          !first.entry.sharesDeclaration(contribution.entry) &&
-          !(unifyFacetCopies && compatibleFacetCopy(first, contribution))
-        } match
-          case Some(conflicting) =>
-            Left(
-              GraphicsError.ConflictingPlotScales(
-                aesthetic.label,
-                first.layerIndex,
-                first.entry.descriptor.name.value,
-                conflicting.layerIndex,
-                conflicting.entry.descriptor.name.value
+    contributions(resolution.plans, aesthetic).flatMap { contributions =>
+      contributions.headOption match
+        case None =>
+          Right(resolution)
+        case Some(first) =>
+          contributions.find { contribution =>
+            !first.entry.sharesDeclaration(contribution.entry) &&
+            !(unifyFacetCopies && compatibleFacetCopy(first, contribution))
+          } match
+            case Some(conflicting) =>
+              Left(
+                GraphicsError.ConflictingPlotScales(
+                  aesthetic.label,
+                  first.layerIndex,
+                  first.entry.descriptor.name.value,
+                  conflicting.layerIndex,
+                  conflicting.entry.descriptor.name.value
+                )
               )
-            )
-          case None =>
-            val observations = contributions.flatMap(_.observations)
-            for
-              trained <- trainEntry(first.entry, observations, facetLocal)
-              plans <- rebind(resolution.plans, aesthetic, observations, facetLocal)
-            yield ScaleResolution(
-              plans,
-              PlotScaleRegistry.from(resolution.registry.scales :+ trained.trained)
-            )
+            case None =>
+              val observations = contributions.flatMap(_.observations)
+              for
+                trained <- trainEntry(first.entry, observations, facetLocal)
+                plans <- rebind(resolution.plans, aesthetic, observations, facetLocal)
+              yield ScaleResolution(
+                plans,
+                PlotScaleRegistry.from(resolution.registry.scales :+ trained.trained)
+              )
+    }
+
+  private def contributions(
+      plans: Vector[PackedStatPlan],
+      aesthetic: Aesthetic[?]
+  ): Either[GraphicsError, Vector[Contribution]] =
+    val out = Vector.newBuilder[Contribution]
+    var index = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while index < plans.length && result.isRight do
+      result = contribution(plans(index), aesthetic).map { value =>
+        value.foreach(out += _)
+        ()
+      }
+      index += 1
+    result.map(_ => out.result())
 
   private def contribution(
       plan: PackedStatPlan,
       aesthetic: Aesthetic[?]
-  ): Option[Contribution] =
+  ): Either[GraphicsError, Option[Contribution]] =
     contributionTyped(plan.value, aesthetic)
 
   private def contributionTyped[Row](
       plan: StatPlan[Row],
       aesthetic: Aesthetic[?]
-  ): Option[Contribution] =
-    plan.mapping.scaledEntry(aesthetic).map { entry =>
-      Contribution(plan.layerIndex, entry, entry.observations(plan.data))
-    }
+  ): Either[GraphicsError, Option[Contribution]] =
+    plan.mapping.scaledEntry(aesthetic) match
+      case None =>
+        Right(None)
+      case Some(entry) =>
+        entry
+          .observations(plan.data, plan.layerIndex)
+          .map(observations => Some(Contribution(plan.layerIndex, entry, observations)))
 
   private def compatibleFacetCopy(
       first: Contribution,
@@ -687,24 +749,26 @@ private[intaglio] object RowPhase:
   ): RowResolution[Row] =
     val resolved =
       for
-        x <- requiredAes(Aesthetic.X, mapping.get(Aesthetic.X), source)
-        y <- requiredAes(Aesthetic.Y, mapping.get(Aesthetic.Y), source)
+        xValue <- requiredEvaluatedAes(Aesthetic.X, mapping.get(Aesthetic.X), source, rowIndex)
+        yValue <- requiredEvaluatedAes(Aesthetic.Y, mapping.get(Aesthetic.Y), source, rowIndex)
+        x = xValue.value
+        y = yValue.value
         _ <- finitePosition(x, y)
-        xBand = mapping.get(Aesthetic.X).flatMap(_.mappedBand(source))
-        yBand = mapping.get(Aesthetic.Y).flatMap(_.mappedBand(source))
-        xEnd <- optionalFiniteAes(Aesthetic.XEnd, mapping.get(Aesthetic.XEnd), source)
-        yEnd <- optionalFiniteAes(Aesthetic.YEnd, mapping.get(Aesthetic.YEnd), source)
-        xMin <- optionalFiniteAes(Aesthetic.XMin, mapping.get(Aesthetic.XMin), source)
-        xMax <- optionalFiniteAes(Aesthetic.XMax, mapping.get(Aesthetic.XMax), source)
-        yMin <- optionalFiniteAes(Aesthetic.YMin, mapping.get(Aesthetic.YMin), source)
-        yMax <- optionalFiniteAes(Aesthetic.YMax, mapping.get(Aesthetic.YMax), source)
+        xBand = xValue.band
+        yBand = yValue.band
+        xEnd <- optionalFiniteAes(Aesthetic.XEnd, mapping.get(Aesthetic.XEnd), source, rowIndex)
+        yEnd <- optionalFiniteAes(Aesthetic.YEnd, mapping.get(Aesthetic.YEnd), source, rowIndex)
+        xMin <- optionalFiniteAes(Aesthetic.XMin, mapping.get(Aesthetic.XMin), source, rowIndex)
+        xMax <- optionalFiniteAes(Aesthetic.XMax, mapping.get(Aesthetic.XMax), source, rowIndex)
+        yMin <- optionalFiniteAes(Aesthetic.YMin, mapping.get(Aesthetic.YMin), source, rowIndex)
+        yMax <- optionalFiniteAes(Aesthetic.YMax, mapping.get(Aesthetic.YMax), source, rowIndex)
         _ <- validBounds(Aesthetic.X.label, xMin, xMax)
         _ <- validBounds(Aesthetic.Y.label, yMin, yMax)
-        text <- labelValue(layer.geom, mapping, source)
-        group <- optionalAes(Aesthetic.Group, mapping.get(Aesthetic.Group), source)
-        subpath <- optionalAes(Aesthetic.Subpath, mapping.get(Aesthetic.Subpath), source)
-        gp <- rowGraphicParams(source, mapping, layer.params.getOrElse(theme.geom))
-        size <- rowSize(source, mapping, theme.pointSizePt)
+        text <- labelValue(layer.geom, mapping, source, rowIndex)
+        group <- optionalAes(Aesthetic.Group, mapping.get(Aesthetic.Group), source, rowIndex)
+        subpath <- optionalAes(Aesthetic.Subpath, mapping.get(Aesthetic.Subpath), source, rowIndex)
+        gp <- rowGraphicParams(source, mapping, layer.params.getOrElse(theme.geom), rowIndex)
+        size <- rowSize(source, mapping, theme.pointSizePt, rowIndex)
       yield ResolvedRow(
         rowIndex = rowIndex,
         source = source.source,
@@ -733,12 +797,13 @@ private[intaglio] object RowPhase:
   private def rowGraphicParams[Row](
       row: StatRow[Row],
       mapping: AesSpec[StatRow[Row]],
-      base: GraphicParams
+      base: GraphicParams,
+      rowIndex: Int
   ): Either[PlotDropReason, GraphicParams] =
     for
-      stroke <- optionalAes(Aesthetic.Color, mapping.get(Aesthetic.Color), row)
-      fill <- optionalAes(Aesthetic.Fill, mapping.get(Aesthetic.Fill), row)
-      alpha <- optionalAes(Aesthetic.Alpha, mapping.get(Aesthetic.Alpha), row)
+      stroke <- optionalAes(Aesthetic.Color, mapping.get(Aesthetic.Color), row, rowIndex)
+      fill <- optionalAes(Aesthetic.Fill, mapping.get(Aesthetic.Fill), row, rowIndex)
+      alpha <- optionalAes(Aesthetic.Alpha, mapping.get(Aesthetic.Alpha), row, rowIndex)
       gp <- base
         .withAestheticOverrides(
           stroke = stroke,
@@ -752,9 +817,10 @@ private[intaglio] object RowPhase:
   private def rowSize[Row](
       row: StatRow[Row],
       mapping: AesSpec[StatRow[Row]],
-      defaultSizePt: Double
+      defaultSizePt: Double,
+      rowIndex: Int
   ): Either[PlotDropReason, ExtentExpr] =
-    optionalAes(Aesthetic.Size, mapping.get(Aesthetic.Size), row).flatMap {
+    optionalAes(Aesthetic.Size, mapping.get(Aesthetic.Size), row, rowIndex).flatMap {
       case None =>
         Right(ExtentExpr.pointsUnsafe(defaultSizePt))
       case Some(size) =>
@@ -767,11 +833,12 @@ private[intaglio] object RowPhase:
   private def labelValue[Row](
       geom: Geom,
       mapping: AesSpec[StatRow[Row]],
-      row: StatRow[Row]
+      row: StatRow[Row],
+      rowIndex: Int
   ): Either[PlotDropReason, String] =
     geom match
       case Geom.Text =>
-        requiredAes(Aesthetic.Label, mapping.get(Aesthetic.Label), row)
+        requiredAes(Aesthetic.Label, mapping.get(Aesthetic.Label), row, rowIndex)
       case _ =>
         Right("")
 
@@ -782,9 +849,10 @@ private[intaglio] object RowPhase:
   private def optionalFiniteAes[Row](
       aesthetic: Aesthetic[Double],
       value: Option[AesValue[Row, Double]],
-      row: Row
+      row: Row,
+      rowIndex: Int
   ): Either[PlotDropReason, Option[Double]] =
-    optionalAes(aesthetic, value, row).flatMap {
+    optionalAes(aesthetic, value, row, rowIndex).flatMap {
       case Some(resolved) if !resolved.isFinite =>
         Left(PlotDropReason.NonFiniteAesthetic(aesthetic.label, resolved))
       case resolved =>
@@ -805,36 +873,70 @@ private[intaglio] object RowPhase:
   private def requiredAes[Row, A](
       aesthetic: Aesthetic[A],
       value: Option[AesValue[Row, A]],
-      row: Row
+      row: Row,
+      rowIndex: Int
   ): Either[PlotDropReason, A] =
+    requiredEvaluatedAes(aesthetic, value, row, rowIndex).map(_.value)
+
+  private def requiredEvaluatedAes[Row, A](
+      aesthetic: Aesthetic[A],
+      value: Option[AesValue[Row, A]],
+      row: Row,
+      rowIndex: Int
+  ): Either[PlotDropReason, EvaluatedAes[A]] =
     value match
       case None      => Left(PlotDropReason.MissingAesthetic(aesthetic.label))
-      case Some(aes) => evalAes(aesthetic, aes, row)
+      case Some(aes) => evalAes(aesthetic, aes, row, rowIndex)
 
   private def optionalAes[Row, A](
       aesthetic: Aesthetic[A],
       value: Option[AesValue[Row, A]],
-      row: Row
+      row: Row,
+      rowIndex: Int
   ): Either[PlotDropReason, Option[A]] =
     value match
       case None      => Right(None)
-      case Some(aes) => evalAes(aesthetic, aes, row).map(Some(_))
+      case Some(aes) => evalAes(aesthetic, aes, row, rowIndex).map(value => Some(value.value))
 
   private def evalAes[Row, A](
       aesthetic: Aesthetic[A],
       value: AesValue[Row, A],
-      row: Row
-  ): Either[PlotDropReason, A] =
+      row: Row,
+      rowIndex: Int
+  ): Either[PlotDropReason, EvaluatedAes[A]] =
     value match
       case AesValue.Direct(f) =>
-        Right(f(row))
-      case AesValue.Constant(v) =>
-        Right(v)
-      case scaled: AesValue.Scaled[Row, ?, A] =>
-        scaled.scale
-          .mapValueResult(scaled.value(row))
+        RowMapping
+          .evaluateFunction(f, row)
+          .map(EvaluatedAes(_, None))
           .left
-          .map(toDropReason(aesthetic, _))
+          .map(toMappingDropReason(aesthetic, rowIndex, _))
+      case AesValue.Constant(v) =>
+        Right(EvaluatedAes(v, None))
+      case scaled: AesValue.Scaled[Row, ?, A] =>
+        RowMapping
+          .evaluateFunction(scaled.value, row)
+          .left
+          .map(toMappingDropReason(aesthetic, rowIndex, _))
+          .flatMap { input =>
+            scaled.scale
+              .mapValueResult(input)
+              .map(output => EvaluatedAes(output, scaled.scale.mappedBand(input)))
+              .left
+              .map(toDropReason(aesthetic, _))
+          }
+
+  private def toMappingDropReason[A](
+      aesthetic: Aesthetic[A],
+      rowIndex: Int,
+      problem: RowMapping.Problem
+  ): PlotDropReason =
+    PlotDropReason.MappingEvaluationFailed(
+      aesthetic.label,
+      rowIndex,
+      problem._1,
+      problem._2
+    )
 
   private def toDropReason[A](
       aesthetic: Aesthetic[A],
@@ -847,6 +949,8 @@ private[intaglio] object RowPhase:
         PlotDropReason.ScaleOutOfDomain(aesthetic.label, scale, value)
       case ScaleMapFailure.PaletteOverflow(scale, levels, capacity) =>
         PlotDropReason.PaletteOverflow(aesthetic.label, scale, levels, capacity)
+
+  private final case class EvaluatedAes[+A](value: A, band: Option[Band])
 
   private enum RowResolution[Row]:
     case Resolved(row: ResolvedRow[Row])

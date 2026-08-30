@@ -248,6 +248,12 @@ enum PlotDropReason:
   case MissingAesthetic(aesthetic: String)
   case MissingPosition
   case MissingLabel
+  case MappingEvaluationFailed(
+      aesthetic: String,
+      rowIndex: Int,
+      contract: MappingContract,
+      failure: MappingFailure
+  )
   case NonFinitePosition(x: Double, y: Double)
   case NonFiniteAesthetic(aesthetic: String, value: Double)
   case InvalidBounds(axis: String, minimum: Double, maximum: Double)

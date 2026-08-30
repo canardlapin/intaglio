@@ -1104,8 +1104,33 @@ final case class ScaleBinding[Row, In, Out](
     value: Row => In,
     scale: Scale[In, Out]
 ):
+  /** Convenience evaluation outside compilation. Like `RowMapping.apply`, this method may throw;
+    * `PlotCompiler` uses the checked mapping boundary instead.
+    */
   def map(row: Row): Option[Out] =
     scale.mapValue(value(row))
 
   def toAesValue: AesValue[Row, Out] =
     AesValue.scaled(value, scale)
+
+object ScaleBinding:
+  def total[Row, In, Out](
+      aesthetic: Aesthetic[Out],
+      value: Row => In,
+      scale: Scale[In, Out]
+  ): ScaleBinding[Row, In, Out] =
+    ScaleBinding(aesthetic, RowMapping.total(value), scale)
+
+  def checked[Row, In, Out](
+      aesthetic: Aesthetic[Out],
+      value: Row => Either[MappingFailure, In],
+      scale: Scale[In, Out]
+  ): ScaleBinding[Row, In, Out] =
+    ScaleBinding(aesthetic, RowMapping.checked(value), scale)
+
+  def throwing[Row, In, Out](
+      aesthetic: Aesthetic[Out],
+      value: Row => In,
+      scale: Scale[In, Out]
+  ): ScaleBinding[Row, In, Out] =
+    ScaleBinding(aesthetic, RowMapping.throwing(value), scale)

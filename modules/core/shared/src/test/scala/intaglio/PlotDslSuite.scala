@@ -126,6 +126,34 @@ class PlotDslSuite extends munit.FunSuite:
     assertEquals(invalidCoord.left.toOption, Some(GraphicsError.InvalidCoordinateRatio(0.0)))
   }
 
+  test("eager DSL scale declaration retains mapping exceptions as typed errors") {
+    val x = RowMapping.throwing[Observation, Double] { row =>
+      if row.group == "task" then throw new IllegalStateException("task x unavailable")
+      else row.x
+    }
+
+    val built =
+      plot(rows)
+        .aes(x, _.y)
+        .scaleXContinuous()
+        .geomPoint()
+        .build
+
+    assert(built match
+      case Left(
+            GraphicsError.MappingEvaluationFailed(
+              "scale declaration",
+              None,
+              "x",
+              2,
+              MappingContract.Throwing,
+              MappingFailure.Threw(_, "task x unavailable")
+            )
+          ) =>
+        true
+      case _ => false)
+  }
+
   test("publication palettes reject overflow unless cycling is explicit") {
     val manyGroups = Vector.tabulate(7) { index =>
       Observation(index.toDouble, index.toDouble, s"group-$index")

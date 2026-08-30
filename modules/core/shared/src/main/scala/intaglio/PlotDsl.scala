@@ -410,7 +410,8 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val next =
       for
         current <- result
-        scale <- ContinuousScale.train(name, data.map(value), palette, transform, oob)
+        observations <- evaluateScaleMapping(aesthetic.label, value)
+        scale <- ContinuousScale.train(name, observations, palette, transform, oob)
         plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
       yield plot
     updateResult(next)
@@ -423,16 +424,42 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       name: String,
       overflow: PaletteOverflowPolicy
   ): PlotBuilder[Row, Position] =
-    val declared = if levels.nonEmpty then levels else data.map(value).distinct
     val next =
       for
         current <- result
+        observations <- evaluateScaleMapping(aesthetic.label, value)
+        declared = if levels.nonEmpty then levels else observations.distinct
         domain <- DiscreteDomain.ordered(declared)
         palette <- DiscretePalette.values(colors, overflow)
         scale <- DiscreteScale(name, domain, palette)
         plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
       yield plot
     updateResult(next)
+
+  private def evaluateScaleMapping[A](
+      aesthetic: String,
+      mapping: Row => A
+  ): Either[GraphicsError, Vector[A]] =
+    val out = Vector.newBuilder[A]
+    var rowIndex = 0
+    var evaluated: Either[GraphicsError, Unit] = Right(())
+    while rowIndex < data.length && evaluated.isRight do
+      RowMapping.evaluateFunction(mapping, data(rowIndex)) match
+        case Right(value) =>
+          out += value
+        case Left((contract, failure)) =>
+          evaluated = Left(
+            GraphicsError.MappingEvaluationFailed(
+              "scale declaration",
+              None,
+              aesthetic,
+              rowIndex,
+              contract,
+              failure
+            )
+          )
+      rowIndex += 1
+    evaluated.map(_ => out.result())
 
   private def mapAesthetics(f: AesSpec[Row] => AesSpec[Row]): PlotBuilder[Row, Position] =
     updateResult(result.flatMap(current => current.withMapping(f(current.mapping))))

@@ -183,12 +183,24 @@ scale declarations over observations from every layer.
   an approximate target count. Use `Breaks.count` when an exact number of
   equally spaced breaks is part of the caller's contract.
 - Aesthetic mappings are row-aware typed values: direct, constant, and scaled
-  mappings share one `AesValue` algebra. `AesSpec` is the single canonical
-  storage model: its precise fields are the public API, while typed lookup and
-  declaration-order iteration use the same value through `Aesthetic[A]`.
-  `AesEnv` is only a source-compatible alias, not a normalized copy.
-  Continuous scales consume `Double`, discrete scales consume `String`, and
-  the aesthetic they bind to determines the rendered value type.
+  mappings share one `AesValue` algebra. A `RowMapping` can declare one of three
+  contracts: `total` promises a value for every row, `checked` returns a typed
+  `MappingFailure`, and `throwing` explicitly admits non-fatal exceptions.
+  Existing `Row => A` lambdas remain source-compatible and are treated as
+  throwing mappings. Because `RowMapping` is itself a `Row => A`, the same
+  constructors work in `aes`, layer, stat, facet, and scale-binding APIs. The
+  compiler catches non-fatal failures: direct aesthetic failures become
+  `DroppedRow` diagnostics carrying aesthetic and row index, while failures
+  needed for scale training, statistics, or facet partitioning become
+  `GraphicsError.MappingEvaluationFailed`. Calling `RowMapping.apply`,
+  `AesValue.map`, or `ScaleBinding.map` directly is the explicit convenience
+  boundary that may throw; `PlotCompiler.resolve` and `compile` do not leak
+  mapping exceptions. `AesSpec` is the single canonical storage model: its
+  precise fields are the public API, while typed lookup and declaration-order
+  iteration use the same value through `Aesthetic[A]`. `AesEnv` is only a
+  source-compatible alias, not a normalized copy. Continuous scales consume
+  `Double`, discrete scales consume `String`, and the aesthetic they bind to
+  determines the rendered value type.
 - `PlotLayer` packages each layer's row type with its data, mapping, statistic,
   and facet policy. Same-row layers inherit plot data and mappings as before;
   independent layers do neither implicitly. Plot-global scales consume the
