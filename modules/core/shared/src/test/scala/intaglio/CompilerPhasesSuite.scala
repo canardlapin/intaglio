@@ -19,12 +19,31 @@ class CompilerPhasesSuite extends munit.FunSuite:
       DiscretePalette.valuesUnsafe(Vector(Rgba.unsafe(10, 20, 30), Rgba.unsafe(200, 100, 50)))
     ).fold(e => fail(e.message), identity)
 
+  private def collapsedColorScale(name: String): DiscreteScale[Rgba] =
+    DiscreteScale(
+      name,
+      DiscreteDomain.empty,
+      DiscretePalette.valuesUnsafe(Vector.fill(4)(Rgba.unsafe(90, 100, 110)))
+    ).fold(e => fail(e.message), identity)
+
   private def groupedLinePlot: Plot[Obs] =
     Plot(data)
       .withScale(ScaleBinding[Obs, String, Rgba](Aesthetic.Color, _.condition, colorScale))
       .flatMap { plot =>
         plot.withMapping(plot.mapping.withGroup(_.condition))
       }
+      .flatMap(_.addLayer(Layer.line[Obs](_.x, _.y)))
+      .fold(e => fail(e.message), identity)
+
+  private def autoGroupedLinePlot: Plot[Obs] =
+    Plot(data)
+      .withScale(
+        ScaleBinding[Obs, String, Rgba](
+          Aesthetic.Color,
+          _.condition,
+          collapsedColorScale("collapsed-condition-color")
+        )
+      )
       .flatMap(_.addLayer(Layer.line[Obs](_.x, _.y)))
       .fold(e => fail(e.message), identity)
 
@@ -152,6 +171,139 @@ class CompilerPhasesSuite extends munit.FunSuite:
 
     assertEquals(dropped, Vector.empty)
     assertEquals(rows.map(_.group), Vector(Some("A"), Some("A"), Some("B"), Some("B"), Some("A")))
+    assertEquals(rows.map(_.grouping).distinct, Vector(GroupingDecision.Explicit))
+    assertEquals(
+      rows.map(_.groupKey).distinct,
+      Vector(Some(GroupKey.Explicit("A")), Some(GroupKey.Explicit("B")))
+    )
+  }
+
+  test("discrete style categories infer structural pre-palette group keys") {
+    val trained = PlotCompiler.resolve(autoGroupedLinePlot).fold(e => fail(e.message), identity)
+    val layer = trained.layers.head
+
+    assertEquals(layer.grouping, GroupingDecision.Inferred(Vector(Aesthetic.Color)))
+    assertEquals(layer.rows.map(_.grouping).distinct, Vector(layer.grouping))
+    assertEquals(
+      layer.rows.map(_.groupKey),
+      Vector("A", "A", "B", "B", "A").map(category =>
+        Some(GroupKey.Inferred(Vector(DiscreteGroupValue(Aesthetic.Color, category))))
+      )
+    )
+    assertEquals(layer.rows.map(_.gp.stroke).distinct, Vector(Some(Rgba.unsafe(90, 100, 110))))
+    assertEquals(layer.grobs.length, 2)
+  }
+
+  test("multiple discrete style mappings form a composite raw category key") {
+    val fillScale = collapsedColorScale("collapsed-phase-fill")
+    val trained = Plot(data.take(4))
+      .withScale(
+        ScaleBinding[Obs, String, Rgba](
+          Aesthetic.Color,
+          _.condition,
+          collapsedColorScale("collapsed-composite-color")
+        )
+      )
+      .flatMap(
+        _.withScale(
+          ScaleBinding[Obs, String, Rgba](
+            Aesthetic.Fill,
+            row => if row.x.toInt % 2 == 0 then "even" else "odd",
+            fillScale
+          )
+        )
+      )
+      .flatMap(_.addLayer(Layer.point[Obs](_.x, _.y)))
+      .flatMap(PlotCompiler.resolve(_))
+      .fold(e => fail(e.message), identity)
+    val layer = trained.layers.head
+
+    assertEquals(
+      layer.grouping,
+      GroupingDecision.Inferred(Vector(Aesthetic.Color, Aesthetic.Fill))
+    )
+    assertEquals(
+      layer.rows.map(_.groupKey),
+      Vector(
+        Some(
+          GroupKey.Inferred(
+            Vector(
+              DiscreteGroupValue(Aesthetic.Color, "A"),
+              DiscreteGroupValue(Aesthetic.Fill, "even")
+            )
+          )
+        ),
+        Some(
+          GroupKey.Inferred(
+            Vector(
+              DiscreteGroupValue(Aesthetic.Color, "A"),
+              DiscreteGroupValue(Aesthetic.Fill, "odd")
+            )
+          )
+        ),
+        Some(
+          GroupKey.Inferred(
+            Vector(
+              DiscreteGroupValue(Aesthetic.Color, "B"),
+              DiscreteGroupValue(Aesthetic.Fill, "even")
+            )
+          )
+        ),
+        Some(
+          GroupKey.Inferred(
+            Vector(
+              DiscreteGroupValue(Aesthetic.Color, "B"),
+              DiscreteGroupValue(Aesthetic.Fill, "odd")
+            )
+          )
+        )
+      )
+    )
+  }
+
+  test("an explicit group mapping overrides discrete style inference") {
+    val plot = Plot(data)
+      .withScale(
+        ScaleBinding[Obs, String, Rgba](
+          Aesthetic.Color,
+          _.condition,
+          collapsedColorScale("collapsed-explicit-color")
+        )
+      )
+      .flatMap(current => current.withMapping(current.mapping.withGroup(_ => "all")))
+      .flatMap(_.addLayer(Layer.line[Obs](_.x, _.y)))
+      .fold(e => fail(e.message), identity)
+    val layer = PlotCompiler.resolve(plot).fold(e => fail(e.message), identity).layers.head
+
+    assertEquals(layer.grouping, GroupingDecision.Explicit)
+    assertEquals(layer.rows.map(_.groupKey).distinct, Vector(Some(GroupKey.Explicit("all"))))
+    assertEquals(layer.grobs.length, 1)
+  }
+
+  test("discrete scale descriptors without raw categories fail grouping closed") {
+    val incompleteScale = new Scale[String, Rgba]:
+      val name: GraphicsName = GraphicsName.unsafe("incomplete-discrete")
+      override val descriptor: ScaleDescriptor =
+        ScaleDescriptor(name, ScaleKind.Discrete, ScaleDomain.Unspecified)
+      def mapValue(value: String): Option[Rgba] =
+        Some(Rgba.unsafe(90, 100, 110))
+
+    val layer = Plot(data.take(1))
+      .withScale(
+        ScaleBinding[Obs, String, Rgba](Aesthetic.Color, _.condition, incompleteScale)
+      )
+      .flatMap(_.addLayer(Layer.point[Obs](_.x, _.y)))
+      .flatMap(PlotCompiler.resolve(_))
+      .fold(e => fail(e.message), identity)
+      .layers
+      .head
+
+    assertEquals(layer.grouping, GroupingDecision.Inferred(Vector(Aesthetic.Color)))
+    assertEquals(layer.rows, Vector.empty)
+    assertEquals(
+      layer.droppedRows.map(_.reason),
+      Vector(PlotDropReason.GroupingCategoryUnavailable("color"))
+    )
   }
 
   test("row style resolution preserves the complete base GraphicParams value") {

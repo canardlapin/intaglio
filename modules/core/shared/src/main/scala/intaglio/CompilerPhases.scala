@@ -857,13 +857,14 @@ private[intaglio] object RowPhase:
       plan: StatPlan[Row],
       theme: Theme = Theme.default
   ): Either[GraphicsError, (Vector[ResolvedRow[Row]], Vector[DroppedRow[Row]])] =
+    val grouping = plan.mapping.groupingDecision
     val rows = Vector.newBuilder[ResolvedRow[Row]]
     val dropped = Vector.newBuilder[DroppedRow[Row]]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plan.data.length && result.isRight do
       val source = plan.data(idx)
-      resolveRow(idx, source, plan.layer, plan.mapping, theme) match
+      resolveRow(idx, source, plan.layer, plan.mapping, grouping, theme) match
         case RowResolution.Resolved(row) =>
           rows += row
         case RowResolution.Dropped(reason) =>
@@ -878,6 +879,7 @@ private[intaglio] object RowPhase:
       source: StatRow[Row],
       layer: Layer[Row],
       mapping: AesSpec[StatRow[Row]],
+      grouping: GroupingDecision,
       theme: Theme
   ): RowResolution[Row] =
     val resolved =
@@ -898,10 +900,40 @@ private[intaglio] object RowPhase:
         _ <- validBounds(Aesthetic.X.label, xMin, xMax)
         _ <- validBounds(Aesthetic.Y.label, yMin, yMax)
         text <- labelValue(layer.geom, mapping, source, rowIndex)
-        group <- optionalAes(Aesthetic.Group, mapping.get(Aesthetic.Group), source, rowIndex)
+        explicitGroup <- optionalAes(
+          Aesthetic.Group,
+          mapping.get(Aesthetic.Group),
+          source,
+          rowIndex
+        )
         subpath <- optionalAes(Aesthetic.Subpath, mapping.get(Aesthetic.Subpath), source, rowIndex)
-        gp <- rowGraphicParams(source, mapping, layer.params.getOrElse(theme.geom), rowIndex)
-        size <- rowSize(source, mapping, theme.pointSizePt, rowIndex)
+        stroke <- optionalEvaluatedAes(
+          Aesthetic.Color,
+          mapping.get(Aesthetic.Color),
+          source,
+          rowIndex
+        )
+        fill <- optionalEvaluatedAes(Aesthetic.Fill, mapping.get(Aesthetic.Fill), source, rowIndex)
+        alpha <- optionalEvaluatedAes(
+          Aesthetic.Alpha,
+          mapping.get(Aesthetic.Alpha),
+          source,
+          rowIndex
+        )
+        mappedSize <- optionalEvaluatedAes(
+          Aesthetic.Size,
+          mapping.get(Aesthetic.Size),
+          source,
+          rowIndex
+        )
+        gp <- rowGraphicParams(
+          layer.params.getOrElse(theme.geom),
+          stroke.map(_.value),
+          fill.map(_.value),
+          alpha.map(_.value)
+        )
+        size <- rowSize(mappedSize.map(_.value), theme.pointSizePt)
+        groupKey <- resolveGroupKey(grouping, explicitGroup, stroke, fill, alpha, mappedSize)
       yield ResolvedRow(
         rowIndex = rowIndex,
         source = source.source,
@@ -918,7 +950,9 @@ private[intaglio] object RowPhase:
         yMax = yMax,
         point = Point.nativeUnsafe(x, y),
         label = if layer.geom == Geom.Text then Some(text) else None,
-        group = group,
+        grouping = grouping,
+        groupKey = groupKey,
+        group = groupKey.map(_.display),
         subpath = subpath,
         gp = gp,
         size = size
@@ -927,33 +961,26 @@ private[intaglio] object RowPhase:
       case Right(row)   => RowResolution.Resolved(row)
       case Left(reason) => RowResolution.Dropped(reason)
 
-  private def rowGraphicParams[Row](
-      row: StatRow[Row],
-      mapping: AesSpec[StatRow[Row]],
+  private def rowGraphicParams(
       base: GraphicParams,
-      rowIndex: Int
+      stroke: Option[Rgba],
+      fill: Option[Rgba],
+      alpha: Option[Double]
   ): Either[PlotDropReason, GraphicParams] =
-    for
-      stroke <- optionalAes(Aesthetic.Color, mapping.get(Aesthetic.Color), row, rowIndex)
-      fill <- optionalAes(Aesthetic.Fill, mapping.get(Aesthetic.Fill), row, rowIndex)
-      alpha <- optionalAes(Aesthetic.Alpha, mapping.get(Aesthetic.Alpha), row, rowIndex)
-      gp <- base
-        .withAestheticOverrides(
-          stroke = stroke,
-          fill = fill,
-          alpha = alpha
-        )
-        .left
-        .map(error => PlotDropReason.InvalidAesthetic("gp", error.message))
-    yield gp
+    base
+      .withAestheticOverrides(
+        stroke = stroke,
+        fill = fill,
+        alpha = alpha
+      )
+      .left
+      .map(error => PlotDropReason.InvalidAesthetic("gp", error.message))
 
-  private def rowSize[Row](
-      row: StatRow[Row],
-      mapping: AesSpec[StatRow[Row]],
-      defaultSizePt: Double,
-      rowIndex: Int
+  private def rowSize(
+      value: Option[Double],
+      defaultSizePt: Double
   ): Either[PlotDropReason, ExtentExpr] =
-    optionalAes(Aesthetic.Size, mapping.get(Aesthetic.Size), row, rowIndex).flatMap {
+    value match
       case None =>
         Right(ExtentExpr.pointsUnsafe(defaultSizePt))
       case Some(size) =>
@@ -961,7 +988,38 @@ private[intaglio] object RowPhase:
           .points(size)
           .left
           .map(error => PlotDropReason.InvalidAesthetic("size", error.message))
-    }
+
+  private def resolveGroupKey(
+      grouping: GroupingDecision,
+      explicit: Option[String],
+      color: Option[EvaluatedAes[Rgba]],
+      fill: Option[EvaluatedAes[Rgba]],
+      alpha: Option[EvaluatedAes[Double]],
+      size: Option[EvaluatedAes[Double]]
+  ): Either[PlotDropReason, Option[GroupKey]] =
+    grouping match
+      case GroupingDecision.Ungrouped =>
+        Right(None)
+      case GroupingDecision.Explicit =>
+        Right(explicit.map(GroupKey.Explicit(_)))
+      case GroupingDecision.Inferred(aesthetics) =>
+        val values = Vector(
+          discreteGroupValue(Aesthetic.Color, color),
+          discreteGroupValue(Aesthetic.Fill, fill),
+          discreteGroupValue(Aesthetic.Alpha, alpha),
+          discreteGroupValue(Aesthetic.Size, size)
+        ).flatten
+        aesthetics.find(aesthetic => !values.exists(_.aesthetic == aesthetic)) match
+          case Some(aesthetic) =>
+            Left(PlotDropReason.GroupingCategoryUnavailable(aesthetic.label))
+          case None =>
+            Right(Some(GroupKey.Inferred(values)))
+
+  private def discreteGroupValue[A](
+      aesthetic: Aesthetic[A],
+      evaluated: Option[EvaluatedAes[A]]
+  ): Option[DiscreteGroupValue] =
+    evaluated.flatMap(_.rawDiscreteCategory.map(DiscreteGroupValue(aesthetic, _)))
 
   private def labelValue[Row](
       geom: Geom,
@@ -1031,6 +1089,16 @@ private[intaglio] object RowPhase:
       case None      => Right(None)
       case Some(aes) => evalAes(aesthetic, aes, row, rowIndex).map(value => Some(value.value))
 
+  private def optionalEvaluatedAes[Row, A](
+      aesthetic: Aesthetic[A],
+      value: Option[AesValue[Row, A]],
+      row: Row,
+      rowIndex: Int
+  ): Either[PlotDropReason, Option[EvaluatedAes[A]]] =
+    value match
+      case None      => Right(None)
+      case Some(aes) => evalAes(aesthetic, aes, row, rowIndex).map(Some(_))
+
   private def evalAes[Row, A](
       aesthetic: Aesthetic[A],
       value: AesValue[Row, A],
@@ -1041,11 +1109,11 @@ private[intaglio] object RowPhase:
       case AesValue.Direct(f) =>
         RowMapping
           .evaluateFunction(f, row)
-          .map(EvaluatedAes(_, None))
+          .map(EvaluatedAes(_, None, None))
           .left
           .map(toMappingDropReason(aesthetic, rowIndex, _))
       case AesValue.Constant(v) =>
-        Right(EvaluatedAes(v, None))
+        Right(EvaluatedAes(v, None, None))
       case scaled: AesValue.Scaled[Row, ?, A] =>
         RowMapping
           .evaluateFunction(scaled.value, row)
@@ -1054,7 +1122,15 @@ private[intaglio] object RowPhase:
           .flatMap { input =>
             scaled.scale
               .mapValueResult(input)
-              .map(output => EvaluatedAes(output, scaled.scale.mappedBand(input)))
+              .map { output =>
+                val rawDiscreteCategory =
+                  if scaled.scale.descriptor.kind == ScaleKind.Discrete then
+                    scaled.scale.observation(input).collect {
+                      case ScaleObservation.Discrete(category) => category
+                    }
+                  else None
+                EvaluatedAes(output, scaled.scale.mappedBand(input), rawDiscreteCategory)
+              }
               .left
               .map(toDropReason(aesthetic, _))
           }
@@ -1083,7 +1159,11 @@ private[intaglio] object RowPhase:
       case ScaleMapFailure.PaletteOverflow(scale, levels, capacity) =>
         PlotDropReason.PaletteOverflow(aesthetic.label, scale, levels, capacity)
 
-  private final case class EvaluatedAes[+A](value: A, band: Option[Band])
+  private final case class EvaluatedAes[+A](
+      value: A,
+      band: Option[Band],
+      rawDiscreteCategory: Option[String]
+  )
 
   private enum RowResolution[Row]:
     case Resolved(row: ResolvedRow[Row])
@@ -1116,12 +1196,12 @@ private[intaglio] object PositionPhase:
       config: DodgeConfig
   ): Vector[ResolvedRow[Row]] =
     val updated = scala.collection.mutable.ArrayBuffer.from(rows)
-    val globalGroups = rows.map(_.group).distinct
+    val globalGroups = rows.map(_.groupKey).distinct
     val positions = rows.map(_.x).distinct
     positions.foreach { base =>
       val indices = rows.indices.filter(index => rows(index).x == base).toVector
       val localGroups =
-        globalGroups.filter(group => indices.exists(index => rows(index).group == group))
+        globalGroups.filter(group => indices.exists(index => rows(index).groupKey == group))
       val slots = config.preserve match
         case DodgePreserve.Total  => localGroups
         case DodgePreserve.Single => globalGroups
@@ -1131,7 +1211,7 @@ private[intaglio] object PositionPhase:
       }(_.toDouble)
       indices.foreach { index =>
         val row = rows(index)
-        val slot = math.max(0, slots.indexOf(row.group))
+        val slot = math.max(0, slots.indexOf(row.groupKey))
         val center = base + displacementWidth * ((slot.toDouble + 0.5) / slotCount.toDouble - 0.5)
         val delta = center - row.x
         val sourceWidth = row.xBand.map(_.width).getOrElse(0.9)
@@ -1163,7 +1243,7 @@ private[intaglio] object PositionPhase:
       order: StackOrder
   ): Vector[ResolvedRow[Row]] =
     val updated = scala.collection.mutable.ArrayBuffer.from(rows)
-    val encountered = rows.map(_.group).distinct
+    val encountered = rows.map(_.groupKey).distinct
     val groupOrder = order match
       case StackOrder.Encountered => encountered
       case StackOrder.Reverse     => encountered.reverse
@@ -1179,9 +1259,9 @@ private[intaglio] object PositionPhase:
   private def ordered[Row](
       indices: Vector[Int],
       rows: Vector[ResolvedRow[Row]],
-      groups: Vector[Option[String]]
+      groups: Vector[Option[GroupKey]]
   ): Vector[Int] =
-    indices.sortBy(index => (groups.indexOf(rows(index).group), index))
+    indices.sortBy(index => (groups.indexOf(rows(index).groupKey), index))
 
   private def stackSide[Row](
       indices: Vector[Int],
@@ -1603,15 +1683,15 @@ private[intaglio] object GeomPhase:
     * within each group.
     */
   private def groupInOrder[Row](rows: Vector[ResolvedRow[Row]]): Vector[Vector[ResolvedRow[Row]]] =
-    if rows.forall(_.group.isEmpty) then if rows.isEmpty then Vector.empty else Vector(rows)
+    if rows.forall(_.groupKey.isEmpty) then if rows.isEmpty then Vector.empty else Vector(rows)
     else
-      val order = Vector.newBuilder[Option[String]]
+      val order = Vector.newBuilder[Option[GroupKey]]
       val buckets = scala.collection.mutable.HashMap
-        .empty[Option[String], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
+        .empty[Option[GroupKey], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
       rows.foreach { row =>
         val bucket = buckets.getOrElseUpdate(
-          row.group, {
-            order += row.group
+          row.groupKey, {
+            order += row.groupKey
             scala.collection.mutable.ArrayBuffer.empty[ResolvedRow[Row]]
           }
         )

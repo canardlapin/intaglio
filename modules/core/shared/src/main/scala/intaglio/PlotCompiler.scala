@@ -93,6 +93,7 @@ sealed trait TrainedLayer:
   final def dataSize: Int = value.dataSize
   final def mapping: AesSpec[Row] = value.mapping
   final def annotation: Option[ResolvedReferenceLine] = value.annotation
+  final def grouping: GroupingDecision = value.grouping
   final def statFrame: StatFrame[Row] = value.statFrame
   final def scaleDeclarations: Vector[ScaleDeclaration] = value.scaleDeclarations
   final def trainedScales: Vector[TrainedScale] = value.trainedScales
@@ -196,6 +197,7 @@ final case class ResolvedLayer[Row](
     dataSize: Int,
     mapping: AesSpec[Row],
     annotation: Option[ResolvedReferenceLine],
+    grouping: GroupingDecision,
     statFrame: StatFrame[Row],
     scaleDeclarations: Vector[ScaleDeclaration],
     trainedScales: Vector[TrainedScale],
@@ -245,6 +247,8 @@ final case class ResolvedRow[Row](
     yMax: Option[Double],
     point: Point,
     label: Option[String],
+    grouping: GroupingDecision,
+    groupKey: Option[GroupKey],
     group: Option[String],
     subpath: Option[String],
     gp: GraphicParams,
@@ -274,6 +278,7 @@ enum PlotDropReason:
   case TransformDomain(aesthetic: String, transform: String, value: Double)
   case ScaleOutOfDomain(aesthetic: String, scale: String, value: String)
   case PaletteOverflow(aesthetic: String, scale: String, levels: Int, capacity: Int)
+  case GroupingCategoryUnavailable(aesthetic: String)
   case InvalidAesthetic(aesthetic: String, value: String)
 
 /** Facade over the compiler phases: mapping resolution, plot-wide scale training, row evaluation,
@@ -380,6 +385,7 @@ object PlotCompiler:
   ): Either[GraphicsError, TrainedLayer] =
     val registry = ScaleRegistry.fromMapping(plan.mapping)
     val annotation = plan.annotation.map(_.resolved)
+    val grouping = plan.mapping.groupingDecision
     val trainedScales = annotation.flatMap(_.trainedScale).fold(registry.trained) { scale =>
       if registry.trained.exists(_.aesthetic == scale.aesthetic) then registry.trained
       else registry.trained :+ scale
@@ -396,6 +402,7 @@ object PlotCompiler:
               dataSize = plan.source.data.length,
               mapping = plan.source.mapping,
               annotation = annotation,
+              grouping = grouping,
               statFrame = plan.frame,
               scaleDeclarations = registry.declarations(plan.layerIndex),
               trainedScales = trainedScales,

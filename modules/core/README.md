@@ -267,6 +267,13 @@ ignored rather than retained.
   `geom_line()`, which sorts by x; callers that want sorted lines must sort
   their rows explicitly, and any future sorted-line geom will be a distinct
   typed API rather than a silent change to `Geom.Line`.
+- Grouping is an inspectable compiler decision. An explicit `group` mapping is
+  authoritative; otherwise discrete color, fill, alpha, and size bindings form
+  a structural composite `GroupKey` from their raw pre-palette categories in
+  stable aesthetic order. `TrainedLayer.grouping` and each resolved row expose
+  that decision and key, so a palette that maps two categories to the same
+  visual value cannot accidentally merge lines, polygons, dodged marks, or
+  stacks.
 - Filled contours clip each regular-grid triangle against checked
   `ContourBreaks`, cancel internal edges, stitch oriented rings, and assign
   clockwise holes to the smallest containing counter-clockwise outer ring.

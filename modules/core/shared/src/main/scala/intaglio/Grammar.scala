@@ -147,6 +147,8 @@ sealed trait AesValue[Row, A]:
   def map(row: Row): Option[A]
   private[intaglio] def mappedBand(row: Row): Option[Band] =
     None
+  private[intaglio] def isDiscreteMapped: Boolean =
+    false
   def isScaled: Boolean =
     false
 
@@ -173,6 +175,9 @@ object AesValue:
 
     override def isScaled: Boolean =
       true
+
+    private[intaglio] override def isDiscreteMapped: Boolean =
+      scale.descriptor.kind == ScaleKind.Discrete
 
     private[intaglio] override def mappedBand(row: Row): Option[Band] =
       scale.mappedBand(value(row))
@@ -208,6 +213,32 @@ object AesValue:
 
   def scaledThrowing[Row, In, A](value: Row => In, scale: Scale[In, A]): AesValue[Row, A] =
     Scaled(RowMapping.throwing(value), scale)
+
+/** How a compiled layer chooses its group identity. Inference deliberately names the contributing
+  * aesthetics; row-level keys retain their raw pre-palette categories separately.
+  */
+enum GroupingDecision:
+  case Ungrouped
+  case Explicit
+  case Inferred(aesthetics: Vector[Aesthetic[?]])
+
+/** One raw categorical value contributing to an inferred group. */
+final case class DiscreteGroupValue(aesthetic: Aesthetic[?], category: String)
+
+/** Collision-free row grouping identity. Renderers and position adjustments compare this structural
+  * value rather than a palette output or concatenated display string.
+  */
+enum GroupKey:
+  case Explicit(value: String)
+  case Inferred(values: Vector[DiscreteGroupValue])
+
+  /** Compatibility/debug label. Structural equality, not this rendering, defines identity. */
+  def display: String =
+    this match
+      case Explicit(value)         => value
+      case Inferred(Vector(value)) => value.category
+      case Inferred(values)        =>
+        values.map(value => s"${value.aesthetic.label}=${value.category}").mkString("|")
 
 final case class Position2[Row](x: AesValue[Row, Double], y: AesValue[Row, Double]):
   def map(row: Row): Option[(Double, Double)] =
@@ -294,6 +325,23 @@ final case class AesSpec[Row](
       if isBound(aesthetic) then out += aesthetic
     }
     out.result()
+
+  /** Explicit `group` is authoritative. Otherwise, discrete style bindings form an interaction in
+    * stable aesthetic declaration order. Position, label, and subpath mappings do not implicitly
+    * alter grouping.
+    */
+  private[intaglio] def groupingDecision: GroupingDecision =
+    if group.nonEmpty then GroupingDecision.Explicit
+    else
+      val inferred: Vector[Aesthetic[?]] =
+        Vector(
+          Option.when(color.exists(_.isDiscreteMapped))(Aesthetic.Color),
+          Option.when(fill.exists(_.isDiscreteMapped))(Aesthetic.Fill),
+          Option.when(alpha.exists(_.isDiscreteMapped))(Aesthetic.Alpha),
+          Option.when(size.exists(_.isDiscreteMapped))(Aesthetic.Size)
+        ).flatten
+      if inferred.isEmpty then GroupingDecision.Ungrouped
+      else GroupingDecision.Inferred(inferred)
 
   def updated[A](aesthetic: Aesthetic[A], value: AesValue[Row, A]): AesSpec[Row] =
     aesthetic match

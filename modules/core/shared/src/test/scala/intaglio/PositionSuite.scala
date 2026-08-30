@@ -14,14 +14,25 @@ class PositionSuite extends munit.FunSuite:
 
   private def barPlot(position: Position, data: Vector[BarDatum] = bars): TrainedPlot =
     val band = BandScale("category", DiscreteDomain.empty).fold(e => fail(e.message), identity)
+    val fill = DiscreteScale(
+      "group-fill",
+      DiscreteDomain.empty,
+      DiscretePalette.valuesUnsafe(
+        Vector(
+          Rgba.unsafe(70, 125, 180),
+          Rgba.unsafe(220, 135, 65),
+          Rgba.unsafe(90, 160, 95),
+          Rgba.unsafe(150, 100, 180)
+        )
+      )
+    ).fold(e => fail(e.message), identity)
     val mapping = AesSpec
       .empty[BarDatum]
       .withPosition(_ => 0.0, _.value)
-      .withGroup(_.group)
-      .withFill(row =>
-        if row.group == "red" then Rgba.unsafe(70, 125, 180) else Rgba.unsafe(220, 135, 65)
-      )
       .bindScale(ScaleBinding[BarDatum, String, Double](Aesthetic.X, _.category, band))
+      .flatMap(
+        _.bindScale(ScaleBinding[BarDatum, String, Rgba](Aesthetic.Fill, _.group, fill))
+      )
       .fold(e => fail(e.message), identity)
     val layer = Layer
       .fromMapping(Geom.Bar, mapping, inheritMapping = false, position = position)
@@ -49,6 +60,11 @@ class PositionSuite extends munit.FunSuite:
     }
     rows.flatMap(_.xBand).foreach(band => assertEqualsDouble(band.width, 0.45, 1e-12))
     assertEquals(trained.layers.head.position, Position.Dodge())
+    assertEquals(
+      trained.layers.head.grouping,
+      GroupingDecision.Inferred(Vector(Aesthetic.Fill))
+    )
+    assertEquals(rows.map(_.group), Vector(Some("red"), Some("blue"), Some("red"), Some("blue")))
     val range = trained.layout.map(_.xScale).getOrElse(fail("missing dodged panel range"))
     assertEqualsDouble(range.lower, -0.45, 1e-12)
     assertEqualsDouble(range.upper, 1.45, 1e-12)
@@ -62,6 +78,10 @@ class PositionSuite extends munit.FunSuite:
     )
     val rows = barPlot(Position.Stack(), data).layers.head.rows
 
+    assertEquals(
+      rows.map(_.grouping).distinct,
+      Vector(GroupingDecision.Inferred(Vector(Aesthetic.Fill)))
+    )
     assertEquals(rows.map(_.group), Vector(Some("red"), Some("blue"), Some("green")))
     assertEquals(rows.map(_.yMin), Vector(Some(1.0), Some(-2.0), Some(0.0)))
     assertEquals(rows.map(_.yMax), Vector(Some(4.0), Some(0.0), Some(1.0)))

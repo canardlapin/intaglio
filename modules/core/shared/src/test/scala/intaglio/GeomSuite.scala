@@ -94,6 +94,41 @@ class GeomSuite extends munit.FunSuite:
     assertEquals(signedArea.layout.map(_.yScale), Some(Interval.unsafe(-1.0, 2.0)))
   }
 
+  test("polygons infer groups from raw discrete fill categories") {
+    final case class Vertex(x: Double, y: Double, region: String)
+    val vertices = Vector(
+      Vertex(0.0, 0.0, "left"),
+      Vertex(1.0, 0.0, "left"),
+      Vertex(0.0, 1.0, "left"),
+      Vertex(2.0, 0.0, "right"),
+      Vertex(3.0, 0.0, "right"),
+      Vertex(2.0, 1.0, "right")
+    )
+    val identicalFill = Rgba.unsafe(80, 100, 120)
+    val fillScale = DiscreteScale(
+      "region-fill",
+      DiscreteDomain.empty,
+      DiscretePalette.valuesUnsafe(Vector(identicalFill, identicalFill))
+    ).fold(error => fail(error.message), identity)
+    val trained = Plot(vertices)
+      .withScale(ScaleBinding[Vertex, String, Rgba](Aesthetic.Fill, _.region, fillScale))
+      .flatMap(_.addLayer(Layer.polygon[Vertex](_.x, _.y)))
+      .flatMap(PlotCompiler.resolve(_))
+      .fold(error => fail(error.message), identity)
+    val layer = trained.layers.head
+
+    assertEquals(layer.grouping, GroupingDecision.Inferred(Vector(Aesthetic.Fill)))
+    assertEquals(
+      layer.rows.map(_.groupKey).distinct,
+      Vector("left", "right").map(category =>
+        Some(GroupKey.Inferred(Vector(DiscreteGroupValue(Aesthetic.Fill, category))))
+      )
+    )
+    assertEquals(layer.rows.map(_.gp.fill).distinct, Vector(Some(identicalFill)))
+    assertEquals(layer.grobs.length, 2)
+    assert(layer.grobs.forall(_.isInstanceOf[Grob.Polygon]))
+  }
+
   test("bounded geoms compose with flipped coordinates in the shared compiler") {
     val flipped =
       Plot(data.take(1))
