@@ -164,6 +164,33 @@ provenance when translating them to `GraphicsError`. The shared
 `external.stat.OpenStatSuite` is an executable consumer-package example that
 defines a new stat and output row without package-private access.
 
+`Geom` and `Coord` are open public lowering contracts too. An ecosystem geom
+publishes a checked `GeomAestheticContract` and implements one method over a
+`GeomBatch` of typed `ResolvedRow` values:
+
+```scala
+case object CrossGeom extends Geom:
+  val label = "cross"
+  val contract = GeomAestheticContract.checked(
+    Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+    Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Size)
+  ).orThrow
+
+  def lower[Row](batch: GeomBatch[Row]) =
+    // construct portable Grob values from batch.rows
+    Right(Vector.empty)
+```
+
+The compiler validates the declared mapping, supplies `GeomContext`, and calls
+that method directly; there is no built-in-geom registry or fallback cast.
+Coordinates similarly implement `transform(CoordInput)` and return a
+`CoordResult`, while also declaring guide placement, optional panel aspect,
+clipping, and facet compatibility. `CoordinateTransform.identity`,
+`transpose`, and checked `translate` are reusable logical-output transforms.
+Built-in Cartesian, flipped, and fixed coordinates use the same methods. The
+shared `external.geometry.OpenGeometrySuite` is an executable consumer-package
+court for both extension points.
+
 Ecosystem code can define a typed aesthetic without registering a string or
 editing core. The key has reference identity, so retain and reuse the same
 value for insertion and lookup:

@@ -139,6 +139,38 @@ class GrammarSuite extends munit.FunSuite:
     )
   }
 
+  test("geom aesthetic contracts reject inconsistent declarations") {
+    assertEquals(
+      GeomAestheticContract
+        .checked(
+          Vector(RequiredAesthetic.X),
+          Vector(Aesthetic.X)
+        )
+        .left
+        .toOption,
+      Some(
+        GraphicsError.InvalidGeomAestheticContract(
+          "an aesthetic cannot be both required and optional"
+        )
+      )
+    )
+    assertEquals(
+      GeomAestheticContract
+        .checked(
+          Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+          Vector(Aesthetic.Color),
+          groupConstant = Vector(Aesthetic.Fill)
+        )
+        .left
+        .toOption,
+      Some(
+        GraphicsError.InvalidGeomAestheticContract(
+          "group-constant aesthetics must also be optional"
+        )
+      )
+    )
+  }
+
   test("unsupported geom mappings fail at the typed layer boundary") {
     val line = Layer.line[Observation](
       _.time,

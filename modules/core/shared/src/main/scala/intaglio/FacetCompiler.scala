@@ -33,78 +33,76 @@ private[intaglio] object FacetCompiler:
       options: PlotCompilerOptions,
       policy: LayoutPolicy
   ): Either[GraphicsError, TrainedPlot] =
-    plot.coord match
-      case _: Coord.Fixed =>
-        Left(GraphicsError.FacetFixedCoordinates)
-      case _ =>
-        val allData = plot.data ++ plot.layers.flatMap(_.facetSeedData(plot.data))
-        for
-          facetLayout <- facet.layout(allData)
-          panelStats <- transformPanels(plot, facet, facetLayout)
-          globalScales <- ScalePhase.trainFacets(panelStats.flatMap(_.plans), options.theme)
-          globalLayers <- PlotCompiler.resolveLayers(globalScales.plans, options.theme)
-          globalLogical <- LayoutPhase.panelRanges(globalLayers)
-          globalCoordinates <- CoordPhase.transform(plot.coord, globalLayers, Some(globalLogical))
-          globalPhysical <- requireRanges(globalCoordinates.ranges)
-          panels <- resolvePanels(
-            panelStats,
-            globalScales.plans,
-            globalLogical,
-            plot.coord,
+    plot.coord.validateFacet.flatMap { _ =>
+      val allData = plot.data ++ plot.layers.flatMap(_.facetSeedData(plot.data))
+      for
+        facetLayout <- facet.layout(allData)
+        panelStats <- transformPanels(plot, facet, facetLayout)
+        globalScales <- ScalePhase.trainFacets(panelStats.flatMap(_.plans), options.theme)
+        globalLayers <- PlotCompiler.resolveLayers(globalScales.plans, options.theme)
+        globalLogical <- LayoutPhase.panelRanges(globalLayers)
+        globalCoordinates <- CoordPhase.transform(plot.coord, globalLayers, Some(globalLogical))
+        globalPhysical <- requireRanges(globalCoordinates.ranges)
+        panels <- resolvePanels(
+          panelStats,
+          globalScales.plans,
+          globalLogical,
+          plot.coord,
+          plot.labels,
+          facet.scales,
+          options
+        )
+        globalSpecs <- GuidePhase.specs(
+          options.guides,
+          plot.coord,
+          globalScales.registry,
+          Some(globalLogical),
+          relativeLegend = true,
+          labels = plot.labels
+        )
+        nonPositionGuides = globalSpecs.collect {
+          case guide: GuideSpec.Legend   => guide
+          case guide: GuideSpec.Colorbar => guide
+        }
+        sizingAxes = representativeAxes(panels.flatMap(_.specs), policy)
+        expandedGlobal <- LayoutPhase.expandedRanges(
+          options.expansion,
+          globalPhysical._1,
+          globalPhysical._2
+        )
+        frames <- PlotLayoutSolver.solve(
+          policy,
+          LayoutPhase.layoutRequest(
+            sizingAxes ++ nonPositionGuides,
+            expandedGlobal._1,
+            expandedGlobal._2,
             plot.labels,
-            facet.scales,
-            options
-          )
-          globalSpecs <- GuidePhase.specs(
-            options.guides,
-            plot.coord,
-            globalScales.registry,
-            Some(globalLogical),
-            relativeLegend = true,
-            labels = plot.labels
-          )
-          nonPositionGuides = globalSpecs.collect {
-            case guide: GuideSpec.Legend   => guide
-            case guide: GuideSpec.Colorbar => guide
-          }
-          sizingAxes = representativeAxes(panels.flatMap(_.specs), policy)
-          expandedGlobal <- LayoutPhase.expandedRanges(
-            options.expansion,
-            globalPhysical._1,
-            globalPhysical._2
-          )
-          frames <- PlotLayoutSolver.solve(
-            policy,
-            LayoutPhase.layoutRequest(
-              sizingAxes ++ nonPositionGuides,
-              expandedGlobal._1,
-              expandedGlobal._2,
-              plot.labels,
-              panelAspect = None,
-              grid = Some(
-                facetGridRequest(facetLayout, facet.scales, panels, policy)
-              )
+            panelAspect = None,
+            grid = Some(
+              facetGridRequest(facetLayout, facet.scales, panels, policy)
             )
           )
-          resolvedPanels <- lowerPanels[Row](panels, frames, plot.coord, options)
-          axes <- lowerAxes(resolvedPanels, panels, facetLayout, facet.scales, policy, options)
-          globalGuides <- GuidePhase.lower(
-            resolvedPanels.headOption.map(_.layout),
-            Some(frames),
-            nonPositionGuides,
-            policy,
-            options.theme
-          )
-          labels <- PlotLabelPhase.lower(plot.labels, Some(frames), options.theme.plotText)
-        yield TrainedPlot(
-          layers = resolvedPanels.flatMap(_.layers),
-          layout = resolvedPanels.headOption.map(_.layout),
-          guides = axes ++ globalGuides,
-          scaleRegistry = globalScales.registry,
-          panelGrobs = Vector.empty,
-          labelGrobs = labels,
-          facetPanels = resolvedPanels
         )
+        resolvedPanels <- lowerPanels[Row](panels, frames, plot.coord, options)
+        axes <- lowerAxes(resolvedPanels, panels, facetLayout, facet.scales, policy, options)
+        globalGuides <- GuidePhase.lower(
+          resolvedPanels.headOption.map(_.layout),
+          Some(frames),
+          nonPositionGuides,
+          policy,
+          options.theme
+        )
+        labels <- PlotLabelPhase.lower(plot.labels, Some(frames), options.theme.plotText)
+      yield TrainedPlot(
+        layers = resolvedPanels.flatMap(_.layers),
+        layout = resolvedPanels.headOption.map(_.layout),
+        guides = axes ++ globalGuides,
+        scaleRegistry = globalScales.registry,
+        panelGrobs = Vector.empty,
+        labelGrobs = labels,
+        facetPanels = resolvedPanels
+      )
+    }
 
   private def transformPanels[Row](
       plot: Plot[Row],

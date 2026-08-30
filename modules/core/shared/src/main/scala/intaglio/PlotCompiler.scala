@@ -403,6 +403,7 @@ object PlotCompiler:
       PositionPhase.adjust(plan.layer, rows).flatMap { adjusted =>
         GeomPhase
           .lower(
+            plan.layerIndex,
             plan.layer,
             plan.layer.stat.contract.lowering,
             adjusted,

@@ -44,6 +44,7 @@ enum GraphicsError extends IntaglioError:
   case EmptyGeometry(kind: String)
   case InvalidGeometrySize(kind: String, minimum: Int, actual: Int)
   case MissingAesthetic(geom: String, aesthetic: String)
+  case InvalidGeomAestheticContract(detail: String)
   case UnsupportedGeomAesthetic(geom: String, aesthetic: String)
   case VaryingGroupAesthetic(
       geom: String,
@@ -103,6 +104,7 @@ enum GraphicsError extends IntaglioError:
       upper: Double
   )
   case InvalidCoordinateRatio(value: Double)
+  case InvalidCoordinateTranslation(x: Double, y: Double)
   case DegenerateFixedAspect(xWidth: Double, yWidth: Double)
   case InvalidFacetColumns(value: Int)
   case EmptyFacet
@@ -199,6 +201,8 @@ enum GraphicsError extends IntaglioError:
         s"$kind geometry requires at least $minimum elements: found $actual"
       case MissingAesthetic(geom, aesthetic) =>
         s"geom '$geom' requires aesthetic '$aesthetic'"
+      case InvalidGeomAestheticContract(detail) =>
+        s"invalid geom aesthetic contract: $detail"
       case UnsupportedGeomAesthetic(geom, aesthetic) =>
         s"geom '$geom' does not support aesthetic '$aesthetic'"
       case VaryingGroupAesthetic(geom, aesthetic, group, firstRow, conflictingRow) =>
@@ -254,6 +258,8 @@ enum GraphicsError extends IntaglioError:
         s"stat '$stat' value $value for '$aesthetic' is outside fixed domain [$lower, $upper]"
       case InvalidCoordinateRatio(value) =>
         s"coordinate ratio must be finite and > 0: $value"
+      case InvalidCoordinateTranslation(x, y) =>
+        s"coordinate translation must be finite: ($x, $y)"
       case DegenerateFixedAspect(xWidth, yWidth) =>
         s"fixed coordinates require non-degenerate expanded ranges: x width $xWidth, y width $yWidth"
       case InvalidFacetColumns(value) =>

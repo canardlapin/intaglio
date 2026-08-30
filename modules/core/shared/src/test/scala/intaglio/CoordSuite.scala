@@ -21,6 +21,42 @@ class CoordSuite extends munit.FunSuite:
     assertEquals(Coord.fixed(2.0).toOption, Some(Coord.Fixed(CoordinateRatio.unsafe(2.0), Clip.On)))
   }
 
+  test("built-in coordinates obey their public transformation and layout contracts") {
+    val ordinary = Plot(Vector(Observation(1.0, 10.0), Observation(2.0, 20.0)))
+      .addLayer(Layer.point[Observation](_.x, _.y))
+      .flatMap(PlotCompiler.resolve(_))
+      .fold(error => fail(error.message), identity)
+    val ranges = Some(Interval.unsafe(1.0, 2.0) -> Interval.unsafe(10.0, 20.0))
+    val input = CoordInput(ordinary.layers, ranges)
+
+    val cartesian = Coord.Cartesian().transform(input).orThrow
+    val once = Coord.Flipped().transform(input).orThrow
+    val twice = Coord.Flipped().transform(CoordInput(once.layers, once.ranges)).orThrow
+    val fixed = Coord.fixedUnsafe(2.0)
+
+    assertEquals(cartesian, CoordResult(input.layers, input.ranges))
+    assertEquals(once.ranges, ranges.map(_.swap))
+    assertEquals(twice.ranges, ranges)
+    assertEquals(
+      twice.layers.head.rows.map(row => row.x -> row.y),
+      ordinary.layers.head.rows.map(row => row.x -> row.y)
+    )
+    assertEquals(twice.layers.head.grobs, ordinary.layers.head.grobs)
+    assertEquals(
+      Coord.Cartesian().guideLayout(ranges.get._1, ranges.get._2),
+      CoordGuideLayout(AxisSide.Bottom, ranges.get._1, AxisSide.Left, ranges.get._2)
+    )
+    assertEquals(
+      Coord.Flipped().guideLayout(ranges.get._1, ranges.get._2),
+      CoordGuideLayout(AxisSide.Left, ranges.get._1, AxisSide.Bottom, ranges.get._2)
+    )
+    assertEquals(
+      fixed.panelAspect(ranges.get._1, ranges.get._2).map(_.map(_.toDouble)),
+      Right(Some(20.0))
+    )
+    assertEquals(fixed.validateFacet.left.toOption, Some(GraphicsError.FacetFixedCoordinates))
+  }
+
   test("flipped coordinates swap resolved positions and point grobs once") {
     val trained =
       Plot(Vector(Observation(1.0, 10.0), Observation(2.0, 20.0)))

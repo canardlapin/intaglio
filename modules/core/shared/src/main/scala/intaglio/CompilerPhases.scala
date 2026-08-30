@@ -223,18 +223,9 @@ private[intaglio] object MappingPhase:
       statScope: StatScope,
       annotation: Option[AnnotationPlan]
   ): Either[GraphicsError, LayerPlan[Row]] =
-    if !isSupported(layer.geom) then Left(GraphicsError.UnsupportedGeom(layer.geom.label))
-    else
-      Layer.validate(layer, mapping).map { _ =>
-        LayerPlan(layerIndex, layer, data, mapping, packageKey, statScope, annotation)
-      }
-
-  private def isSupported(geom: Geom): Boolean =
-    geom match
-      case Geom.Point | Geom.Line | Geom.Text | Geom.Rect | Geom.Bar | Geom.Segment |
-          Geom.ErrorBar | Geom.Ribbon | Geom.Area | Geom.HLine | Geom.VLine | Geom.Tile |
-          Geom.Polygon =>
-        true
+    Layer.validate(layer, mapping).map { _ =>
+      LayerPlan(layerIndex, layer, data, mapping, packageKey, statScope, annotation)
+    }
 
 /** Phase 2 — invoke the open statistic contract and package its precise output-row type for the
   * remaining compiler phases. The compiler has no built-in-stat dispatch table.
@@ -1061,7 +1052,7 @@ private[intaglio] object RowPhase:
         yMin = yMin,
         yMax = yMax,
         point = Point.nativeUnsafe(x, y),
-        label = if layer.geom == Geom.Text then Some(text) else None,
+        label = Option.when(requiresLabel(layer.geom))(text),
         grouping = grouping,
         groupKey = groupKey,
         group = groupKey.map(_.display),
@@ -1139,11 +1130,12 @@ private[intaglio] object RowPhase:
       row: Output,
       rowIndex: Int
   ): Either[PlotDropReason, String] =
-    geom match
-      case Geom.Text =>
-        requiredAes(Aesthetic.Label, mapping.get(Aesthetic.Label), row, rowIndex)
-      case _ =>
-        Right("")
+    if requiresLabel(geom) then
+      requiredAes(Aesthetic.Label, mapping.get(Aesthetic.Label), row, rowIndex)
+    else Right("")
+
+  private def requiresLabel(geom: Geom): Boolean =
+    geom.contract.required.exists(_.aesthetic eq Aesthetic.Label)
 
   private def finitePosition(x: Double, y: Double): Either[PlotDropReason, Unit] =
     if x.isFinite && y.isFinite then Right(())
@@ -1455,6 +1447,7 @@ private[intaglio] object PositionPhase:
   */
 private[intaglio] object GeomPhase:
   def lower[Row](
+      layerIndex: Int,
       layer: Layer[Row],
       lowering: StatLowering,
       rows: Vector[ResolvedRow[Row]],
@@ -1473,7 +1466,8 @@ private[intaglio] object GeomPhase:
           lowering match
             case StatLowering.Summary => summaryGrobs(rows)
             case StatLowering.Density => densityGrobs(rows)
-            case StatLowering.Geom    => lowerIdentity(layer.geom, rows)
+            case StatLowering.Geom    =>
+              layer.geom.lower(GeomBatch(rows, GeomContext(layerIndex, theme)))
         }
 
   private def validateGroupConstancy[Row](
@@ -1551,36 +1545,6 @@ private[intaglio] object GeomPhase:
       )
       .map(Vector(_))
 
-  private def lowerIdentity[Row](
-      geom: Geom,
-      rows: Vector[ResolvedRow[Row]]
-  ): Either[GraphicsError, Vector[Grob]] =
-    geom match
-      case Geom.Point =>
-        pointGrobs(rows)
-      case Geom.Line =>
-        lineGrobs(rows)
-      case Geom.Text =>
-        textGrobs(rows)
-      case Geom.Bar =>
-        barGrobs(rows)
-      case Geom.Rect =>
-        boundedRectGrobs(rows, "rect")
-      case Geom.Segment =>
-        segmentGrobs(rows)
-      case Geom.ErrorBar =>
-        errorBarGrobs(rows)
-      case Geom.Ribbon =>
-        ribbonGrobs(rows, "ribbon")
-      case Geom.Area =>
-        ribbonGrobs(rows, "area")
-      case Geom.HLine | Geom.VLine =>
-        Left(GraphicsError.ReferenceLineRequiresAnnotation(geom.label))
-      case Geom.Tile =>
-        boundedRectGrobs(rows, "tile")
-      case Geom.Polygon =>
-        polygonGrobs(rows)
-
   private def summaryGrobs[Row](
       rows: Vector[ResolvedRow[Row]]
   ): Either[GraphicsError, Vector[Grob]] =
@@ -1636,7 +1600,7 @@ private[intaglio] object GeomPhase:
         )
         .map(Vector(_))
 
-  private def boundedRectGrobs[Row](
+  private[intaglio] def boundedRectGrobs[Row](
       rows: Vector[ResolvedRow[Row]],
       prefix: String
   ): Either[GraphicsError, Vector[Grob]] =
@@ -1658,7 +1622,7 @@ private[intaglio] object GeomPhase:
       idx += 1
     Right(out.result())
 
-  private def segmentGrobs[Row](
+  private[intaglio] def segmentGrobs[Row](
       rows: Vector[ResolvedRow[Row]]
   ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
@@ -1680,7 +1644,7 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def errorBarGrobs[Row](
+  private[intaglio] def errorBarGrobs[Row](
       rows: Vector[ResolvedRow[Row]]
   ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
@@ -1708,7 +1672,7 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def ribbonGrobs[Row](
+  private[intaglio] def ribbonGrobs[Row](
       rows: Vector[ResolvedRow[Row]],
       prefix: String
   ): Either[GraphicsError, Vector[Grob]] =
@@ -1734,7 +1698,9 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def pointGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def pointGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
@@ -1747,7 +1713,9 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def lineGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def lineGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val groups = groupInOrder(rows)
     val out = Vector.newBuilder[Grob]
     var idx = 0
@@ -1762,7 +1730,7 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def polygonGrobs[Row](
+  private[intaglio] def polygonGrobs[Row](
       rows: Vector[ResolvedRow[Row]]
   ): Either[GraphicsError, Vector[Grob]] =
     val groups = groupInOrder(rows)
@@ -1811,7 +1779,9 @@ private[intaglio] object GeomPhase:
     }
     order.toVector.map(key => buckets(key).toVector)
 
-  private def textGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def textGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
@@ -1824,7 +1794,9 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def barGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def barGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
@@ -1879,26 +1851,46 @@ private[intaglio] object GeomPhase:
   * nothing about plot coordinates.
   */
 private[intaglio] object CoordPhase:
-  final case class CoordinateResolution(
-      layers: Vector[TrainedLayer],
-      ranges: Option[(Interval, Interval)]
-  )
-
   def transform(
       coord: Coord,
       layers: Vector[TrainedLayer],
       ranges: Option[(Interval, Interval)]
-  ): Either[GraphicsError, CoordinateResolution] =
-    coord match
-      case Coord.Flipped(_) =>
-        Right(
-          CoordinateResolution(
-            layers.map(flipLayer),
-            ranges.map { case (xRange, yRange) => (yRange, xRange) }
-          )
+  ): Either[GraphicsError, CoordResult] =
+    coord.transform(CoordInput(layers, ranges))
+
+/** Reusable, renderer-neutral transforms for built-in and ecosystem coordinates. */
+object CoordinateTransform:
+  def identity(input: CoordInput): Either[GraphicsError, CoordResult] =
+    Right(CoordResult(input.layers, input.ranges))
+
+  def transpose(input: CoordInput): Either[GraphicsError, CoordResult] =
+    Right(
+      CoordResult(
+        input.layers.map(flipLayer),
+        input.ranges.map { case (xRange, yRange) => (yRange, xRange) }
+      )
+    )
+
+  /** Translate all resolved row, annotation, grob, and range coordinates by a finite native delta.
+    */
+  def translate(
+      input: CoordInput,
+      x: Double,
+      y: Double
+  ): Either[GraphicsError, CoordResult] =
+    if !x.isFinite || !y.isFinite then Left(GraphicsError.InvalidCoordinateTranslation(x, y))
+    else
+      Right(
+        CoordResult(
+          input.layers.map(translateLayer(_, x, y)),
+          input.ranges.map { case (xRange, yRange) =>
+            (
+              Interval.unsafe(xRange.lower + x, xRange.upper + x),
+              Interval.unsafe(yRange.lower + y, yRange.upper + y)
+            )
+          }
         )
-      case Coord.Cartesian(_) | Coord.Fixed(_, _) =>
-        Right(CoordinateResolution(layers, ranges))
+      )
 
   private def flipLayer(layer: TrainedLayer): TrainedLayer =
     flipTypedLayer(layer.value)
@@ -1957,6 +1949,86 @@ private[intaglio] object CoordPhase:
         image.copy(at = flipPoint(image.at), size = flipSize(image.size))
       case group: Grob.Group =>
         group.copy(children = group.children.map(flipGrob))
+
+  private def translateLayer(layer: TrainedLayer, x: Double, y: Double): TrainedLayer =
+    translateTypedLayer(layer.value, x, y)
+
+  private def translateTypedLayer[Row](
+      layer: ResolvedLayer[Row],
+      x: Double,
+      y: Double
+  ): TrainedLayer =
+    TrainedLayer(
+      layer.copy(
+        rows = layer.rows.map(translateRow(_, x, y)),
+        annotation = layer.annotation.map(translateReference(_, x, y)),
+        grobs = layer.grobs.map(translateGrob(_, x, y))
+      )
+    )
+
+  private def translateRow[Row](
+      row: ResolvedRow[Row],
+      x: Double,
+      y: Double
+  ): ResolvedRow[Row] =
+    row.copy(
+      x = row.x + x,
+      y = row.y + y,
+      xBand = row.xBand.map(band => Band.unsafe(band.center + x, band.width)),
+      yBand = row.yBand.map(band => Band.unsafe(band.center + y, band.width)),
+      xEnd = row.xEnd.map(_ + x),
+      yEnd = row.yEnd.map(_ + y),
+      xMin = row.xMin.map(_ + x),
+      xMax = row.xMax.map(_ + x),
+      yMin = row.yMin.map(_ + y),
+      yMax = row.yMax.map(_ + y),
+      point = translatePoint(row.point, x, y)
+    )
+
+  private def translateReference(
+      annotation: ResolvedReferenceLine,
+      x: Double,
+      y: Double
+  ): ResolvedReferenceLine =
+    val delta = annotation.reference.orientation match
+      case ReferenceLineOrientation.Horizontal => y
+      case ReferenceLineOrientation.Vertical   => x
+    annotation.copy(coordinate = annotation.coordinate + delta)
+
+  private def translatePoint(point: Point, x: Double, y: Double): Point =
+    Point(translateLength(point.x, x), translateLength(point.y, y))
+
+  private def translateLength(value: LengthExpr, delta: Double): LengthExpr =
+    value match
+      case LengthExpr.Const(length) if length.unit == LengthUnit.Native =>
+        LengthExpr.nativeUnsafe(length.value + delta)
+      case _ if delta >= 0.0 => value + ExtentExpr.nativeUnsafe(delta)
+      case _                 => value - ExtentExpr.nativeUnsafe(-delta)
+
+  private def translateGrob(grob: Grob, x: Double, y: Double): Grob =
+    grob match
+      case points: Grob.Points =>
+        points.copy(points = points.points.map(translatePoint(_, x, y)))
+      case lines: Grob.Lines =>
+        lines.copy(points = lines.points.map(translatePoint(_, x, y)))
+      case polygon: Grob.Polygon =>
+        polygon.copy(points = polygon.points.map(translatePoint(_, x, y)))
+      case polygon: Grob.CompoundPolygon =>
+        polygon.copy(rings = polygon.rings.map(_.map(translatePoint(_, x, y))))
+      case segments: Grob.Segments =>
+        segments.copy(segments = segments.segments.map { case (start, end) =>
+          (translatePoint(start, x, y), translatePoint(end, x, y))
+        })
+      case rect: Grob.Rect =>
+        rect.copy(center = translatePoint(rect.center, x, y))
+      case circle: Grob.Circle =>
+        circle.copy(center = translatePoint(circle.center, x, y))
+      case text: Grob.Text =>
+        text.copy(at = translatePoint(text.at, x, y))
+      case image: Grob.Image =>
+        image.copy(at = translatePoint(image.at, x, y))
+      case group: Grob.Group =>
+        group.copy(children = group.children.map(translateGrob(_, x, y)))
 
 /** Phase 8 — layout resolution: use the explicit panel layout when given, or derive one from an
   * explicit frame plus panel data ranges computed from the layers' position scales (mapped space is
@@ -2056,13 +2128,7 @@ private[intaglio] object LayoutPhase:
       xRange: Interval,
       yRange: Interval
   ): Either[GraphicsError, Option[CoordinateRatio]] =
-    coord match
-      case Coord.Fixed(ratio, _) =>
-        if xRange.width <= 0.0 || yRange.width <= 0.0 then
-          Left(GraphicsError.DegenerateFixedAspect(xRange.width, yRange.width))
-        else CoordinateRatio(yRange.width / xRange.width * ratio.toDouble).map(Some(_))
-      case Coord.Cartesian(_) | Coord.Flipped(_) =>
-        Right(None)
+    coord.panelAspect(xRange, yRange)
 
   private def axisLabels(axis: GuideSpec.Axis, range: Interval): Vector[String] =
     axis.ticks match
@@ -2275,11 +2341,14 @@ private[intaglio] object GuidePhase:
       case _: GuideSpec.Colorbar => true
       case _                     => false
     }
+    val guideLayout = coord.guideLayout(xRange, yRange)
     val (xSide, xPhysicalRange, ySide, yPhysicalRange) =
-      coord match
-        case Coord.Flipped(_) => (AxisSide.Left, xRange, AxisSide.Bottom, yRange)
-        case Coord.Cartesian(_) | Coord.Fixed(_, _) =>
-          (AxisSide.Bottom, xRange, AxisSide.Left, yRange)
+      (
+        guideLayout.xSide,
+        guideLayout.xRange,
+        guideLayout.ySide,
+        guideLayout.yRange
+      )
     for
       resolvedOverrides <- materializeAxisTicks(overrides, xRange, yRange)
       xAxis <-

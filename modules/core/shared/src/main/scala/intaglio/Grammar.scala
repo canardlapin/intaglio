@@ -671,8 +671,8 @@ object AesSpec:
   def fromEnv[Row](env: AesEnv[Row]): AesSpec[Row] =
     env
 
-/** Complete mapping contract for one built-in geom. Group-constant aesthetics may be mapped, but
-  * their resolved values must remain constant within each structural [[GroupKey]].
+/** Complete mapping contract for one geom. Group-constant aesthetics may be mapped, but their
+  * resolved values must remain constant within each structural [[GroupKey]].
   */
 final case class GeomAestheticContract private (
     required: Vector[RequiredAesthetic],
@@ -697,142 +697,286 @@ final case class GeomAestheticContract private (
     supported.contains(aesthetic)
 
 object GeomAestheticContract:
+  /** Checked constructor for ecosystem geoms. */
+  def checked(
+      required: Vector[RequiredAesthetic],
+      optional: Vector[Aesthetic[?]],
+      groupConstant: Vector[Aesthetic[?]] = Vector.empty
+  ): Either[GraphicsError, GeomAestheticContract] =
+    val requiredKeys = required.map(_.aesthetic)
+    if requiredKeys.distinct.length != requiredKeys.length then
+      Left(GraphicsError.InvalidGeomAestheticContract("required aesthetics must be distinct"))
+    else if optional.distinct.length != optional.length then
+      Left(GraphicsError.InvalidGeomAestheticContract("optional aesthetics must be distinct"))
+    else if required.exists(value => optional.contains(value.aesthetic)) then
+      Left(
+        GraphicsError.InvalidGeomAestheticContract(
+          "an aesthetic cannot be both required and optional"
+        )
+      )
+    else if groupConstant.distinct.length != groupConstant.length then
+      Left(
+        GraphicsError.InvalidGeomAestheticContract("group-constant aesthetics must be distinct")
+      )
+    else if groupConstant.exists(value => !optional.contains(value)) then
+      Left(
+        GraphicsError.InvalidGeomAestheticContract(
+          "group-constant aesthetics must also be optional"
+        )
+      )
+    else if groupConstant.exists(value => !groupConstantAesthetics.contains(value)) then
+      Left(
+        GraphicsError.InvalidGeomAestheticContract(
+          "only color, fill, alpha, and size may be group-constant"
+        )
+      )
+    else Right(new GeomAestheticContract(required, optional, groupConstant))
+
+  /** Throwing convenience for statically declared contracts. */
+  def unsafe(
+      required: Vector[RequiredAesthetic],
+      optional: Vector[Aesthetic[?]],
+      groupConstant: Vector[Aesthetic[?]] = Vector.empty
+  ): GeomAestheticContract =
+    checked(required, optional, groupConstant).orThrow
+
   private[intaglio] def create(
       required: Vector[RequiredAesthetic],
       optional: Vector[Aesthetic[?]],
       groupConstant: Vector[Aesthetic[?]] = Vector.empty
   ): GeomAestheticContract =
-    new GeomAestheticContract(required, optional, groupConstant)
+    unsafe(required, optional, groupConstant)
 
-enum Geom(val label: String):
-  case Point extends Geom("point")
-  case Line extends Geom("line")
-  case Text extends Geom("text")
-  case Rect extends Geom("rect")
-  case Bar extends Geom("bar")
-  case Segment extends Geom("segment")
-  case ErrorBar extends Geom("errorbar")
-  case Ribbon extends Geom("ribbon")
-  case Area extends Geom("area")
-  case HLine extends Geom("hline")
-  case VLine extends Geom("vline")
-  case Tile extends Geom("tile")
-  case Polygon extends Geom("polygon")
+  private val groupConstantAesthetics: Vector[Aesthetic[?]] =
+    Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha, Aesthetic.Size)
 
-  lazy val contract: GeomAestheticContract =
-    this match
-      case Point =>
-        GeomAestheticContract.create(
-          required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
-          optional = Vector(
-            Aesthetic.Color,
-            Aesthetic.Fill,
-            Aesthetic.Alpha,
-            Aesthetic.Size,
-            Aesthetic.Group
-          )
+/** Compiler context supplied to built-in and external geometry lowering. */
+final case class GeomContext(layerIndex: Int, theme: Theme):
+  require(layerIndex >= 0, "`layerIndex` must be non-negative")
+
+/** Immutable geometry input after statistics, scales, row evaluation, and position adjustment. */
+final case class GeomBatch[Row](rows: Vector[ResolvedRow[Row]], context: GeomContext):
+  /** Partition rows by structural group while preserving first-encounter and row order. */
+  def groups: Vector[Vector[ResolvedRow[Row]]] =
+    if rows.forall(_.groupKey.isEmpty) then if rows.isEmpty then Vector.empty else Vector(rows)
+    else
+      val order = Vector.newBuilder[Option[GroupKey]]
+      val buckets = scala.collection.mutable.HashMap
+        .empty[Option[GroupKey], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
+      rows.foreach { row =>
+        val bucket = buckets.getOrElseUpdate(
+          row.groupKey, {
+            order += row.groupKey
+            scala.collection.mutable.ArrayBuffer.empty[ResolvedRow[Row]]
+          }
         )
-      case Line =>
-        GeomAestheticContract.create(
-          required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
-          optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group),
-          groupConstant = Vector(Aesthetic.Color, Aesthetic.Alpha)
-        )
-      case Text =>
-        GeomAestheticContract.create(
-          required = Vector(
-            RequiredAesthetic.X,
-            RequiredAesthetic.Y,
-            RequiredAesthetic.Label
-          ),
-          optional = Vector(
-            Aesthetic.Color,
-            Aesthetic.Fill,
-            Aesthetic.Alpha,
-            Aesthetic.Group
-          )
-        )
-      case Bar =>
-        GeomAestheticContract.create(
-          required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
-          optional = Vector(
-            Aesthetic.Color,
-            Aesthetic.Fill,
-            Aesthetic.Alpha,
-            Aesthetic.Group
-          )
-        )
-      case Segment =>
-        GeomAestheticContract.create(
-          required = Vector(
-            RequiredAesthetic.X,
-            RequiredAesthetic.Y,
-            RequiredAesthetic.XEnd,
-            RequiredAesthetic.YEnd
-          ),
-          optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group)
-        )
-      case ErrorBar =>
-        GeomAestheticContract.create(
-          required = Vector(
-            RequiredAesthetic.X,
-            RequiredAesthetic.Y,
-            RequiredAesthetic.YMin,
-            RequiredAesthetic.YMax
-          ),
-          optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group)
-        )
-      case Ribbon | Area =>
-        GeomAestheticContract.create(
-          required = Vector(
-            RequiredAesthetic.X,
-            RequiredAesthetic.Y,
-            RequiredAesthetic.YMin,
-            RequiredAesthetic.YMax
-          ),
-          optional = Vector(
-            Aesthetic.Color,
-            Aesthetic.Fill,
-            Aesthetic.Alpha,
-            Aesthetic.Group
-          ),
-          groupConstant = Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha)
-        )
-      case HLine | VLine =>
-        GeomAestheticContract.create(Vector.empty, Vector.empty)
-      case Rect | Tile =>
-        GeomAestheticContract.create(
-          required = Vector(
-            RequiredAesthetic.X,
-            RequiredAesthetic.Y,
-            RequiredAesthetic.XMin,
-            RequiredAesthetic.XMax,
-            RequiredAesthetic.YMin,
-            RequiredAesthetic.YMax
-          ),
-          optional = Vector(
-            Aesthetic.Color,
-            Aesthetic.Fill,
-            Aesthetic.Alpha,
-            Aesthetic.Group
-          )
-        )
-      case Polygon =>
-        GeomAestheticContract.create(
-          required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
-          optional = Vector(
-            Aesthetic.Color,
-            Aesthetic.Fill,
-            Aesthetic.Alpha,
-            Aesthetic.Group,
-            Aesthetic.Subpath
-          ),
-          groupConstant = Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha)
-        )
+        bucket += row
+      }
+      order.result().map(key => buckets(key).toVector)
+
+/** Open renderer-neutral geometry contract. Implementations declare their accepted aesthetics and
+  * lower already-resolved rows to portable grobs; the compiler has no geometry registry.
+  */
+trait Geom:
+  def label: String
+  def contract: GeomAestheticContract
+
+  def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]]
 
   /** Source-compatible required-aesthetic view. */
-  def requiredAesthetics: Vector[RequiredAesthetic] =
+  final def requiredAesthetics: Vector[RequiredAesthetic] =
     contract.required
+
+object Geom:
+  case object Point extends Geom:
+    val label: String = "point"
+    val contract: GeomAestheticContract =
+      GeomAestheticContract.create(
+        required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+        optional = Vector(
+          Aesthetic.Color,
+          Aesthetic.Fill,
+          Aesthetic.Alpha,
+          Aesthetic.Size,
+          Aesthetic.Group
+        )
+      )
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.pointGrobs(batch.rows)
+
+  case object Line extends Geom:
+    val label: String = "line"
+    val contract: GeomAestheticContract =
+      GeomAestheticContract.create(
+        required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+        optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group),
+        groupConstant = Vector(Aesthetic.Color, Aesthetic.Alpha)
+      )
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.lineGrobs(batch.rows)
+
+  case object Text extends Geom:
+    val label: String = "text"
+    val contract: GeomAestheticContract =
+      GeomAestheticContract.create(
+        required = Vector(
+          RequiredAesthetic.X,
+          RequiredAesthetic.Y,
+          RequiredAesthetic.Label
+        ),
+        optional = Vector(
+          Aesthetic.Color,
+          Aesthetic.Fill,
+          Aesthetic.Alpha,
+          Aesthetic.Group
+        )
+      )
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.textGrobs(batch.rows)
+
+  case object Rect extends Geom:
+    val label: String = "rect"
+    val contract: GeomAestheticContract = boundedContract
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.boundedRectGrobs(batch.rows, label)
+
+  case object Bar extends Geom:
+    val label: String = "bar"
+    val contract: GeomAestheticContract =
+      GeomAestheticContract.create(
+        required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+        optional = Vector(
+          Aesthetic.Color,
+          Aesthetic.Fill,
+          Aesthetic.Alpha,
+          Aesthetic.Group
+        )
+      )
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.barGrobs(batch.rows)
+
+  case object Segment extends Geom:
+    val label: String = "segment"
+    val contract: GeomAestheticContract =
+      GeomAestheticContract.create(
+        required = Vector(
+          RequiredAesthetic.X,
+          RequiredAesthetic.Y,
+          RequiredAesthetic.XEnd,
+          RequiredAesthetic.YEnd
+        ),
+        optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group)
+      )
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.segmentGrobs(batch.rows)
+
+  case object ErrorBar extends Geom:
+    val label: String = "errorbar"
+    val contract: GeomAestheticContract =
+      GeomAestheticContract.create(
+        required = Vector(
+          RequiredAesthetic.X,
+          RequiredAesthetic.Y,
+          RequiredAesthetic.YMin,
+          RequiredAesthetic.YMax
+        ),
+        optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group)
+      )
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.errorBarGrobs(batch.rows)
+
+  case object Ribbon extends Geom:
+    val label: String = "ribbon"
+    val contract: GeomAestheticContract = ribbonContract
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.ribbonGrobs(batch.rows, label)
+
+  case object Area extends Geom:
+    val label: String = "area"
+    val contract: GeomAestheticContract = ribbonContract
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.ribbonGrobs(batch.rows, label)
+
+  case object HLine extends Geom:
+    val label: String = "hline"
+    val contract: GeomAestheticContract = emptyContract
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      Left(GraphicsError.ReferenceLineRequiresAnnotation(label))
+
+  case object VLine extends Geom:
+    val label: String = "vline"
+    val contract: GeomAestheticContract = emptyContract
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      Left(GraphicsError.ReferenceLineRequiresAnnotation(label))
+
+  case object Tile extends Geom:
+    val label: String = "tile"
+    val contract: GeomAestheticContract = boundedContract
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.boundedRectGrobs(batch.rows, label)
+
+  case object Polygon extends Geom:
+    val label: String = "polygon"
+    val contract: GeomAestheticContract =
+      GeomAestheticContract.create(
+        required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+        optional = markStyles :+ Aesthetic.Subpath,
+        groupConstant = Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha)
+      )
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      GeomPhase.polygonGrobs(batch.rows)
+
+  /** Stable source-compatible enumeration of the built-ins. */
+  def values: Array[Geom] =
+    builtIns.toArray
+
+  private val markStyles: Vector[Aesthetic[?]] =
+    Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha, Aesthetic.Group)
+
+  private val emptyContract: GeomAestheticContract =
+    GeomAestheticContract.create(Vector.empty, Vector.empty)
+
+  private val ribbonContract: GeomAestheticContract =
+    GeomAestheticContract.create(
+      required = Vector(
+        RequiredAesthetic.X,
+        RequiredAesthetic.Y,
+        RequiredAesthetic.YMin,
+        RequiredAesthetic.YMax
+      ),
+      optional = markStyles,
+      groupConstant = Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha)
+    )
+
+  private val boundedContract: GeomAestheticContract =
+    GeomAestheticContract.create(
+      required = Vector(
+        RequiredAesthetic.X,
+        RequiredAesthetic.Y,
+        RequiredAesthetic.XMin,
+        RequiredAesthetic.XMax,
+        RequiredAesthetic.YMin,
+        RequiredAesthetic.YMax
+      ),
+      optional = markStyles
+    )
+
+  private val builtIns: Vector[Geom] =
+    Vector(
+      Point,
+      Line,
+      Text,
+      Rect,
+      Bar,
+      Segment,
+      ErrorBar,
+      Ribbon,
+      Area,
+      HLine,
+      VLine,
+      Tile,
+      Polygon
+    )
 
 opaque type CoordinateRatio = Double
 
@@ -846,18 +990,72 @@ object CoordinateRatio:
 
   extension (ratio: CoordinateRatio) def toDouble: Double = ratio
 
-enum Coord:
-  case Cartesian(clip: Clip = Clip.On)
-  case Flipped(clip: Clip = Clip.On)
-  case Fixed(ratio: CoordinateRatio, clip: Clip = Clip.On)
+/** Logical compiler output supplied to an open coordinate implementation. */
+final case class CoordInput(
+    layers: Vector[TrainedLayer],
+    ranges: Option[(Interval, Interval)]
+)
 
-  def clipping: Clip =
-    this match
-      case Cartesian(value) => value
-      case Flipped(value)   => value
-      case Fixed(_, value)  => value
+/** Physical compiler output returned by an open coordinate implementation. */
+final case class CoordResult(
+    layers: Vector[TrainedLayer],
+    ranges: Option[(Interval, Interval)]
+)
+
+/** Placement of logical x and y guides in physical panel space. */
+final case class CoordGuideLayout(
+    xSide: AxisSide,
+    xRange: Interval,
+    ySide: AxisSide,
+    yRange: Interval
+)
+
+/** Open logical-to-physical coordinate contract. */
+trait Coord:
+  def clipping: Clip
+
+  def transform(input: CoordInput): Either[GraphicsError, CoordResult] =
+    CoordinateTransform.identity(input)
+
+  def guideLayout(xRange: Interval, yRange: Interval): CoordGuideLayout =
+    CoordGuideLayout(AxisSide.Bottom, xRange, AxisSide.Left, yRange)
+
+  def panelAspect(
+      xRange: Interval,
+      yRange: Interval
+  ): Either[GraphicsError, Option[CoordinateRatio]] =
+    Right(None)
+
+  def validateFacet: Either[GraphicsError, Unit] =
+    Right(())
 
 object Coord:
+  final case class Cartesian(clip: Clip = Clip.On) extends Coord:
+    val clipping: Clip = clip
+
+  final case class Flipped(clip: Clip = Clip.On) extends Coord:
+    val clipping: Clip = clip
+
+    override def transform(input: CoordInput): Either[GraphicsError, CoordResult] =
+      CoordinateTransform.transpose(input)
+
+    override def guideLayout(xRange: Interval, yRange: Interval): CoordGuideLayout =
+      CoordGuideLayout(AxisSide.Left, xRange, AxisSide.Bottom, yRange)
+
+  final case class Fixed(ratio: CoordinateRatio, clip: Clip = Clip.On) extends Coord:
+    val clipping: Clip = clip
+
+    override def panelAspect(
+        xRange: Interval,
+        yRange: Interval
+    ): Either[GraphicsError, Option[CoordinateRatio]] =
+      if xRange.width <= 0.0 || yRange.width <= 0.0 then
+        Left(GraphicsError.DegenerateFixedAspect(xRange.width, yRange.width))
+      else CoordinateRatio(yRange.width / xRange.width * ratio.toDouble).map(Some(_))
+
+    override def validateFacet: Either[GraphicsError, Unit] =
+      Left(GraphicsError.FacetFixedCoordinates)
+
   def fixed(ratio: Double = 1.0, clip: Clip = Clip.On): Either[GraphicsError, Coord] =
     CoordinateRatio(ratio).map(Coord.Fixed(_, clip))
 
