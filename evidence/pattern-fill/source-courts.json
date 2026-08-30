@@ -1,7 +1,7 @@
 {
   "schema": "intaglio.pattern-fill-source-courts.v1",
   "observedOn": "2026-08-30",
-  "candidateSha": "b4cc376379b12dc199f49cc61f3c6c77a2eaa0c9",
+  "candidateSha": "b9ea59faacfc5507a7ce71d69ebf75521f11d7d7",
   "courts": [
     {
       "consumer": "image4s",

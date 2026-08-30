@@ -3,13 +3,14 @@
   "observedOn": "2026-08-30",
   "candidate": {
     "repository": "intaglio",
-    "codeSha": "b4cc376379b12dc199f49cc61f3c6c77a2eaa0c9",
+    "codeSha": "b9ea59faacfc5507a7ce71d69ebf75521f11d7d7",
     "baselineSha": "596b398af380079e4b251535230d0bc03cd88c51"
   },
   "toolchain": {
     "java": "Oracle JDK 22",
     "headless": true,
-    "sbtCommand": "compileAll testAll"
+    "sbt": "1.12.9",
+    "sbtCommand": "compileAll testAll scalafmtCheckAll"
   },
   "localGate": {
     "state": "passed",
@@ -38,11 +39,12 @@
     "byteDeterministic": true
   },
   "formatter": {
-    "state": "not_configured",
-    "commandAttempted": "scalafmtCheckAll",
-    "result": "Not a valid command: scalafmtCheckAll",
-    "pluginConfigured": false,
-    "configPresent": false
+    "state": "passed",
+    "command": "scalafmtCheckAll",
+    "plugin": "sbt-scalafmt 2.6.2",
+    "engine": "scalafmt 3.11.5",
+    "pluginConfigured": true,
+    "configPresent": true
   },
   "hostedCI": {
     "state": "not_run"

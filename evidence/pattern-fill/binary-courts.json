@@ -2,12 +2,13 @@
   "schema": "intaglio.pattern-fill-binary-courts.v1",
   "observedOn": "2026-08-30",
   "baselineSha": "596b398af380079e4b251535230d0bc03cd88c51",
-  "candidateSha": "b4cc376379b12dc199f49cc61f3c6c77a2eaa0c9",
+  "candidateSha": "b9ea59faacfc5507a7ce71d69ebf75521f11d7d7",
   "method": {
     "compileClasspath": "baseline",
     "testRuntimeClasspath": "candidate",
     "hashScope": "all consumer main and test classfiles under target/scala-3.7.4",
-    "hashAlgorithm": "sha256 of sorted per-file sha256 manifest"
+    "hashAlgorithm": "sha256 of a repo-relative, path-sorted per-file sha256 manifest",
+    "noRecompileEnforcement": "compare complete consumer class digests immediately before and after; ScalaFIM Compile and Test compile tasks were explicitly skipped for the candidate-runtime run"
   },
   "courts": [
     {
@@ -15,8 +16,8 @@
       "consumerSha": "3fb9fd6dc385a1cd7021f7d8a7157efb7e1c78a3",
       "state": "passed",
       "testCounts": {"jvm": 19, "scalaJs": 17},
-      "classDigestBefore": "095be23501097ab14b687980516c3234acb0857a20c76a07a77110b5304c5aeb",
-      "classDigestAfter": "095be23501097ab14b687980516c3234acb0857a20c76a07a77110b5304c5aeb",
+      "classDigestBefore": "beaffd62dd96aa6f7c8a3f8a8210d0d7db44e54ebf4eb6b39b75e862cf3214c1",
+      "classDigestAfter": "beaffd62dd96aa6f7c8a3f8a8210d0d7db44e54ebf4eb6b39b75e862cf3214c1",
       "sourceRecompiledAgainstCandidate": false
     },
     {
@@ -32,8 +33,8 @@
         "cliJVM": 15,
         "appScalaJs": 22
       },
-      "classDigestBefore": "95964a00a0be2e1ae41b4c4ca8b316ea2d40770d37648edfe153f7670a828e0f",
-      "classDigestAfter": "95964a00a0be2e1ae41b4c4ca8b316ea2d40770d37648edfe153f7670a828e0f",
+      "classDigestBefore": "5c2ba173a20565f6cf8b1b4321d9abee72a1e10e83363a7af18b8cb1d11b995d",
+      "classDigestAfter": "5c2ba173a20565f6cf8b1b4321d9abee72a1e10e83363a7af18b8cb1d11b995d",
       "sourceRecompiledAgainstCandidate": false
     },
     {
@@ -58,8 +59,8 @@
         "examplesJVM": 12,
         "examplesScalaJs": 11
       },
-      "classDigestBefore": "5bb74dea7b8befd10956c23ea6fbcca93060ffc06d97c777b9f6534f64099fe9",
-      "classDigestAfter": "5bb74dea7b8befd10956c23ea6fbcca93060ffc06d97c777b9f6534f64099fe9",
+      "classDigestBefore": "49bf5a3835e7af67211c17588fc63219d65ef5b84f8310ed6dc0fdb34e9e992e",
+      "classDigestAfter": "49bf5a3835e7af67211c17588fc63219d65ef5b84f8310ed6dc0fdb34e9e992e",
       "sourceRecompiledAgainstCandidate": false
     }
   ]
