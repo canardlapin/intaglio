@@ -637,12 +637,116 @@ final case class ScaleDescriptor(
     training: ScaleTraining = ScaleTraining.PlotWide
 )
 
+/** Stable identity and display semantics for one category type. The category itself remains `A`;
+  * callers explicitly choose the identity used for lookup and the label used by guides.
+  */
+trait CategoryIdentity[A]:
+  type Identity
+
+  def identity(value: A): Identity
+  def label(value: A): String
+  def ordering: Ordering[Identity]
+
+  private[intaglio] final def erasedIdentity(value: A): Any =
+    identity(value)
+
+  private[intaglio] final def compare(left: A, right: A): Int =
+    ordering.compare(identity(left), identity(right))
+
+object CategoryIdentity:
+  type Aux[A, Identity0] = CategoryIdentity[A] { type Identity = Identity0 }
+
+  def by[A, Identity0](
+      stableIdentity: A => Identity0,
+      displayLabel: A => String
+  )(using identityOrdering: Ordering[Identity0]): Aux[A, Identity0] =
+    new CategoryIdentity[A]:
+      type Identity = Identity0
+
+      def identity(value: A): Identity =
+        stableIdentity(value)
+
+      def label(value: A): String =
+        displayLabel(value)
+
+      val ordering: Ordering[Identity] =
+        identityOrdering
+
+  val strings: Aux[String, String] =
+    by(identity, identity)
+
+  given CategoryIdentity[String] =
+    strings
+
+/** Erased category identity used by structural grouping without reducing the typed value to its
+  * label. Equality requires the same [[CategoryIdentity]] instance and the same stable key.
+  */
+final class CategoryToken private[intaglio] (
+    private val owner: AnyRef,
+    private val key: Any,
+    val label: String
+):
+  override def equals(other: Any): Boolean =
+    other match
+      case that: CategoryToken => (owner eq that.owner) && key == that.key
+      case _                   => false
+
+  override def hashCode(): Int =
+    31 * owner.hashCode() + key.hashCode()
+
+  override def toString: String =
+    label
+
+object CategoryToken:
+  private[intaglio] def apply[A](value: A, categories: CategoryIdentity[A]): CategoryToken =
+    new CategoryToken(
+      categories.asInstanceOf[AnyRef],
+      categories.erasedIdentity(value),
+      categories.label(value)
+    )
+
+private[intaglio] sealed trait CategoryObservation:
+  type Value
+  def value: Value
+  def categories: CategoryIdentity[Value]
+
+  final def valueFor[A](expected: CategoryIdentity[A]): Option[A] =
+    Option.when(categories.asInstanceOf[AnyRef] eq expected.asInstanceOf[AnyRef])(
+      value.asInstanceOf[A]
+    )
+
+  final def token: CategoryToken =
+    CategoryToken(value, categories)
+
+private[intaglio] object CategoryObservation:
+  def apply[A](category: A, identity: CategoryIdentity[A]): CategoryObservation =
+    new CategoryObservation:
+      type Value = A
+      val value: Value = category
+      val categories: CategoryIdentity[Value] = identity
+
 /** Erased, closed observations let a heterogeneous plot-scale registry train each binding without
-  * erasing the input type of `Scale[In, Out]` itself.
+  * erasing the input type of `Scale[In, Out]` itself. Categorical recovery is localized to an
+  * identity-guarded package.
   */
 private[intaglio] enum ScaleObservation:
   case Continuous(value: Double)
-  case Discrete(value: String)
+  case Discrete(value: CategoryObservation)
+
+private[intaglio] object ScaleObservation:
+  def discrete[A](value: A, categories: CategoryIdentity[A]): ScaleObservation =
+    ScaleObservation.Discrete(CategoryObservation(value, categories))
+
+  def discreteValues[A](
+      observations: IterableOnce[ScaleObservation],
+      categories: CategoryIdentity[A]
+  ): Vector[A] =
+    observations.iterator
+      .collect { case ScaleObservation.Discrete(value) => value }
+      .flatMap(
+        _.valueFor(categories)
+      )
+      .toVector
 
 enum ScaleMapFailure:
   case TransformDomain(transform: String, value: Double)
@@ -879,112 +983,149 @@ object ContinuousScale:
       Right((Interval.unsafe(rawLo, rawHi), Interval.unsafe(transformedLo, transformedHi)))
     else Left(GraphicsError.EmptyContinuousRange)
 
-final case class DiscreteDomain private (levels: Vector[String], ordered: Boolean):
-  require(levels.distinct.length == levels.length, "`levels` must be distinct")
+final case class DiscreteDomain[A] private (
+    levels: Vector[A],
+    ordered: Boolean,
+    categories: CategoryIdentity[A]
+):
+  private val indexByIdentity: Map[Any, Int] =
+    levels.iterator.zipWithIndex.map { case (level, index) =>
+      categories.erasedIdentity(level) -> index
+    }.toMap
 
-  def contains(value: String): Boolean =
-    levels.contains(value)
+  require(indexByIdentity.size == levels.size, "category identities must be distinct")
 
-  def train(values: IterableOnce[String]): Either[GraphicsError, DiscreteDomain] =
-    val additions = values.iterator.filterNot(levels.contains).toVector.distinct
-    if ordered then DiscreteDomain.ordered(levels ++ additions)
-    else DiscreteDomain.unordered(levels ++ additions)
+  def labels: Vector[String] =
+    levels.map(categories.label)
+
+  def label(value: A): String =
+    categories.label(value)
+
+  def indexOf(value: A): Option[Int] =
+    indexByIdentity.get(categories.erasedIdentity(value))
+
+  def contains(value: A): Boolean =
+    indexOf(value).nonEmpty
+
+  def train(values: IterableOnce[A]): Either[GraphicsError, DiscreteDomain[A]] =
+    val seen = scala.collection.mutable.HashSet.from(indexByIdentity.keys)
+    val additions = values.iterator.filter { value =>
+      seen.add(categories.erasedIdentity(value))
+    }.toVector
+    DiscreteDomain.build(levels ++ additions, ordered, categories)
+
+  private[intaglio] def replace(values: Vector[A]): Either[GraphicsError, DiscreteDomain[A]] =
+    val seen = scala.collection.mutable.HashSet.empty[Any]
+    val distinct = values.filter(value => seen.add(categories.erasedIdentity(value)))
+    DiscreteDomain.build(distinct, ordered, categories)
 
 object DiscreteDomain:
-  val empty: DiscreteDomain =
-    DiscreteDomain(Vector.empty, ordered = true)
+  val empty: DiscreteDomain[String] =
+    new DiscreteDomain(Vector.empty, ordered = true, CategoryIdentity.strings)
 
-  def ordered(levels: Vector[String]): Either[GraphicsError, DiscreteDomain] =
-    firstDuplicate(levels) match
-      case Some(level) => Left(GraphicsError.DuplicateLevel(level))
-      case None        => Right(DiscreteDomain(levels, ordered = true))
+  def emptyFor[A](using categories: CategoryIdentity[A]): DiscreteDomain[A] =
+    new DiscreteDomain(Vector.empty, ordered = true, categories)
 
-  def unordered(levels: Vector[String]): Either[GraphicsError, DiscreteDomain] =
-    firstDuplicate(levels) match
-      case Some(level) => Left(GraphicsError.DuplicateLevel(level))
-      case None        => Right(DiscreteDomain(levels.sorted, ordered = false))
+  def ordered[A](levels: Vector[A])(using
+      categories: CategoryIdentity[A]
+  ): Either[GraphicsError, DiscreteDomain[A]] =
+    build(levels, ordered = true, categories)
 
-  private def firstDuplicate(levels: Vector[String]): Option[String] =
-    val seen = scala.collection.mutable.HashSet.empty[String]
-    levels.find(level => !seen.add(level))
+  def unordered[A](levels: Vector[A])(using
+      categories: CategoryIdentity[A]
+  ): Either[GraphicsError, DiscreteDomain[A]] =
+    build(levels, ordered = false, categories)
 
-final case class DiscreteScale[A] private (
+  private def build[A](
+      levels: Vector[A],
+      ordered: Boolean,
+      categories: CategoryIdentity[A]
+  ): Either[GraphicsError, DiscreteDomain[A]] =
+    firstDuplicate(levels, categories) match
+      case Some(level) => Left(GraphicsError.DuplicateLevel(categories.label(level)))
+      case None        =>
+        val resolved = if ordered then levels else levels.sortWith(categories.compare(_, _) < 0)
+        Right(new DiscreteDomain(resolved, ordered, categories))
+
+  private def firstDuplicate[A](
+      levels: Vector[A],
+      categories: CategoryIdentity[A]
+  ): Option[A] =
+    val seen = scala.collection.mutable.HashSet.empty[Any]
+    levels.find(level => !seen.add(categories.erasedIdentity(level)))
+
+final case class DiscreteScale[Category, A] private (
     name: GraphicsName,
-    domain: DiscreteDomain,
+    domain: DiscreteDomain[Category],
     palette: DiscretePalette[A],
     training: ScaleTraining
-) extends Scale[String, A]:
+) extends Scale[Category, A]:
   override def descriptor: ScaleDescriptor =
     ScaleDescriptor(
       name,
       ScaleKind.Discrete,
-      ScaleDomain.Discrete(domain.levels, domain.ordered),
+      ScaleDomain.Discrete(domain.labels, domain.ordered),
       training
     )
 
-  private[intaglio] override def observation(value: String): Option[ScaleObservation] =
-    Some(ScaleObservation.Discrete(value))
+  private[intaglio] override def observation(value: Category): Option[ScaleObservation] =
+    Some(ScaleObservation.discrete(value, domain.categories))
 
   private[intaglio] override def trainPlotWide(
       observations: IterableOnce[ScaleObservation]
-  ): Either[GraphicsError, Scale[String, A]] =
+  ): Either[GraphicsError, Scale[Category, A]] =
     training match
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
         domain
-          .train(observations.iterator.collect { case ScaleObservation.Discrete(value) => value })
+          .train(ScaleObservation.discreteValues(observations, domain.categories))
           .flatMap(DiscreteScale.validated(name, _, palette, training))
 
   private[intaglio] override def trainFacet(
       observations: IterableOnce[ScaleObservation]
-  ): Either[GraphicsError, Scale[String, A]] =
+  ): Either[GraphicsError, Scale[Category, A]] =
     training match
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
-        val levels = observations.iterator
-          .collect { case ScaleObservation.Discrete(value) => value }
-          .toVector
-          .distinct
-        val trained =
-          if domain.ordered then DiscreteDomain.ordered(levels)
-          else DiscreteDomain.unordered(levels)
-        trained.flatMap(DiscreteScale.validated(name, _, palette, training))
+        domain
+          .replace(ScaleObservation.discreteValues(observations, domain.categories))
+          .flatMap(DiscreteScale.validated(name, _, palette, training))
 
-  override def mapValue(value: String): Option[A] =
+  override def mapValue(value: Category): Option[A] =
     mapValueResult(value).toOption
 
-  override def mapValueResult(value: String): Either[ScaleMapFailure, A] =
-    val idx = domain.levels.indexOf(value)
-    if idx < 0 then Left(ScaleMapFailure.OutOfDomain(name.value, value))
-    else palette.mapValue(name.value, idx, domain.levels.length)
+  override def mapValueResult(value: Category): Either[ScaleMapFailure, A] =
+    domain.indexOf(value) match
+      case None        => Left(ScaleMapFailure.OutOfDomain(name.value, domain.label(value)))
+      case Some(index) => palette.mapValue(name.value, index, domain.levels.length)
 
-  def mapLevels(values: IterableOnce[String]): Vector[Option[A]] =
+  def mapLevels(values: IterableOnce[Category]): Vector[Option[A]] =
     values.iterator.map(mapValue).toVector
 
 object DiscreteScale:
-  def apply[A](
+  def apply[Category, A](
       name: String,
-      domain: DiscreteDomain,
+      domain: DiscreteDomain[Category],
       palette: DiscretePalette[A],
       training: ScaleTraining = ScaleTraining.PlotWide
-  ): Either[GraphicsError, DiscreteScale[A]] =
+  ): Either[GraphicsError, DiscreteScale[Category, A]] =
     GraphicsName(name, "discrete scale").flatMap(validated(_, domain, palette, training))
 
-  def fixed[A](
+  def fixed[Category, A](
       name: String,
-      domain: DiscreteDomain,
+      domain: DiscreteDomain[Category],
       palette: DiscretePalette[A]
-  ): Either[GraphicsError, DiscreteScale[A]] =
+  ): Either[GraphicsError, DiscreteScale[Category, A]] =
     apply(name, domain, palette, ScaleTraining.Fixed)
 
-  private def validated[A](
+  private def validated[Category, A](
       name: GraphicsName,
-      domain: DiscreteDomain,
+      domain: DiscreteDomain[Category],
       palette: DiscretePalette[A],
       training: ScaleTraining
-  ): Either[GraphicsError, DiscreteScale[A]] =
+  ): Either[GraphicsError, DiscreteScale[Category, A]] =
     palette
       .validateDomain(name.value, domain.levels.length)
       .map(_ => new DiscreteScale(name, domain, palette, training))
@@ -993,85 +1134,79 @@ object DiscreteScale:
   * zero-based unit steps, and width is carried explicitly as a [[Band]] rather than inferred later
   * from a plotting convention.
   */
-final case class BandScale private (
+final case class BandScale[A] private (
     name: GraphicsName,
-    domain: DiscreteDomain,
+    domain: DiscreteDomain[A],
     padding: BandPadding,
     training: ScaleTraining
-) extends Scale[String, Double]:
+) extends Scale[A, Double]:
   override def descriptor: ScaleDescriptor =
     ScaleDescriptor(
       name,
       ScaleKind.Band,
-      ScaleDomain.Band(domain.levels, domain.ordered, padding),
+      ScaleDomain.Band(domain.labels, domain.ordered, padding),
       training
     )
 
-  private[intaglio] override def observation(value: String): Option[ScaleObservation] =
-    Some(ScaleObservation.Discrete(value))
+  private[intaglio] override def observation(value: A): Option[ScaleObservation] =
+    Some(ScaleObservation.discrete(value, domain.categories))
 
   private[intaglio] override def trainPlotWide(
       observations: IterableOnce[ScaleObservation]
-  ): Either[GraphicsError, Scale[String, Double]] =
+  ): Either[GraphicsError, Scale[A, Double]] =
     training match
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
         domain
-          .train(observations.iterator.collect { case ScaleObservation.Discrete(value) => value })
+          .train(ScaleObservation.discreteValues(observations, domain.categories))
           .map(BandScale(name, _, padding, training))
 
   private[intaglio] override def trainFacet(
       observations: IterableOnce[ScaleObservation]
-  ): Either[GraphicsError, Scale[String, Double]] =
+  ): Either[GraphicsError, Scale[A, Double]] =
     training match
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
-        val levels = observations.iterator
-          .collect { case ScaleObservation.Discrete(value) => value }
-          .toVector
-          .distinct
-        val trained =
-          if domain.ordered then DiscreteDomain.ordered(levels)
-          else DiscreteDomain.unordered(levels)
-        trained.map(BandScale(name, _, padding, training))
+        domain
+          .replace(ScaleObservation.discreteValues(observations, domain.categories))
+          .map(BandScale(name, _, padding, training))
 
-  override def mapValue(value: String): Option[Double] =
+  override def mapValue(value: A): Option[Double] =
     band(value).map(_.center)
 
-  override def mapValueResult(value: String): Either[ScaleMapFailure, Double] =
-    band(value).map(_.center).toRight(ScaleMapFailure.OutOfDomain(name.value, value))
+  override def mapValueResult(value: A): Either[ScaleMapFailure, Double] =
+    band(value).map(_.center).toRight(ScaleMapFailure.OutOfDomain(name.value, domain.label(value)))
 
-  private[intaglio] override def mappedBand(value: String): Option[Band] =
+  private[intaglio] override def mappedBand(value: A): Option[Band] =
     band(value)
 
-  def band(value: String): Option[Band] =
-    val index = domain.levels.indexOf(value)
-    Option.when(index >= 0)(Band.unsafe(index.toDouble, 1.0 - padding.toDouble))
+  def band(value: A): Option[Band] =
+    domain.indexOf(value).map(index => Band.unsafe(index.toDouble, 1.0 - padding.toDouble))
 
-  def bands: Vector[(String, Band)] =
+  def bands: Vector[(A, Band)] =
     domain.levels.zipWithIndex.map { case (level, index) =>
       level -> Band.unsafe(index.toDouble, 1.0 - padding.toDouble)
     }
 
-  def mapLevels(values: IterableOnce[String]): Vector[Option[Double]] =
+  def mapLevels(values: IterableOnce[A]): Vector[Option[Double]] =
     values.iterator.map(mapValue).toVector
 
 object BandScale:
-  def apply(
+  def apply[A](
       name: String,
-      domain: DiscreteDomain,
+      domain: DiscreteDomain[A],
       padding: BandPadding = BandPadding.default,
       training: ScaleTraining = ScaleTraining.PlotWide
-  ): Either[GraphicsError, BandScale] =
+  ): Either[GraphicsError, BandScale[A]] =
     GraphicsName(name, "band scale").map(BandScale(_, domain, padding, training))
 
-  def fixed(
+  def fixed[A](
       name: String,
-      domain: DiscreteDomain,
+      domain: DiscreteDomain[A],
       padding: BandPadding = BandPadding.default
-  ): Either[GraphicsError, BandScale] =
+  ): Either[GraphicsError, BandScale[A]] =
     apply(name, domain, padding, ScaleTraining.Fixed)
 
 /** A typed scale declaration carried by an aesthetic mapping. A declaration is either an untrained
@@ -1245,40 +1380,40 @@ object ContinuousScaleSpec:
       )
     }
 
-final class DiscreteScaleSpec[A] private (
+final class DiscreteScaleSpec[Category, A] private (
     val name: GraphicsName,
-    val declaredDomain: DiscreteDomain,
+    val declaredDomain: DiscreteDomain[Category],
     val paletteSource: ScalePaletteSource,
     palette: Theme => Either[GraphicsError, DiscretePalette[A]]
-) extends ScaleSpec[String, A]:
+) extends ScaleSpec[Category, A]:
   override val kind: ScaleKind =
     ScaleKind.Discrete
 
-  def declaredLevels: Vector[String] =
+  def declaredLevels: Vector[Category] =
     declaredDomain.levels
 
-  private[intaglio] override def observation(value: String): Option[ScaleObservation] =
-    Some(ScaleObservation.Discrete(value))
+  private[intaglio] override def observation(value: Category): Option[ScaleObservation] =
+    Some(ScaleObservation.discrete(value, declaredDomain.categories))
 
   private[intaglio] override def trainSpec(
       observations: Vector[ScaleObservation],
       theme: Theme,
       facetLocal: Boolean
-  ): Either[GraphicsError, Scale[String, A]] =
+  ): Either[GraphicsError, Scale[Category, A]] =
     for
       domain <- declaredDomain.train(
-        observations.collect { case ScaleObservation.Discrete(value) => value }
+        ScaleObservation.discreteValues(observations, declaredDomain.categories)
       )
       resolvedPalette <- palette(theme)
       scale <- DiscreteScale(name.value, domain, resolvedPalette, ScaleTraining.PlotWide)
     yield scale
 
 object DiscreteScaleSpec:
-  def apply[A](
+  def apply[Category, A](
       name: String,
-      declaredLevels: Vector[String],
+      declaredLevels: Vector[Category],
       palette: DiscretePalette[A]
-  ): Either[GraphicsError, DiscreteScaleSpec[A]] =
+  )(using CategoryIdentity[Category]): Either[GraphicsError, DiscreteScaleSpec[Category, A]] =
     for
       scaleName <- GraphicsName(name, "discrete scale spec")
       domain <- DiscreteDomain.ordered(declaredLevels)
@@ -1293,7 +1428,7 @@ object DiscreteScaleSpec:
       name: String,
       declaredLevels: Vector[String] = Vector.empty,
       overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
-  ): Either[GraphicsError, DiscreteScaleSpec[Rgba]] =
+  ): Either[GraphicsError, DiscreteScaleSpec[String, Rgba]] =
     for
       scaleName <- GraphicsName(name, "discrete scale spec")
       domain <- DiscreteDomain.ordered(declaredLevels)
@@ -1304,42 +1439,54 @@ object DiscreteScaleSpec:
       theme => DiscretePalette.values(theme.palettes.discrete, overflow)
     )
 
-final class BandScaleSpec private (
+final class BandScaleSpec[A] private (
     val name: GraphicsName,
-    val declaredDomain: DiscreteDomain,
+    val declaredDomain: DiscreteDomain[A],
     val padding: BandPadding
-) extends ScaleSpec[String, Double]:
+) extends ScaleSpec[A, Double]:
   override val kind: ScaleKind =
     ScaleKind.Band
 
-  def declaredLevels: Vector[String] =
+  def declaredLevels: Vector[A] =
     declaredDomain.levels
 
-  private[intaglio] override def observation(value: String): Option[ScaleObservation] =
-    Some(ScaleObservation.Discrete(value))
+  private[intaglio] override def observation(value: A): Option[ScaleObservation] =
+    Some(ScaleObservation.discrete(value, declaredDomain.categories))
 
-  private[intaglio] override def mappedBand(value: String): Option[Band] =
+  private[intaglio] override def mappedBand(value: A): Option[Band] =
     None
 
   private[intaglio] override def trainSpec(
       observations: Vector[ScaleObservation],
       theme: Theme,
       facetLocal: Boolean
-  ): Either[GraphicsError, Scale[String, Double]] =
+  ): Either[GraphicsError, Scale[A, Double]] =
     declaredDomain
-      .train(observations.collect { case ScaleObservation.Discrete(value) => value })
+      .train(ScaleObservation.discreteValues(observations, declaredDomain.categories))
       .flatMap(BandScale(name.value, _, padding, ScaleTraining.PlotWide))
 
 object BandScaleSpec:
-  def apply(
+  def apply[A](
       name: String,
-      declaredLevels: Vector[String] = Vector.empty,
-      padding: BandPadding = BandPadding.default
-  ): Either[GraphicsError, BandScaleSpec] =
+      declaredLevels: Vector[A],
+      padding: BandPadding
+  )(using CategoryIdentity[A]): Either[GraphicsError, BandScaleSpec[A]] =
     for
       scaleName <- GraphicsName(name, "band scale spec")
       domain <- DiscreteDomain.ordered(declaredLevels)
     yield new BandScaleSpec(scaleName, domain, padding)
+
+  def apply[A](
+      name: String,
+      declaredLevels: Vector[A]
+  )(using CategoryIdentity[A]): Either[GraphicsError, BandScaleSpec[A]] =
+    apply(name, declaredLevels, BandPadding.default)
+
+  def apply(
+      name: String,
+      padding: BandPadding = BandPadding.default
+  ): Either[GraphicsError, BandScaleSpec[String]] =
+    apply(name, Vector.empty[String], padding)
 
 final case class ScaleBinding[Row, In, Out](
     aesthetic: Aesthetic[Out],

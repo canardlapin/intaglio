@@ -3,7 +3,7 @@ package intaglio
 class AesEnvSuite extends munit.FunSuite:
   private final case class Row(x: Double, y: Double, condition: String)
 
-  private def colorScale: DiscreteScale[Rgba] =
+  private def colorScale: DiscreteScale[String, Rgba] =
     DiscreteScale(
       "condition-color",
       DiscreteDomain.ordered(Vector("A", "B")).fold(e => fail(e.message), identity),

@@ -1122,7 +1122,7 @@ private[intaglio] object RowPhase:
       aesthetic: Aesthetic[A],
       evaluated: Option[EvaluatedAes[A]]
   ): Option[DiscreteGroupValue] =
-    evaluated.flatMap(_.rawDiscreteCategory.map(DiscreteGroupValue(aesthetic, _)))
+    evaluated.flatMap(_.rawDiscreteCategory.map(DiscreteGroupValue.typed(aesthetic, _)))
 
   private def labelValue[Output](
       geom: Geom,
@@ -1230,7 +1230,7 @@ private[intaglio] object RowPhase:
                 val rawDiscreteCategory =
                   if scaled.scale.descriptor.kind == ScaleKind.Discrete then
                     scaled.scale.observation(input).collect {
-                      case ScaleObservation.Discrete(category) => category
+                      case ScaleObservation.Discrete(category) => category.token
                     }
                   else None
                 EvaluatedAes(output, scaled.scale.mappedBand(input), rawDiscreteCategory)
@@ -1266,7 +1266,7 @@ private[intaglio] object RowPhase:
   private final case class EvaluatedAes[+A](
       value: A,
       band: Option[Band],
-      rawDiscreteCategory: Option[String]
+      rawDiscreteCategory: Option[CategoryToken]
   )
 
   private enum RowResolution[Row]:
@@ -2414,20 +2414,20 @@ private[intaglio] object GuidePhase:
                 )
               )
             }
-          case band: BandScale =>
+          case band: BandScale[?] =>
             Right(
               Some(
                 GuideSpec.Axis(
                   side,
                   ticks = Some(band.bands.map { case (level, position) =>
-                    AxisTick.unsafe(position.center, level)
+                    AxisTick.unsafe(position.center, band.domain.label(level))
                   }),
                   title = requestedTitle.orElse(Some(band.name.value)),
                   name = Some(name)
                 )
               )
             )
-          case discrete: DiscreteScale[?] =>
+          case discrete: DiscreteScale[?, ?] =>
             discretePositionTicks(discrete) match
               case Some(ticks) =>
                 Right(
@@ -2457,7 +2457,9 @@ private[intaglio] object GuidePhase:
       Some(GuideSpec.Axis(side, ticks = Some(ticks), title = title, name = Some(name)))
     }
 
-  private def discretePositionTicks(scale: DiscreteScale[?]): Option[Vector[AxisTick]] =
+  private def discretePositionTicks[Category](
+      scale: DiscreteScale[Category, ?]
+  ): Option[Vector[AxisTick]] =
     val out = Vector.newBuilder[AxisTick]
     var idx = 0
     var valid = true
@@ -2465,7 +2467,7 @@ private[intaglio] object GuidePhase:
       val level = scale.domain.levels(idx)
       scale.mapValue(level) match
         case Some(position: Double) =>
-          AxisTick(position, level) match
+          AxisTick(position, scale.domain.label(level)) match
             case Right(tick) => out += tick
             case Left(_)     => valid = false
         case _ =>
@@ -2512,7 +2514,7 @@ private[intaglio] object GuidePhase:
         && seen.add(trained.descriptor.name.value)
       then
         trained.scale match
-          case discrete: DiscreteScale[?] =>
+          case discrete: DiscreteScale[?, ?] =>
             result = legendFor(discrete).map { legend =>
               legend.foreach { spec =>
                 out += spec
@@ -2531,8 +2533,8 @@ private[intaglio] object GuidePhase:
     }
     result.map(_ => out.result())
 
-  private def legendFor(
-      scale: DiscreteScale[?]
+  private def legendFor[Category](
+      scale: DiscreteScale[Category, ?]
   ): Either[GraphicsError, Option[GuideSpec.Legend]] =
     val entries = Vector.newBuilder[LegendEntry]
     var colorable = true
@@ -2541,7 +2543,7 @@ private[intaglio] object GuidePhase:
       if result.isRight && colorable then
         scale.mapValue(level) match
           case Some(color: Rgba) =>
-            result = LegendEntry.color(level, color).map { entry =>
+            result = LegendEntry.color(scale.domain.label(level), color).map { entry =>
               entries += entry
               ()
             }

@@ -737,7 +737,7 @@ object RendererConformance:
       Observation(2.0, 3.0, "A")
     )
 
-  private def conditionScale: Either[GraphicsError, DiscreteScale[Rgba]] =
+  private def conditionScale: Either[GraphicsError, DiscreteScale[String, Rgba]] =
     DiscreteDomain.ordered(Vector("A", "B")).flatMap { domain =>
       DiscreteScale(
         "condition",

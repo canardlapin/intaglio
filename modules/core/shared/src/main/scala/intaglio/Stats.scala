@@ -422,7 +422,7 @@ enum CountOrder:
 
   /** Follow declared levels, then append undeclared observed levels in first occurrence order.
     */
-  case Declared(domain: DiscreteDomain)
+  case Declared(domain: DiscreteDomain[String])
 
   private[intaglio] def arrange(observed: Vector[String]): Vector[String] =
     val distinct = observed.distinct

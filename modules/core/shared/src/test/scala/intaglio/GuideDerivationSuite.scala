@@ -13,7 +13,7 @@ class GuideDerivationSuite extends munit.FunSuite:
   private val frame =
     PanelFrame.npcUnsafe(0.1, 0.1, 0.8, 0.8)
 
-  private def colorScale: DiscreteScale[Rgba] =
+  private def colorScale: DiscreteScale[String, Rgba] =
     DiscreteScale(
       "condition-color",
       DiscreteDomain.ordered(Vector("A", "B")).fold(e => fail(e.message), identity),

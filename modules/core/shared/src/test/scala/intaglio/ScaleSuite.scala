@@ -165,7 +165,7 @@ class ScaleSuite extends munit.FunSuite:
     ).toOption.get
     assertEquals(
       initiallyValid
-        .trainPlotWide(Vector(ScaleObservation.Discrete("C")))
+        .trainPlotWide(Vector(ScaleObservation.discrete("C", CategoryIdentity.strings)))
         .left
         .toOption,
       Some(GraphicsError.DiscretePaletteOverflow("condition", 3, 2))

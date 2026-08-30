@@ -12,14 +12,14 @@ class CompilerPhasesSuite extends munit.FunSuite:
       Obs(4.0, 5.0, "A")
     )
 
-  private def colorScale: DiscreteScale[Rgba] =
+  private def colorScale: DiscreteScale[String, Rgba] =
     DiscreteScale(
       "condition-color",
       DiscreteDomain.ordered(Vector("A", "B")).fold(e => fail(e.message), identity),
       DiscretePalette.valuesUnsafe(Vector(Rgba.unsafe(10, 20, 30), Rgba.unsafe(200, 100, 50)))
     ).fold(e => fail(e.message), identity)
 
-  private def collapsedColorScale(name: String): DiscreteScale[Rgba] =
+  private def collapsedColorScale(name: String): DiscreteScale[String, Rgba] =
     DiscreteScale(
       name,
       DiscreteDomain.empty,

@@ -364,8 +364,23 @@ enum GroupingDecision:
   case Explicit
   case Inferred(aesthetics: Vector[Aesthetic[?]])
 
-/** One raw categorical value contributing to an inferred group. */
-final case class DiscreteGroupValue(aesthetic: Aesthetic[?], category: String)
+/** One raw categorical value contributing to an inferred group. Its stable identity is distinct
+  * from its display label, so typed categories with equal labels do not collide.
+  */
+final case class DiscreteGroupValue private (aesthetic: Aesthetic[?], token: CategoryToken):
+  def category: String =
+    token.label
+
+object DiscreteGroupValue:
+  /** Source-compatible String category constructor. */
+  def apply(aesthetic: Aesthetic[?], category: String): DiscreteGroupValue =
+    new DiscreteGroupValue(aesthetic, CategoryToken(category, CategoryIdentity.strings))
+
+  private[intaglio] def typed(
+      aesthetic: Aesthetic[?],
+      category: CategoryToken
+  ): DiscreteGroupValue =
+    new DiscreteGroupValue(aesthetic, category)
 
 /** Collision-free row grouping identity. Renderers and position adjustments compare this structural
   * value rather than a palette output or concatenated display string.

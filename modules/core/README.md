@@ -219,6 +219,39 @@ val points = plot(rows)
   .geomPoint()
 ```
 
+Categorical scales retain the caller's category type instead of requiring a
+`String` projection. Define its stable lookup identity and display label once:
+
+```scala
+enum Arm(val code: Int):
+  case Control extends Arm(10)
+  case Treatment extends Arm(20)
+
+given CategoryIdentity[Arm] =
+  CategoryIdentity.by(
+    _.code,
+    {
+      case Arm.Control   => "control arm"
+      case Arm.Treatment => "treatment arm"
+    }
+  )
+
+val domain: DiscreteDomain[Arm] =
+  DiscreteDomain.ordered(Vector(Arm.Control, Arm.Treatment)).orThrow
+val scale: DiscreteScale[Arm, Rgba] =
+  DiscreteScale("arm", domain, palette).orThrow
+val positions: BandScale[Arm] =
+  BandScale("arm-position", domain).orThrow
+```
+
+`DiscreteDomain[A]` keeps its ordered `Vector[A]` and an immutable stable-key
+index. `DiscreteScale[A, Out]`, `BandScale[A]`, and their specs accept `A`
+directly. Guides and descriptors use the explicit label function; lookup,
+grouping, and palette selection use the explicit identity, so equal labels do
+not collapse distinct factors or enum cases. `String` has a built-in identity
+for source-level convenience. `external.category.TypedCategorySuite` is the
+JVM/Scala.js consumer court.
+
 Layers may also own a different row type. Independent layers supply their own
 data and mapping, and must state what happens if the plot is faceted:
 
