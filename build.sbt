@@ -97,6 +97,22 @@ lazy val svg =
 lazy val svgJS  = svg.js
 lazy val svgJVM = svg.jvm
 
+lazy val performance =
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/performance"))
+    .dependsOn(core, svg)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-performance-gates",
+      description := "Deterministic cross-platform performance regression workloads for Intaglio.",
+      publish / skip := true
+    )
+    .jsSettings(jsSettingsBase)
+
+lazy val performanceJS  = performance.js
+lazy val performanceJVM = performance.jvm
+
 lazy val canvas =
   crossProject(JSPlatform)
     .crossType(CrossType.Full)
@@ -151,6 +167,8 @@ lazy val root =
       lawsJVM,
       svgJS,
       svgJVM,
+      performanceJS,
+      performanceJVM,
       canvasJS,
       java2dJVM,
       javafxJVM
@@ -162,10 +180,10 @@ lazy val root =
 
 addCommandAlias(
   "compileAll",
-  ";coreJVM/compile;coreJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;canvasJS/compile;java2dJVM/compile;javafxJVM/compile"
+  ";coreJVM/compile;coreJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;java2dJVM/compile;javafxJVM/compile"
 )
 
 addCommandAlias(
   "testAll",
-  ";coreJVM/test;coreJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;canvasJS/test;java2dJVM/test;javafxJVM/test"
+  ";coreJVM/test;coreJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;javafxJVM/test"
 )
