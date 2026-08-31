@@ -32,3 +32,5 @@ jobs:
         uses: sbt/setup-sbt@v1
       - name: Check formatting and test every platform
         run: sbt -Djava.awt.headless=true -Dsbt.supershell=false scalafmtCheckAll testAll
+      - name: Check compatibility against the exact Intaglio baseline
+        run: tools/check-compatibility.sh

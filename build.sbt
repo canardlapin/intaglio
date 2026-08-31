@@ -7,6 +7,19 @@ ThisBuild / scalaVersion := "3.4.2"
 ThisBuild / version      := "0.1.0-SNAPSHOT"
 ThisBuild / versionScheme := Some("early-semver")
 
+/** Before the first published release, `tools/check-compatibility.sh` supplies an exact local
+  * baseline and asks for the strongest check. Normal 0.x.0 development remains an explicitly
+  * breaking boundary until that baseline exists in a repository.
+  */
+ThisBuild / versionPolicyIntention := {
+  if (sys.env.contains("INTAGLIO_COMPAT_BASELINE_VERSION"))
+    Compatibility.BinaryAndSourceCompatible
+  else
+    Compatibility.None
+}
+ThisBuild / versionPolicyIgnoredInternalDependencyVersions :=
+  Some("^\\d+\\.\\d+\\.\\d+-SNAPSHOT$".r)
+
 ThisBuild / homepage := Some(url("https://github.com/canardlapin/intaglio"))
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / scmInfo := Some(
@@ -32,12 +45,35 @@ lazy val commonSettings = Seq(
     "-Xmax-inlines:64"
   ),
   Test / fork := false,
-  libraryDependencies += "org.scalameta" %%% "munit" % "1.2.1" % Test
+  libraryDependencies += "org.scalameta" %%% "munit" % "1.2.1" % Test,
+  mimaReportSignatureProblems := true,
+  mimaPreviousArtifacts ++= sys.env
+    .get("INTAGLIO_COMPAT_BASELINE_VERSION")
+    .toSet
+    .map(baseline => organization.value %%% name.value % baseline),
+  tastyMiMaPreviousArtifacts ++= sys.env
+    .get("INTAGLIO_COMPAT_BASELINE_VERSION")
+    .toSet
+    .map(baseline => organization.value %%% name.value % baseline),
+  tastyMiMaConfig ~= { previous =>
+    import java.util.Arrays.asList
+    import tastymima.intf.{ProblemKind, ProblemMatcher}
+    previous.withMoreProblemFilters(
+      asList(
+        ProblemMatcher.make(ProblemKind.InternalError, "intaglio.PackedStatPlan.Aux"),
+        ProblemMatcher.make(ProblemKind.InternalError, "intaglio.StatResult.Aux")
+      )
+    )
+  }
 )
 
 lazy val jsSettingsBase = Seq(
   scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)),
-  Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv()
+  Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
+  // MiMa reads JVM class files. Shared Scala.js APIs are checked through their
+  // JVM twins, while TASTy-MiMa still runs on every Scala.js artifact.
+  versionPolicyCheck / skip := true,
+  versionCheck / skip := true
 )
 
 /** OpenJFX publishes per-platform artifacts, so the classifier is resolved from
@@ -149,7 +185,38 @@ lazy val java2d =
     .settings(
       name := "intaglio-java2d",
       description := "Java2D renderer for Intaglio scenes (JVM).",
-      libraryDependencies += "org.apache.pdfbox" % "pdfbox" % "3.0.8" % Test
+      libraryDependencies += "org.apache.pdfbox" % "pdfbox" % "3.0.8" % Test,
+      tastyMiMaConfig ~= { previous =>
+        import java.util.Arrays.asList
+        import tastymima.intf.{ProblemKind, ProblemMatcher}
+        previous.withMoreProblemFilters(
+          asList(
+            ProblemMatcher.make(
+              ProblemKind.InternalError,
+              "intaglio.java2d.Java2DRenderingHints.configure"
+            ),
+            ProblemMatcher.make(ProblemKind.InternalError, "intaglio.java2d.Java2DColor.awt"),
+            ProblemMatcher.make(ProblemKind.InternalError, "intaglio.java2d.Java2DRenderer.render"),
+            ProblemMatcher.make(ProblemKind.InternalError, "intaglio.java2d.Java2DRenderer.draw"),
+            ProblemMatcher.make(
+              ProblemKind.InternalError,
+              "intaglio.java2d.Java2DRenderer.drawProfile"
+            ),
+            ProblemMatcher.make(
+              ProblemKind.InternalError,
+              "intaglio.java2d.Java2DRenderer.renderImage"
+            ),
+            ProblemMatcher.make(
+              ProblemKind.InternalError,
+              "intaglio.java2d.Java2DFontResolver.resolve"
+            ),
+            ProblemMatcher.make(
+              ProblemKind.InternalError,
+              "intaglio.java2d.Java2DFontResolver.fixed"
+            )
+          )
+        )
+      }
     )
 
 lazy val java2dJVM = java2d.jvm
@@ -184,7 +251,19 @@ lazy val javafx =
       libraryDependencies ++= Seq(
         "org.openjfx" % "javafx-base" % "21.0.5" % Provided classifier javafxPlatformClassifier,
         "org.openjfx" % "javafx-graphics" % "21.0.5" % Provided classifier javafxPlatformClassifier
-      )
+      ),
+      tastyMiMaConfig ~= { previous =>
+        import java.util.Arrays.asList
+        import tastymima.intf.{ProblemKind, ProblemMatcher}
+        previous.withMoreProblemFilters(
+          asList(
+            ProblemMatcher.make(
+              ProblemKind.InternalError,
+              "intaglio.javafx.JavaFxCanvasContext.<init>"
+            )
+          )
+        )
+      }
     )
 
 lazy val javafxJVM = javafx.jvm
@@ -220,4 +299,9 @@ addCommandAlias(
 addCommandAlias(
   "testAll",
   ";coreJVM/test;coreJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test"
+)
+
+addCommandAlias(
+  "compatibilityCheck",
+  ";versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
 )
