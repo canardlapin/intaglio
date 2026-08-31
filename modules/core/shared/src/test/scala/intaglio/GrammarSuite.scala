@@ -94,9 +94,21 @@ class GrammarSuite extends munit.FunSuite:
     assertEquals(
       actual,
       Map(
-        "point" -> (Vector("x", "y"), markStyles.patch(3, Vector("size"), 0), Vector.empty),
-        "line" -> (Vector("x", "y"), Vector("color", "alpha", "group"), Vector("color", "alpha")),
-        "text" -> (Vector("x", "y", "label"), markStyles, Vector.empty),
+        "point" -> (
+          Vector("x", "y"),
+          markStyles.patch(3, Vector("size", "shape"), 0),
+          Vector.empty
+        ),
+        "line" -> (
+          Vector("x", "y"),
+          Vector("color", "alpha", "linetype", "linewidth", "group"),
+          Vector("color", "alpha", "linetype", "linewidth")
+        ),
+        "text" -> (
+          Vector("x", "y", "label"),
+          markStyles.patch(3, Vector("angle", "hjust", "vjust"), 0),
+          Vector.empty
+        ),
         "rect" -> (
           Vector("x", "y", "xmin", "xmax", "ymin", "ymax"),
           markStyles,

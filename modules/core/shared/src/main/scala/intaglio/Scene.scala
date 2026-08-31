@@ -480,22 +480,28 @@ final case class GraphicParams private (
   private[intaglio] def withAestheticOverrides(
       stroke: Option[Rgba] = None,
       fill: Option[Rgba] = None,
-      alpha: Option[Double] = None
+      alpha: Option[Double] = None,
+      lineType: Option[LineType] = None,
+      lineWidthPoints: Option[Double] = None
   ): Either[GraphicsError, GraphicParams] =
-    alpha match
-      case Some(value) if !value.isFinite || value < 0.0 || value > 1.0 =>
-        Left(GraphicsError.InvalidAlpha(value))
-      case _ if stroke.isEmpty && fill.isEmpty && alpha.isEmpty =>
-        Right(this)
-      case _ =>
-        Right(
-          copy(
-            stroke = stroke.orElse(this.stroke),
-            fill = fill.orElse(this.fill),
-            alpha = alpha.getOrElse(this.alpha),
-            fillPattern = if fill.isDefined then None else this.fillPattern
-          )
+    for
+      _ <- alpha match
+        case Some(value) if !value.isFinite || value < 0.0 || value > 1.0 =>
+          Left(GraphicsError.InvalidAlpha(value))
+        case _ => Right(())
+      mappedWidth <- lineWidthPoints match
+        case Some(value) => StrokeWidth.points(value).map(Some(_))
+        case None        => Right(None)
+    yield
+      val styled =
+        copy(
+          stroke = stroke.orElse(this.stroke),
+          fill = fill.orElse(this.fill),
+          alpha = alpha.getOrElse(this.alpha),
+          lineType = lineType.getOrElse(this.lineType),
+          fillPattern = if fill.isDefined then None else this.fillPattern
         )
+      mappedWidth.fold(styled)(styled.withStrokeWidth)
 
   /** Replace the solid fill channel with a validated pattern paint. */
   def withPatternFill(pattern: PatternPaint): GraphicParams =

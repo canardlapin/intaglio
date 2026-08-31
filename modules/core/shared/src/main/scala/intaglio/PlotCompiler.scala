@@ -292,7 +292,10 @@ final case class ResolvedRow[Row](
     gp: GraphicParams,
     size: ExtentExpr,
     xCategoryIdentity: Option[CategoryToken] = None,
-    yCategoryIdentity: Option[CategoryToken] = None
+    yCategoryIdentity: Option[CategoryToken] = None,
+    shape: PointShape = PointShape.Circle,
+    textAnchor: Anchor = Anchor.Center,
+    rotationDegrees: Double = 0.0
 ):
   /** Generic computed-aesthetic inspection derived from the retained typed stat output. */
   def computed: ComputedValues =

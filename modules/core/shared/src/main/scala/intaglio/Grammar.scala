@@ -434,6 +434,12 @@ final class AesSpec[Row] private (val aesthetics: AestheticMap[Row]):
   def fill: Option[AesValue[Row, Rgba]] = get(Aesthetic.Fill)
   def alpha: Option[AesValue[Row, Double]] = get(Aesthetic.Alpha)
   def size: Option[AesValue[Row, Double]] = get(Aesthetic.Size)
+  def shape: Option[AesValue[Row, PointShape]] = get(Aesthetic.Shape)
+  def lineType: Option[AesValue[Row, LineType]] = get(Aesthetic.LineType)
+  def lineWidth: Option[AesValue[Row, Double]] = get(Aesthetic.LineWidth)
+  def angle: Option[AesValue[Row, Double]] = get(Aesthetic.Angle)
+  def hJust: Option[AesValue[Row, HJust]] = get(Aesthetic.HJust)
+  def vJust: Option[AesValue[Row, VJust]] = get(Aesthetic.VJust)
   def label: Option[AesValue[Row, String]] = get(Aesthetic.Label)
   def group: Option[AesValue[Row, String]] = get(Aesthetic.Group)
   def subpath: Option[AesValue[Row, String]] = get(Aesthetic.Subpath)
@@ -461,7 +467,10 @@ final class AesSpec[Row] private (val aesthetics: AestheticMap[Row]):
           Option.when(color.exists(_.isDiscreteMapped))(Aesthetic.Color),
           Option.when(fill.exists(_.isDiscreteMapped))(Aesthetic.Fill),
           Option.when(alpha.exists(_.isDiscreteMapped))(Aesthetic.Alpha),
-          Option.when(size.exists(_.isDiscreteMapped))(Aesthetic.Size)
+          Option.when(size.exists(_.isDiscreteMapped))(Aesthetic.Size),
+          Option.when(shape.exists(_.isDiscreteMapped))(Aesthetic.Shape),
+          Option.when(lineType.exists(_.isDiscreteMapped))(Aesthetic.LineType),
+          Option.when(lineWidth.exists(_.isDiscreteMapped))(Aesthetic.LineWidth)
         ).flatten
       if inferred.isEmpty then GroupingDecision.Ungrouped
       else GroupingDecision.Inferred(inferred)
@@ -565,6 +574,46 @@ final class AesSpec[Row] private (val aesthetics: AestheticMap[Row]):
   def withSize(value: Double): AesSpec[Row] =
     updated(Aesthetic.Size, AesValue.constant(value))
 
+  def withShape(f: Row => PointShape): AesSpec[Row] =
+    updated(Aesthetic.Shape, AesValue.direct(f))
+
+  def withShape(value: PointShape): AesSpec[Row] =
+    updated(Aesthetic.Shape, AesValue.constant(value))
+
+  def withLineType(f: Row => LineType): AesSpec[Row] =
+    updated(Aesthetic.LineType, AesValue.direct(f))
+
+  def withLineType(value: LineType): AesSpec[Row] =
+    updated(Aesthetic.LineType, AesValue.constant(value))
+
+  /** Map line width in typographic points. Device lowering converts the resolved width through the
+    * active [[RenderContext]], so the result is DPI- and device-scale aware.
+    */
+  def withLineWidth(f: Row => Double): AesSpec[Row] =
+    updated(Aesthetic.LineWidth, AesValue.direct(f))
+
+  /** Set a constant line width in typographic points. */
+  def withLineWidth(value: Double): AesSpec[Row] =
+    updated(Aesthetic.LineWidth, AesValue.constant(value))
+
+  def withAngle(f: Row => Double): AesSpec[Row] =
+    updated(Aesthetic.Angle, AesValue.direct(f))
+
+  def withAngle(value: Double): AesSpec[Row] =
+    updated(Aesthetic.Angle, AesValue.constant(value))
+
+  def withHJust(f: Row => HJust): AesSpec[Row] =
+    updated(Aesthetic.HJust, AesValue.direct(f))
+
+  def withHJust(value: HJust): AesSpec[Row] =
+    updated(Aesthetic.HJust, AesValue.constant(value))
+
+  def withVJust(f: Row => VJust): AesSpec[Row] =
+    updated(Aesthetic.VJust, AesValue.direct(f))
+
+  def withVJust(value: VJust): AesSpec[Row] =
+    updated(Aesthetic.VJust, AesValue.constant(value))
+
   def withLabel(f: Row => String): AesSpec[Row] =
     updated(Aesthetic.Label, AesValue.direct(f))
 
@@ -599,7 +648,13 @@ final class AesSpec[Row] private (val aesthetics: AestheticMap[Row]):
       size: Option[AesValue[Row, Double]] = this.size,
       label: Option[AesValue[Row, String]] = this.label,
       group: Option[AesValue[Row, String]] = this.group,
-      subpath: Option[AesValue[Row, String]] = this.subpath
+      subpath: Option[AesValue[Row, String]] = this.subpath,
+      shape: Option[AesValue[Row, PointShape]] = this.shape,
+      lineType: Option[AesValue[Row, LineType]] = this.lineType,
+      lineWidth: Option[AesValue[Row, Double]] = this.lineWidth,
+      angle: Option[AesValue[Row, Double]] = this.angle,
+      hJust: Option[AesValue[Row, HJust]] = this.hJust,
+      vJust: Option[AesValue[Row, VJust]] = this.vJust
   ): AesSpec[Row] =
     val next = aesthetics
       .updatedOption(Aesthetic.X, x)
@@ -614,6 +669,12 @@ final class AesSpec[Row] private (val aesthetics: AestheticMap[Row]):
       .updatedOption(Aesthetic.Fill, fill)
       .updatedOption(Aesthetic.Alpha, alpha)
       .updatedOption(Aesthetic.Size, size)
+      .updatedOption(Aesthetic.Shape, shape)
+      .updatedOption(Aesthetic.LineType, lineType)
+      .updatedOption(Aesthetic.LineWidth, lineWidth)
+      .updatedOption(Aesthetic.Angle, angle)
+      .updatedOption(Aesthetic.HJust, hJust)
+      .updatedOption(Aesthetic.VJust, vJust)
       .updatedOption(Aesthetic.Label, label)
       .updatedOption(Aesthetic.Group, group)
       .updatedOption(Aesthetic.Subpath, subpath)
@@ -653,7 +714,13 @@ object AesSpec:
       size: Option[AesValue[Row, Double]] = None,
       label: Option[AesValue[Row, String]] = None,
       group: Option[AesValue[Row, String]] = None,
-      subpath: Option[AesValue[Row, String]] = None
+      subpath: Option[AesValue[Row, String]] = None,
+      shape: Option[AesValue[Row, PointShape]] = None,
+      lineType: Option[AesValue[Row, LineType]] = None,
+      lineWidth: Option[AesValue[Row, Double]] = None,
+      angle: Option[AesValue[Row, Double]] = None,
+      hJust: Option[AesValue[Row, HJust]] = None,
+      vJust: Option[AesValue[Row, VJust]] = None
   ): AesSpec[Row] =
     val values = AestheticMap
       .empty[Row]
@@ -669,6 +736,12 @@ object AesSpec:
       .updatedOption(Aesthetic.Fill, fill)
       .updatedOption(Aesthetic.Alpha, alpha)
       .updatedOption(Aesthetic.Size, size)
+      .updatedOption(Aesthetic.Shape, shape)
+      .updatedOption(Aesthetic.LineType, lineType)
+      .updatedOption(Aesthetic.LineWidth, lineWidth)
+      .updatedOption(Aesthetic.Angle, angle)
+      .updatedOption(Aesthetic.HJust, hJust)
+      .updatedOption(Aesthetic.VJust, vJust)
       .updatedOption(Aesthetic.Label, label)
       .updatedOption(Aesthetic.Group, group)
       .updatedOption(Aesthetic.Subpath, subpath)
@@ -701,7 +774,14 @@ final case class GeomAestheticContract private (
   require(groupConstant.forall(optional.contains))
   require(
     groupConstant.forall(
-      Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha, Aesthetic.Size).contains
+      Vector(
+        Aesthetic.Color,
+        Aesthetic.Fill,
+        Aesthetic.Alpha,
+        Aesthetic.Size,
+        Aesthetic.LineType,
+        Aesthetic.LineWidth
+      ).contains
     )
   )
 
@@ -742,7 +822,7 @@ object GeomAestheticContract:
     else if groupConstant.exists(value => !groupConstantAesthetics.contains(value)) then
       Left(
         GraphicsError.InvalidGeomAestheticContract(
-          "only color, fill, alpha, and size may be group-constant"
+          "only color, fill, alpha, size, linetype, and linewidth may be group-constant"
         )
       )
     else Right(new GeomAestheticContract(required, optional, groupConstant))
@@ -763,7 +843,14 @@ object GeomAestheticContract:
     unsafe(required, optional, groupConstant)
 
   private val groupConstantAesthetics: Vector[Aesthetic[?]] =
-    Vector(Aesthetic.Color, Aesthetic.Fill, Aesthetic.Alpha, Aesthetic.Size)
+    Vector(
+      Aesthetic.Color,
+      Aesthetic.Fill,
+      Aesthetic.Alpha,
+      Aesthetic.Size,
+      Aesthetic.LineType,
+      Aesthetic.LineWidth
+    )
 
 /** Compiler context supplied to built-in and external geometry lowering. */
 final case class GeomContext(layerIndex: Int, theme: Theme):
@@ -813,6 +900,7 @@ object Geom:
           Aesthetic.Fill,
           Aesthetic.Alpha,
           Aesthetic.Size,
+          Aesthetic.Shape,
           Aesthetic.Group
         )
       )
@@ -824,8 +912,19 @@ object Geom:
     val contract: GeomAestheticContract =
       GeomAestheticContract.create(
         required = Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
-        optional = Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Group),
-        groupConstant = Vector(Aesthetic.Color, Aesthetic.Alpha)
+        optional = Vector(
+          Aesthetic.Color,
+          Aesthetic.Alpha,
+          Aesthetic.LineType,
+          Aesthetic.LineWidth,
+          Aesthetic.Group
+        ),
+        groupConstant = Vector(
+          Aesthetic.Color,
+          Aesthetic.Alpha,
+          Aesthetic.LineType,
+          Aesthetic.LineWidth
+        )
       )
     def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
       GeomPhase.lineGrobs(batch.rows)
@@ -843,6 +942,9 @@ object Geom:
           Aesthetic.Color,
           Aesthetic.Fill,
           Aesthetic.Alpha,
+          Aesthetic.Angle,
+          Aesthetic.HJust,
+          Aesthetic.VJust,
           Aesthetic.Group
         )
       )

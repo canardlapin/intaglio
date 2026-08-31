@@ -48,6 +48,12 @@ object Aesthetic:
   val Fill: Aesthetic[Rgba] = unsafe("fill")
   val Alpha: Aesthetic[Double] = unsafe("alpha")
   val Size: Aesthetic[Double] = unsafe("size")
+  val Shape: Aesthetic[PointShape] = unsafe("shape")
+  val LineType: Aesthetic[intaglio.LineType] = unsafe("linetype")
+  val LineWidth: Aesthetic[Double] = unsafe("linewidth")
+  val Angle: Aesthetic[Double] = unsafe("angle")
+  val HJust: Aesthetic[intaglio.HJust] = unsafe("hjust")
+  val VJust: Aesthetic[intaglio.VJust] = unsafe("vjust")
   val Label: Aesthetic[String] = unsafe("label")
   val Group: Aesthetic[String] = unsafe("group")
   val Subpath: Aesthetic[String] = unsafe("subpath")
@@ -69,6 +75,12 @@ object Aesthetic:
       Fill,
       Alpha,
       Size,
+      Shape,
+      LineType,
+      LineWidth,
+      Angle,
+      HJust,
+      VJust,
       Label,
       Group,
       Subpath

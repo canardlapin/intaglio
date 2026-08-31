@@ -1153,14 +1153,48 @@ private[intaglio] object RowPhase:
           source,
           rowIndex
         )
+        shape <- optionalEvaluatedAes(
+          Aesthetic.Shape,
+          mapping.get(Aesthetic.Shape),
+          source,
+          rowIndex
+        )
+        lineType <- optionalEvaluatedAes(
+          Aesthetic.LineType,
+          mapping.get(Aesthetic.LineType),
+          source,
+          rowIndex
+        )
+        lineWidth <- optionalEvaluatedAes(
+          Aesthetic.LineWidth,
+          mapping.get(Aesthetic.LineWidth),
+          source,
+          rowIndex
+        )
+        angle <- optionalAes(Aesthetic.Angle, mapping.get(Aesthetic.Angle), source, rowIndex)
+        rotation <- rowRotation(angle)
+        hJust <- optionalAes(Aesthetic.HJust, mapping.get(Aesthetic.HJust), source, rowIndex)
+        vJust <- optionalAes(Aesthetic.VJust, mapping.get(Aesthetic.VJust), source, rowIndex)
         gp <- rowGraphicParams(
           layer.params.getOrElse(theme.geom),
           stroke.map(_.value),
           fill.map(_.value),
-          alpha.map(_.value)
+          alpha.map(_.value),
+          lineType.map(_.value),
+          lineWidth.map(_.value)
         )
         size <- rowSize(mappedSize.map(_.value), theme.pointSizePt)
-        groupKey <- resolveGroupKey(grouping, explicitGroup, stroke, fill, alpha, mappedSize)
+        groupKey <- resolveGroupKey(
+          grouping,
+          explicitGroup,
+          stroke,
+          fill,
+          alpha,
+          mappedSize,
+          shape,
+          lineType,
+          lineWidth
+        )
       yield ResolvedRow(
         rowIndex = rowIndex,
         source = source.source,
@@ -1183,6 +1217,9 @@ private[intaglio] object RowPhase:
         subpath = subpath,
         gp = gp,
         size = size,
+        shape = shape.map(_.value).getOrElse(PointShape.Circle),
+        textAnchor = Anchor(hJust.getOrElse(HJust.Center), vJust.getOrElse(VJust.Center)),
+        rotationDegrees = rotation,
         xCategoryIdentity = xValue.rawDiscreteCategory,
         yCategoryIdentity = yValue.rawDiscreteCategory
       )
@@ -1194,16 +1231,27 @@ private[intaglio] object RowPhase:
       base: GraphicParams,
       stroke: Option[Rgba],
       fill: Option[Rgba],
-      alpha: Option[Double]
+      alpha: Option[Double],
+      lineType: Option[LineType],
+      lineWidth: Option[Double]
   ): Either[PlotDropReason, GraphicParams] =
     base
       .withAestheticOverrides(
         stroke = stroke,
         fill = fill,
-        alpha = alpha
+        alpha = alpha,
+        lineType = lineType,
+        lineWidthPoints = lineWidth
       )
       .left
       .map(error => PlotDropReason.InvalidAesthetic("gp", error.message))
+
+  private def rowRotation(value: Option[Double]): Either[PlotDropReason, Double] =
+    value match
+      case Some(angle) if !angle.isFinite =>
+        Left(PlotDropReason.InvalidAesthetic(Aesthetic.Angle.label, "rotation must be finite"))
+      case Some(angle) => Right(angle)
+      case None        => Right(0.0)
 
   private def rowSize(
       value: Option[Double],
@@ -1224,7 +1272,10 @@ private[intaglio] object RowPhase:
       color: Option[EvaluatedAes[Rgba]],
       fill: Option[EvaluatedAes[Rgba]],
       alpha: Option[EvaluatedAes[Double]],
-      size: Option[EvaluatedAes[Double]]
+      size: Option[EvaluatedAes[Double]],
+      shape: Option[EvaluatedAes[PointShape]],
+      lineType: Option[EvaluatedAes[LineType]],
+      lineWidth: Option[EvaluatedAes[Double]]
   ): Either[PlotDropReason, Option[GroupKey]] =
     grouping match
       case GroupingDecision.Ungrouped =>
@@ -1236,7 +1287,10 @@ private[intaglio] object RowPhase:
           discreteGroupValue(Aesthetic.Color, color),
           discreteGroupValue(Aesthetic.Fill, fill),
           discreteGroupValue(Aesthetic.Alpha, alpha),
-          discreteGroupValue(Aesthetic.Size, size)
+          discreteGroupValue(Aesthetic.Size, size),
+          discreteGroupValue(Aesthetic.Shape, shape),
+          discreteGroupValue(Aesthetic.LineType, lineType),
+          discreteGroupValue(Aesthetic.LineWidth, lineWidth)
         ).flatten
         aesthetics.find(aesthetic => !values.exists(_.aesthetic eq aesthetic)) match
           case Some(aesthetic) =>
@@ -1713,17 +1767,21 @@ private[intaglio] object GeomPhase:
       aesthetic: Aesthetic[?]
   ): GroupAestheticValue =
     aesthetic match
-      case Aesthetic.Color => GroupAestheticValue.Color(row.gp.stroke)
-      case Aesthetic.Fill  => GroupAestheticValue.Fill(row.gp.fill, row.gp.fillPattern)
-      case Aesthetic.Alpha => GroupAestheticValue.Alpha(row.gp.alpha)
-      case Aesthetic.Size  => GroupAestheticValue.Size(row.size)
-      case other           => GroupAestheticValue.Unsupported(other.label)
+      case Aesthetic.Color     => GroupAestheticValue.Color(row.gp.stroke)
+      case Aesthetic.Fill      => GroupAestheticValue.Fill(row.gp.fill, row.gp.fillPattern)
+      case Aesthetic.Alpha     => GroupAestheticValue.Alpha(row.gp.alpha)
+      case Aesthetic.Size      => GroupAestheticValue.Size(row.size)
+      case Aesthetic.LineType  => GroupAestheticValue.LineType(row.gp.lineType)
+      case Aesthetic.LineWidth => GroupAestheticValue.LineWidth(row.gp.strokeWidth)
+      case other               => GroupAestheticValue.Unsupported(other.label)
 
   private enum GroupAestheticValue:
     case Color(value: Option[Rgba])
     case Fill(value: Option[Rgba], pattern: Option[PatternPaint])
     case Alpha(value: Double)
     case Size(value: ExtentExpr)
+    case LineType(value: intaglio.LineType)
+    case LineWidth(value: StrokeWidth)
     case Unsupported(aesthetic: String)
 
   private def referenceLineGrob(
@@ -1949,10 +2007,12 @@ private[intaglio] object GeomPhase:
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < rows.length && result.isRight do
       val row = rows(idx)
-      result = Grob.points(Vector(row.point), size = row.size, gp = row.gp).map { grob =>
-        out += grob
-        ()
-      }
+      result = Grob
+        .points(Vector(row.point), size = row.size, shape = row.shape, gp = row.gp)
+        .map { grob =>
+          out += grob
+          ()
+        }
       idx += 1
     result.map(_ => out.result())
 
@@ -1965,7 +2025,7 @@ private[intaglio] object GeomPhase:
         .pointBatch(
           rows.map(_.point),
           sizes = BatchColumn.compact(rows.map(_.size)),
-          shapes = BatchColumn.Constant(PointShape.Circle),
+          shapes = BatchColumn.compact(rows.map(_.shape)),
           graphicParams = BatchColumn.compact(rows.map(_.gp))
         )
         .map(Vector(_))
@@ -2044,10 +2104,18 @@ private[intaglio] object GeomPhase:
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < rows.length && result.isRight do
       val row = rows(idx)
-      result = Grob.text(row.label.getOrElse(""), row.point, gp = row.gp).map { grob =>
-        out += grob
-        ()
-      }
+      result = Grob
+        .text(
+          row.label.getOrElse(""),
+          row.point,
+          anchor = row.textAnchor,
+          rotationDegrees = row.rotationDegrees,
+          gp = row.gp
+        )
+        .map { grob =>
+          out += grob
+          ()
+        }
       idx += 1
     result.map(_ => out.result())
 
