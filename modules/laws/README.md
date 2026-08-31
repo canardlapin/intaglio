@@ -33,6 +33,10 @@ The available entry points are:
   `OobPolicyLaws` for numeric transform and built-in scale algebra;
 - `DiscreteDomainLaws.ordered` for declared/encounter order, or
   `DiscreteDomainLaws.unordered` for canonical, permutation-invariant domains;
+- `NativeStatLaws` for count/bin mass, right-closed intervals, summary bounds,
+  density integration, contour topology, and declared-order invariance;
+- `NativePositionLaws` for identity, deterministic jitter, non-overlapping
+  dodge, signed stack, and explicit stack-order preservation;
 - `StatLaws` for public contracts, deterministic computation, and declared
   input preservation;
 - `GeomLaws` for checked aesthetic contracts and deterministic lowering;
@@ -57,6 +61,12 @@ but does not claim encounter-order preservation. `TransformLaws` similarly
 requires callers to declare increasing or decreasing monotonicity and checks
 that declaration alongside round trips and the transform's open/closed
 endpoints.
+
+The native statistic and position suites use `SeededLaw.defaultSeeds`, a small
+portable seed court that executes unchanged on the JVM and Scala.js. Pass an
+explicit `Vector[Long]` to replay or expand a court. Every returned
+counterexample—and every non-fatal exception caught during one seeded
+case—includes `seed=<value>` in its `LawFailure.detail`.
 
 The tests under `shared/src/test/scala/external/laws` are a consumer court, not
 production helpers. They independently implement every seam and run the kits
