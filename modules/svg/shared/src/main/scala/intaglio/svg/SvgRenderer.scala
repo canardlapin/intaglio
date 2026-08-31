@@ -185,6 +185,8 @@ object SvgRenderer:
     primitive match
       case DevicePrimitive.Disc(_, _, _, _, name) =>
         validateName(name)
+      case DevicePrimitive.PointBatch(_, _, _, _, name) =>
+        validateName(name)
       case DevicePrimitive.Polyline(_, _, _, name) =>
         validateName(name)
       case DevicePrimitive.CompoundPolygon(_, _, name) =>
@@ -270,6 +272,20 @@ object SvgRenderer:
               cy
             )}" r="${format(radius)}" />"""
         )
+      case DevicePrimitive.PointBatch(points, radii, shapes, params, name) =>
+        var index = 0
+        while index < points.length do
+          writePointMark(
+            points(index),
+            radii.valueAt(index),
+            shapes.valueAt(index),
+            params.valueAt(index),
+            name,
+            out,
+            indent,
+            patterns
+          )
+          index += 1
       case DevicePrimitive.Polyline(points, closed, gp, name) =>
         val coords = points.map(p => s"${format(p.x)},${format(p.y)}").mkString(" ")
         if closed then
@@ -336,6 +352,55 @@ object SvgRenderer:
               height
             )}" preserveAspectRatio="none" image-rendering="$rendering"$opacityAttr href="${PngEncoder
               .dataUri(image)}" />"""
+        )
+
+  private def writePointMark(
+      point: DevicePoint,
+      radius: Double,
+      shape: PointShape,
+      gp: GraphicParams,
+      name: Option[GraphicsName],
+      out: StringBuilder,
+      indent: Int,
+      patterns: PatternRegistry
+  ): Unit =
+    shape match
+      case PointShape.Circle =>
+        line(
+          out,
+          indent,
+          s"""<circle${commonAttrs(name, gp, patterns)} cx="${format(point.x)}" cy="${format(
+              point.y
+            )}" r="${format(radius)}" />"""
+        )
+      case PointShape.Square =>
+        line(
+          out,
+          indent,
+          s"""<rect${commonAttrs(name, gp, patterns)} x="${format(point.x - radius)}" y="${format(
+              point.y - radius
+            )}" width="${format(radius * 2.0)}" height="${format(radius * 2.0)}" />"""
+        )
+      case PointShape.Triangle =>
+        val coords =
+          s"${format(point.x)},${format(point.y - radius)} ${format(point.x + radius)},${format(
+              point.y + radius
+            )} ${format(point.x - radius)},${format(point.y + radius)}"
+        line(out, indent, s"""<polygon${commonAttrs(name, gp, patterns)} points="$coords" />""")
+      case PointShape.Cross =>
+        line(
+          out,
+          indent,
+          s"""<polyline${lineAttrs(name, gp)} points="${format(point.x - radius)},${format(
+              point.y
+            )} ${format(point.x + radius)},${format(point.y)}" />"""
+        )
+        line(
+          out,
+          indent,
+          s"""<polyline${lineAttrs(name, gp)} points="${format(point.x)},${format(
+              point.y - radius
+            )} ${format(point.x)},${format(point.y + radius)}" />"""
         )
 
   private def commonAttrs(

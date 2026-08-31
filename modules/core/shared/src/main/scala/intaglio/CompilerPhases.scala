@@ -1527,7 +1527,8 @@ private[intaglio] object GeomPhase:
       lowering: StatLowering,
       rows: Vector[ResolvedRow[Row]],
       annotation: Option[ResolvedReferenceLine],
-      theme: Theme
+      theme: Theme,
+      batchPointMarks: Boolean = false
   ): Either[GraphicsError, Vector[Grob]] =
     annotation match
       case Some(reference) =>
@@ -1542,7 +1543,8 @@ private[intaglio] object GeomPhase:
             case StatLowering.Summary => summaryGrobs(rows)
             case StatLowering.Density => densityGrobs(rows)
             case StatLowering.Geom    =>
-              layer.geom.lower(GeomBatch(rows, GeomContext(layerIndex, theme)))
+              if batchPointMarks && (layer.geom eq Geom.Point) then pointBatch(rows)
+              else layer.geom.lower(GeomBatch(rows, GeomContext(layerIndex, theme)))
         }
 
   private def validateGroupConstancy[Row](
@@ -1788,6 +1790,20 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
+  private[intaglio] def pointBatch[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
+    if rows.isEmpty then Right(Vector.empty)
+    else
+      Grob
+        .pointBatch(
+          rows.map(_.point),
+          sizes = BatchColumn.compact(rows.map(_.size)),
+          shapes = BatchColumn.Constant(PointShape.Circle),
+          graphicParams = BatchColumn.compact(rows.map(_.gp))
+        )
+        .map(Vector(_))
+
   private[intaglio] def lineGrobs[Row](
       rows: Vector[ResolvedRow[Row]]
   ): Either[GraphicsError, Vector[Grob]] =
@@ -2006,6 +2022,8 @@ object CoordinateTransform:
     grob match
       case points: Grob.Points =>
         points.copy(points = points.points.map(flipPoint))
+      case points: Grob.PointBatch =>
+        points.copy(points = points.points.map(flipPoint))
       case lines: Grob.Lines =>
         lines.copy(points = lines.points.map(flipPoint))
       case polygon: Grob.Polygon =>
@@ -2085,6 +2103,8 @@ object CoordinateTransform:
   private def translateGrob(grob: Grob, x: Double, y: Double): Grob =
     grob match
       case points: Grob.Points =>
+        points.copy(points = points.points.map(translatePoint(_, x, y)))
+      case points: Grob.PointBatch =>
         points.copy(points = points.points.map(translatePoint(_, x, y)))
       case lines: Grob.Lines =>
         lines.copy(points = lines.points.map(translatePoint(_, x, y)))

@@ -29,6 +29,91 @@ class ProvenancePolicySuite extends munit.FunSuite:
       .resolve(plot, PlotCompilerOptions(provenance = policy))
       .fold(error => fail(error.message), identity)
 
+  private def assertRenderingEquivalent(actual: Scene, expected: Scene): Unit =
+    val device = DeviceContext.unsafe(640.0, 480.0)
+    val actualDevice =
+      DeviceScene.fromScene(actual, device).fold(error => fail(error.message), identity)
+    val expectedDevice =
+      DeviceScene.fromScene(expected, device).fold(error => fail(error.message), identity)
+    assertEquals(actualDevice.width, expectedDevice.width)
+    assertEquals(actualDevice.height, expectedDevice.height)
+    assertEquals(normalizeBatches(actualDevice.elements), normalizeBatches(expectedDevice.elements))
+
+  private def normalizeBatches(elements: Vector[DeviceElement]): Vector[DeviceElement] =
+    elements.flatMap {
+      case DeviceElement.Mark(DevicePrimitive.PointBatch(points, radii, shapes, params, name)) =>
+        points.indices.flatMap { index =>
+          pointMarks(
+            points(index),
+            radii.valueAt(index),
+            shapes.valueAt(index),
+            params.valueAt(index),
+            name
+          ).map(DeviceElement.Mark(_))
+        }.toVector
+      case DeviceElement.Group(name, clip, rotation, children) =>
+        Vector[DeviceElement](
+          DeviceElement.Group(name, clip, rotation, normalizeBatches(children))
+        )
+      case mark: DeviceElement.Mark => Vector(mark)
+    }
+
+  private def pointMarks(
+      point: DevicePoint,
+      radius: Double,
+      shape: PointShape,
+      params: GraphicParams,
+      name: Option[GraphicsName]
+  ): Vector[DevicePrimitive] =
+    shape match
+      case PointShape.Circle =>
+        Vector(DevicePrimitive.Disc(point.x, point.y, radius, params, name))
+      case PointShape.Square =>
+        Vector(
+          DevicePrimitive.RectShape(
+            point.x - radius,
+            point.y - radius,
+            radius * 2.0,
+            radius * 2.0,
+            params,
+            name
+          )
+        )
+      case PointShape.Triangle =>
+        Vector(
+          DevicePrimitive.Polyline(
+            Vector(
+              DevicePoint(point.x, point.y - radius),
+              DevicePoint(point.x + radius, point.y + radius),
+              DevicePoint(point.x - radius, point.y + radius)
+            ),
+            closed = true,
+            params,
+            name
+          )
+        )
+      case PointShape.Cross =>
+        Vector(
+          DevicePrimitive.Polyline(
+            Vector(
+              DevicePoint(point.x - radius, point.y),
+              DevicePoint(point.x + radius, point.y)
+            ),
+            closed = false,
+            params,
+            name
+          ),
+          DevicePrimitive.Polyline(
+            Vector(
+              DevicePoint(point.x, point.y - radius),
+              DevicePoint(point.x, point.y + radius)
+            ),
+            closed = false,
+            params,
+            name
+          )
+        )
+
   test("provenance policies publish their retained-memory costs") {
     assertEquals(PlotCompilerOptions.default.provenance, ProvenancePolicy.Full)
     assertEquals(PlotCompilerOptions.rich.provenance, ProvenancePolicy.Full)
@@ -61,7 +146,7 @@ class ProvenancePolicySuite extends munit.FunSuite:
     val none = resolve(countPlot, ProvenancePolicy.None)
 
     Vector(countOnly, representative, indices, none).foreach { trained =>
-      assertEquals(trained.scene, full.scene)
+      assertRenderingEquivalent(trained.scene, full.scene)
       assertEquals(trained.layers.head.rows, Vector.empty)
       assertEquals(trained.layers.head.statFrame.rows, Vector.empty)
     }
@@ -110,7 +195,7 @@ class ProvenancePolicySuite extends munit.FunSuite:
     val none = resolve(pointPlot, ProvenancePolicy.None)
 
     Vector(countOnly, representative, indices, none).foreach { trained =>
-      assertEquals(trained.scene, full.scene)
+      assertRenderingEquivalent(trained.scene, full.scene)
       assertEquals(trained.layers.head.rows, Vector.empty)
       assertEquals(trained.layers.head.statFrame.rows, Vector.empty)
       assertEquals(trained.layers.head.droppedRows, Vector.empty)
@@ -162,7 +247,7 @@ class ProvenancePolicySuite extends munit.FunSuite:
     val full = resolved(ProvenancePolicy.Full)
     val lean = resolved(ProvenancePolicy.None)
 
-    assertEquals(lean.scene, full.scene)
+    assertRenderingEquivalent(lean.scene, full.scene)
     assert(lean.layers.forall(_.rows.isEmpty))
     assert(lean.layers.forall(_.statFrame.rows.isEmpty))
     assert(lean.facetPanels.flatMap(_.layers).forall(_.rows.isEmpty))

@@ -38,15 +38,31 @@ private[intaglio] object PatternTile:
           case DeviceElement.Group(_, _, _, children) =>
             validateElements(children)
           case DeviceElement.Mark(primitive) =>
-            val params = primitive match
-              case DevicePrimitive.Disc(_, _, _, gp, _)                  => Some(gp)
-              case DevicePrimitive.Polyline(_, true, gp, _)              => Some(gp)
-              case DevicePrimitive.CompoundPolygon(_, gp, _)             => Some(gp)
-              case DevicePrimitive.RectShape(_, _, _, _, gp, _)          => Some(gp)
-              case DevicePrimitive.Polyline(_, false, _, _)              => None
-              case DevicePrimitive.TextRun(_, _, _, _, _, _, _, _, _, _) => None
-              case DevicePrimitive.Image(_, _, _, _, _, _, _, _)         => None
-            params.flatMap(_.fillPattern).fold[Either[GraphicsError, Unit]](Right(()))(validate)
+            primitive match
+              case DevicePrimitive.PointBatch(_, _, _, params, _) =>
+                var mark = 0
+                var batchResult: Either[GraphicsError, Unit] = Right(())
+                val count = params.valueCount.getOrElse(1)
+                while mark < count && batchResult.isRight do
+                  batchResult = params
+                    .valueAt(mark)
+                    .fillPattern
+                    .fold[Either[GraphicsError, Unit]](Right(()))(validate)
+                  mark += 1
+                batchResult
+              case other =>
+                val params = other match
+                  case DevicePrimitive.Disc(_, _, _, gp, _)                  => Some(gp)
+                  case DevicePrimitive.Polyline(_, true, gp, _)              => Some(gp)
+                  case DevicePrimitive.CompoundPolygon(_, gp, _)             => Some(gp)
+                  case DevicePrimitive.RectShape(_, _, _, _, gp, _)          => Some(gp)
+                  case DevicePrimitive.Polyline(_, false, _, _)              => None
+                  case DevicePrimitive.TextRun(_, _, _, _, _, _, _, _, _, _) => None
+                  case DevicePrimitive.Image(_, _, _, _, _, _, _, _)         => None
+                  case _: DevicePrimitive.PointBatch                         => None
+                params
+                  .flatMap(_.fillPattern)
+                  .fold[Either[GraphicsError, Unit]](Right(()))(validate)
         index += 1
       result
 

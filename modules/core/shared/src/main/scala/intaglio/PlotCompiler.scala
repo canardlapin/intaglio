@@ -486,7 +486,8 @@ object PlotCompiler:
             plan.layer.stat.contract.lowering,
             adjusted,
             annotation,
-            theme
+            theme,
+            batchPointMarks = provenance != ProvenancePolicy.Full
           )
           .map { grobs =>
             TrainedLayer(

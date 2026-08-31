@@ -43,6 +43,7 @@ enum GraphicsError extends IntaglioError:
   case DuplicateLevel(level: String)
   case EmptyGeometry(kind: String)
   case InvalidGeometrySize(kind: String, minimum: Int, actual: Int)
+  case BatchColumnLengthMismatch(column: String, marks: Int, values: Int)
   case MissingAesthetic(geom: String, aesthetic: String)
   case InvalidGeomAestheticContract(detail: String)
   case UnsupportedGeomAesthetic(geom: String, aesthetic: String)
@@ -200,6 +201,8 @@ enum GraphicsError extends IntaglioError:
         s"$kind geometry requires at least one element"
       case InvalidGeometrySize(kind, minimum, actual) =>
         s"$kind geometry requires at least $minimum elements: found $actual"
+      case BatchColumnLengthMismatch(column, marks, values) =>
+        s"batch column '$column' requires either one constant or exactly $marks values: found $values"
       case MissingAesthetic(geom, aesthetic) =>
         s"geom '$geom' requires aesthetic '$aesthetic'"
       case InvalidGeomAestheticContract(detail) =>

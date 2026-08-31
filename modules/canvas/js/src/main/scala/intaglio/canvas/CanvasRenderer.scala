@@ -210,6 +210,13 @@ enum CanvasCommand:
       paint: CanvasPaint,
       name: Option[GraphicsName]
   )
+  case PointBatch(
+      points: Vector[DevicePoint],
+      radii: BatchColumn[Double],
+      shapes: BatchColumn[PointShape],
+      paints: BatchColumn[CanvasPaint],
+      name: Option[GraphicsName]
+  )
   case Polyline(
       points: Vector[DevicePoint],
       closed: Boolean,
@@ -321,6 +328,14 @@ object CanvasProgram:
     primitive match
       case DevicePrimitive.Disc(centerX, centerY, radius, gp, name) =>
         CanvasCommand.Disc(centerX, centerY, radius, CanvasPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.PointBatch(points, radii, shapes, params, name) =>
+        CanvasCommand.PointBatch(
+          points,
+          radii,
+          shapes,
+          params.map(CanvasPaint.fromGraphicParams),
+          name
+        )
       case DevicePrimitive.Polyline(points, closed, gp, name) =>
         CanvasCommand.Polyline(points, closed, CanvasPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
@@ -355,29 +370,46 @@ object CanvasProgram:
         CanvasCommand.Image(image, x, y, width, height, interpolation, alpha, name)
 
   private def firstInvalidNumber(command: CanvasCommand): Option[String] =
-    val values = command match
-      case CanvasCommand.Rotate(degrees, pivotX, pivotY) =>
-        Vector(degrees, pivotX, pivotY)
-      case CanvasCommand.ClipRect(x, y, width, height) =>
-        Vector(x, y, width, height)
-      case CanvasCommand.Disc(centerX, centerY, radius, paint, _) =>
-        Vector(centerX, centerY, radius, paint.lineWidth, paint.opacity)
-      case CanvasCommand.Polyline(points, _, paint, _) =>
-        points.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
-      case CanvasCommand.CompoundPolygon(rings, paint, _) =>
-        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(
-          paint.lineWidth,
-          paint.opacity
-        )
-      case CanvasCommand.Rectangle(x, y, width, height, paint, _) =>
-        Vector(x, y, width, height, paint.lineWidth, paint.opacity)
-      case CanvasCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
-        Vector(x, y, rotation, fontSize, paint.opacity)
-      case CanvasCommand.Image(_, x, y, width, height, _, alpha, _) =>
-        Vector(x, y, width, height, alpha)
-      case CanvasCommand.Save(_) | CanvasCommand.Restore(_) =>
-        Vector.empty
-    if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
+    command match
+      case CanvasCommand.PointBatch(points, radii, _, paints, _) =>
+        var index = 0
+        var invalid = false
+        while index < points.length && !invalid do
+          val point = points(index)
+          val paint = paints.valueAt(index)
+          invalid = !point.x.isFinite || !point.y.isFinite || !radii.valueAt(index).isFinite ||
+            !paint.lineWidth.isFinite || !paint.opacity.isFinite
+          index += 1
+        Option.when(invalid)(s"non-finite numeric value in $command")
+      case other =>
+        val values = other match
+          case CanvasCommand.Rotate(degrees, pivotX, pivotY) =>
+            Vector(degrees, pivotX, pivotY)
+          case CanvasCommand.ClipRect(x, y, width, height) =>
+            Vector(x, y, width, height)
+          case CanvasCommand.Disc(centerX, centerY, radius, paint, _) =>
+            Vector(centerX, centerY, radius, paint.lineWidth, paint.opacity)
+          case CanvasCommand.Polyline(points, _, paint, _) =>
+            points.flatMap(point => Vector(point.x, point.y)) ++ Vector(
+              paint.lineWidth,
+              paint.opacity
+            )
+          case CanvasCommand.CompoundPolygon(rings, paint, _) =>
+            rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(
+              paint.lineWidth,
+              paint.opacity
+            )
+          case CanvasCommand.Rectangle(x, y, width, height, paint, _) =>
+            Vector(x, y, width, height, paint.lineWidth, paint.opacity)
+          case CanvasCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
+            Vector(x, y, rotation, fontSize, paint.opacity)
+          case CanvasCommand.Image(_, x, y, width, height, _, alpha, _) =>
+            Vector(x, y, width, height, alpha)
+          case CanvasCommand.Save(_) | CanvasCommand.Restore(_) =>
+            Vector.empty
+          case _: CanvasCommand.PointBatch =>
+            Vector.empty
+        if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
 
 @js.native
 trait CanvasImageData extends js.Object:
@@ -763,6 +795,21 @@ object CanvasRenderer:
           context.arc(centerX, centerY, radius, 0.0, math.Pi * 2.0, false)
           paintPath(context, paint, true, patterns, accumulator)
         }
+      case CanvasCommand.PointBatch(points, radii, shapes, paints, _) =>
+        var index = 0
+        var result: Either[CanvasRenderError, Unit] = Right(())
+        while index < points.length && result.isRight do
+          result = drawPointMark(
+            points(index),
+            radii.valueAt(index),
+            shapes.valueAt(index),
+            paints.valueAt(index),
+            context,
+            patterns,
+            accumulator
+          )
+          index += 1
+        result
       case CanvasCommand.Polyline(points, closed, paint, _) =>
         withSavedEither(context) {
           context.beginPath()
@@ -822,6 +869,71 @@ object CanvasRenderer:
         }
         accumulator.recordImage(hit, image.dimensions.pixelCount.toLong * 4L)
         Right(())
+
+  private def drawPointMark(
+      point: DevicePoint,
+      radius: Double,
+      shape: PointShape,
+      paint: CanvasPaint,
+      context: CanvasRenderingContext2D,
+      patterns: CanvasPatternCache,
+      accumulator: CanvasDrawAccumulator
+  )(using factory: CanvasRasterFactory): Either[CanvasRenderError, Unit] =
+    shape match
+      case PointShape.Circle =>
+        withSavedEither(context) {
+          context.beginPath()
+          context.arc(point.x, point.y, radius, 0.0, math.Pi * 2.0, false)
+          paintPath(context, paint, true, patterns, accumulator)
+        }
+      case PointShape.Square =>
+        withSavedEither(context) {
+          context.beginPath()
+          context.rect(point.x - radius, point.y - radius, radius * 2.0, radius * 2.0)
+          paintPath(context, paint, true, patterns, accumulator)
+        }
+      case PointShape.Triangle =>
+        withSavedEither(context) {
+          context.beginPath()
+          context.moveTo(point.x, point.y - radius)
+          context.lineTo(point.x + radius, point.y + radius)
+          context.lineTo(point.x - radius, point.y + radius)
+          context.closePath()
+          paintPath(context, paint, true, patterns, accumulator)
+        }
+      case PointShape.Cross =>
+        drawPointLine(
+          DevicePoint(point.x - radius, point.y),
+          DevicePoint(point.x + radius, point.y),
+          paint,
+          context,
+          patterns,
+          accumulator
+        ).flatMap(_ =>
+          drawPointLine(
+            DevicePoint(point.x, point.y - radius),
+            DevicePoint(point.x, point.y + radius),
+            paint,
+            context,
+            patterns,
+            accumulator
+          )
+        )
+
+  private def drawPointLine(
+      from: DevicePoint,
+      to: DevicePoint,
+      paint: CanvasPaint,
+      context: CanvasRenderingContext2D,
+      patterns: CanvasPatternCache,
+      accumulator: CanvasDrawAccumulator
+  )(using factory: CanvasRasterFactory): Either[CanvasRenderError, Unit] =
+    withSavedEither(context) {
+      context.beginPath()
+      context.moveTo(from.x, from.y)
+      context.lineTo(to.x, to.y)
+      paintPath(context, paint, false, patterns, accumulator)
+    }
 
   private def withSaved(context: CanvasRenderingContext2D)(body: => Unit): Unit =
     context.save()

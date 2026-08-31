@@ -225,6 +225,13 @@ enum DevicePrimitive:
       gp: GraphicParams,
       name: Option[GraphicsName]
   )
+  case PointBatch(
+      points: Vector[DevicePoint],
+      radii: BatchColumn[Double],
+      shapes: BatchColumn[PointShape],
+      graphicParams: BatchColumn[GraphicParams],
+      name: Option[GraphicsName]
+  )
   case Polyline(
       points: Vector[DevicePoint],
       closed: Boolean,
@@ -362,6 +369,14 @@ object DeviceScene:
             "disc radius" -> radius
           )
         ).flatMap(_ => validateFillGraphicParams(gp))
+      case DevicePrimitive.PointBatch(points, radii, shapes, params, _) =>
+        for
+          _ <- validateBatchColumn("device point radius", radii, points.length)
+          _ <- validateBatchColumn("device point shape", shapes, points.length)
+          _ <- validateBatchColumn("device point graphic parameters", params, points.length)
+          _ <- validatePoints(points)
+          _ <- validatePointBatchStyles(points.length, radii, params)
+        yield ()
       case DevicePrimitive.Polyline(points, closed, gp, _) =>
         validatePoints(points).flatMap { _ =>
           if closed then validateFillGraphicParams(gp)
@@ -428,6 +443,30 @@ object DeviceScene:
               )
           validateNumbers(values)
     }
+
+  private def validateBatchColumn[A](
+      name: String,
+      column: BatchColumn[A],
+      markCount: Int
+  ): Either[GraphicsError, Unit] =
+    column.valueCount match
+      case Some(values) if values != markCount =>
+        Left(GraphicsError.BatchColumnLengthMismatch(name, markCount, values))
+      case _ => Right(())
+
+  private def validatePointBatchStyles(
+      markCount: Int,
+      radii: BatchColumn[Double],
+      params: BatchColumn[GraphicParams]
+  ): Either[GraphicsError, Unit] =
+    var index = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while index < markCount && result.isRight do
+      result = DeviceValue
+        .checked("point batch radius", radii.valueAt(index))
+        .flatMap(_ => validateFillGraphicParams(params.valueAt(index)))
+      index += 1
+    result
 
   private def validatePoints(points: Vector[DevicePoint]): Either[GraphicsError, Unit] =
     var idx = 0
@@ -538,6 +577,8 @@ object DeviceScene:
     grob match
       case points: Grob.Points =>
         pointMarks(points, resolver)
+      case points: Grob.PointBatch =>
+        pointBatchMark(points, resolver)
       case lines: Grob.Lines =>
         for
           resolved <- resolvePoints(lines.points, resolver)
@@ -600,6 +641,18 @@ object DeviceScene:
       resolved <- resolvePoints(points.points, resolver)
       gp <- resolver.graphicParams(points.gp)
     yield resolved.flatMap(point => shapeMarks(points, point, radius, gp))
+
+  private def pointBatchMark(
+      points: Grob.PointBatch,
+      resolver: LengthResolver
+  ): Either[GraphicsError, Vector[DevicePrimitive]] =
+    for
+      resolved <- resolvePoints(points.points, resolver)
+      radii <- points.sizes.traverse(resolver.extent)
+      params <- points.graphicParams.traverse(resolver.graphicParams)
+    yield Vector(
+      DevicePrimitive.PointBatch(resolved, radii, points.shapes, params, points.name)
+    )
 
   private def shapeMarks(
       points: Grob.Points,

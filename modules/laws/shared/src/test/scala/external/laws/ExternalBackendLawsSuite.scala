@@ -29,6 +29,7 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
   private def primitiveName(primitive: DevicePrimitive): Option[GraphicsName] =
     primitive match
       case DevicePrimitive.Disc(_, _, _, _, name)                   => name
+      case DevicePrimitive.PointBatch(_, _, _, _, name)             => name
       case DevicePrimitive.Polyline(_, _, _, name)                  => name
       case DevicePrimitive.CompoundPolygon(_, _, name)              => name
       case DevicePrimitive.RectShape(_, _, _, _, _, name)           => name
@@ -102,6 +103,8 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
     primitive match
       case DevicePrimitive.Disc(_, _, _, _, _) =>
         RenderPrimitiveKind.Disc
+      case DevicePrimitive.PointBatch(_, _, shapes, _, _) =>
+        pointShapeKind(shapes.valueAt(0))
       case DevicePrimitive.Polyline(_, closed, _, _) =>
         if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline
       case DevicePrimitive.CompoundPolygon(_, _, _) =>
@@ -116,6 +119,7 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
   private def primitiveParams(primitive: DevicePrimitive): Option[GraphicParams] =
     primitive match
       case DevicePrimitive.Disc(_, _, _, gp, _)                   => Some(gp)
+      case DevicePrimitive.PointBatch(_, _, _, params, _)         => Some(params.valueAt(0))
       case DevicePrimitive.Polyline(_, _, gp, _)                  => Some(gp)
       case DevicePrimitive.CompoundPolygon(_, gp, _)              => Some(gp)
       case DevicePrimitive.RectShape(_, _, _, _, gp, _)           => Some(gp)
@@ -129,8 +133,12 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
     element match
       case DeviceElement.Mark(primitive) =>
         val values = primitive match
-          case DevicePrimitive.Disc(cx, cy, radius, _, _) => Vector(cx, cy, radius)
-          case DevicePrimitive.Polyline(points, _, _, _)  =>
+          case DevicePrimitive.Disc(cx, cy, radius, _, _)         => Vector(cx, cy, radius)
+          case DevicePrimitive.PointBatch(points, radii, _, _, _) =>
+            points.indices
+              .flatMap(index => Vector(points(index).x, points(index).y, radii.valueAt(index)))
+              .toVector
+          case DevicePrimitive.Polyline(points, _, _, _) =>
             points.flatMap(point => Vector(point.x, point.y))
           case DevicePrimitive.CompoundPolygon(rings, _, _) =>
             rings.flatten.flatMap(point => Vector(point.x, point.y))
@@ -145,6 +153,13 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
         )
       case DeviceElement.Group(_, _, _, children) =>
         firstNonFinite(children)
+
+  private def pointShapeKind(shape: PointShape): RenderPrimitiveKind =
+    shape match
+      case PointShape.Circle   => RenderPrimitiveKind.Disc
+      case PointShape.Square   => RenderPrimitiveKind.Rectangle
+      case PointShape.Triangle => RenderPrimitiveKind.Polygon
+      case PointShape.Cross    => RenderPrimitiveKind.Polyline
 
 class ExternalBackendLawsSuite extends munit.FunSuite:
   test("an external backend passes the complete published renderer laws") {

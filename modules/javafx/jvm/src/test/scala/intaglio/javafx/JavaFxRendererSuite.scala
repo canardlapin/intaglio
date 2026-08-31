@@ -126,6 +126,88 @@ class JavaFxRendererSuite extends munit.FunSuite:
     assert(left.commands(2).isInstanceOf[JavaFxCommand.Rectangle])
   }
 
+  test("one heterogeneous point-batch command matches per-mark drawing calls") {
+    val points = Vector(
+      Point.npcUnsafe(0.2, 0.25),
+      Point.npcUnsafe(0.4, 0.5),
+      Point.npcUnsafe(0.6, 0.75),
+      Point.npcUnsafe(0.8, 0.5)
+    )
+    val sizes = Vector(3.0, 4.0, 5.0, 6.0).map(ExtentExpr.pointsUnsafe)
+    val shapes = PointShape.values.toVector
+    val params = Vector(
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(120, 20, 30)),
+        fill = Some(Rgba.unsafe(240, 180, 80)),
+        lineWidth = 1.25
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(20, 110, 50)),
+        fill = Some(Rgba.unsafe(100, 220, 160)),
+        lineWidth = 1.5
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(40, 70, 160)),
+        fill = Some(Rgba.unsafe(130, 160, 240)),
+        lineWidth = 1.75
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(90, 40, 130)),
+        fill = None,
+        lineWidth = 2.0,
+        lineType = LineType.Dashed
+      )
+    )
+    val batch = Grob.pointBatchUnsafe(
+      points,
+      BatchColumn.Values(sizes),
+      BatchColumn.Values(shapes),
+      BatchColumn.Values(params)
+    )
+    val legacy = points.indices
+      .map(index =>
+        Grob
+          .points(
+            Vector(points(index)),
+            sizes(index),
+            shapes(index),
+            params(index)
+          )
+          .fold(error => fail(error.message), identity)
+      )
+      .toVector
+    val options = JavaFxOptions.unsafe(width = 160, height = 100)
+    val batchProgram = JavaFxRenderer
+      .compile(Scene(Vector(batch)), options)
+      .fold(error => fail(error.message), identity)
+    val legacyProgram = JavaFxRenderer
+      .compile(Scene(legacy), options)
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(batchProgram.commands.length, 1)
+    batchProgram.commands.head match
+      case JavaFxCommand.PointBatch(actualPoints, radii, actualShapes, paints, _) =>
+        assertEquals(actualPoints.length, points.length)
+        assertEquals(radii.valueCount, Some(points.length))
+        assertEquals((0 until points.length).map(actualShapes.valueAt).toVector, shapes)
+        assertEquals(
+          (0 until points.length).map(index => paints.valueAt(index).lineWidth).toVector,
+          params.map(_.lineWidth)
+        )
+      case other => fail(s"expected one JavaFX point batch, found $other")
+
+    val batchContext = RecordingFxContext()
+    val legacyContext = RecordingFxContext()
+    JavaFxRenderer.draw(batchProgram, batchContext)
+    JavaFxRenderer.draw(legacyProgram, legacyContext)
+
+    assertEquals(batchContext.calls.toVector, legacyContext.calls.toVector)
+    assertEquals(batchContext.lastStroke, legacyContext.lastStroke)
+    assertEquals(batchContext.lastDashes, legacyContext.lastDashes)
+    assertEquals(batchContext.lastCap, legacyContext.lastCap)
+    assertEquals(batchContext.lastJoin, legacyContext.lastJoin)
+  }
+
   test("draw interprets the deterministic program against the drawing contract") {
     val context = RecordingFxContext()
     val line = Grob

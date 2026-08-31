@@ -178,6 +178,13 @@ enum JavaFxCommand:
       paint: JavaFxPaint,
       name: Option[GraphicsName]
   )
+  case PointBatch(
+      points: Vector[DevicePoint],
+      radii: BatchColumn[Double],
+      shapes: BatchColumn[PointShape],
+      paints: BatchColumn[JavaFxPaint],
+      name: Option[GraphicsName]
+  )
   case Polyline(
       points: Vector[DevicePoint],
       closed: Boolean,
@@ -289,6 +296,14 @@ object JavaFxProgram:
     primitive match
       case DevicePrimitive.Disc(centerX, centerY, radius, gp, name) =>
         JavaFxCommand.Disc(centerX, centerY, radius, JavaFxPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.PointBatch(points, radii, shapes, params, name) =>
+        JavaFxCommand.PointBatch(
+          points,
+          radii,
+          shapes,
+          params.map(JavaFxPaint.fromGraphicParams),
+          name
+        )
       case DevicePrimitive.Polyline(points, closed, gp, name) =>
         JavaFxCommand.Polyline(points, closed, JavaFxPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
@@ -323,29 +338,46 @@ object JavaFxProgram:
         JavaFxCommand.Image(image, x, y, width, height, interpolation, alpha, name)
 
   private def firstInvalidNumber(command: JavaFxCommand): Option[String] =
-    val values = command match
-      case JavaFxCommand.Rotate(degrees, pivotX, pivotY) =>
-        Vector(degrees, pivotX, pivotY)
-      case JavaFxCommand.ClipRect(x, y, width, height) =>
-        Vector(x, y, width, height)
-      case JavaFxCommand.Disc(centerX, centerY, radius, paint, _) =>
-        Vector(centerX, centerY, radius, paint.lineWidth, paint.opacity)
-      case JavaFxCommand.Polyline(points, _, paint, _) =>
-        points.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
-      case JavaFxCommand.CompoundPolygon(rings, paint, _) =>
-        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(
-          paint.lineWidth,
-          paint.opacity
-        )
-      case JavaFxCommand.Rectangle(x, y, width, height, paint, _) =>
-        Vector(x, y, width, height, paint.lineWidth, paint.opacity)
-      case JavaFxCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
-        Vector(x, y, rotation, fontSize, paint.opacity)
-      case JavaFxCommand.Image(_, x, y, width, height, _, alpha, _) =>
-        Vector(x, y, width, height, alpha)
-      case JavaFxCommand.Save(_) | JavaFxCommand.Restore(_) =>
-        Vector.empty
-    if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
+    command match
+      case JavaFxCommand.PointBatch(points, radii, _, paints, _) =>
+        var index = 0
+        var invalid = false
+        while index < points.length && !invalid do
+          val point = points(index)
+          val paint = paints.valueAt(index)
+          invalid = !point.x.isFinite || !point.y.isFinite || !radii.valueAt(index).isFinite ||
+            !paint.lineWidth.isFinite || !paint.opacity.isFinite
+          index += 1
+        Option.when(invalid)(s"non-finite numeric value in $command")
+      case other =>
+        val values = other match
+          case JavaFxCommand.Rotate(degrees, pivotX, pivotY) =>
+            Vector(degrees, pivotX, pivotY)
+          case JavaFxCommand.ClipRect(x, y, width, height) =>
+            Vector(x, y, width, height)
+          case JavaFxCommand.Disc(centerX, centerY, radius, paint, _) =>
+            Vector(centerX, centerY, radius, paint.lineWidth, paint.opacity)
+          case JavaFxCommand.Polyline(points, _, paint, _) =>
+            points.flatMap(point => Vector(point.x, point.y)) ++ Vector(
+              paint.lineWidth,
+              paint.opacity
+            )
+          case JavaFxCommand.CompoundPolygon(rings, paint, _) =>
+            rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(
+              paint.lineWidth,
+              paint.opacity
+            )
+          case JavaFxCommand.Rectangle(x, y, width, height, paint, _) =>
+            Vector(x, y, width, height, paint.lineWidth, paint.opacity)
+          case JavaFxCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
+            Vector(x, y, rotation, fontSize, paint.opacity)
+          case JavaFxCommand.Image(_, x, y, width, height, _, alpha, _) =>
+            Vector(x, y, width, height, alpha)
+          case JavaFxCommand.Save(_) | JavaFxCommand.Restore(_) =>
+            Vector.empty
+          case _: JavaFxCommand.PointBatch =>
+            Vector.empty
+        if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
 
 /** Toolkit-free drawing contract the interpreter targets. The one production implementation is
   * [[JavaFxCanvasContext]], a thin adapter over a live `javafx.scene.canvas.GraphicsContext`; tests
@@ -491,6 +523,18 @@ object JavaFxRenderer:
             context.strokeOval(x, y, size, size)
           }
         }
+      case JavaFxCommand.PointBatch(points, radii, shapes, paints, _) =>
+        var index = 0
+        while index < points.length do
+          drawPointMark(
+            points(index),
+            radii.valueAt(index),
+            shapes.valueAt(index),
+            paints.valueAt(index),
+            context,
+            accumulator
+          )
+          index += 1
       case JavaFxCommand.Polyline(points, closed, paint, _) =>
         withSaved(context) {
           context.beginPath()
@@ -545,6 +589,79 @@ object JavaFxRenderer:
           context.setImageSmoothing(interpolation == RasterInterpolation.Smooth)
           context.drawImage(image, x, y, width, height)
         }
+
+  private def drawPointMark(
+      point: DevicePoint,
+      radius: Double,
+      shape: PointShape,
+      paint: JavaFxPaint,
+      context: JavaFxGraphicsContext,
+      accumulator: JavaFxDrawAccumulator
+  ): Unit =
+    shape match
+      case PointShape.Circle =>
+        withSaved(context) {
+          val x = point.x - radius
+          val y = point.y - radius
+          val size = radius * 2.0
+          fill(context, paint, accumulator) {
+            context.fillOval(x, y, size, size)
+          }
+          paint.stroke.foreach { color =>
+            strokeState(context, paint, color)
+            context.strokeOval(x, y, size, size)
+          }
+        }
+      case PointShape.Square =>
+        withSaved(context) {
+          context.beginPath()
+          context.rect(point.x - radius, point.y - radius, radius * 2.0, radius * 2.0)
+          paintPath(context, paint, true, accumulator)
+        }
+      case PointShape.Triangle =>
+        withSaved(context) {
+          context.beginPath()
+          context.moveTo(point.x, point.y - radius)
+          context.lineTo(point.x + radius, point.y + radius)
+          context.lineTo(point.x - radius, point.y + radius)
+          context.closePath()
+          paintPath(context, paint, true, accumulator)
+        }
+      case PointShape.Cross =>
+        drawPointLine(
+          point.x - radius,
+          point.y,
+          point.x + radius,
+          point.y,
+          paint,
+          context,
+          accumulator
+        )
+        drawPointLine(
+          point.x,
+          point.y - radius,
+          point.x,
+          point.y + radius,
+          paint,
+          context,
+          accumulator
+        )
+
+  private def drawPointLine(
+      x0: Double,
+      y0: Double,
+      x1: Double,
+      y1: Double,
+      paint: JavaFxPaint,
+      context: JavaFxGraphicsContext,
+      accumulator: JavaFxDrawAccumulator
+  ): Unit =
+    withSaved(context) {
+      context.beginPath()
+      context.moveTo(x0, y0)
+      context.lineTo(x1, y1)
+      paintPath(context, paint, false, accumulator)
+    }
 
   private def withSaved(context: JavaFxGraphicsContext)(body: => Unit): Unit =
     context.save()

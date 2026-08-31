@@ -598,6 +598,57 @@ object Viewport:
   ): Viewport =
     checked(origin, size, xScale, yScale, clip, angleDegrees, yDirection).orThrow
 
+/** One constant or one value per mark. Batch columns make style cardinality explicit without
+  * widening every mark into an object. A value column is checked against its owning batch.
+  */
+enum BatchColumn[+A]:
+  case Constant(value: A)
+  case Values(values: Vector[A])
+
+  def valueAt(index: Int): A =
+    this match
+      case Constant(value) => value
+      case Values(values)  => values(index)
+
+  def valueCount: Option[Int] =
+    this match
+      case Constant(_)    => None
+      case Values(values) => Some(values.length)
+
+  def isConstant: Boolean =
+    this match
+      case Constant(_) => true
+      case Values(_)   => false
+
+  def map[B](f: A => B): BatchColumn[B] =
+    this match
+      case Constant(value) => Constant(f(value))
+      case Values(values)  => Values(values.map(f))
+
+  private[intaglio] def compatible(markCount: Int): Boolean =
+    valueCount.forall(_ == markCount)
+
+  private[intaglio] def traverse[E, B](f: A => Either[E, B]): Either[E, BatchColumn[B]] =
+    this match
+      case Constant(value) => f(value).map(Constant(_))
+      case Values(values)  =>
+        val out = Vector.newBuilder[B]
+        var index = 0
+        var result: Either[E, Unit] = Right(())
+        while index < values.length && result.isRight do
+          result = f(values(index)).map { value =>
+            out += value
+            ()
+          }
+          index += 1
+        result.map(_ => Values(out.result()))
+
+object BatchColumn:
+  def compact[A](values: Vector[A]): BatchColumn[A] =
+    values.headOption match
+      case Some(first) if values.tail.forall(_ == first) => BatchColumn.Constant(first)
+      case _                                             => BatchColumn.Values(values)
+
 sealed trait Grob:
   def name: Option[GraphicsName]
   def viewport: Option[Viewport]
@@ -614,6 +665,20 @@ object Grob:
       name: Option[GraphicsName]
   ) extends Grob:
     require(points.nonEmpty, "`points` must be non-empty")
+
+  /** Columnar point marks retained as one grob through device lowering. */
+  final case class PointBatch private[intaglio] (
+      points: Vector[Point],
+      sizes: BatchColumn[ExtentExpr],
+      shapes: BatchColumn[PointShape],
+      graphicParams: BatchColumn[GraphicParams],
+      viewport: Option[Viewport],
+      name: Option[GraphicsName]
+  ) extends Grob:
+    require(points.nonEmpty, "`points` must be non-empty")
+    require(sizes.compatible(points.length), "`sizes` must match the point count")
+    require(shapes.compatible(points.length), "`shapes` must match the point count")
+    require(graphicParams.compatible(points.length), "`graphicParams` must match the point count")
 
   final case class Lines private[intaglio] (
       points: Vector[Point],
@@ -709,6 +774,41 @@ object Grob:
   ): Either[GraphicsError, Grob] =
     if points.isEmpty then Left(GraphicsError.EmptyGeometry("points"))
     else Right(Points(points, size, shape, gp, viewport, name))
+
+  def pointBatch(
+      points: Vector[Point],
+      sizes: BatchColumn[ExtentExpr] = BatchColumn.Constant(ExtentExpr.pointsUnsafe(4.0)),
+      shapes: BatchColumn[PointShape] = BatchColumn.Constant(PointShape.Circle),
+      graphicParams: BatchColumn[GraphicParams] = BatchColumn.Constant(GraphicParams.unsafe()),
+      viewport: Option[Viewport] = None,
+      name: Option[GraphicsName] = None
+  ): Either[GraphicsError, Grob] =
+    if points.isEmpty then Left(GraphicsError.EmptyGeometry("point batch"))
+    else
+      validateColumn("point size", sizes, points.length)
+        .flatMap(_ => validateColumn("point shape", shapes, points.length))
+        .flatMap(_ => validateColumn("point graphic parameters", graphicParams, points.length))
+        .map(_ => PointBatch(points, sizes, shapes, graphicParams, viewport, name))
+
+  def pointBatchUnsafe(
+      points: Vector[Point],
+      sizes: BatchColumn[ExtentExpr] = BatchColumn.Constant(ExtentExpr.pointsUnsafe(4.0)),
+      shapes: BatchColumn[PointShape] = BatchColumn.Constant(PointShape.Circle),
+      graphicParams: BatchColumn[GraphicParams] = BatchColumn.Constant(GraphicParams.unsafe()),
+      viewport: Option[Viewport] = None,
+      name: Option[GraphicsName] = None
+  ): Grob =
+    pointBatch(points, sizes, shapes, graphicParams, viewport, name).orThrow
+
+  private def validateColumn[A](
+      name: String,
+      column: BatchColumn[A],
+      markCount: Int
+  ): Either[GraphicsError, Unit] =
+    column.valueCount match
+      case Some(values) if values != markCount =>
+        Left(GraphicsError.BatchColumnLengthMismatch(name, markCount, values))
+      case _ => Right(())
 
   def lines(
       points: Vector[Point],

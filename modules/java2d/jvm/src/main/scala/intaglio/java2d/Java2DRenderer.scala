@@ -187,6 +187,13 @@ enum Java2DCommand:
       paint: Java2DPaint,
       name: Option[GraphicsName]
   )
+  case PointBatch(
+      points: Vector[DevicePoint],
+      radii: BatchColumn[Double],
+      shapes: BatchColumn[PointShape],
+      paints: BatchColumn[Java2DPaint],
+      name: Option[GraphicsName]
+  )
   case Polyline(
       points: Vector[DevicePoint],
       closed: Boolean,
@@ -298,6 +305,14 @@ object Java2DProgram:
     primitive match
       case DevicePrimitive.Disc(centerX, centerY, radius, gp, name) =>
         Java2DCommand.Disc(centerX, centerY, radius, Java2DPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.PointBatch(points, radii, shapes, params, name) =>
+        Java2DCommand.PointBatch(
+          points,
+          radii,
+          shapes,
+          params.map(Java2DPaint.fromGraphicParams),
+          name
+        )
       case DevicePrimitive.Polyline(points, closed, gp, name) =>
         Java2DCommand.Polyline(points, closed, Java2DPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
@@ -332,29 +347,46 @@ object Java2DProgram:
         Java2DCommand.Image(image, x, y, width, height, interpolation, alpha, name)
 
   private def firstInvalidNumber(command: Java2DCommand): Option[String] =
-    val values = command match
-      case Java2DCommand.Rotate(degrees, pivotX, pivotY) =>
-        Vector(degrees, pivotX, pivotY)
-      case Java2DCommand.ClipRect(x, y, width, height) =>
-        Vector(x, y, width, height)
-      case Java2DCommand.Disc(centerX, centerY, radius, paint, _) =>
-        Vector(centerX, centerY, radius, paint.lineWidth, paint.opacity)
-      case Java2DCommand.Polyline(points, _, paint, _) =>
-        points.flatMap(point => Vector(point.x, point.y)) ++ Vector(paint.lineWidth, paint.opacity)
-      case Java2DCommand.CompoundPolygon(rings, paint, _) =>
-        rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(
-          paint.lineWidth,
-          paint.opacity
-        )
-      case Java2DCommand.Rectangle(x, y, width, height, paint, _) =>
-        Vector(x, y, width, height, paint.lineWidth, paint.opacity)
-      case Java2DCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
-        Vector(x, y, rotation, fontSize, paint.opacity)
-      case Java2DCommand.Image(_, x, y, width, height, _, alpha, _) =>
-        Vector(x, y, width, height, alpha)
-      case Java2DCommand.Save(_) | Java2DCommand.Restore(_) =>
-        Vector.empty
-    if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
+    command match
+      case Java2DCommand.PointBatch(points, radii, _, paints, _) =>
+        var index = 0
+        var invalid = false
+        while index < points.length && !invalid do
+          val point = points(index)
+          val paint = paints.valueAt(index)
+          invalid = !point.x.isFinite || !point.y.isFinite || !radii.valueAt(index).isFinite ||
+            !paint.lineWidth.isFinite || !paint.opacity.isFinite
+          index += 1
+        Option.when(invalid)(s"non-finite numeric value in $command")
+      case other =>
+        val values = other match
+          case Java2DCommand.Rotate(degrees, pivotX, pivotY) =>
+            Vector(degrees, pivotX, pivotY)
+          case Java2DCommand.ClipRect(x, y, width, height) =>
+            Vector(x, y, width, height)
+          case Java2DCommand.Disc(centerX, centerY, radius, paint, _) =>
+            Vector(centerX, centerY, radius, paint.lineWidth, paint.opacity)
+          case Java2DCommand.Polyline(points, _, paint, _) =>
+            points.flatMap(point => Vector(point.x, point.y)) ++ Vector(
+              paint.lineWidth,
+              paint.opacity
+            )
+          case Java2DCommand.CompoundPolygon(rings, paint, _) =>
+            rings.flatten.flatMap(point => Vector(point.x, point.y)) ++ Vector(
+              paint.lineWidth,
+              paint.opacity
+            )
+          case Java2DCommand.Rectangle(x, y, width, height, paint, _) =>
+            Vector(x, y, width, height, paint.lineWidth, paint.opacity)
+          case Java2DCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
+            Vector(x, y, rotation, fontSize, paint.opacity)
+          case Java2DCommand.Image(_, x, y, width, height, _, alpha, _) =>
+            Vector(x, y, width, height, alpha)
+          case Java2DCommand.Save(_) | Java2DCommand.Restore(_) =>
+            Vector.empty
+          case _: Java2DCommand.PointBatch =>
+            Vector.empty
+        if values.forall(_.isFinite) then None else Some(s"non-finite numeric value in $command")
 
 object Java2DRenderer:
   def compile(plan: RenderPlan): Either[Java2DRenderError, Java2DProgram] =
@@ -440,6 +472,19 @@ object Java2DRenderer:
           patterns,
           accumulator
         )
+      case Java2DCommand.PointBatch(points, radii, shapes, paints, _) =>
+        var index = 0
+        while index < points.length do
+          drawPointMark(
+            graphics,
+            points(index),
+            radii.valueAt(index),
+            shapes.valueAt(index),
+            paints.valueAt(index),
+            patterns,
+            accumulator
+          )
+          index += 1
       case Java2DCommand.Polyline(points, closed, paint, _) =>
         val path = new Path2D.Double()
         path.moveTo(points.head.x, points.head.y)
@@ -509,6 +554,78 @@ object Java2DRenderer:
         }
       case Java2DCommand.Save(_) | Java2DCommand.Restore(_) =>
         ()
+
+  private def drawPointMark(
+      graphics: Graphics2D,
+      point: DevicePoint,
+      radius: Double,
+      shape: PointShape,
+      paint: Java2DPaint,
+      patterns: mutable.Map[PatternPaint, TexturePaint],
+      accumulator: Java2DDrawAccumulator
+  ): Unit =
+    shape match
+      case PointShape.Circle =>
+        paintShape(
+          graphics,
+          new Ellipse2D.Double(point.x - radius, point.y - radius, radius * 2.0, radius * 2.0),
+          paint,
+          true,
+          patterns,
+          accumulator
+        )
+      case PointShape.Square =>
+        paintShape(
+          graphics,
+          new Rectangle2D.Double(point.x - radius, point.y - radius, radius * 2.0, radius * 2.0),
+          paint,
+          true,
+          patterns,
+          accumulator
+        )
+      case PointShape.Triangle =>
+        val path = new Path2D.Double()
+        path.moveTo(point.x, point.y - radius)
+        path.lineTo(point.x + radius, point.y + radius)
+        path.lineTo(point.x - radius, point.y + radius)
+        path.closePath()
+        paintShape(graphics, path, paint, true, patterns, accumulator)
+      case PointShape.Cross =>
+        paintPointLine(
+          graphics,
+          point.x - radius,
+          point.y,
+          point.x + radius,
+          point.y,
+          paint,
+          patterns,
+          accumulator
+        )
+        paintPointLine(
+          graphics,
+          point.x,
+          point.y - radius,
+          point.x,
+          point.y + radius,
+          paint,
+          patterns,
+          accumulator
+        )
+
+  private def paintPointLine(
+      graphics: Graphics2D,
+      x0: Double,
+      y0: Double,
+      x1: Double,
+      y1: Double,
+      paint: Java2DPaint,
+      patterns: mutable.Map[PatternPaint, TexturePaint],
+      accumulator: Java2DDrawAccumulator
+  ): Unit =
+    val path = new Path2D.Double()
+    path.moveTo(x0, y0)
+    path.lineTo(x1, y1)
+    paintShape(graphics, path, paint, false, patterns, accumulator)
 
   private def paintShape(
       graphics: Graphics2D,

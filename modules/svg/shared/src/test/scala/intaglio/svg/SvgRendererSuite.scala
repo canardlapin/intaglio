@@ -17,6 +17,61 @@ class SvgRendererSuite extends munit.FunSuite:
   private def render(scene: Scene, options: SvgOptions = SvgOptions.default): String =
     SvgRenderer.render(scene, options).toOption.get.value
 
+  test("point batches serialize identically to heterogeneous per-mark grobs") {
+    val points = Vector(
+      Point.npcUnsafe(0.2, 0.25),
+      Point.npcUnsafe(0.4, 0.5),
+      Point.npcUnsafe(0.6, 0.75),
+      Point.npcUnsafe(0.8, 0.5)
+    )
+    val sizes = Vector(3.0, 4.0, 5.0, 6.0).map(ExtentExpr.pointsUnsafe)
+    val shapes = PointShape.values.toVector
+    val params = Vector(
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(120, 20, 30)),
+        fill = Some(Rgba.unsafe(240, 180, 80)),
+        lineWidth = 1.25
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(20, 110, 50)),
+        fill = Some(Rgba.unsafe(100, 220, 160)),
+        lineWidth = 1.5
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(40, 70, 160)),
+        fill = Some(Rgba.unsafe(130, 160, 240)),
+        lineWidth = 1.75
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(90, 40, 130)),
+        fill = None,
+        lineWidth = 2.0,
+        lineType = LineType.Dashed
+      )
+    )
+    val batch = Grob.pointBatchUnsafe(
+      points,
+      BatchColumn.Values(sizes),
+      BatchColumn.Values(shapes),
+      BatchColumn.Values(params)
+    )
+    val legacy = points.indices
+      .map(index =>
+        Grob
+          .points(
+            Vector(points(index)),
+            sizes(index),
+            shapes(index),
+            params(index)
+          )
+          .fold(error => fail(error.message), identity)
+      )
+      .toVector
+    val options = SvgOptions.unsafe(width = 160, height = 100)
+
+    assertEquals(render(Scene(Vector(batch)), options), render(Scene(legacy), options))
+  }
+
   test("renders numeric-only SVG for basic grobs with y-up npc coordinates") {
     val point =
       Grob

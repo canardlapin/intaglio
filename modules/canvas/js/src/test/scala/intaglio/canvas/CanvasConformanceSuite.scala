@@ -106,6 +106,7 @@ class CanvasConformanceSuite extends munit.FunSuite:
       case CanvasCommand.Save(name)                                           => name
       case CanvasCommand.Restore(name)                                        => name
       case CanvasCommand.Disc(_, _, _, _, name)                               => name
+      case CanvasCommand.PointBatch(_, _, _, _, name)                         => name
       case CanvasCommand.Polyline(_, _, _, name)                              => name
       case CanvasCommand.CompoundPolygon(_, _, name)                          => name
       case CanvasCommand.Rectangle(_, _, _, _, _, name)                       => name
@@ -115,7 +116,9 @@ class CanvasConformanceSuite extends munit.FunSuite:
 
   private def primitiveKind(command: CanvasCommand): Option[RenderPrimitiveKind] =
     command match
-      case CanvasCommand.Disc(_, _, _, _, _)       => Some(RenderPrimitiveKind.Disc)
+      case CanvasCommand.Disc(_, _, _, _, _)            => Some(RenderPrimitiveKind.Disc)
+      case CanvasCommand.PointBatch(_, _, shapes, _, _) =>
+        Some(pointShapeKind(shapes.valueAt(0)))
       case CanvasCommand.Polyline(_, closed, _, _) =>
         Some(if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline)
       case CanvasCommand.CompoundPolygon(_, _, _)           => Some(RenderPrimitiveKind.Polygon)
@@ -127,11 +130,19 @@ class CanvasConformanceSuite extends munit.FunSuite:
   private def commandPaint(command: CanvasCommand): Option[CanvasPaint] =
     command match
       case CanvasCommand.Disc(_, _, _, paint, _)                => Some(paint)
+      case CanvasCommand.PointBatch(_, _, _, paints, _)         => Some(paints.valueAt(0))
       case CanvasCommand.Polyline(_, _, paint, _)               => Some(paint)
       case CanvasCommand.CompoundPolygon(_, paint, _)           => Some(paint)
       case CanvasCommand.Rectangle(_, _, _, _, paint, _)        => Some(paint)
       case CanvasCommand.Text(_, _, _, _, _, _, _, _, paint, _) => Some(paint)
       case _                                                    => None
+
+  private def pointShapeKind(shape: PointShape): RenderPrimitiveKind =
+    shape match
+      case PointShape.Circle   => RenderPrimitiveKind.Disc
+      case PointShape.Square   => RenderPrimitiveKind.Rectangle
+      case PointShape.Triangle => RenderPrimitiveKind.Polygon
+      case PointShape.Cross    => RenderPrimitiveKind.Polyline
 
   private def groupEffects(
       commands: Vector[CanvasCommand],

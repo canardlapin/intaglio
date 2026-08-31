@@ -42,6 +42,129 @@ class CanvasRendererSuite extends munit.FunSuite:
     assert(left.commands(2).isInstanceOf[CanvasCommand.Rectangle])
   }
 
+  test("one heterogeneous point-batch command matches per-mark Canvas calls") {
+    val points = Vector(
+      Point.npcUnsafe(0.2, 0.25),
+      Point.npcUnsafe(0.4, 0.5),
+      Point.npcUnsafe(0.6, 0.75),
+      Point.npcUnsafe(0.8, 0.5)
+    )
+    val sizes = Vector(3.0, 4.0, 5.0, 6.0).map(ExtentExpr.pointsUnsafe)
+    val shapes = PointShape.values.toVector
+    val params = Vector(
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(120, 20, 30)),
+        fill = Some(Rgba.unsafe(240, 180, 80)),
+        lineWidth = 1.25
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(20, 110, 50)),
+        fill = Some(Rgba.unsafe(100, 220, 160)),
+        lineWidth = 1.5
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(40, 70, 160)),
+        fill = Some(Rgba.unsafe(130, 160, 240)),
+        lineWidth = 1.75
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(90, 40, 130)),
+        fill = None,
+        lineWidth = 2.0,
+        lineType = LineType.Dashed
+      )
+    )
+    val batch = Grob.pointBatchUnsafe(
+      points,
+      BatchColumn.Values(sizes),
+      BatchColumn.Values(shapes),
+      BatchColumn.Values(params)
+    )
+    val legacy = points.indices
+      .map(index =>
+        Grob
+          .points(
+            Vector(points(index)),
+            sizes(index),
+            shapes(index),
+            params(index)
+          )
+          .fold(error => fail(error.message), identity)
+      )
+      .toVector
+    val options = CanvasOptions.unsafe(width = 160, height = 100)
+    val batchProgram = CanvasRenderer
+      .compile(Scene(Vector(batch)), options)
+      .fold(error => fail(error.message), identity)
+    val legacyProgram = CanvasRenderer
+      .compile(Scene(legacy), options)
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(batchProgram.commands.length, 1)
+    batchProgram.commands.head match
+      case CanvasCommand.PointBatch(actualPoints, radii, actualShapes, paints, _) =>
+        assertEquals(actualPoints.length, points.length)
+        assertEquals(radii.valueCount, Some(points.length))
+        assertEquals((0 until points.length).map(actualShapes.valueAt).toVector, shapes)
+        assertEquals(
+          (0 until points.length).map(index => paints.valueAt(index).lineWidth).toVector,
+          params.map(_.lineWidth)
+        )
+      case other => fail(s"expected one Canvas point batch, found $other")
+
+    def recordingContext(calls: ArrayBuffer[String]): CanvasRenderingContext2D =
+      def noArgs(label: String): js.Function0[Unit] =
+        () =>
+          calls += label
+          ()
+      js.Dynamic
+        .literal(
+          save = noArgs("save"),
+          restore = noArgs("restore"),
+          beginPath = noArgs("beginPath"),
+          closePath = noArgs("closePath"),
+          fill = noArgs("fill"),
+          stroke = noArgs("stroke"),
+          moveTo = ((_: Double, _: Double) => calls += "moveTo"): js.Function2[
+            Double,
+            Double,
+            Unit
+          ],
+          lineTo = ((_: Double, _: Double) => calls += "lineTo"): js.Function2[
+            Double,
+            Double,
+            Unit
+          ],
+          rect = ((_: Double, _: Double, _: Double, _: Double) => calls += "rect"): js.Function4[
+            Double,
+            Double,
+            Double,
+            Double,
+            Unit
+          ],
+          arc = (
+              (_: Double, _: Double, _: Double, _: Double, _: Double, _: Boolean) => calls += "arc"
+          ): js.Function6[Double, Double, Double, Double, Double, Boolean, Unit],
+          setLineDash = ((_: js.Array[Double]) => calls += "dash"): js.Function1[
+            js.Array[Double],
+            Unit
+          ],
+          strokeStyle = "",
+          fillStyle = "",
+          globalAlpha = 1.0,
+          lineWidth = 1.0,
+          lineCap = "",
+          lineJoin = ""
+        )
+        .asInstanceOf[CanvasRenderingContext2D]
+
+    val batchCalls = ArrayBuffer.empty[String]
+    val legacyCalls = ArrayBuffer.empty[String]
+    CanvasRenderer.draw(batchProgram, recordingContext(batchCalls))
+    CanvasRenderer.draw(legacyProgram, recordingContext(legacyCalls))
+    assertEquals(batchCalls.toVector, legacyCalls.toVector)
+  }
+
   test("draw interprets the deterministic program against a Canvas 2D context") {
     val calls = ArrayBuffer.empty[String]
     def noArgs(label: String): js.Function0[Unit] =

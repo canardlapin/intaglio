@@ -106,6 +106,7 @@ class Java2DConformanceSuite extends munit.FunSuite:
       case Java2DCommand.Save(name)                                           => name
       case Java2DCommand.Restore(name)                                        => name
       case Java2DCommand.Disc(_, _, _, _, name)                               => name
+      case Java2DCommand.PointBatch(_, _, _, _, name)                         => name
       case Java2DCommand.Polyline(_, _, _, name)                              => name
       case Java2DCommand.CompoundPolygon(_, _, name)                          => name
       case Java2DCommand.Rectangle(_, _, _, _, _, name)                       => name
@@ -115,7 +116,9 @@ class Java2DConformanceSuite extends munit.FunSuite:
 
   private def primitiveKind(command: Java2DCommand): Option[RenderPrimitiveKind] =
     command match
-      case Java2DCommand.Disc(_, _, _, _, _)       => Some(RenderPrimitiveKind.Disc)
+      case Java2DCommand.Disc(_, _, _, _, _)            => Some(RenderPrimitiveKind.Disc)
+      case Java2DCommand.PointBatch(_, _, shapes, _, _) =>
+        Some(pointShapeKind(shapes.valueAt(0)))
       case Java2DCommand.Polyline(_, closed, _, _) =>
         Some(if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline)
       case Java2DCommand.CompoundPolygon(_, _, _)           => Some(RenderPrimitiveKind.Polygon)
@@ -127,11 +130,19 @@ class Java2DConformanceSuite extends munit.FunSuite:
   private def commandPaint(command: Java2DCommand): Option[Java2DPaint] =
     command match
       case Java2DCommand.Disc(_, _, _, paint, _)                => Some(paint)
+      case Java2DCommand.PointBatch(_, _, _, paints, _)         => Some(paints.valueAt(0))
       case Java2DCommand.Polyline(_, _, paint, _)               => Some(paint)
       case Java2DCommand.CompoundPolygon(_, paint, _)           => Some(paint)
       case Java2DCommand.Rectangle(_, _, _, _, paint, _)        => Some(paint)
       case Java2DCommand.Text(_, _, _, _, _, _, _, _, paint, _) => Some(paint)
       case _                                                    => None
+
+  private def pointShapeKind(shape: PointShape): RenderPrimitiveKind =
+    shape match
+      case PointShape.Circle   => RenderPrimitiveKind.Disc
+      case PointShape.Square   => RenderPrimitiveKind.Rectangle
+      case PointShape.Triangle => RenderPrimitiveKind.Polygon
+      case PointShape.Cross    => RenderPrimitiveKind.Polyline
 
   private def groupEffects(
       commands: Vector[Java2DCommand],
