@@ -2,6 +2,8 @@ package intaglio
 
 enum GraphicsError extends IntaglioError:
   case BlankName(kind: String)
+  case InvalidSemanticId(value: String)
+  case DuplicateSemanticId(value: String)
   case InvalidInterval(lower: Double, upper: Double)
   case EmptyContinuousRange
   case InvalidTransformDomain(name: String, lower: Double, upper: Double)
@@ -129,6 +131,10 @@ enum GraphicsError extends IntaglioError:
     this match
       case BlankName(kind) =>
         s"$kind name must not be blank"
+      case InvalidSemanticId(value) =>
+        s"semantic ID must start with an ASCII letter or underscore and contain only letters, digits, underscores, hyphens, or periods: '$value'"
+      case DuplicateSemanticId(value) =>
+        s"semantic ID must be unique within a plot: '$value'"
       case InvalidInterval(lower, upper) =>
         s"invalid interval [$lower, $upper]"
       case EmptyContinuousRange =>

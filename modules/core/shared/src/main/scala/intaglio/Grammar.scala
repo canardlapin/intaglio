@@ -1239,7 +1239,8 @@ final case class Layer[Row] private (
     inheritMapping: Boolean,
     params: Option[GraphicParams],
     position: Position = Position.Identity,
-    annotation: Option[ReferenceLine] = None
+    annotation: Option[ReferenceLine] = None,
+    semanticId: Option[SemanticId] = None
 ):
   def effectiveMapping(plotMapping: AesSpec[Row]): AesSpec[Row] =
     if inheritMapping then mapping.inherit(plotMapping) else mapping
@@ -1253,6 +1254,10 @@ final case class Layer[Row] private (
     */
   private[intaglio] def selfContained: Layer[Row] =
     copy(data = None, inheritMapping = false)
+
+  /** Assign a stable logical layer ID for accessibility and downstream inspection. */
+  def withSemanticId(value: SemanticId): Layer[Row] =
+    copy(semanticId = Some(value))
 
 object Layer:
   def point[Row](
@@ -1785,7 +1790,8 @@ final case class Plot[Row] private (
     layers: Vector[PlotLayer[Row]],
     coord: Coord,
     labels: PlotLabels,
-    facet: Option[FacetSpec[Row]]
+    facet: Option[FacetSpec[Row]],
+    accessibility: PlotAccessibility
 ):
   def addLayer(layer: Layer[Row]): Either[GraphicsError, Plot[Row]] =
     Layer
@@ -1836,6 +1842,22 @@ final case class Plot[Row] private (
   def withAxisTitles(x: String, y: String): Plot[Row] =
     copy(labels = labels.copy(x = Some(x), y = Some(y)))
 
+  /** Assign the document-level semantic ID used by logical scenes, device scenes, and accessible
+    * SVG output.
+    */
+  def withSemanticId(value: SemanticId): Plot[Row] =
+    copy(accessibility = accessibility.copy(semanticId = value))
+
+  /** Add domain context used by textual summaries and accessible renderers. */
+  def withDescription(value: String): Plot[Row] =
+    copy(accessibility = accessibility.copy(description = Some(value)))
+
+  /** Add a domain-authored text alternative. This takes precedence over the generic description in
+    * accessible renderers while both values remain inspectable.
+    */
+  def withAltText(value: String): Plot[Row] =
+    copy(accessibility = accessibility.copy(altText = Some(value)))
+
   def withFacet(spec: FacetSpec[Row]): Plot[Row] =
     copy(facet = Some(spec))
 
@@ -1859,4 +1881,12 @@ final case class Plot[Row] private (
 
 object Plot:
   def apply[Row](data: Vector[Row]): Plot[Row] =
-    Plot(data, AesSpec.empty, Vector.empty, Coord.Cartesian(), PlotLabels(), None)
+    Plot(
+      data,
+      AesSpec.empty,
+      Vector.empty,
+      Coord.Cartesian(),
+      PlotLabels(),
+      None,
+      PlotAccessibility()
+    )

@@ -290,7 +290,12 @@ enum DeviceElement:
 /** A scene flattened against a device context: the portable, numeric render contract shared by all
   * backends.
   */
-final case class DeviceScene(width: Double, height: Double, elements: Vector[DeviceElement])
+final case class DeviceScene(
+    width: Double,
+    height: Double,
+    elements: Vector[DeviceElement],
+    semantics: SceneSemantics = SceneSemantics.empty
+)
 
 object DeviceScene:
   def fromScene(scene: Scene, device: DeviceContext): Either[GraphicsError, DeviceScene] =
@@ -313,7 +318,7 @@ object DeviceScene:
         fontRegistry,
         lineHeightPt
       )
-      resolved <- validate(DeviceScene(device.width, device.height, elements))
+      resolved <- validate(DeviceScene(device.width, device.height, elements, scene.semantics))
     yield resolved
 
   private def validate(scene: DeviceScene): Either[GraphicsError, DeviceScene] =

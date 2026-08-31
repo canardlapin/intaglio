@@ -965,12 +965,15 @@ object Grob:
   ): Grob =
     Group(children, viewport, name)
 
-final case class Scene private (grobs: Vector[Grob]):
+final case class Scene private (grobs: Vector[Grob], semantics: SceneSemantics):
   def append(grob: Grob): Scene =
     copy(grobs = grobs :+ grob)
 
   def ++(that: Scene): Scene =
-    Scene(grobs ++ that.grobs)
+    new Scene(grobs ++ that.grobs, semantics ++ that.semantics)
+
+  def withSemantics(value: SceneSemantics): Scene =
+    copy(semantics = value)
 
   def isEmpty: Boolean =
     grobs.isEmpty
@@ -980,7 +983,7 @@ final case class Scene private (grobs: Vector[Grob]):
 
 object Scene:
   val empty: Scene =
-    Scene(Vector.empty)
+    new Scene(Vector.empty, SceneSemantics.empty)
 
   def apply(grobs: Vector[Grob]): Scene =
-    new Scene(grobs)
+    new Scene(grobs, SceneSemantics.empty)

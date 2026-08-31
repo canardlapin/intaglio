@@ -111,6 +111,7 @@ sealed trait TrainedLayer:
   final def rows: Vector[ResolvedRow[Row]] = value.rows
   final def droppedRows: Vector[DroppedRow[Row]] = value.droppedRows
   final def grobs: Vector[Grob] = value.grobs
+  final def semanticId: Option[SemanticId] = value.semanticId
 
   private[intaglio] final def packedDroppedRows: Vector[TrainedDroppedRow] =
     droppedRows.map(TrainedDroppedRow(_))
@@ -163,7 +164,8 @@ final case class TrainedPlot(
     scaleRegistry: PlotScaleRegistry,
     panelGrobs: Vector[Grob],
     labelGrobs: Vector[Grob],
-    facetPanels: Vector[ResolvedFacetPanel] = Vector.empty
+    facetPanels: Vector[ResolvedFacetPanel] = Vector.empty,
+    semantics: PlotSemantics = PlotSemantics.empty
 ):
   def scene: Scene =
     val layerGrobs = layers.flatMap(_.grobs)
@@ -191,7 +193,24 @@ final case class TrainedPlot(
                 name = Some(GraphicsName.unsafe("plot-panel"))
               )
             )
-    Scene(panelGroup ++ guides.map(_.grob) ++ labelGrobs)
+    val rendered = Scene(panelGroup ++ guides.map(_.grob) ++ labelGrobs)
+    if rendered.isEmpty || semantics.isEmpty then rendered
+    else rendered.withSemantics(SceneSemantics.single(semantics))
+
+  def textSummary: String =
+    semantics.textSummary
+
+  def altText: Option[String] =
+    semantics.altText
+
+  def accessibilityDiagnostics: Vector[AccessibilityDiagnostic] =
+    semantics.diagnostics
+
+  def withAltText(value: String): TrainedPlot =
+    copy(semantics = semantics.withAltText(value))
+
+  def withDescription(value: String): TrainedPlot =
+    copy(semantics = semantics.withDescription(value))
 
   def droppedRows: Vector[TrainedDroppedRow] =
     layers.flatMap(_.packedDroppedRows)
@@ -237,7 +256,8 @@ final case class ResolvedLayer[Row](
     rows: Vector[ResolvedRow[Row]],
     droppedRows: Vector[DroppedRow[Row]],
     grobs: Vector[Grob],
-    inspection: LayerInspection[Row]
+    inspection: LayerInspection[Row],
+    semanticId: Option[SemanticId] = None
 )
 
 /** A row-independent annotation after any requested position-scale mapping. */
@@ -433,6 +453,7 @@ object PlotCompiler:
         resolvedOptions.theme
       )
       labels <- PlotLabelPhase.lower(plot.labels, resolution.frames, resolvedOptions.theme.plotText)
+      semantics <- PlotSemantics.build(plot.accessibility, plot.labels, layers, scales.registry)
     yield TrainedPlot(
       layers,
       resolution.layout,
@@ -440,7 +461,8 @@ object PlotCompiler:
       scales.registry,
       panelGrobs,
       labels,
-      Vector.empty[ResolvedFacetPanel]
+      Vector.empty[ResolvedFacetPanel],
+      semantics
     )
 
   private[intaglio] def resolveLayers(
@@ -509,7 +531,8 @@ object PlotCompiler:
                 rows = adjusted,
                 droppedRows = droppedRows,
                 grobs = grobs,
-                inspection = inspection
+                inspection = inspection,
+                semanticId = plan.layer.semanticId
               )
             )
           }

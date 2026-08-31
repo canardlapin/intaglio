@@ -7,7 +7,8 @@ final case class SvgOptions private (
     height: Int,
     title: Option[String],
     pixelsPerInch: Double,
-    deviceScale: Double
+    deviceScale: Double,
+    description: Option[String]
 ):
   def logicalWidth: Double = width.toDouble / deviceScale
   def logicalHeight: Double = height.toDouble / deviceScale
@@ -21,22 +22,24 @@ object SvgOptions:
       height: Int = 480,
       title: Option[String] = None,
       pixelsPerInch: Double = 96.0,
-      deviceScale: Double = 1.0
+      deviceScale: Double = 1.0,
+      description: Option[String] = None
   ): Either[SvgRenderError, SvgOptions] =
     if width <= 0 || height <= 0 then Left(SvgRenderError.InvalidDocumentSize(width, height))
     else
       RenderContext(width, height, pixelsPerInch, deviceScale = deviceScale).left
         .map(SvgRenderError.Graphics(_))
-        .map(_ => new SvgOptions(width, height, title, pixelsPerInch, deviceScale))
+        .map(_ => new SvgOptions(width, height, title, pixelsPerInch, deviceScale, description))
 
   def unsafe(
       width: Int = 640,
       height: Int = 480,
       title: Option[String] = None,
       pixelsPerInch: Double = 96.0,
-      deviceScale: Double = 1.0
+      deviceScale: Double = 1.0,
+      description: Option[String] = None
   ): SvgOptions =
-    apply(width, height, title, pixelsPerInch, deviceScale).orThrow
+    apply(width, height, title, pixelsPerInch, deviceScale, description).orThrow
 
 final case class SvgDocument(
     value: String,
@@ -91,8 +94,17 @@ object SvgRenderer:
         deviceScale = options.deviceScale
       ).left
         .map(SvgRenderError.Graphics(_))
-      document <- render(RenderPlan(scene, context), options.title)
-    yield document
+      deviceScene <- DeviceScene.fromScene(scene, context).left.map(SvgRenderError.Graphics(_))
+      serialized <- serialize(deviceScene, options)
+    yield SvgDocument(
+      serialized,
+      options.width,
+      options.height,
+      options.pixelsPerInch,
+      options.deviceScale,
+      options.logicalWidth,
+      options.logicalHeight
+    )
 
   private final class ClipRegistry:
     private val builder = Vector.newBuilder[DeviceClip]
@@ -121,6 +133,12 @@ object SvgRenderer:
     def defs: Vector[(String, PatternPaint)] =
       paints.zipWithIndex.map { case (paint, idx) => (s"pattern-$idx", paint) }
 
+  private final case class DocumentAccessibility(
+      id: String,
+      title: Option[String],
+      description: Option[String]
+  )
+
   private def serialize(scene: DeviceScene, options: SvgOptions): Either[SvgRenderError, String] =
     validateDocument(scene, options).map(_ => serializeValidated(scene, options))
 
@@ -128,12 +146,32 @@ object SvgRenderer:
     val out = new StringBuilder
     val clips = new ClipRegistry
     val patterns = new PatternRegistry
+    val accessibility = documentAccessibility(scene, options)
+    val accessibilityAttrs = accessibility.fold("") { metadata =>
+      val labelledBy = metadata.title.fold("")(_ => s" aria-labelledby=\"${metadata.id}-title\"")
+      val describedBy =
+        metadata.description.fold("")(_ => s" aria-describedby=\"${metadata.id}-description\"")
+      s" id=\"${metadata.id}\" role=\"img\"$labelledBy$describedBy"
+    }
     line(
       out,
       0,
-      s"""<svg xmlns="http://www.w3.org/2000/svg" width="${options.width}" height="${options.height}" viewBox="0 0 ${options.width} ${options.height}">"""
+      s"""<svg xmlns="http://www.w3.org/2000/svg" width="${options.width}" height="${options.height}" viewBox="0 0 ${options.width} ${options.height}"$accessibilityAttrs>"""
     )
-    options.title.foreach(title => line(out, 1, s"<title>${escapeText(title)}</title>"))
+    accessibility match
+      case Some(metadata) =>
+        metadata.title.foreach(title =>
+          line(out, 1, s"<title id=\"${metadata.id}-title\">${escapeText(title)}</title>")
+        )
+        metadata.description.foreach(description =>
+          line(
+            out,
+            1,
+            s"<desc id=\"${metadata.id}-description\">${escapeText(description)}</desc>"
+          )
+        )
+      case None =>
+        options.title.foreach(title => line(out, 1, s"<title>${escapeText(title)}</title>"))
     scene.elements.foreach(writeElement(_, out, 1, clips, patterns))
     val clipDefs = clips.defs
     val patternDefs = patterns.defs
@@ -161,10 +199,26 @@ object SvgRenderer:
       scene: DeviceScene,
       options: SvgOptions
   ): Either[SvgRenderError, Unit] =
-    val title = options.title match
+    val accessibility = documentAccessibility(scene, options)
+    val title = accessibility.flatMap(_.title).orElse(options.title) match
       case Some(value) => validateXml("document title", value)
       case None        => Right(())
-    title.flatMap(_ => validateElements(scene.elements))
+    val description = accessibility.flatMap(_.description) match
+      case Some(value) => validateXml("document description", value)
+      case None        => Right(())
+    title.flatMap(_ => description).flatMap(_ => validateElements(scene.elements))
+
+  private def documentAccessibility(
+      scene: DeviceScene,
+      options: SvgOptions
+  ): Option[DocumentAccessibility] =
+    Option.when(!scene.semantics.isEmpty || options.description.nonEmpty) {
+      DocumentAccessibility(
+        scene.semantics.documentId.map(_.value).getOrElse("intaglio-svg"),
+        options.title.orElse(scene.semantics.accessibleTitle),
+        options.description.orElse(scene.semantics.accessibleDescription)
+      )
+    }
 
   private def validateElements(elements: Vector[DeviceElement]): Either[SvgRenderError, Unit] =
     var idx = 0

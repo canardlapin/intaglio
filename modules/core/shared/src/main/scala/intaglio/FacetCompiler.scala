@@ -97,6 +97,12 @@ private[intaglio] object FacetCompiler:
           options.theme
         )
         labels <- PlotLabelPhase.lower(plot.labels, Some(frames), options.theme.plotText)
+        semantics <- PlotSemantics.build(
+          plot.accessibility,
+          plot.labels,
+          resolvedPanels.flatMap(_.layers),
+          globalScales.registry
+        )
       yield TrainedPlot(
         layers = resolvedPanels.flatMap(_.layers),
         layout = resolvedPanels.headOption.map(_.layout),
@@ -104,7 +110,8 @@ private[intaglio] object FacetCompiler:
         scaleRegistry = globalScales.registry,
         panelGrobs = Vector.empty,
         labelGrobs = labels,
-        facetPanels = resolvedPanels
+        facetPanels = resolvedPanels,
+        semantics = semantics
       )
     }
 
