@@ -305,3 +305,8 @@ addCommandAlias(
   "compatibilityCheck",
   ";versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
 )
+
+addCommandAlias(
+  "featureVisualQaJVM",
+  "java2dJVM / Test / testOnly intaglio.java2d.FeatureVisualRegressionSuite"
+)

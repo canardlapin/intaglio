@@ -155,6 +155,13 @@ Render the paired Intaglio/Java2D and ggplot2 visual QA gallery:
 tools/render_position_adjustment_qa.sh
 ```
 
+Render the post-gallery feature court for temporal zoom, typed styles, common summaries, and
+composition (ggplot2 plus patchwork where appropriate):
+
+```sh
+tools/render_feature_visual_qa.sh
+```
+
 ## Status
 
 `0.1.0-SNAPSHOT`, unpublished. The core and all five backends are green on their

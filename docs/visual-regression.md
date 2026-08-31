@@ -35,6 +35,14 @@ sbt -Djava.awt.headless=true 'java2dJVM / testOnly intaglio.java2d.GoldenRegress
 The updater requires `--accept` internally and prints the new PNG SHA-256. Tests never rewrite the
 oracle.
 
+## Recent plotting features
+
+`FeatureVisualRegressionSuite` adds five pinned 640 x 480 courts for temporal zoom, typed style
+aesthetics, grouped ECDF, type-7 quantile summaries, and aligned plot composition. The same fixtures
+feed a paired human-review gallery against ggplot2, using patchwork where composition—not one plot—is
+the relevant peer. See the [recent-feature visual QA guide](visual-qa/recent-features.md) for the
+feature inventory, review contracts, peer layer receipts, and deliberate update workflow.
+
 ## Deterministic fuzz court
 
 `FuzzRegressionSuite` executes 256 fixed SplitMix64 seeds on both the JVM and Scala.js. A failure
