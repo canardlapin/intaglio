@@ -1,5 +1,6 @@
 package intaglio.java2d
 
+import java.io.ByteArrayOutputStream
 import java.awt.{
   AlphaComposite,
   BasicStroke,
@@ -12,7 +13,9 @@ import java.awt.{
 }
 import java.awt.geom.{AffineTransform, Ellipse2D, Path2D, Rectangle2D}
 import java.awt.image.BufferedImage
+import javax.imageio.ImageIO
 import scala.collection.mutable
+import scala.util.control.NonFatal
 import intaglio.*
 
 final case class Java2DOptions private (
@@ -48,9 +51,48 @@ object Java2DOptions:
   ): Java2DOptions =
     apply(width, height, pixelsPerInch, deviceScale).orThrow
 
+enum Java2DAntialiasing:
+  case Enabled
+  case Disabled
+
+final case class Java2DRenderingHints(
+    geometry: Java2DAntialiasing = Java2DAntialiasing.Enabled,
+    text: Java2DAntialiasing = Java2DAntialiasing.Enabled
+):
+  private[java2d] def configure(graphics: Graphics2D): Unit =
+    graphics.setRenderingHint(
+      RenderingHints.KEY_ANTIALIASING,
+      geometry match
+        case Java2DAntialiasing.Enabled  => RenderingHints.VALUE_ANTIALIAS_ON
+        case Java2DAntialiasing.Disabled => RenderingHints.VALUE_ANTIALIAS_OFF
+    )
+    graphics.setRenderingHint(
+      RenderingHints.KEY_TEXT_ANTIALIASING,
+      text match
+        case Java2DAntialiasing.Enabled  => RenderingHints.VALUE_TEXT_ANTIALIAS_ON
+        case Java2DAntialiasing.Disabled => RenderingHints.VALUE_TEXT_ANTIALIAS_OFF
+    )
+
+object Java2DRenderingHints:
+  val default: Java2DRenderingHints = Java2DRenderingHints()
+
+enum Java2DBackground:
+  case Transparent
+  case Solid(color: Rgba)
+
+final case class Java2DExportOptions(
+    background: Java2DBackground = Java2DBackground.Transparent,
+    renderingHints: Java2DRenderingHints = Java2DRenderingHints.default
+)
+
+object Java2DExportOptions:
+  val default: Java2DExportOptions = Java2DExportOptions()
+
 enum Java2DRenderError extends IntaglioError:
   case InvalidImageSize(width: Int, height: Int)
   case Graphics(error: GraphicsError)
+  case PngEncodingUnavailable
+  case PngEncodingFailed(details: String)
 
   def message: String =
     this match
@@ -58,6 +100,10 @@ enum Java2DRenderError extends IntaglioError:
         s"Java2D image size must be positive: ${width}x$height"
       case Graphics(error) =>
         error.message
+      case PngEncodingUnavailable =>
+        "No PNG ImageIO writer is available in this JVM"
+      case PngEncodingFailed(details) =>
+        s"PNG encoding failed: $details"
 
 object Java2DRenderError:
   extension [A](either: Either[Java2DRenderError, A])
@@ -429,10 +475,77 @@ object Java2DRenderer:
       program
     }
 
+  /** Render a target-bound scene to an ARGB image.
+    *
+    * The [[RenderPlan]] is the single source of truth for actual pixel dimensions, density, text
+    * metrics, and font-family resolution. Export options add only background and Java2D hint
+    * policy.
+    */
+  def renderImage(
+      plan: RenderPlan,
+      options: Java2DExportOptions = Java2DExportOptions.default
+  ): Either[Java2DRenderError, BufferedImage] =
+    compile(plan).map(program => renderImage(program, options))
+
+  /** Convenience image export using the portable default metrics and requested font families. */
+  def renderImage(scene: Scene): Either[Java2DRenderError, BufferedImage] =
+    renderImage(scene, Java2DOptions.default, Java2DExportOptions.default)
+
+  def renderImage(
+      scene: Scene,
+      renderOptions: Java2DOptions
+  ): Either[Java2DRenderError, BufferedImage] =
+    renderImage(scene, renderOptions, Java2DExportOptions.default)
+
+  def renderImage(
+      scene: Scene,
+      renderOptions: Java2DOptions,
+      exportOptions: Java2DExportOptions
+  ): Either[Java2DRenderError, BufferedImage] =
+    compile(scene, renderOptions).map(program => renderImage(program, exportOptions))
+
+  /** Encode a target-bound scene as PNG bytes. */
+  def renderPng(
+      plan: RenderPlan,
+      options: Java2DExportOptions = Java2DExportOptions.default
+  ): Either[Java2DRenderError, Array[Byte]] =
+    renderImage(plan, options).flatMap(encodePng)
+
+  /** Convenience PNG export using the portable default metrics and requested font families. */
+  def renderPng(scene: Scene): Either[Java2DRenderError, Array[Byte]] =
+    renderPng(scene, Java2DOptions.default, Java2DExportOptions.default)
+
+  def renderPng(
+      scene: Scene,
+      renderOptions: Java2DOptions
+  ): Either[Java2DRenderError, Array[Byte]] =
+    renderPng(scene, renderOptions, Java2DExportOptions.default)
+
+  def renderPng(
+      scene: Scene,
+      renderOptions: Java2DOptions,
+      exportOptions: Java2DExportOptions
+  ): Either[Java2DRenderError, Array[Byte]] =
+    renderImage(scene, renderOptions, exportOptions).flatMap(encodePng)
+
   def draw(program: Java2DProgram, graphics: Graphics2D): Unit =
-    drawProfile(program, graphics)
+    draw(program, graphics, Java2DRenderingHints.default)
+
+  def draw(
+      program: Java2DProgram,
+      graphics: Graphics2D,
+      renderingHints: Java2DRenderingHints
+  ): Unit =
+    drawProfile(program, graphics, renderingHints)
 
   def drawProfile(program: Java2DProgram, graphics: Graphics2D): Java2DDrawProfile =
+    drawProfile(program, graphics, Java2DRenderingHints.default)
+
+  def drawProfile(
+      program: Java2DProgram,
+      graphics: Graphics2D,
+      renderingHints: Java2DRenderingHints
+  ): Java2DDrawProfile =
     var stack = List(graphics)
     val images = mutable.HashMap.empty[RasterImage, BufferedImage]
     val patterns = mutable.HashMap.empty[PatternPaint, TexturePaint]
@@ -445,7 +558,7 @@ object Java2DRenderer:
           stack.head.dispose()
           stack = stack.tail
         case command =>
-          execute(command, stack.head, images, patterns, accumulator)
+          execute(command, stack.head, images, patterns, accumulator, renderingHints)
       }
     finally
       stack.takeWhile(_ ne graphics).foreach(_.dispose())
@@ -456,7 +569,8 @@ object Java2DRenderer:
       graphics: Graphics2D,
       images: mutable.Map[RasterImage, BufferedImage],
       patterns: mutable.Map[PatternPaint, TexturePaint],
-      accumulator: Java2DDrawAccumulator
+      accumulator: Java2DDrawAccumulator,
+      renderingHints: Java2DRenderingHints
   ): Unit =
     command match
       case Java2DCommand.Rotate(degrees, pivotX, pivotY) =>
@@ -470,7 +584,8 @@ object Java2DRenderer:
           paint,
           true,
           patterns,
-          accumulator
+          accumulator,
+          renderingHints
         )
       case Java2DCommand.PointBatch(points, radii, shapes, paints, _) =>
         var index = 0
@@ -482,7 +597,8 @@ object Java2DRenderer:
             shapes.valueAt(index),
             paints.valueAt(index),
             patterns,
-            accumulator
+            accumulator,
+            renderingHints
           )
           index += 1
       case Java2DCommand.Polyline(points, closed, paint, _) =>
@@ -490,7 +606,7 @@ object Java2DRenderer:
         path.moveTo(points.head.x, points.head.y)
         points.tail.foreach(point => path.lineTo(point.x, point.y))
         if closed then path.closePath()
-        paintShape(graphics, path, paint, closed, patterns, accumulator)
+        paintShape(graphics, path, paint, closed, patterns, accumulator, renderingHints)
       case Java2DCommand.CompoundPolygon(rings, paint, _) =>
         val path = new Path2D.Double(Path2D.WIND_NON_ZERO)
         rings.foreach { ring =>
@@ -498,7 +614,7 @@ object Java2DRenderer:
           ring.tail.foreach(point => path.lineTo(point.x, point.y))
           path.closePath()
         }
-        paintShape(graphics, path, paint, true, patterns, accumulator)
+        paintShape(graphics, path, paint, true, patterns, accumulator, renderingHints)
       case Java2DCommand.Rectangle(x, y, width, height, paint, _) =>
         paintShape(
           graphics,
@@ -506,7 +622,8 @@ object Java2DRenderer:
           paint,
           true,
           patterns,
-          accumulator
+          accumulator,
+          renderingHints
         )
       case Java2DCommand.Text(
             label,
@@ -521,7 +638,7 @@ object Java2DRenderer:
             _
           ) =>
         withCopy(graphics) { copy =>
-          antialias(copy)
+          renderingHints.configure(copy)
           val family = fontFamily.getOrElse(Font.SANS_SERIF)
           val font = new Font(family, Font.PLAIN, 1).deriveFont(fontSize.toFloat)
           copy.setFont(font)
@@ -562,7 +679,8 @@ object Java2DRenderer:
       shape: PointShape,
       paint: Java2DPaint,
       patterns: mutable.Map[PatternPaint, TexturePaint],
-      accumulator: Java2DDrawAccumulator
+      accumulator: Java2DDrawAccumulator,
+      renderingHints: Java2DRenderingHints
   ): Unit =
     shape match
       case PointShape.Circle =>
@@ -572,7 +690,8 @@ object Java2DRenderer:
           paint,
           true,
           patterns,
-          accumulator
+          accumulator,
+          renderingHints
         )
       case PointShape.Square =>
         paintShape(
@@ -581,7 +700,8 @@ object Java2DRenderer:
           paint,
           true,
           patterns,
-          accumulator
+          accumulator,
+          renderingHints
         )
       case PointShape.Triangle =>
         val path = new Path2D.Double()
@@ -589,7 +709,7 @@ object Java2DRenderer:
         path.lineTo(point.x + radius, point.y + radius)
         path.lineTo(point.x - radius, point.y + radius)
         path.closePath()
-        paintShape(graphics, path, paint, true, patterns, accumulator)
+        paintShape(graphics, path, paint, true, patterns, accumulator, renderingHints)
       case PointShape.Cross =>
         paintPointLine(
           graphics,
@@ -599,7 +719,8 @@ object Java2DRenderer:
           point.y,
           paint,
           patterns,
-          accumulator
+          accumulator,
+          renderingHints
         )
         paintPointLine(
           graphics,
@@ -609,7 +730,8 @@ object Java2DRenderer:
           point.y + radius,
           paint,
           patterns,
-          accumulator
+          accumulator,
+          renderingHints
         )
 
   private def paintPointLine(
@@ -620,12 +742,13 @@ object Java2DRenderer:
       y1: Double,
       paint: Java2DPaint,
       patterns: mutable.Map[PatternPaint, TexturePaint],
-      accumulator: Java2DDrawAccumulator
+      accumulator: Java2DDrawAccumulator,
+      renderingHints: Java2DRenderingHints
   ): Unit =
     val path = new Path2D.Double()
     path.moveTo(x0, y0)
     path.lineTo(x1, y1)
-    paintShape(graphics, path, paint, false, patterns, accumulator)
+    paintShape(graphics, path, paint, false, patterns, accumulator, renderingHints)
 
   private def paintShape(
       graphics: Graphics2D,
@@ -633,10 +756,11 @@ object Java2DRenderer:
       paint: Java2DPaint,
       allowFill: Boolean,
       patterns: mutable.Map[PatternPaint, TexturePaint],
-      accumulator: Java2DDrawAccumulator
+      accumulator: Java2DDrawAccumulator,
+      renderingHints: Java2DRenderingHints
   ): Unit =
     withCopy(graphics) { copy =>
-      antialias(copy)
+      renderingHints.configure(copy)
       if allowFill then
         paint.fillPattern match
           case Some(pattern) =>
@@ -701,12 +825,38 @@ object Java2DRenderer:
           0.0f
         )
 
-  private def antialias(graphics: Graphics2D): Unit =
-    graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-    graphics.setRenderingHint(
-      RenderingHints.KEY_TEXT_ANTIALIASING,
-      RenderingHints.VALUE_TEXT_ANTIALIAS_ON
-    )
+  private def renderImage(
+      program: Java2DProgram,
+      options: Java2DExportOptions
+  ): BufferedImage =
+    val image = new BufferedImage(program.width, program.height, BufferedImage.TYPE_INT_ARGB)
+    options.background match
+      case Java2DBackground.Transparent  => ()
+      case Java2DBackground.Solid(color) =>
+        val graphics = image.createGraphics()
+        try
+          graphics.setComposite(AlphaComposite.Src)
+          graphics.setColor(Java2DColor.fromRgba(color).awt(1.0))
+          graphics.fillRect(0, 0, program.width, program.height)
+        finally graphics.dispose()
+    val graphics = image.createGraphics()
+    try draw(program, graphics, options.renderingHints)
+    finally graphics.dispose()
+    image
+
+  private def encodePng(image: BufferedImage): Either[Java2DRenderError, Array[Byte]] =
+    val output = new ByteArrayOutputStream()
+    try
+      if ImageIO.write(image, "png", output) then Right(output.toByteArray)
+      else Left(Java2DRenderError.PngEncodingUnavailable)
+    catch
+      case NonFatal(error) =>
+        Left(
+          Java2DRenderError.PngEncodingFailed(
+            Option(error.getMessage).filter(_.nonEmpty).getOrElse(error.getClass.getSimpleName)
+          )
+        )
+    finally output.close()
 
   private def buffered(image: RasterImage): BufferedImage =
     val output = new BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)

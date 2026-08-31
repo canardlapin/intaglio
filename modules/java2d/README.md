@@ -16,6 +16,27 @@ portable `TextMetrics.estimate`. Requested families are matched against the
 local `GraphicsEnvironment`; missing names fall back to the provider's
 configured family (Java's logical `SansSerif` by default).
 
+`Java2DRenderer.renderImage` and `renderPng` are the public in-memory export
+helpers. Prefer their `RenderPlan` overloads: one target then owns actual pixel
+size, DPI, layout metrics, and font resolution from compilation through image
+encoding. Pair a `Java2DTextMetrics(fallbackFamily)` value with its
+`fontRegistry` when installed-font measurements are required. `Java2DExportOptions`
+makes transparent versus solid backgrounds and geometry/text antialiasing
+explicit; PNG export preserves the ARGB pixels produced by `renderImage`.
+
+```scala
+val metrics = Java2DTextMetrics("SansSerif")
+val context = RenderContext.unsafe(
+  width = 1200,
+  height = 800,
+  pixelsPerInch = 144.0,
+  textMetrics = metrics,
+  fontRegistry = metrics.fontRegistry
+)
+val png: Either[Java2DRenderError, Array[Byte]] =
+  Java2DRenderer.renderPng(RenderPlan(scene, context))
+```
+
 Shared raster images are materialized as cached ARGB `BufferedImage` values and
 drawn with explicit nearest-neighbor or bilinear interpolation. Image-level
 tests independently pin top-left row order, source alpha, grob alpha, and
