@@ -9,6 +9,7 @@ enum ComputedAesthetic[A](val label: String):
   case Density extends ComputedAesthetic[Double]("density")
   case Position extends ComputedAesthetic[Double]("position")
   case Mean extends ComputedAesthetic[Double]("mean")
+  case Median extends ComputedAesthetic[Double]("median")
   case Lower extends ComputedAesthetic[Double]("lower")
   case Upper extends ComputedAesthetic[Double]("upper")
   case BinLower extends ComputedAesthetic[Double]("bin_lower")
@@ -26,6 +27,7 @@ final case class ComputedValues private (
     density: Option[Double] = None,
     position: Option[Double] = None,
     mean: Option[Double] = None,
+    median: Option[Double] = None,
     lower: Option[Double] = None,
     upper: Option[Double] = None,
     binLower: Option[Double] = None,
@@ -40,6 +42,7 @@ final case class ComputedValues private (
       case ComputedAesthetic.Density     => density
       case ComputedAesthetic.Position    => position
       case ComputedAesthetic.Mean        => mean
+      case ComputedAesthetic.Median      => median
       case ComputedAesthetic.Lower       => lower
       case ComputedAesthetic.Upper       => upper
       case ComputedAesthetic.BinLower    => binLower
@@ -55,6 +58,7 @@ final case class ComputedValues private (
     if density.nonEmpty then out += ComputedAesthetic.Density
     if position.nonEmpty then out += ComputedAesthetic.Position
     if mean.nonEmpty then out += ComputedAesthetic.Mean
+    if median.nonEmpty then out += ComputedAesthetic.Median
     if lower.nonEmpty then out += ComputedAesthetic.Lower
     if upper.nonEmpty then out += ComputedAesthetic.Upper
     if binLower.nonEmpty then out += ComputedAesthetic.BinLower
@@ -93,6 +97,20 @@ object ComputedValues:
           mean = Some(output.mean),
           lower = Some(output.lower),
           upper = Some(output.upper)
+        )
+      case output: StatRow.QuantileSummary[?] =>
+        ComputedValues(
+          count = Some(output.count.toDouble),
+          position = Some(output.position),
+          median = Some(output.median),
+          lower = Some(output.lowerQuartile),
+          upper = Some(output.upperQuartile)
+        )
+      case output: StatRow.Ecdf[?] =>
+        ComputedValues(
+          count = Some(output.cumulativeCount.toDouble),
+          proportion = Some(output.proportion),
+          position = Some(output.position)
         )
       case output: StatRow.Density[?] =>
         ComputedValues(
@@ -195,6 +213,50 @@ object StatRow:
     val kind: String = "density"
     val count: Double = density * sampleSize.toDouble
 
+  /** Required output of the ordinary median plus interquartile-range summary composition. */
+  final case class QuantileSummary[+Row](
+      source: Row,
+      members: Vector[Row],
+      position: Double,
+      lowerQuartile: Double,
+      median: Double,
+      upperQuartile: Double,
+      count: Int
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(count == members.length, "`count` must equal `members.length`")
+    require(Vector(position, lowerQuartile, median, upperQuartile).forall(_.isFinite))
+    require(
+      lowerQuartile <= median && median <= upperQuartile,
+      "quantile bounds must contain the median"
+    )
+
+    val category: Option[String] = None
+    val kind: String = "quantile-summary"
+
+  /** One tied step of an empirical cumulative distribution. `members` are the observations tied at
+    * `position`; cumulative mass is tracked within the optional explicit group.
+    */
+  final case class Ecdf[+Row](
+      source: Row,
+      members: Vector[Row],
+      position: Double,
+      cumulativeCount: Int,
+      totalCount: Int,
+      groupLevel: Option[String]
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(position.isFinite)
+    require(totalCount >= members.length, "`totalCount` must cover the tied members")
+    require(
+      cumulativeCount >= members.length && cumulativeCount <= totalCount,
+      "`cumulativeCount` must include the tied members and not exceed `totalCount`"
+    )
+
+    val category: Option[String] = groupLevel
+    val kind: String = "ecdf"
+    val proportion: Double = cumulativeCount.toDouble / totalCount.toDouble
+
 /** Immutable, typed output of a statistical layer transformation. */
 final case class StatFrame[Row] private[intaglio] (
     rows: Vector[StatRow[Row]],
@@ -228,6 +290,7 @@ enum StatGroupingPolicy:
   case None
   case DiscreteKeys
   case NumericPositions
+  case GroupedNumericPositions
   case HistogramBins
   case WholeBatch
   case Custom(description: String)
@@ -237,6 +300,8 @@ enum StatSummarizationPolicy:
   case Identity
   case Frequency
   case MeanInterval
+  case Quantiles
+  case EmpiricalCdf
   case KernelDensity
   case Custom(description: String)
 
@@ -272,6 +337,7 @@ enum StatLowering:
   case Geom
   case Summary
   case Density
+  case Ecdf
 
 /** Public, inspectable behavioral contract for a statistic. */
 final case class StatContract(
@@ -698,6 +764,19 @@ private[intaglio] object DensityMath:
     val fraction = position - lower.toDouble
     sorted(lower) + fraction * (sorted(upper) - sorted(lower))
 
+private[intaglio] object QuantileMath:
+  /** Hyndman-Fan type 7, the default used by R and common scientific tools. */
+  def type7(values: Vector[Double], probability: Double): Double =
+    require(values.nonEmpty, "quantiles require at least one observation")
+    require(probability >= 0.0 && probability <= 1.0, "probability must be in [0, 1]")
+    val sorted = values.toArray
+    scala.util.Sorting.quickSort(sorted)
+    val position = (sorted.length - 1).toDouble * probability
+    val lower = math.floor(position).toInt
+    val upper = math.ceil(position).toInt
+    val fraction = position - lower.toDouble
+    sorted(lower) + fraction * (sorted(upper) - sorted(lower))
+
 /** Open typed statistical transform. Implementations receive an indexed typed batch plus compiler
   * context and return an existential package that keeps their exact output-row subtype attached to
   * its aesthetic mapping.
@@ -798,6 +877,52 @@ object Stat:
         context: StatContext
     ): Either[StatError, StatResult.Aux[Input, StatRow.Summarized[Input]]] =
       BuiltinStatRuntime.summary(this, batch, context)
+
+  /** Median plus the first and third type-7 quantiles at each numeric x position. Lowering reuses
+    * the ordinary point-plus-interval composition, so callers get a compact boxplot-like summary
+    * without introducing renderer-specific geometry.
+    */
+  final case class QuantileSummary[Row](x: Row => Double, y: Row => Double) extends Stat[Row]:
+    override val label: String = "quantile-summary"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.NumericPositions,
+        StatSummarizationPolicy.Quantiles,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Point),
+        StatLowering.Summary
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.QuantileSummary[Input]]] =
+      BuiltinStatRuntime.quantileSummary(this, batch, context)
+
+  /** Right-continuous empirical CDF. Ties collapse to one step and optional groups are computed
+    * independently in first-encounter order.
+    */
+  final case class Ecdf[Row](x: Row => Double, group: Option[Row => String] = None)
+      extends Stat[Row]:
+    override val label: String = "ecdf"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.GroupedNumericPositions,
+        StatSummarizationPolicy.EmpiricalCdf,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Line),
+        StatLowering.Ecdf
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Ecdf[Input]]] =
+      BuiltinStatRuntime.ecdf(this, batch, context)
 
   final case class Density[Row](x: Row => Double, config: DensityConfig = DensityConfig.default)
       extends Stat[Row]:

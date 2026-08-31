@@ -382,6 +382,20 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val xy = ev(position)
     addLayer(Right(Layer.summary(xy.x, xy.y, data, interval, params)))
 
+  def geomQuantileSummary(
+      data: Option[Vector[Row]] = None,
+      params: Option[GraphicParams] = None
+  )(using ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
+    val xy = ev(position)
+    addLayer(Right(Layer.quantileSummary(xy.x, xy.y, data, params)))
+
+  def geomEcdf(
+      group: Option[Row => String] = None,
+      data: Option[Vector[Row]] = None,
+      params: Option[GraphicParams] = None
+  )(using ev: HasX[Row, Position]): PlotBuilder[Row, Position] =
+    addLayer(Right(Layer.ecdf(ev(position).x, data, group, params)))
+
   def geomArea(
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None

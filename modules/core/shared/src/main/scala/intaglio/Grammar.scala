@@ -1414,6 +1414,38 @@ object Layer:
       params
     )
 
+  /** Median plus interquartile range at each x position, lowered as a point and interval. */
+  def quantileSummary[Row](
+      x: Row => Double,
+      y: Row => Double,
+      data: Option[Vector[Row]] = None,
+      params: Option[GraphicParams] = None
+  ): Layer[Row] =
+    Layer(
+      Geom.Point,
+      Stat.QuantileSummary(x, y),
+      data,
+      AesSpec.empty[Row],
+      inheritMapping = false,
+      params
+    )
+
+  /** Right-continuous empirical CDF with ties collapsed and optional independent groups. */
+  def ecdf[Row](
+      x: Row => Double,
+      data: Option[Vector[Row]] = None,
+      group: Option[Row => String] = None,
+      params: Option[GraphicParams] = None
+  ): Layer[Row] =
+    Layer(
+      Geom.Line,
+      Stat.Ecdf(x, group),
+      data,
+      AesSpec.empty[Row],
+      inheritMapping = false,
+      params
+    )
+
   def density[Row](
       x: Row => Double,
       data: Option[Vector[Row]] = None,

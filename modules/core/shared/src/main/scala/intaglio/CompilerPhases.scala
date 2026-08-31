@@ -376,6 +376,18 @@ private[intaglio] object BuiltinStatRuntime:
       ComputedAesthetic.Upper
     )
 
+  private val quantileSummaryAesthetics: Set[ComputedAesthetic[?]] =
+    Set(
+      ComputedAesthetic.Count,
+      ComputedAesthetic.Position,
+      ComputedAesthetic.Median,
+      ComputedAesthetic.Lower,
+      ComputedAesthetic.Upper
+    )
+
+  private val ecdfAesthetics: Set[ComputedAesthetic[?]] =
+    Set(ComputedAesthetic.Count, ComputedAesthetic.Proportion, ComputedAesthetic.Position)
+
   private val densityAesthetics: Set[ComputedAesthetic[?]] =
     Set(ComputedAesthetic.Count, ComputedAesthetic.Position, ComputedAesthetic.Density)
 
@@ -526,6 +538,123 @@ private[intaglio] object BuiltinStatRuntime:
     AesSpec[StatRow.Summarized[Input]](
       x = Some(AesValue.total(_.position)),
       y = Some(AesValue.total(_.mean))
+    )
+
+  def quantileSummary[Row, Input <: Row](
+      stat: Stat.QuantileSummary[Row],
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult.Aux[Input, StatRow.QuantileSummary[Input]]] =
+    val _ = context
+    val data = batch.rows
+    for
+      xs <- batch.evaluate(Aesthetic.X.label, stat.x)
+      ys <- batch.evaluate(Aesthetic.Y.label, stat.y)
+      transformed <-
+        firstNonFinite(xs) match
+          case Some(value) => Left(StatError.NonFiniteInput(Aesthetic.X.label, value))
+          case None        =>
+            firstNonFinite(ys) match
+              case Some(value) => Left(StatError.NonFiniteInput(Aesthetic.Y.label, value))
+              case None        =>
+                val groups = scala.collection.mutable.HashMap
+                  .empty[Double, scala.collection.mutable.ArrayBuffer[(Input, Double)]]
+                var index = 0
+                while index < data.length do
+                  groups.getOrElseUpdate(
+                    xs(index),
+                    scala.collection.mutable.ArrayBuffer.empty
+                  ) += ((
+                    data(index),
+                    ys(index)
+                  ))
+                  index += 1
+                val rows = groups.keys.toVector.sorted.map { position =>
+                  val observations = groups(position).toVector
+                  val values = observations.map(_._2)
+                  StatRow.QuantileSummary(
+                    source = observations.head._1,
+                    members = observations.map(_._1),
+                    position = position,
+                    lowerQuartile = QuantileMath.type7(values, 0.25),
+                    median = QuantileMath.type7(values, 0.5),
+                    upperQuartile = QuantileMath.type7(values, 0.75),
+                    count = observations.length
+                  )
+                }
+                Right(
+                  StatResult[Input, StatRow.QuantileSummary[Input]](
+                    rows,
+                    quantileSummaryMapping[Input],
+                    quantileSummaryAesthetics
+                  )
+                )
+    yield transformed
+
+  private def quantileSummaryMapping[Input]: AesSpec[StatRow.QuantileSummary[Input]] =
+    AesSpec[StatRow.QuantileSummary[Input]](
+      x = Some(AesValue.total(_.position)),
+      y = Some(AesValue.total(_.median))
+    )
+
+  def ecdf[Row, Input <: Row](
+      stat: Stat.Ecdf[Row],
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult.Aux[Input, StatRow.Ecdf[Input]]] =
+    val _ = context
+    val data = batch.rows
+    for
+      xs <- batch.evaluate(Aesthetic.X.label, stat.x)
+      groups <- stat.group match
+        case Some(groupOf) => batch.evaluate(Aesthetic.Group.label, groupOf).map(_.map(Some(_)))
+        case None          => Right(Vector.fill(data.length)(Option.empty[String]))
+      transformed <-
+        firstNonFinite(xs) match
+          case Some(value) => Left(StatError.NonFiniteInput(Aesthetic.X.label, value))
+          case None        =>
+            val rows = Vector.newBuilder[StatRow.Ecdf[Input]]
+            val groupOrder = groups.distinct
+            var groupIndex = 0
+            while groupIndex < groupOrder.length do
+              val group = groupOrder(groupIndex)
+              val ordered = data.indices
+                .filter(index => groups(index) == group)
+                .map(index => xs(index) -> data(index))
+                .toVector
+                .sortBy(_._1)
+              var cumulative = 0
+              var start = 0
+              while start < ordered.length do
+                val position = ordered(start)._1
+                var end = start + 1
+                while end < ordered.length && ordered(end)._1 == position do end += 1
+                val members = ordered.slice(start, end).map(_._2)
+                cumulative += members.length
+                rows += StatRow.Ecdf(
+                  source = members.head,
+                  members = members,
+                  position = position,
+                  cumulativeCount = cumulative,
+                  totalCount = ordered.length,
+                  groupLevel = group
+                )
+                start = end
+              groupIndex += 1
+            Right(
+              StatResult[Input, StatRow.Ecdf[Input]](
+                rows.result(),
+                ecdfMapping[Input](stat.group.nonEmpty),
+                ecdfAesthetics
+              )
+            )
+    yield transformed
+
+  private def ecdfMapping[Input](grouped: Boolean): AesSpec[StatRow.Ecdf[Input]] =
+    AesSpec[StatRow.Ecdf[Input]](
+      x = Some(AesValue.total(_.position)),
+      y = Some(AesValue.total(_.proportion)),
+      group = Option.when(grouped)(AesValue.total(_.groupLevel.getOrElse("")))
     )
 
   def density[Row, Input <: Row](
@@ -1542,6 +1671,7 @@ private[intaglio] object GeomPhase:
           lowering match
             case StatLowering.Summary => summaryGrobs(rows)
             case StatLowering.Density => densityGrobs(rows)
+            case StatLowering.Ecdf    => ecdfGrobs(rows)
             case StatLowering.Geom    =>
               if batchPointMarks && (layer.geom eq Geom.Point) then pointBatch(rows)
               else layer.geom.lower(GeomBatch(rows, GeomContext(layerIndex, theme)))
@@ -1630,37 +1760,40 @@ private[intaglio] object GeomPhase:
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < rows.length && result.isRight do
       val row = rows(idx)
-      row.statRow match
+      val summary = row.statRow match
         case output: StatRow.Summarized[?] =>
-          result = Grob
-            .segments(
-              Vector(
-                (
-                  Point.nativeUnsafe(row.x, output.lower),
-                  Point.nativeUnsafe(row.x, output.upper)
-                )
-              ),
-              gp = row.gp,
-              name = Some(GraphicsName.unsafe(s"stat-summary-interval-$idx"))
-            )
-            .flatMap { interval =>
-              Grob
-                .points(
-                  Vector(row.point),
-                  size = row.size,
-                  gp = row.gp,
-                  name = Some(GraphicsName.unsafe(s"stat-summary-mean-$idx"))
-                )
-                .map { point =>
-                  out += interval
-                  out += point
-                  ()
-                }
-            }
+          Right((output.lower, output.upper, "summary", "mean"))
+        case output: StatRow.QuantileSummary[?] =>
+          Right((output.lowerQuartile, output.upperQuartile, "quantile-summary", "median"))
         case other =>
-          result = Left(
-            GraphicsError.InvalidStatParameter("summary", "typed output row", other.kind)
+          Left(GraphicsError.InvalidStatParameter("summary", "typed output row", other.kind))
+      result = summary.flatMap { case (lower, upper, prefix, center) =>
+        Grob
+          .segments(
+            Vector(
+              (
+                Point.nativeUnsafe(row.x, lower),
+                Point.nativeUnsafe(row.x, upper)
+              )
+            ),
+            gp = row.gp,
+            name = Some(GraphicsName.unsafe(s"stat-$prefix-interval-$idx"))
           )
+          .flatMap { interval =>
+            Grob
+              .points(
+                Vector(row.point),
+                size = row.size,
+                gp = row.gp,
+                name = Some(GraphicsName.unsafe(s"stat-$prefix-$center-$idx"))
+              )
+              .map { point =>
+                out += interval
+                out += point
+                ()
+              }
+          }
+      }
       idx += 1
     result.map(_ => out.result())
 
@@ -1676,6 +1809,39 @@ private[intaglio] object GeomPhase:
           name = Some(GraphicsName.unsafe("stat-density-line"))
         )
         .map(Vector(_))
+
+  private def ecdfGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
+    val groups = groupInOrder(rows)
+    val out = Vector.newBuilder[Grob]
+    var groupIndex = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while groupIndex < groups.length && result.isRight do
+      val group = groups(groupIndex)
+      if group.nonEmpty then
+        val points = Vector.newBuilder[Point]
+        points += Point.nativeUnsafe(group.head.x, 0.0)
+        var rowIndex = 0
+        var previous = 0.0
+        while rowIndex < group.length do
+          val row = group(rowIndex)
+          if rowIndex > 0 then points += Point.nativeUnsafe(row.x, previous)
+          points += row.point
+          previous = row.y
+          rowIndex += 1
+        result = Grob
+          .lines(
+            points.result(),
+            gp = group.head.gp,
+            name = Some(GraphicsName.unsafe(s"stat-ecdf-line-$groupIndex"))
+          )
+          .map { grob =>
+            out += grob
+            ()
+          }
+      groupIndex += 1
+    result.map(_ => out.result())
 
   private[intaglio] def boundedRectGrobs[Row](
       rows: Vector[ResolvedRow[Row]],
@@ -2297,10 +2463,14 @@ private[intaglio] object LayoutPhase:
       if aesthetic == Aesthetic.Y then
         val intervalValues = layer.rows.iterator.flatMap { row =>
           row.statRow match
-            case output: StatRow.Summarized[?] => Iterator(output.lower, output.upper)
-            case _                             => Iterator.empty
+            case output: StatRow.Summarized[?]      => Iterator(output.lower, output.upper)
+            case output: StatRow.QuantileSummary[?] =>
+              Iterator(output.lowerQuartile, output.upperQuartile)
+            case _ => Iterator.empty
         }
         range = range.train(intervalValues)
+        if layer.rows.exists(_.statRow.isInstanceOf[StatRow.Ecdf[?]]) then
+          range = range.train(Iterator.single(0.0))
     }
     if sawScaled && sawUnscaledData then Left(GraphicsError.MixedPositionScaling(aesthetic.label))
     else
