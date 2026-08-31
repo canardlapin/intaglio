@@ -1053,7 +1053,9 @@ private[intaglio] object RowPhase:
         group = groupKey.map(_.display),
         subpath = subpath,
         gp = gp,
-        size = size
+        size = size,
+        xCategoryIdentity = xValue.rawDiscreteCategory,
+        yCategoryIdentity = yValue.rawDiscreteCategory
       )
     resolved match
       case Right(row)   => RowResolution.Resolved(row)
@@ -1223,7 +1225,9 @@ private[intaglio] object RowPhase:
               .mapDeclaredValueResult(input)
               .map { output =>
                 val rawDiscreteCategory =
-                  if scaled.scale.descriptor.kind == ScaleKind.Discrete then
+                  if scaled.scale.descriptor.kind == ScaleKind.Discrete ||
+                    scaled.scale.descriptor.kind == ScaleKind.Band
+                  then
                     scaled.scale.observation(input).collect {
                       case ScaleObservation.Discrete(category) => category.token
                     }
@@ -1295,22 +1299,30 @@ private[intaglio] object PositionPhase:
       config: DodgeConfig
   ): Vector[ResolvedRow[Row]] =
     val updated = scala.collection.mutable.ArrayBuffer.from(rows)
-    val globalGroups = rows.map(_.groupKey).distinct
-    val positions = rows.map(_.x).distinct
-    positions.foreach { base =>
-      val indices = rows.indices.filter(index => rows(index).x == base).toVector
-      val localGroups =
-        globalGroups.filter(group => indices.exists(index => rows(index).groupKey == group))
-      val slots = config.preserve match
-        case DodgePreserve.Total  => localGroups
-        case DodgePreserve.Single => globalGroups
+    val groups = groupIndex(rows)
+    positionBuckets(rows).foreach { case (_, indices) =>
+      val base = rows(indices.head).x
+      val localGroups = groupsAt(indices, rows, groups.rank)
+      val (slots, slotByGroup) = config.preserve match
+        case DodgePreserve.Total =>
+          localGroups -> localGroups.iterator.zipWithIndex.toMap
+        case DodgePreserve.Single =>
+          groups.order -> groups.rank
       val slotCount = math.max(1, slots.length)
       val displacementWidth = config.width.fold {
-        indices.flatMap(index => rows(index).xBand.map(_.width)).maxOption.getOrElse(0.9)
+        var maximum = 0.0
+        var found = false
+        indices.foreach { index =>
+          rows(index).xBand.foreach { band =>
+            if !found || band.width > maximum then maximum = band.width
+            found = true
+          }
+        }
+        if found then maximum else 0.9
       }(_.toDouble)
       indices.foreach { index =>
         val row = rows(index)
-        val slot = math.max(0, slots.indexOf(row.groupKey))
+        val slot = slotByGroup.getOrElse(row.groupKey, 0)
         val center = base + displacementWidth * ((slot.toDouble + 0.5) / slotCount.toDouble - 0.5)
         val delta = center - row.x
         val sourceWidth = row.xBand.map(_.width).getOrElse(0.9)
@@ -1342,25 +1354,93 @@ private[intaglio] object PositionPhase:
       order: StackOrder
   ): Vector[ResolvedRow[Row]] =
     val updated = scala.collection.mutable.ArrayBuffer.from(rows)
-    val encountered = rows.map(_.groupKey).distinct
-    val groupOrder = order match
-      case StackOrder.Encountered => encountered
-      case StackOrder.Reverse     => encountered.reverse
-    rows.map(_.x).distinct.foreach { x =>
-      val atPosition = rows.indices.filter(index => rows(index).x == x).toVector
-      val positives = ordered(atPosition.filter(index => rows(index).y >= 0.0), rows, groupOrder)
-      val negatives = ordered(atPosition.filter(index => rows(index).y < 0.0), rows, groupOrder)
+    val groups = groupIndex(rows)
+    positionBuckets(rows).foreach { case (_, atPosition) =>
+      val positiveBuckets =
+        scala.collection.mutable.LinkedHashMap.empty[
+          Option[GroupKey],
+          scala.collection.mutable.ArrayBuffer[Int]
+        ]
+      val negativeBuckets =
+        scala.collection.mutable.LinkedHashMap.empty[
+          Option[GroupKey],
+          scala.collection.mutable.ArrayBuffer[Int]
+        ]
+      atPosition.foreach { index =>
+        val target = if rows(index).y >= 0.0 then positiveBuckets else negativeBuckets
+        target.getOrElseUpdate(
+          rows(index).groupKey,
+          scala.collection.mutable.ArrayBuffer.empty[Int]
+        ) += index
+      }
+      val positives = orderedIndices(positiveBuckets, groups.rank, order)
+      val negatives = orderedIndices(negativeBuckets, groups.rank, order)
       stackSide(positives, rows, updated, positive = true)
       stackSide(negatives, rows, updated, positive = false)
     }
     updated.toVector
 
-  private def ordered[Row](
+  private enum PositionKey:
+    case Numeric(value: Double)
+    case Categorical(value: CategoryToken)
+
+  private final case class GroupIndex(
+      order: Vector[Option[GroupKey]],
+      rank: Map[Option[GroupKey], Int]
+  )
+
+  private def positionBuckets[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Vector[(PositionKey, Vector[Int])] =
+    val buckets = scala.collection.mutable.LinkedHashMap.empty[
+      PositionKey,
+      scala.collection.mutable.ArrayBuffer[Int]
+    ]
+    rows.indices.foreach { index =>
+      val row = rows(index)
+      val key = row.xCategoryIdentity match
+        case Some(category) => PositionKey.Categorical(category)
+        case None           => PositionKey.Numeric(if row.x == 0.0 then 0.0 else row.x)
+      buckets.getOrElseUpdate(key, scala.collection.mutable.ArrayBuffer.empty[Int]) += index
+    }
+    buckets.iterator.map { case (key, indices) => key -> indices.toVector }.toVector
+
+  private def groupIndex[Row](rows: Vector[ResolvedRow[Row]]): GroupIndex =
+    val rank = scala.collection.mutable.LinkedHashMap.empty[Option[GroupKey], Int]
+    rows.foreach { row =>
+      if !rank.contains(row.groupKey) then rank += row.groupKey -> rank.size
+    }
+    GroupIndex(rank.keysIterator.toVector, rank.toMap)
+
+  private def groupsAt[Row](
       indices: Vector[Int],
       rows: Vector[ResolvedRow[Row]],
-      groups: Vector[Option[GroupKey]]
+      rank: Map[Option[GroupKey], Int]
+  ): Vector[Option[GroupKey]] =
+    val seen = scala.collection.mutable.HashSet.empty[Option[GroupKey]]
+    val groups = Vector.newBuilder[Option[GroupKey]]
+    indices.foreach { index =>
+      val group = rows(index).groupKey
+      if seen.add(group) then groups += group
+    }
+    groups.result().sortBy(rank)
+
+  private def orderedIndices(
+      buckets: scala.collection.mutable.LinkedHashMap[
+        Option[GroupKey],
+        scala.collection.mutable.ArrayBuffer[Int]
+      ],
+      rank: Map[Option[GroupKey], Int],
+      order: StackOrder
   ): Vector[Int] =
-    indices.sortBy(index => (groups.indexOf(rows(index).groupKey), index))
+    val groups = buckets.keysIterator.toVector.sortBy { group =>
+      order match
+        case StackOrder.Encountered => rank(group)
+        case StackOrder.Reverse     => -rank(group)
+    }
+    val indices = Vector.newBuilder[Int]
+    groups.foreach(group => indices ++= buckets(group))
+    indices.result()
 
   private def stackSide[Row](
       indices: Vector[Int],
@@ -1905,6 +1985,8 @@ object CoordinateTransform:
       y = row.x,
       xBand = row.yBand,
       yBand = row.xBand,
+      xCategoryIdentity = row.yCategoryIdentity,
+      yCategoryIdentity = row.xCategoryIdentity,
       xEnd = row.yEnd,
       yEnd = row.xEnd,
       xMin = row.yMin,

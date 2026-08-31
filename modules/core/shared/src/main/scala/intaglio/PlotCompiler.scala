@@ -257,7 +257,9 @@ final case class ResolvedRow[Row](
     group: Option[String],
     subpath: Option[String],
     gp: GraphicParams,
-    size: ExtentExpr
+    size: ExtentExpr,
+    xCategoryIdentity: Option[CategoryToken] = None,
+    yCategoryIdentity: Option[CategoryToken] = None
 ):
   /** Generic computed-aesthetic inspection derived from the retained typed stat output. */
   def computed: ComputedValues =
