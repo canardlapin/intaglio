@@ -108,17 +108,26 @@ private[intaglio] final case class FacetLayout(
     rows: Int,
     columns: Int,
     cells: Vector[FacetCell]
-)
+):
+  private val indexByLabels: Map[(Option[String], Option[String]), Int] =
+    cells.iterator.zipWithIndex.map { case (cell, index) =>
+      (cell.rowLabel, cell.columnLabel) -> index
+    }.toMap
+
+  require(indexByLabels.size == cells.size, "facet cells must have distinct label coordinates")
+
+  def indexOf(rowLabel: Option[String], columnLabel: Option[String]): Option[Int] =
+    indexByLabels.get((rowLabel, columnLabel))
 
 sealed trait FacetSpec[Row]:
   def scales: FacetScales
 
   private[intaglio] def layout(data: Vector[Row]): Either[GraphicsError, FacetLayout]
-  private[intaglio] def panelData(
-      cell: FacetCell,
+  private[intaglio] def partition(
+      layout: FacetLayout,
       data: Vector[Row],
       layerIndex: Int
-  ): Either[GraphicsError, Vector[Row]]
+  ): Either[GraphicsError, Vector[Vector[Row]]]
 
 object FacetSpec:
   private final case class Wrap[Row](
@@ -138,17 +147,21 @@ object FacetSpec:
           Right(FacetLayout((cells.length + columns - 1) / columns, columns, cells))
       }
 
-    private[intaglio] def panelData(
-        cell: FacetCell,
+    private[intaglio] def partition(
+        layout: FacetLayout,
         data: Vector[Row],
         layerIndex: Int
-    ): Either[GraphicsError, Vector[Row]] =
-      evaluateRows(value, data, "facet membership", Some(layerIndex), "facet")
-        .map(observed =>
-          data.zip(observed).collect {
-            case (row, label) if cell.columnLabel.contains(label) => row
-          }
-        )
+    ): Either[GraphicsError, Vector[Vector[Row]]] =
+      partitionRows(layout, data) { (row, rowIndex) =>
+        evaluateRow(
+          value,
+          row,
+          "facet membership",
+          Some(layerIndex),
+          "facet",
+          rowIndex
+        ).map(label => (None, Some(label)))
+      }
 
   private final case class Grid[Row](
       rowValue: Row => String,
@@ -181,25 +194,31 @@ object FacetSpec:
             Right(FacetLayout(rows.length, columns.length, cells))
       yield layout
 
-    private[intaglio] def panelData(
-        cell: FacetCell,
+    private[intaglio] def partition(
+        layout: FacetLayout,
         data: Vector[Row],
         layerIndex: Int
-    ): Either[GraphicsError, Vector[Row]] =
-      for
-        rows <- evaluateRows(rowValue, data, "facet membership", Some(layerIndex), "facet-row")
-        columns <- evaluateRows(
-          columnValue,
-          data,
-          "facet membership",
-          Some(layerIndex),
-          "facet-column"
-        )
-      yield data.indices.collect {
-        case index
-            if cell.rowLabel.contains(rows(index)) && cell.columnLabel.contains(columns(index)) =>
-          data(index)
-      }.toVector
+    ): Either[GraphicsError, Vector[Vector[Row]]] =
+      partitionRows(layout, data) { (row, rowIndex) =>
+        for
+          rowLabel <- evaluateRow(
+            rowValue,
+            row,
+            "facet membership",
+            Some(layerIndex),
+            "facet-row",
+            rowIndex
+          )
+          columnLabel <- evaluateRow(
+            columnValue,
+            row,
+            "facet membership",
+            Some(layerIndex),
+            "facet-column",
+            rowIndex
+          )
+        yield (Some(rowLabel), Some(columnLabel))
+      }
 
   def wrap[Row](
       value: Row => String,
@@ -225,7 +244,35 @@ object FacetSpec:
       case None        => Right(Grid(rows, columns, rowLevels, columnLevels, scales))
 
   private def orderedLevels(declared: Vector[String], observed: Vector[String]): Vector[String] =
-    declared ++ observed.filterNot(declared.contains).distinct
+    val seen = scala.collection.mutable.HashSet.from(declared)
+    val out = Vector.newBuilder[String]
+    out ++= declared
+    observed.foreach { level =>
+      if seen.add(level) then out += level
+    }
+    out.result()
+
+  private def partitionRows[Row](
+      layout: FacetLayout,
+      data: Vector[Row]
+  )(
+      labels: (Row, Int) => Either[GraphicsError, (Option[String], Option[String])]
+  ): Either[GraphicsError, Vector[Vector[Row]]] =
+    val buckets = Vector.fill(layout.cells.length)(scala.collection.mutable.ArrayBuffer.empty[Row])
+    var rowIndex = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while rowIndex < data.length && result.isRight do
+      result = labels(data(rowIndex), rowIndex).flatMap { case (rowLabel, columnLabel) =>
+        layout
+          .indexOf(rowLabel, columnLabel)
+          .toRight(GraphicsError.FacetCellNotIndexed(rowLabel, columnLabel))
+          .map { cellIndex =>
+            buckets(cellIndex) += data(rowIndex)
+            ()
+          }
+      }
+      rowIndex += 1
+    result.map(_ => buckets.map(_.toVector))
 
   private def evaluateRows[Row, A](
       mapping: Row => A,
@@ -238,22 +285,32 @@ object FacetSpec:
     var rowIndex = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while rowIndex < data.length && result.isRight do
-      RowMapping.evaluateFunction(mapping, data(rowIndex)) match
-        case Right(value) =>
+      result = evaluateRow(mapping, data(rowIndex), stage, layerIndex, aesthetic, rowIndex).map {
+        value =>
           out += value
-        case Left((contract, failure)) =>
-          result = Left(
-            GraphicsError.MappingEvaluationFailed(
-              stage,
-              layerIndex,
-              aesthetic,
-              rowIndex,
-              contract,
-              failure
-            )
-          )
+          ()
+      }
       rowIndex += 1
     result.map(_ => out.result())
+
+  private def evaluateRow[Row, A](
+      mapping: Row => A,
+      row: Row,
+      stage: String,
+      layerIndex: Option[Int],
+      aesthetic: String,
+      rowIndex: Int
+  ): Either[GraphicsError, A] =
+    RowMapping.evaluateFunction(mapping, row).left.map { case (contract, failure) =>
+      GraphicsError.MappingEvaluationFailed(
+        stage,
+        layerIndex,
+        aesthetic,
+        rowIndex,
+        contract,
+        failure
+      )
+    }
 
   private def firstDuplicate(values: Vector[String]): Option[String] =
     val seen = scala.collection.mutable.HashSet.empty[String]

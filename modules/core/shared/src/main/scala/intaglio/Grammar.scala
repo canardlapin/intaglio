@@ -1532,12 +1532,12 @@ sealed trait PlotLayer[PlotRow]:
   private[intaglio] def effectiveData(plotData: Vector[PlotRow]): Vector[Row]
   private[intaglio] def effectiveMapping(plotMapping: AesSpec[PlotRow]): AesSpec[Row]
   private[intaglio] def facetSeedData(plotData: Vector[PlotRow]): Vector[PlotRow]
-  private[intaglio] def panelData(
+  private[intaglio] def panelDataByCell(
       plotData: Vector[PlotRow],
       facet: FacetSpec[PlotRow],
-      cell: FacetCell,
+      layout: FacetLayout,
       layerIndex: Int
-  ): Either[GraphicsError, Vector[Row]]
+  ): Either[GraphicsError, Vector[Vector[Row]]]
 
 object PlotLayer:
   type Aux[PlotRow, Row0] = PlotLayer[PlotRow] { type Row = Row0 }
@@ -1556,15 +1556,15 @@ object PlotLayer:
       layer.effectiveMapping(plotMapping)
 
     private[intaglio] def facetSeedData(plotData: Vector[PlotRow]): Vector[PlotRow] =
-      effectiveData(plotData)
+      layer.data.getOrElse(Vector.empty)
 
-    private[intaglio] def panelData(
+    private[intaglio] def panelDataByCell(
         plotData: Vector[PlotRow],
         facet: FacetSpec[PlotRow],
-        cell: FacetCell,
+        layout: FacetLayout,
         layerIndex: Int
-    ): Either[GraphicsError, Vector[Row]] =
-      facet.panelData(cell, effectiveData(plotData), layerIndex)
+    ): Either[GraphicsError, Vector[Vector[Row]]] =
+      facet.partition(layout, effectiveData(plotData), layerIndex)
 
   private final case class Independent[PlotRow, Row0](
       layer: Layer[Row0],
@@ -1586,35 +1586,45 @@ object PlotLayer:
     private[intaglio] def facetSeedData(plotData: Vector[PlotRow]): Vector[PlotRow] =
       Vector.empty
 
-    private[intaglio] def panelData(
+    private[intaglio] def panelDataByCell(
         plotData: Vector[PlotRow],
         facet: FacetSpec[PlotRow],
-        cell: FacetCell,
+        layout: FacetLayout,
         layerIndex: Int
-    ): Either[GraphicsError, Vector[Row]] =
+    ): Either[GraphicsError, Vector[Vector[Row]]] =
       val rows = effectiveData(plotData)
-      val out = Vector.newBuilder[Row]
-      var rowIndex = 0
-      var result: Either[GraphicsError, Unit] = Right(())
-      while rowIndex < rows.length && result.isRight do
-        policy.evaluate(cell, rows(rowIndex)) match
-          case Right(true) =>
-            out += rows(rowIndex)
-          case Right(false) =>
-            ()
-          case Left((contract, failure)) =>
-            result = Left(
-              GraphicsError.MappingEvaluationFailed(
-                "facet membership",
-                Some(layerIndex),
-                "facet-policy",
-                rowIndex,
-                contract,
-                failure
-              )
-            )
-        rowIndex += 1
-      result.map(_ => out.result())
+      val cells = layout.cells
+      policy match
+        case LayerFacetPolicy.Repeat =>
+          Right(Vector.fill(cells.length)(rows))
+        case LayerFacetPolicy.Exclude =>
+          Right(Vector.fill(cells.length)(Vector.empty))
+        case _ =>
+          val out = Vector.fill(cells.length)(scala.collection.mutable.ArrayBuffer.empty[Row])
+          var rowIndex = 0
+          var result: Either[GraphicsError, Unit] = Right(())
+          while rowIndex < rows.length && result.isRight do
+            var cellIndex = 0
+            while cellIndex < cells.length && result.isRight do
+              policy.evaluate(cells(cellIndex), rows(rowIndex)) match
+                case Right(true) =>
+                  out(cellIndex) += rows(rowIndex)
+                case Right(false) =>
+                  ()
+                case Left((contract, failure)) =>
+                  result = Left(
+                    GraphicsError.MappingEvaluationFailed(
+                      "facet membership",
+                      Some(layerIndex),
+                      "facet-policy",
+                      rowIndex,
+                      contract,
+                      failure
+                    )
+                  )
+              cellIndex += 1
+            rowIndex += 1
+          result.map(_ => out.map(_.toVector))
 
   def inherited[Row](layer: Layer[Row]): PlotLayer.Aux[Row, Row] =
     Inherited(layer)

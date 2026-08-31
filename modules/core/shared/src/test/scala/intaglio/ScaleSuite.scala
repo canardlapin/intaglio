@@ -149,6 +149,31 @@ class ScaleSuite extends munit.FunSuite:
     assertEquals(trained.levels, Vector("low", "mid", "high"))
   }
 
+  test("discrete domain order and immutable identity index agree with one lookup per value") {
+    final case class Category(id: Int)
+    var identityCalls = 0
+    given CategoryIdentity[Category] = CategoryIdentity.by(
+      value =>
+        identityCalls += 1
+        value.id
+      ,
+      _.id.toString
+    )
+    val levels = Vector.tabulate(512)(Category.apply)
+    val domain = DiscreteDomain.ordered(levels).fold(error => fail(error.message), identity)
+
+    identityCalls = 0
+    assertEquals(domain.indexOf(Category(400)), Some(400))
+    assertEquals(identityCalls, 1)
+    assertEquals(
+      domain.levels.zipWithIndex.map { case (level, expected) =>
+        domain.indexOf(level) -> expected
+      },
+      domain.levels.indices.map(index => Some(index) -> index).toVector
+    )
+    assertEquals(domain.indexOf(Category(999)), None)
+  }
+
   test("finite discrete palettes reject over-capacity domains by default") {
     val domain = DiscreteDomain.ordered(Vector("A", "B", "C")).toOption.get
     val palette = DiscretePalette.valuesUnsafe(Vector(Rgba.Black, Rgba.White))

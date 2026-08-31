@@ -99,6 +99,39 @@ class FacetSuite extends munit.FunSuite:
     )
   }
 
+  test("declared facet levels index row membership once per layer, independent of panel count") {
+    val levels = Vector.tabulate(12)(index => s"level-$index")
+    val indexedRows = Vector.tabulate(120) { index =>
+      Observation(index.toDouble, index.toDouble, levels(index % levels.length))
+    }
+    var facetEvaluations = 0
+    val facet = FacetSpec
+      .wrap[Observation](
+        row =>
+          facetEvaluations += 1
+          row.condition
+        ,
+        columns = 4,
+        levels = levels
+      )
+      .fold(error => fail(error.message), identity)
+    val trained = Plot(indexedRows)
+      .withFacet(facet)
+      .addLayer(Layer.point[Observation](_.x, _.y))
+      .flatMap(
+        PlotCompiler.resolve(
+          _,
+          PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
+        )
+      )
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(facetEvaluations, indexedRows.length * 2)
+    assertEquals(trained.facetPanels.map(_.cell.label), levels)
+    assertEquals(trained.facetPanels.map(_.layers.head.dataSize), Vector.fill(levels.length)(10))
+    assertEquals(trained.facetPanels.map(_.layers.head.dataSize).sum, indexedRows.length)
+  }
+
   test("reference annotation facet participation is explicit and row-independent") {
     val facet =
       FacetSpec.wrap[Observation](_.condition).fold(error => fail(error.message), identity)

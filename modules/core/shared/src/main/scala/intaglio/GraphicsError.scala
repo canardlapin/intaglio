@@ -108,6 +108,7 @@ enum GraphicsError extends IntaglioError:
   case DegenerateFixedAspect(xWidth: Double, yWidth: Double)
   case InvalidFacetColumns(value: Int)
   case EmptyFacet
+  case FacetCellNotIndexed(rowLabel: Option[String], columnLabel: Option[String])
   case FacetRequiresSolver
   case FacetFixedCoordinates
   case MissingLayout(feature: String)
@@ -266,6 +267,8 @@ enum GraphicsError extends IntaglioError:
         s"facet column count must be >= 1: $value"
       case EmptyFacet =>
         "facet specification produced no panels"
+      case FacetCellNotIndexed(rowLabel, columnLabel) =>
+        s"facet row resolved to a cell absent from the indexed layout: row=$rowLabel, column=$columnLabel"
       case FacetRequiresSolver =>
         "facets require a layout policy; explicit single-panel layouts and frames are not facet grids"
       case FacetFixedCoordinates =>

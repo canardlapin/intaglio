@@ -109,11 +109,10 @@ private[intaglio] object FacetCompiler:
       facet: FacetSpec[Row],
       layout: FacetLayout
   ): Either[GraphicsError, Vector[PanelStats]] =
-    traverse(layout.cells) { cell =>
-      for
-        plans <- MappingPhase.planPanel(plot, facet, cell)
-        stats <- StatPhase.transform(plans)
-      yield PanelStats(cell, stats)
+    MappingPhase.planPanels(plot, facet, layout).flatMap { plansByPanel =>
+      traverse(layout.cells.zip(plansByPanel)) { case (cell, plans) =>
+        StatPhase.transform(plans).map(PanelStats(cell, _))
+      }
     }
 
   private def resolvePanels(

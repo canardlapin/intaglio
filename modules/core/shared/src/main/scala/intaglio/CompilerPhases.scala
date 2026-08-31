@@ -151,12 +151,13 @@ private[intaglio] object MappingPhase:
       idx += 1
     result.map(_ => out.result())
 
-  def planPanel[Row](
+  def planPanels[Row](
       plot: Plot[Row],
       facet: FacetSpec[Row],
-      cell: FacetCell
-  ): Either[GraphicsError, Vector[PackedLayerPlan]] =
-    val out = Vector.newBuilder[PackedLayerPlan]
+      layout: FacetLayout
+  ): Either[GraphicsError, Vector[Vector[PackedLayerPlan]]] =
+    val out =
+      Vector.fill(layout.cells.length)(scala.collection.mutable.ArrayBuffer.empty[PackedLayerPlan])
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plot.layers.length && result.isRight do
@@ -166,23 +167,28 @@ private[intaglio] object MappingPhase:
           AnnotationPlan(reference, reference.coordinate)
         )
       }
-      result =
-        for
-          panelData <- packed.panelData(plot.data, facet, cell, idx)
-          plan <- planValues(
+      val mapping = packed.effectiveMapping(plot.mapping)
+      result = packed.panelDataByCell(plot.data, facet, layout, idx).flatMap { panelData =>
+        var panelIndex = 0
+        var layerResult: Either[GraphicsError, Unit] = Right(())
+        while panelIndex < layout.cells.length && layerResult.isRight do
+          layerResult = planValues(
             packed.layer,
-            panelData,
-            packed.effectiveMapping(plot.mapping),
+            panelData(panelIndex),
+            mapping,
             idx,
             packed,
-            StatScope.Facet(cell),
+            StatScope.Facet(layout.cells(panelIndex)),
             annotation
-          )
-        yield
-          out += PackedLayerPlan(plan)
-          ()
+          ).map { plan =>
+            out(panelIndex) += PackedLayerPlan(plan)
+            ()
+          }
+          panelIndex += 1
+        layerResult
+      }
       idx += 1
-    result.map(_ => out.result())
+    result.map(_ => out.map(_.toVector))
 
   def planLayer[Row](
       plot: Plot[Row],
