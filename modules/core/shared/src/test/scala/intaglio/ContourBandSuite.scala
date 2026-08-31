@@ -30,6 +30,46 @@ class ContourBandSuite extends munit.FunSuite:
     assertEqualsDouble(area, 4.0, 1e-12)
   }
 
+  test("planar band mass is conserved across grid sizes and translated domains") {
+    Vector(3, 5, 9, 17).foreach { sampleCount =>
+      Vector(0.0, 1.0e6).foreach { offset =>
+        val axis =
+          RegularGridAxis.vertexCenteredUnsafe(offset - 1.0, offset + 1.0, sampleCount)
+        val field = ScalarField2D
+          .tabulate(axis, axis)((x, y) => (x - offset) + (y - offset))
+          .toOption
+          .get
+        val bands = ContourBandSet
+          .extract(field, ContourBreaks.atUnsafe(Vector(-2.0, -1.0, 0.0, 1.0, 2.0)))
+          .fold(error => fail(error.message), identity)
+        val area = bands.bands.flatMap(_.fragments).map(_.area).sum
+
+        assertEqualsDouble(area, 4.0, 1e-10, s"samples=$sampleCount offset=$offset")
+        assert(
+          bands.bands.flatMap(_.regions).forall(_.outer.winding == RingWinding.CounterClockwise)
+        )
+        assert(
+          bands.bands.flatMap(_.regions).flatMap(_.holes).forall(_.winding == RingWinding.Clockwise)
+        )
+      }
+    }
+  }
+
+  test("ring area and winding are stable at large coordinate offsets") {
+    val offset = 1.0e12
+    val points = Vector(
+      FieldPoint.unsafe(offset, offset),
+      FieldPoint.unsafe(offset + 3.0, offset),
+      FieldPoint.unsafe(offset + 3.0, offset + 2.0),
+      FieldPoint.unsafe(offset, offset + 2.0),
+      FieldPoint.unsafe(offset, offset)
+    )
+    val ring = ContourRing.fromClosed(points).fold(error => fail(error.message), identity)
+
+    assertEquals(ring.signedArea, 6.0)
+    assertEquals(ring.winding, RingWinding.CounterClockwise)
+  }
+
   test("band topology is deterministic under translation") {
     val axis = RegularGridAxis.vertexCenteredUnsafe(-1.5, 1.5, 25)
     val shiftedAxis = RegularGridAxis.vertexCenteredUnsafe(8.5, 11.5, 25)

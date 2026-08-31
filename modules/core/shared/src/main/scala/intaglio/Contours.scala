@@ -206,12 +206,34 @@ private[intaglio] object MarchingSquares:
       level: Double,
       tiePolicy: SaddleTiePolicy
   ): Boolean =
-    val denominator = bottomLeft - bottomRight - topLeft + topRight
-    val saddle =
-      if math.abs(denominator) <= 1e-15 then (bottomLeft + bottomRight + topRight + topLeft) / 4.0
-      else (bottomLeft * topRight - bottomRight * topLeft) / denominator
-    if saddle > level then true
-    else if saddle < level then false
+    val relativeBottomLeft = bottomLeft - level
+    val relativeBottomRight = bottomRight - level
+    val relativeTopRight = topRight - level
+    val relativeTopLeft = topLeft - level
+    val scale = math.max(
+      math.max(math.abs(relativeBottomLeft), math.abs(relativeBottomRight)),
+      math.max(math.abs(relativeTopRight), math.abs(relativeTopLeft))
+    )
+    val normalizedBottomLeft = relativeBottomLeft / scale
+    val normalizedBottomRight = relativeBottomRight / scale
+    val normalizedTopRight = relativeTopRight / scale
+    val normalizedTopLeft = relativeTopLeft / scale
+    val denominator =
+      normalizedBottomLeft - normalizedBottomRight - normalizedTopLeft + normalizedTopRight
+    val denominatorTolerance = 8.0 * math.ulp(1.0)
+    val relativeSaddle =
+      if math.abs(denominator) <= denominatorTolerance then
+        val average = NumericalMath.CompensatedSum()
+        average.add(normalizedBottomLeft)
+        average.add(normalizedBottomRight)
+        average.add(normalizedTopRight)
+        average.add(normalizedTopLeft)
+        average.result / 4.0
+      else
+        (normalizedBottomLeft * normalizedTopRight -
+          normalizedBottomRight * normalizedTopLeft) / denominator
+    if relativeSaddle > 0.0 then true
+    else if relativeSaddle < 0.0 then false
     else tiePolicy == SaddleTiePolicy.ConnectAbove
 
   private def interpolate(
@@ -223,7 +245,12 @@ private[intaglio] object MarchingSquares:
       value1: Double,
       level: Double
   ): FieldPoint =
-    val raw = (level - value0) / (value1 - value0)
+    val relative0 = value0 - level
+    val relative1 = value1 - level
+    val scale = math.max(math.abs(relative0), math.abs(relative1))
+    val normalized0 = relative0 / scale
+    val normalized1 = relative1 / scale
+    val raw = normalized0 / (normalized0 - normalized1)
     val t = math.max(0.0, math.min(1.0, raw))
     FieldPoint.unsafe(x0 + t * (x1 - x0), y0 + t * (y1 - y0))
 

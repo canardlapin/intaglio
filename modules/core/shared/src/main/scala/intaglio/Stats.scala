@@ -420,6 +420,7 @@ enum StatError extends IntaglioError:
   case NonFiniteInput(aesthetic: String, value: Double)
   case InsufficientData(minimum: Int, actual: Int)
   case InputOutsideBins(value: Double, lower: Double, upper: Double)
+  case UnsupportedStrategy(strategy: String)
   case Rejected(detail: String)
 
   def message: String =
@@ -432,6 +433,8 @@ enum StatError extends IntaglioError:
         s"requires at least $minimum observations: found $actual"
       case InputOutsideBins(value, lower, upper) =>
         s"value $value is outside explicit breaks [$lower, $upper]"
+      case UnsupportedStrategy(strategy) =>
+        s"strategy '$strategy' is not implemented in this build"
       case Rejected(detail) =>
         detail
 
@@ -452,6 +455,8 @@ enum StatError extends IntaglioError:
         GraphicsError.InsufficientStatData(stat, minimum, actual)
       case InputOutsideBins(value, lower, upper) =>
         GraphicsError.StatInputOutsideBins(value, lower, upper)
+      case UnsupportedStrategy(strategy) =>
+        GraphicsError.UnsupportedStatStrategy(stat, strategy)
       case Rejected(detail) =>
         GraphicsError.StatRejected(stat, detail)
 
@@ -670,6 +675,14 @@ enum SummaryInterval:
   /** Arithmetic mean with the observed minimum and maximum. */
   case Range
 
+/** Kernel-density execution strategy. The portable direct kernel is available today. `Fft` is a
+  * deliberate, typed extension boundary: callers can plan for a convolution implementation without
+  * Intaglio silently adding a dependency or changing numerical behavior.
+  */
+enum KdeStrategy(val label: String):
+  case Direct extends KdeStrategy("direct")
+  case Fft extends KdeStrategy("fft")
+
 opaque type DensityBandwidth = Double
 
 object DensityBandwidth:
@@ -700,35 +713,39 @@ object DensityPoints:
 final case class DensityConfig private (
     bandwidth: Option[DensityBandwidth],
     points: DensityPoints,
-    domain: Option[Interval]
+    domain: Option[Interval],
+    strategy: KdeStrategy
 )
 
 object DensityConfig:
   val default: DensityConfig =
-    DensityConfig(None, DensityPoints.unsafe(512), None)
+    DensityConfig(None, DensityPoints.unsafe(512), None, KdeStrategy.Direct)
 
   def automatic(
       points: Int = 512,
-      domain: Option[Interval] = None
+      domain: Option[Interval] = None,
+      strategy: KdeStrategy = KdeStrategy.Direct
   ): Either[GraphicsError, DensityConfig] =
-    DensityPoints(points).map(DensityConfig(None, _, domain))
+    DensityPoints(points).map(DensityConfig(None, _, domain, strategy))
 
   def fixed(
       bandwidth: Double,
       points: Int = 512,
-      domain: Option[Interval] = None
+      domain: Option[Interval] = None,
+      strategy: KdeStrategy = KdeStrategy.Direct
   ): Either[GraphicsError, DensityConfig] =
     for
       resolvedBandwidth <- DensityBandwidth(bandwidth)
       resolvedPoints <- DensityPoints(points)
-    yield DensityConfig(Some(resolvedBandwidth), resolvedPoints, domain)
+    yield DensityConfig(Some(resolvedBandwidth), resolvedPoints, domain, strategy)
 
   def fixedUnsafe(
       bandwidth: Double,
       points: Int = 512,
-      domain: Option[Interval] = None
+      domain: Option[Interval] = None,
+      strategy: KdeStrategy = KdeStrategy.Direct
   ): DensityConfig =
-    fixed(bandwidth, points, domain).orThrow
+    fixed(bandwidth, points, domain, strategy).orThrow
 
 private[intaglio] object DensityMath:
   /** R's `bw.nrd0`: the standard deviation or robust IQR scale, with the same constant-data
@@ -737,19 +754,7 @@ private[intaglio] object DensityMath:
   def nrd0(values: Array[Double]): Double =
     val sorted = values.clone()
     scala.util.Sorting.quickSort(sorted)
-    var sum = 0.0
-    var sumIndex = 0
-    while sumIndex < values.length do
-      sum += values(sumIndex)
-      sumIndex += 1
-    val mean = sum / values.length.toDouble
-    var sumSquares = 0.0
-    var index = 0
-    while index < values.length do
-      val centered = values(index) - mean
-      sumSquares += centered * centered
-      index += 1
-    val standardDeviation = math.sqrt(sumSquares / (values.length - 1).toDouble)
+    val standardDeviation = NumericalMath.moments(values).sampleStandardDeviation
     val robust = (quantile(sorted, 0.75) - quantile(sorted, 0.25)) / 1.34
     var scale = math.min(standardDeviation, robust)
     if !(scale > 0.0) then scale = standardDeviation

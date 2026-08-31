@@ -52,12 +52,17 @@ object ContourRing:
       else Right(new ContourRing(points, area))
 
   private[intaglio] def polygonArea(points: Vector[FieldPoint]): Double =
-    var twiceArea = 0.0
+    val origin = points.head
+    val twiceArea = NumericalMath.CompensatedSum()
     var index = 0
     while index < points.length - 1 do
-      twiceArea += points(index).x * points(index + 1).y - points(index + 1).x * points(index).y
+      val leftX = points(index).x - origin.x
+      val leftY = points(index).y - origin.y
+      val rightX = points(index + 1).x - origin.x
+      val rightY = points(index + 1).y - origin.y
+      twiceArea.add(leftX * rightY - rightX * leftY)
       index += 1
-    twiceArea / 2.0
+    twiceArea.result / 2.0
 
 final case class ContourRegion(outer: ContourRing, holes: Vector[ContourRing]):
   require(outer.winding == RingWinding.CounterClockwise, "outer ring must be counter-clockwise")
@@ -209,7 +214,12 @@ private[intaglio] object Isobands:
     val (first, second) =
       if left.x < right.x || (left.x == right.x && left.y <= right.y) then (left, right)
       else (right, left)
-    val t = (threshold - first.value) / (second.value - first.value)
+    val relativeFirst = first.value - threshold
+    val relativeSecond = second.value - threshold
+    val scale = math.max(math.abs(relativeFirst), math.abs(relativeSecond))
+    val normalizedFirst = relativeFirst / scale
+    val normalizedSecond = relativeSecond / scale
+    val t = normalizedFirst / (normalizedFirst - normalizedSecond)
     Sample(
       first.x + t * (second.x - first.x),
       first.y + t * (second.y - first.y),

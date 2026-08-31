@@ -54,6 +54,8 @@ val logScaled =
 
 Typed `CalendarDate`/`UtcDateTime` scales and post-statistical coordinate
 windows are covered in the [date/time and zoom guide](docs/date-time-and-zoom.md).
+Histogram closure, compensated summaries, KDE normalization and strategy, and
+contour topology are specified in the [numerical standards guide](docs/numerical-standards.md).
 
 ## Artifacts
 

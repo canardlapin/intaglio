@@ -76,6 +76,7 @@ enum GraphicsError extends IntaglioError:
   case InvalidStatGeom(stat: String, geom: String)
   case StatAestheticConflict(stat: String, aesthetic: String)
   case UnsupportedStatAesthetic(stat: String, aesthetic: String)
+  case UnsupportedStatStrategy(stat: String, strategy: String)
   case InvalidStatParameter(stat: String, parameter: String, value: String)
   case InvalidStatResult(stat: String, detail: String)
   case StatRejected(stat: String, detail: String)
@@ -259,6 +260,8 @@ enum GraphicsError extends IntaglioError:
         s"stat '$stat' computes aesthetic '$aesthetic'; do not map it from input rows"
       case UnsupportedStatAesthetic(stat, aesthetic) =>
         s"stat '$stat' does not yet aggregate input aesthetic '$aesthetic'"
+      case UnsupportedStatStrategy(stat, strategy) =>
+        s"stat '$stat' does not have an implementation for strategy '$strategy' in this build"
       case InvalidStatParameter(stat, parameter, value) =>
         s"stat '$stat' requires a valid $parameter: $value"
       case InvalidStatResult(stat, detail) =>

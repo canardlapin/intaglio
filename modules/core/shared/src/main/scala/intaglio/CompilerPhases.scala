@@ -492,13 +492,13 @@ private[intaglio] object BuiltinStatRuntime:
                 val rows = groups.keys.toVector.sorted.map { x =>
                   val observations = groups(x).toVector
                   val values = observations.map(_._2)
-                  val mean = values.sum / values.length.toDouble
-                  val (lower, upper) = summaryBounds(values, mean, stat.interval)
+                  val moments = NumericalMath.moments(values)
+                  val (lower, upper) = summaryBounds(moments, stat.interval)
                   StatRow.Summarized(
                     source = observations.head._1,
                     members = observations.map(_._1),
                     position = x,
-                    mean = mean,
+                    mean = moments.mean,
                     lower = lower,
                     upper = upper,
                     count = values.length
@@ -514,25 +514,16 @@ private[intaglio] object BuiltinStatRuntime:
     yield transformed
 
   private def summaryBounds(
-      values: Vector[Double],
-      mean: Double,
+      moments: NumericalMath.SampleMoments,
       interval: SummaryInterval
   ): (Double, Double) =
     interval match
       case SummaryInterval.StandardError =>
         val standardError =
-          if values.length < 2 then 0.0
-          else
-            var sumSquares = 0.0
-            var idx = 0
-            while idx < values.length do
-              val centered = values(idx) - mean
-              sumSquares += centered * centered
-              idx += 1
-            math.sqrt(sumSquares / (values.length - 1).toDouble) / math.sqrt(values.length.toDouble)
-        (mean - standardError, mean + standardError)
+          moments.sampleStandardDeviation / math.sqrt(moments.count.toDouble)
+        (moments.mean - standardError, moments.mean + standardError)
       case SummaryInterval.Range =>
-        (values.min, values.max)
+        (moments.minimum, moments.maximum)
 
   private def summaryMapping[Input]: AesSpec[StatRow.Summarized[Input]] =
     AesSpec[StatRow.Summarized[Input]](
@@ -671,6 +662,8 @@ private[intaglio] object BuiltinStatRuntime:
           Left(StatError.NonFiniteInput(Aesthetic.X.label, value))
         case None if values.length < 2 =>
           Left(StatError.InsufficientData(2, values.length))
+        case None if stat.config.strategy == KdeStrategy.Fft =>
+          Left(StatError.UnsupportedStrategy(stat.config.strategy.label))
         case None =>
           val bandwidth = stat.config.bandwidth.map(_.toDouble).getOrElse(DensityMath.nrd0(values))
           val domain = stat.config.domain.getOrElse(Interval.unsafe(values.min, values.max))
@@ -704,13 +697,13 @@ private[intaglio] object BuiltinStatRuntime:
 
   private def gaussianDensity(values: Array[Double], position: Double, bandwidth: Double): Double =
     val normalizer = values.length.toDouble * bandwidth * math.sqrt(2.0 * math.Pi)
-    var sum = 0.0
+    val sum = NumericalMath.CompensatedSum()
     var idx = 0
     while idx < values.length do
       val z = (position - values(idx)) / bandwidth
-      sum += math.exp(-0.5 * z * z)
+      sum.add(math.exp(-0.5 * z * z))
       idx += 1
-    sum / normalizer
+    sum.result / normalizer
 
   private def firstNonFinite(values: Vector[Double]): Option[Double] =
     values.find(value => !value.isFinite)
