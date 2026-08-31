@@ -97,6 +97,19 @@ lazy val svg =
 lazy val svgJS  = svg.js
 lazy val svgJVM = svg.jvm
 
+lazy val notebook =
+  crossProject(JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/notebook"))
+    .dependsOn(core, svg)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-notebook",
+      description := "Optional Jupyter MIME-bundle display adapter for Intaglio plots."
+    )
+
+lazy val notebookJVM = notebook.jvm
+
 lazy val performance =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Full)
@@ -167,6 +180,7 @@ lazy val root =
       lawsJVM,
       svgJS,
       svgJVM,
+      notebookJVM,
       performanceJS,
       performanceJVM,
       canvasJS,
@@ -180,10 +194,10 @@ lazy val root =
 
 addCommandAlias(
   "compileAll",
-  ";coreJVM/compile;coreJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;java2dJVM/compile;javafxJVM/compile"
+  ";coreJVM/compile;coreJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;java2dJVM/compile;javafxJVM/compile"
 )
 
 addCommandAlias(
   "testAll",
-  ";coreJVM/test;coreJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;javafxJVM/test"
+  ";coreJVM/test;coreJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;javafxJVM/test"
 )
