@@ -39,7 +39,11 @@ private[intaglio] object FacetCompiler:
         facetLayout <- facet.layout(allData)
         panelStats <- transformPanels(plot, facet, facetLayout)
         globalScales <- ScalePhase.trainFacets(panelStats.flatMap(_.plans), options.theme)
-        globalLayers <- PlotCompiler.resolveLayers(globalScales.plans, options.theme)
+        globalLayers <- PlotCompiler.resolveLayers(
+          globalScales.plans,
+          options.theme,
+          options.provenance
+        )
         globalLogical <- LayoutPhase.panelRanges(globalLayers)
         globalCoordinates <- CoordPhase.transform(plot.coord, globalLayers, Some(globalLogical))
         globalPhysical <- requireRanges(globalCoordinates.ranges)
@@ -140,7 +144,7 @@ private[intaglio] object FacetCompiler:
         merged = global.zip(localPlans).map { case (globalPlan, localPlan) =>
           PackedStatPlan.mergePositionScales(globalPlan, localPlan, scales)
         }
-        layers <- PlotCompiler.resolveLayers(merged, options.theme)
+        layers <- PlotCompiler.resolveLayers(merged, options.theme, options.provenance)
         localRanges <- localRangesOrGlobal(layers, globalRanges)
         selected = (
           if scales.xIsFree then localRanges._1 else globalRanges._1,

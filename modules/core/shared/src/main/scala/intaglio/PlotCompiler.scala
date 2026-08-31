@@ -73,12 +73,21 @@ final case class PlotCompilerOptions(
     expansion: RangeExpansion = RangeExpansion.default,
     guides: GuidePolicy = GuidePolicy.NoGuides,
     theme: Theme = Theme.default,
-    renderContext: Option[RenderContext] = None
+    renderContext: Option[RenderContext] = None,
+    provenance: ProvenancePolicy = ProvenancePolicy.Full
 )
 
 object PlotCompilerOptions:
   val default: PlotCompilerOptions =
     PlotCompilerOptions()
+
+  /** Retain complete typed rows, statistic members, and diagnostics for interactive inspection. */
+  val rich: PlotCompilerOptions =
+    default
+
+  /** Retain no source provenance after lowering. Ordinary rendering needs only the scene. */
+  val lean: PlotCompilerOptions =
+    PlotCompilerOptions(provenance = ProvenancePolicy.None)
 
 /** Inspectable trained layer whose hidden row type remains attached to its mapping, statistic,
   * resolved rows, and dropped-row provenance.
@@ -96,6 +105,7 @@ sealed trait TrainedLayer:
   final def annotation: Option[ResolvedReferenceLine] = value.annotation
   final def grouping: GroupingDecision = value.grouping
   final def statFrame: StatFrame[Row] = value.statFrame
+  final def inspection: LayerInspection[Row] = value.inspection
   final def scaleDeclarations: Vector[ScaleDeclaration] = value.scaleDeclarations
   final def trainedScales: Vector[TrainedScale] = value.trainedScales
   final def rows: Vector[ResolvedRow[Row]] = value.rows
@@ -104,6 +114,17 @@ sealed trait TrainedLayer:
 
   private[intaglio] final def packedDroppedRows: Vector[TrainedDroppedRow] =
     droppedRows.map(TrainedDroppedRow(_))
+
+  private[intaglio] final def retainRequestedInspection: TrainedLayer =
+    if inspection.policy == ProvenancePolicy.Full then this
+    else
+      TrainedLayer(
+        value.copy(
+          statFrame = StatFrame(Vector.empty, value.statFrame.computedAesthetics),
+          rows = Vector.empty,
+          droppedRows = Vector.empty
+        )
+      )
 
 object TrainedLayer:
   type Aux[Row0] = TrainedLayer { type Row = Row0 }
@@ -181,6 +202,17 @@ final case class TrainedPlot(
   def trainedScales: Vector[TrainedScale] =
     scaleRegistry.scales
 
+  private[intaglio] def retainRequestedInspection: TrainedPlot =
+    if layers.forall(_.inspection.policy == ProvenancePolicy.Full) then this
+    else
+      val retainedPanels = facetPanels.map { panel =>
+        panel.copy(layers = panel.layers.map(_.retainRequestedInspection))
+      }
+      val retainedLayers =
+        if retainedPanels.nonEmpty then retainedPanels.flatMap(_.layers)
+        else layers.map(_.retainRequestedInspection)
+      copy(layers = retainedLayers, facetPanels = retainedPanels)
+
 final case class ResolvedFacetPanel(
     cell: FacetCell,
     layout: PanelLayout,
@@ -204,7 +236,8 @@ final case class ResolvedLayer[Row](
     trainedScales: Vector[TrainedScale],
     rows: Vector[ResolvedRow[Row]],
     droppedRows: Vector[DroppedRow[Row]],
-    grobs: Vector[Grob]
+    grobs: Vector[Grob],
+    inspection: LayerInspection[Row]
 )
 
 /** A row-independent annotation after any requested position-scale mapping. */
@@ -265,7 +298,7 @@ final case class ResolvedRow[Row](
   def computed: ComputedValues =
     statRow.computed
 
-final case class DroppedRow[Row](
+final case class DroppedRow[+Row](
     layerIndex: Int,
     rowIndex: Int,
     source: Row,
@@ -298,7 +331,7 @@ enum PlotDropReason:
 object PlotCompiler:
   def compile[Row](
       plot: Plot[Row],
-      options: PlotCompilerOptions = PlotCompilerOptions.default
+      options: PlotCompilerOptions = PlotCompilerOptions.lean
   ): Either[GraphicsError, Scene] =
     resolve(plot, options).map(_.scene)
 
@@ -306,7 +339,7 @@ object PlotCompiler:
       plot: Plot[Row],
       context: RenderContext
   ): Either[GraphicsError, RenderPlan] =
-    compile(plot, context, PlotCompilerOptions.default)
+    compile(plot, context, PlotCompilerOptions.lean)
 
   def compile[Row](
       plot: Plot[Row],
@@ -320,9 +353,10 @@ object PlotCompiler:
       options: PlotCompilerOptions = PlotCompilerOptions.default
   ): Either[GraphicsError, TrainedPlot] =
     val resolvedOptions = effectiveOptions(plot, options)
-    plot.facet match
+    val resolved = plot.facet match
       case Some(facet) => FacetCompiler.resolve(plot, facet, resolvedOptions)
       case None        => resolveSingle(plot, resolvedOptions)
+    resolved.map(_.retainRequestedInspection)
 
   def resolve[Row](
       plot: Plot[Row],
@@ -369,7 +403,11 @@ object PlotCompiler:
       plans <- MappingPhase.plan(plot)
       statPlans <- StatPhase.transform(plans)
       scales <- ScalePhase.train(statPlans, resolvedOptions.theme)
-      logicalLayers <- resolveLayers(scales.plans, resolvedOptions.theme)
+      logicalLayers <- resolveLayers(
+        scales.plans,
+        resolvedOptions.theme,
+        resolvedOptions.provenance
+      )
       logicalRanges <- LayoutPhase.panelRangesFor(resolvedOptions, logicalLayers)
       specs <- GuidePhase.specs(
         resolvedOptions.guides,
@@ -404,13 +442,14 @@ object PlotCompiler:
 
   private[intaglio] def resolveLayers(
       plans: Vector[PackedStatPlan],
-      theme: Theme
+      theme: Theme,
+      provenance: ProvenancePolicy
   ): Either[GraphicsError, Vector[TrainedLayer]] =
     val out = Vector.newBuilder[TrainedLayer]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plans.length && result.isRight do
-      result = resolveLayer(plans(idx), theme).map { layer =>
+      result = resolveLayer(plans(idx), theme, provenance).map { layer =>
         out += layer
         ()
       }
@@ -419,13 +458,15 @@ object PlotCompiler:
 
   private def resolveLayer(
       plan: PackedStatPlan,
-      theme: Theme
+      theme: Theme,
+      provenance: ProvenancePolicy
   ): Either[GraphicsError, TrainedLayer] =
-    resolveTypedLayer(plan.value, theme)
+    resolveTypedLayer(plan.value, theme, provenance)
 
   private def resolveTypedLayer[Row, Output <: StatRow[Row]](
       plan: StatPlan[Row, Output],
-      theme: Theme
+      theme: Theme,
+      provenance: ProvenancePolicy
   ): Either[GraphicsError, TrainedLayer] =
     val registry = ScaleRegistry.fromMapping(plan.mapping)
     val annotation = plan.annotation.map(_.resolved)
@@ -435,6 +476,8 @@ object PlotCompiler:
       else registry.trained :+ scale
     }
     RowPhase.resolve(plan, theme).flatMap { case (rows, droppedRows) =>
+      val inspection =
+        LayerInspection.capture(plan.source.data, plan.frame, droppedRows, provenance)
       PositionPhase.adjust(plan.layer, rows).flatMap { adjusted =>
         GeomPhase
           .lower(
@@ -461,7 +504,8 @@ object PlotCompiler:
                 trainedScales = trainedScales,
                 rows = adjusted,
                 droppedRows = droppedRows,
-                grobs = grobs
+                grobs = grobs,
+                inspection = inspection
               )
             )
           }
