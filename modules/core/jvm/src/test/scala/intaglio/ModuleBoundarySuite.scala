@@ -4,12 +4,12 @@ import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
 /** Guards the boundary that keeps Intaglio self-contained and portable: every production package
-  * lives under `intaglio`, the core stays platform-neutral, and each backend depends only on the
-  * core. These are the properties that let the library be consumed a module at a time — a portable
-  * consumer must never acquire a platform renderer or toolkit transitively.
+  * lives under `intaglio`, the core stays platform-neutral, and each backend's Intaglio project
+  * dependency is only the core. These are the properties that let the library be consumed a module
+  * at a time — a portable consumer must never acquire a platform renderer or toolkit transitively.
   */
 class ModuleBoundarySuite extends munit.FunSuite:
-  private val modules = Vector("core", "laws", "svg", "canvas", "java2d", "javafx")
+  private val modules = Vector("core", "laws", "svg", "canvas", "java2d", "pdf", "javafx")
 
   private lazy val root: Path =
     var candidate = Path.of(sys.props("user.dir")).toAbsolutePath.normalize
@@ -63,6 +63,7 @@ class ModuleBoundarySuite extends munit.FunSuite:
       ("svg", "svgJS", "crossProject(JSPlatform, JVMPlatform)"),
       ("canvas", "canvasJS", "crossProject(JSPlatform)"),
       ("java2d", "java2dJVM", "crossProject(JVMPlatform)"),
+      ("pdf", "pdfJVM", "crossProject(JVMPlatform)"),
       ("javafx", "javafxJVM", "crossProject(JVMPlatform)")
     )
     backends.foreach { case (name, end, platform) =>
@@ -99,7 +100,8 @@ class ModuleBoundarySuite extends munit.FunSuite:
       ("laws", "lawsJS"),
       ("svg", "svgJS"),
       ("canvas", "canvasJS"),
-      ("java2d", "java2dJVM")
+      ("java2d", "java2dJVM"),
+      ("pdf", "pdfJVM")
     ).foreach { case (name, end) =>
       assert(!projectBlock(build, name, end).contains("openjfx"), clues(name))
     }

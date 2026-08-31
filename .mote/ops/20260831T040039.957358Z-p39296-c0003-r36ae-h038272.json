@@ -1,0 +1,1 @@
+{"actor":"codex-intaglio-p0","entity":"intaglio-pdf","kind":"note","note_kind":"progress","op":"20260831T040039.957358Z-p39296-c0003-r36ae-h038272","text":"Implement direct JVM PDF output with exact physical sizing, mandatory embedded/subset fonts for text, vector geometry, and an explicit raster policy; verify by parsing generated PDFs.","ts":"2026-08-31T04:00:39.957358Z","v":1}

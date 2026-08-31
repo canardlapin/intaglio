@@ -1,0 +1,1 @@
+{"actor":"codex-intaglio-p0","entity":"intaglio-pdf","kind":"reserve_open","mode":"exclusive","op":"20260831T040039.918485Z-p39296-c0000-r2038-h5556ca","paths":["build.sbt","README.md","modules/pdf","modules/core/jvm/src/test/scala/intaglio/ModuleBoundarySuite.scala"],"reservation_id":"rv-01M1AZKXFEWTCM303ZHC3ESDJ5","ts":"2026-08-31T04:00:39.918485Z","ttl_s":3600,"v":2}

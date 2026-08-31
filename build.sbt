@@ -153,6 +153,24 @@ lazy val java2d =
 
 lazy val java2dJVM = java2d.jvm
 
+lazy val pdf =
+  crossProject(JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/pdf"))
+    .dependsOn(core)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-pdf",
+      description := "Publication-quality PDF renderer for Intaglio scenes (JVM).",
+      libraryDependencies += "org.apache.pdfbox" % "pdfbox" % "3.0.8",
+      // PDF render-back assertions exercise AWT image code. Isolate them from
+      // the sbt UI process and make their intended headless environment explicit.
+      Test / fork := true,
+      Test / javaOptions += "-Djava.awt.headless=true"
+    )
+
+lazy val pdfJVM = pdf.jvm
+
 lazy val javafx =
   crossProject(JVMPlatform)
     .crossType(CrossType.Full)
@@ -185,6 +203,7 @@ lazy val root =
       performanceJVM,
       canvasJS,
       java2dJVM,
+      pdfJVM,
       javafxJVM
     )
     .settings(
@@ -194,10 +213,10 @@ lazy val root =
 
 addCommandAlias(
   "compileAll",
-  ";coreJVM/compile;coreJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;java2dJVM/compile;javafxJVM/compile"
+  ";coreJVM/compile;coreJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile"
 )
 
 addCommandAlias(
   "testAll",
-  ";coreJVM/test;coreJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;javafxJVM/test"
+  ";coreJVM/test;coreJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test"
 )

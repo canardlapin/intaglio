@@ -6,8 +6,8 @@ Scala.js.
 In intaglio printmaking an image is incised into a plate; the plate is inked
 and pressed, and every impression it yields is identical. That is this
 library's architecture. One renderer-neutral `Scene` is the plate, and SVG,
-Canvas, Java2D, and JavaFX are impressions of it — held to a shared conformance
-contract that proves they agree.
+Canvas, Java2D, JavaFX, and PDF are impressions of it — held to a shared
+conformance contract that proves they agree.
 
 ```scala
 libraryDependencies += "io.github.canardlapin" %%% "intaglio-core" % "0.1.0"
@@ -64,6 +64,7 @@ windows are covered in the [date/time and zoom guide](docs/date-time-and-zoom.md
 | `intaglio-svg` | yes | yes | core |
 | `intaglio-canvas` | no | yes | core |
 | `intaglio-java2d` | yes | no | core |
+| `intaglio-pdf` | yes | no | core; Apache PDFBox |
 | `intaglio-javafx` | yes | no | core; OpenJFX is `Provided` |
 
 The backends are separately selectable, so a portable consumer never acquires a
@@ -81,6 +82,11 @@ libraryDependencies +=
 returns structured `LawFailure` values, so it works with MUnit, ScalaTest,
 Weaver, or a project-specific runner without making one of them transitive.
 Complete examples live in [`modules/laws`](modules/laws/README.md).
+
+For print output, `intaglio-pdf` writes PDF directly: page dimensions come from
+the render context's pixel size and resolution, supplied fonts are embedded and
+subset, vector marks and fill patterns remain vector, and only explicit raster
+grobs become image payloads. See the [PDF renderer guide](modules/pdf/README.md).
 
 ## What the core owns
 
@@ -145,9 +151,8 @@ tools/render_position_adjustment_qa.sh
 
 ## Status
 
-`0.1.0-SNAPSHOT`, unpublished. The core and all four backends are green on both
-platforms. The library began inside a neuroimaging system and was extracted once
-it outgrew it; neuroimaging is one consumer, not the design center.
+`0.1.0-SNAPSHOT`, unpublished. The core and all five backends are green on their
+supported platforms.
 
 ## License
 
