@@ -1078,7 +1078,10 @@ object Geom:
       optional = markStyles
     )
 
-  private val builtIns: Vector[Geom] =
+  // Keep the companion's class initializer independent of nested case-object initialization.
+  // Parallel test or application startup can otherwise deadlock when a case object requests a
+  // shared contract while the eager enumeration is waiting for that same case object.
+  private lazy val builtIns: Vector[Geom] =
     Vector(
       Point,
       Line,

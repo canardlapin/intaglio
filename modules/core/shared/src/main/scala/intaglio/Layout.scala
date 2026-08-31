@@ -215,6 +215,36 @@ object GuideSpec:
       case colorbar: Colorbar =>
         lowerColorbar(colorbar, legendViewport, theme)
 
+  /** Apply one measured guide-stack placement while retaining the semantic guide content. The
+    * compiler and renderer-neutral plot composition share this operation so collected guides use
+    * exactly the same point-based spacing as guides attached to an individual plot.
+    */
+  private[intaglio] def place(spec: GuideSpec, placement: GuidePlacement): GuideSpec =
+    def x(value: Double): LengthExpr = LengthExpr(Length.pointsUnsafe(value))
+    def y(value: Double): LengthExpr = LengthExpr.npcUnsafe(1.0) - ExtentExpr.pointsUnsafe(value)
+    (spec, placement) match
+      case (legend: Legend, solved: GuidePlacement.Legend) =>
+        legend.copy(
+          origin = Point(x(solved.xPt), y(solved.topPt)),
+          rowGap = ExtentExpr.pointsUnsafe(solved.rowPitchPt),
+          firstRowOffset = Some(ExtentExpr.pointsUnsafe(solved.firstRowOffsetPt)),
+          labelOffset = x(solved.labelOffsetPt),
+          markerSize = ExtentExpr.pointsUnsafe(solved.markerSizePt)
+        )
+      case (colorbar: Colorbar, solved: GuidePlacement.Colorbar) =>
+        colorbar.copy(
+          origin = Point(
+            x(solved.xPt),
+            y(solved.topPt + solved.barTopOffsetPt + solved.barHeightPt)
+          ),
+          barWidth = ExtentExpr.pointsUnsafe(solved.barWidthPt),
+          barHeight = ExtentExpr.pointsUnsafe(solved.barHeightPt),
+          tickLength = ExtentExpr.pointsUnsafe(solved.tickLengthPt),
+          labelOffset = ExtentExpr.pointsUnsafe(solved.labelOffsetPt),
+          titleOffset = ExtentExpr.pointsUnsafe(solved.titleOffsetPt)
+        )
+      case _ => spec
+
   private def lowerAxis(
       spec: Axis,
       layout: PanelLayout,

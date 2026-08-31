@@ -2950,43 +2950,13 @@ private[intaglio] object GuidePhase:
           var result: Either[GraphicsError, Unit] = Right(())
           while idx < specs.length && result.isRight do
             val spec = specs(idx)
-            val placed = placements.get(idx).fold(spec)(placeGuide(spec, _))
+            val placed = placements.get(idx).fold(spec)(GuideSpec.place(spec, _))
             result = GuideSpec.lower(placed, panel, legendViewport, policy, theme).map { guide =>
               out += guide
               ()
             }
             idx += 1
           result.map(_ => out.result())
-
-  /** Apply a solved placement to the spec it was measured from. Placements are keyed by that spec's
-    * index, so the two variants always agree; the final case is unreachable and keeps the authored
-    * origin rather than inventing an error for a condition that cannot arise.
-    */
-  private def placeGuide(spec: GuideSpec, placement: GuidePlacement): GuideSpec =
-    def x(value: Double): LengthExpr = LengthExpr(Length.pointsUnsafe(value))
-    def y(value: Double): LengthExpr = LengthExpr.npcUnsafe(1.0) - ExtentExpr.pointsUnsafe(value)
-    (spec, placement) match
-      case (legend: GuideSpec.Legend, solved: GuidePlacement.Legend) =>
-        legend.copy(
-          origin = Point(x(solved.xPt), y(solved.topPt)),
-          rowGap = ExtentExpr.pointsUnsafe(solved.rowPitchPt),
-          firstRowOffset = Some(ExtentExpr.pointsUnsafe(solved.firstRowOffsetPt)),
-          labelOffset = x(solved.labelOffsetPt),
-          markerSize = ExtentExpr.pointsUnsafe(solved.markerSizePt)
-        )
-      case (colorbar: GuideSpec.Colorbar, solved: GuidePlacement.Colorbar) =>
-        colorbar.copy(
-          origin = Point(
-            x(solved.xPt),
-            y(solved.topPt + solved.barTopOffsetPt + solved.barHeightPt)
-          ),
-          barWidth = ExtentExpr.pointsUnsafe(solved.barWidthPt),
-          barHeight = ExtentExpr.pointsUnsafe(solved.barHeightPt),
-          tickLength = ExtentExpr.pointsUnsafe(solved.tickLengthPt),
-          labelOffset = ExtentExpr.pointsUnsafe(solved.labelOffsetPt),
-          titleOffset = ExtentExpr.pointsUnsafe(solved.titleOffsetPt)
-        )
-      case _ => spec
 
 /** Panel decoration is ordinary renderer-neutral geometry. It is lowered after guide derivation so
   * grid lines use the same tick positions as axes, and inserted before layer marks so data remains

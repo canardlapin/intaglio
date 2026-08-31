@@ -116,6 +116,10 @@ enum GraphicsError extends IntaglioError:
   case FacetFixedCoordinates
   case MissingLayout(feature: String)
   case InvalidLayoutCoordinate(kind: String, value: Double)
+  case InvalidCompositionGrid(plotCount: Int, columns: Int)
+  case InvalidCompositionGap(axis: String, value: Double)
+  case InvalidCompositionPanel(index: Int, detail: String)
+  case InvalidInsetBounds(x: Double, y: Double, width: Double, height: Double)
   case InvalidDeviceSize(width: Double, height: Double)
   case InvalidDeviceResolution(pixelsPerInch: Double)
   case InvalidDeviceValue(field: String, value: Double)
@@ -286,6 +290,14 @@ enum GraphicsError extends IntaglioError:
         s"$feature requires a panel layout"
       case InvalidLayoutCoordinate(kind, value) =>
         s"layout $kind coordinate must be finite: $value"
+      case InvalidCompositionGrid(plotCount, columns) =>
+        s"plot composition requires at least one plot and between 1 and $plotCount columns: found $columns columns for $plotCount plots"
+      case InvalidCompositionGap(axis, value) =>
+        s"plot composition $axis gap must be finite and >= 0 points: $value"
+      case InvalidCompositionPanel(index, detail) =>
+        s"plot composition item $index has an unusable panel frame: $detail"
+      case InvalidInsetBounds(x, y, width, height) =>
+        s"inset bounds must be finite, positive, and contained in [0, 1] npc: ($x, $y, $width, $height)"
       case InvalidDeviceSize(width, height) =>
         s"device size must be finite and positive: ${width}x$height"
       case InvalidDeviceResolution(pixelsPerInch) =>
