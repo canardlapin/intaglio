@@ -76,6 +76,24 @@ final case class Java2DRenderingHints(
 object Java2DRenderingHints:
   val default: Java2DRenderingHints = Java2DRenderingHints()
 
+/** Resolves a device text run to one concrete immutable AWT font. The system resolver preserves
+  * ordinary Java2D behavior; `fixed` lets reproducible exports and golden tests supply font bytes
+  * without consulting host-installed families.
+  */
+final class Java2DFontResolver private (resolveFont: (Option[String], Double) => Font):
+  private[java2d] def resolve(requestedFamily: Option[String], sizePx: Double): Font =
+    resolveFont(requestedFamily, sizePx)
+
+object Java2DFontResolver:
+  val system: Java2DFontResolver =
+    new Java2DFontResolver((requestedFamily, sizePx) =>
+      val family = requestedFamily.getOrElse(Font.SANS_SERIF)
+      new Font(family, Font.PLAIN, 1).deriveFont(sizePx.toFloat)
+    )
+
+  def fixed(font: Font): Java2DFontResolver =
+    new Java2DFontResolver((_, sizePx) => font.deriveFont(sizePx.toFloat))
+
 enum Java2DBackground:
   case Transparent
   case Solid(color: Rgba)
@@ -485,7 +503,14 @@ object Java2DRenderer:
       plan: RenderPlan,
       options: Java2DExportOptions = Java2DExportOptions.default
   ): Either[Java2DRenderError, BufferedImage] =
-    compile(plan).map(program => renderImage(program, options))
+    renderImage(plan, options, Java2DFontResolver.system)
+
+  def renderImage(
+      plan: RenderPlan,
+      options: Java2DExportOptions,
+      fontResolver: Java2DFontResolver
+  ): Either[Java2DRenderError, BufferedImage] =
+    compile(plan).map(program => renderImage(program, options, fontResolver))
 
   /** Convenience image export using the portable default metrics and requested font families. */
   def renderImage(scene: Scene): Either[Java2DRenderError, BufferedImage] =
@@ -502,14 +527,23 @@ object Java2DRenderer:
       renderOptions: Java2DOptions,
       exportOptions: Java2DExportOptions
   ): Either[Java2DRenderError, BufferedImage] =
-    compile(scene, renderOptions).map(program => renderImage(program, exportOptions))
+    compile(scene, renderOptions).map(program =>
+      renderImage(program, exportOptions, Java2DFontResolver.system)
+    )
 
   /** Encode a target-bound scene as PNG bytes. */
   def renderPng(
       plan: RenderPlan,
       options: Java2DExportOptions = Java2DExportOptions.default
   ): Either[Java2DRenderError, Array[Byte]] =
-    renderImage(plan, options).flatMap(encodePng)
+    renderPng(plan, options, Java2DFontResolver.system)
+
+  def renderPng(
+      plan: RenderPlan,
+      options: Java2DExportOptions,
+      fontResolver: Java2DFontResolver
+  ): Either[Java2DRenderError, Array[Byte]] =
+    renderImage(plan, options, fontResolver).flatMap(encodePng)
 
   /** Convenience PNG export using the portable default metrics and requested font families. */
   def renderPng(scene: Scene): Either[Java2DRenderError, Array[Byte]] =
@@ -529,22 +563,43 @@ object Java2DRenderer:
     renderImage(scene, renderOptions, exportOptions).flatMap(encodePng)
 
   def draw(program: Java2DProgram, graphics: Graphics2D): Unit =
-    draw(program, graphics, Java2DRenderingHints.default)
+    draw(program, graphics, Java2DRenderingHints.default, Java2DFontResolver.system)
 
   def draw(
       program: Java2DProgram,
       graphics: Graphics2D,
       renderingHints: Java2DRenderingHints
   ): Unit =
-    drawProfile(program, graphics, renderingHints)
+    draw(program, graphics, renderingHints, Java2DFontResolver.system)
+
+  def draw(
+      program: Java2DProgram,
+      graphics: Graphics2D,
+      renderingHints: Java2DRenderingHints,
+      fontResolver: Java2DFontResolver
+  ): Unit =
+    drawProfile(program, graphics, renderingHints, fontResolver)
 
   def drawProfile(program: Java2DProgram, graphics: Graphics2D): Java2DDrawProfile =
-    drawProfile(program, graphics, Java2DRenderingHints.default)
+    drawProfile(
+      program,
+      graphics,
+      Java2DRenderingHints.default,
+      Java2DFontResolver.system
+    )
 
   def drawProfile(
       program: Java2DProgram,
       graphics: Graphics2D,
       renderingHints: Java2DRenderingHints
+  ): Java2DDrawProfile =
+    drawProfile(program, graphics, renderingHints, Java2DFontResolver.system)
+
+  def drawProfile(
+      program: Java2DProgram,
+      graphics: Graphics2D,
+      renderingHints: Java2DRenderingHints,
+      fontResolver: Java2DFontResolver
   ): Java2DDrawProfile =
     var stack = List(graphics)
     val images = mutable.HashMap.empty[RasterImage, BufferedImage]
@@ -558,7 +613,15 @@ object Java2DRenderer:
           stack.head.dispose()
           stack = stack.tail
         case command =>
-          execute(command, stack.head, images, patterns, accumulator, renderingHints)
+          execute(
+            command,
+            stack.head,
+            images,
+            patterns,
+            accumulator,
+            renderingHints,
+            fontResolver
+          )
       }
     finally
       stack.takeWhile(_ ne graphics).foreach(_.dispose())
@@ -570,7 +633,8 @@ object Java2DRenderer:
       images: mutable.Map[RasterImage, BufferedImage],
       patterns: mutable.Map[PatternPaint, TexturePaint],
       accumulator: Java2DDrawAccumulator,
-      renderingHints: Java2DRenderingHints
+      renderingHints: Java2DRenderingHints,
+      fontResolver: Java2DFontResolver
   ): Unit =
     command match
       case Java2DCommand.Rotate(degrees, pivotX, pivotY) =>
@@ -639,8 +703,7 @@ object Java2DRenderer:
           ) =>
         withCopy(graphics) { copy =>
           renderingHints.configure(copy)
-          val family = fontFamily.getOrElse(Font.SANS_SERIF)
-          val font = new Font(family, Font.PLAIN, 1).deriveFont(fontSize.toFloat)
+          val font = fontResolver.resolve(fontFamily, fontSize)
           copy.setFont(font)
           val bounds = font.getStringBounds(label, copy.getFontRenderContext)
           val drawX = horizontal match
@@ -827,7 +890,8 @@ object Java2DRenderer:
 
   private def renderImage(
       program: Java2DProgram,
-      options: Java2DExportOptions
+      options: Java2DExportOptions,
+      fontResolver: Java2DFontResolver
   ): BufferedImage =
     val image = new BufferedImage(program.width, program.height, BufferedImage.TYPE_INT_ARGB)
     options.background match
@@ -840,7 +904,7 @@ object Java2DRenderer:
           graphics.fillRect(0, 0, program.width, program.height)
         finally graphics.dispose()
     val graphics = image.createGraphics()
-    try draw(program, graphics, options.renderingHints)
+    try draw(program, graphics, options.renderingHints, fontResolver)
     finally graphics.dispose()
     image
 

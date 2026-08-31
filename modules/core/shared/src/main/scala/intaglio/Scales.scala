@@ -1,5 +1,7 @@
 package intaglio
 
+import scala.util.control.NonFatal
+
 final case class Interval private (lower: Double, upper: Double):
   require(lower.isFinite, "`lower` must be finite")
   require(upper.isFinite, "`upper` must be finite")
@@ -142,7 +144,11 @@ trait Breaks:
     * same bounded computation. Custom generators receive output validation by default.
     */
   def generate(range: Interval): Either[GraphicsError, Vector[Double]] =
-    Breaks.validateOutput("custom", apply(range))
+    try Breaks.validateOutput("custom", apply(range))
+    catch
+      case NonFatal(error) =>
+        val (exceptionType, detail) = GraphicsError.throwableDetails(error)
+        Left(GraphicsError.BreakGenerationFailed("custom", exceptionType, detail))
 
 object Breaks:
   /** No built-in break generator can emit more values than this. */
@@ -516,18 +522,34 @@ final case class Transform private (
 ):
   def transform(value: Double): Either[GraphicsError, Double] =
     if !domain.contains(value) then Left(GraphicsError.TransformOutsideDomain(name.value, value))
-    else
-      val out = forward(value)
-      if out.isFinite then Right(out)
-      else Left(GraphicsError.TransformOutsideDomain(name.value, value))
+    else evaluate("forward", value, forward)
 
   def inverse(value: Double): Either[GraphicsError, Double] =
-    val out = backward(value)
-    if out.isFinite then Right(out)
-    else Left(GraphicsError.TransformOutsideDomain(name.value, value))
+    evaluate("inverse", value, backward)
 
   def roundTrips(value: Double, tolerance: Double): Boolean =
     transform(value).flatMap(inverse).exists(restored => math.abs(restored - value) <= tolerance)
+
+  private def evaluate(
+      operation: String,
+      value: Double,
+      callback: Double => Double
+  ): Either[GraphicsError, Double] =
+    try
+      val out = callback(value)
+      if out.isFinite then Right(out)
+      else Left(GraphicsError.TransformOutsideDomain(name.value, value))
+    catch
+      case NonFatal(error) =>
+        val (exceptionType, detail) = GraphicsError.throwableDetails(error)
+        Left(
+          GraphicsError.TransformEvaluationFailed(
+            name.value,
+            operation,
+            exceptionType,
+            detail
+          )
+        )
 
 object Transform:
   def apply(

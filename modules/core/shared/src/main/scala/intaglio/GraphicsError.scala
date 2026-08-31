@@ -8,6 +8,12 @@ enum GraphicsError extends IntaglioError:
   case EmptyContinuousRange
   case InvalidTransformDomain(name: String, lower: Double, upper: Double)
   case TransformOutsideDomain(name: String, value: Double)
+  case TransformEvaluationFailed(
+      name: String,
+      operation: String,
+      exceptionType: String,
+      detail: String
+  )
   case InvalidLength(value: Double)
   case InvalidExtent(description: String)
   case InvalidColorChannel(channel: String, value: Int)
@@ -38,6 +44,7 @@ enum GraphicsError extends IntaglioError:
   case BreakGenerationDidNotProgress(generator: String, previous: Double, next: Double)
   case BreakOutputLimitExceeded(generator: String, attempted: Int, maximum: Int)
   case BreakIterationLimitExceeded(generator: String, maximum: Int)
+  case BreakGenerationFailed(generator: String, exceptionType: String, detail: String)
   case InvalidBand(center: Double, width: Double)
   case InvalidBandPadding(value: Double)
   case EmptyPalette
@@ -143,6 +150,7 @@ enum GraphicsError extends IntaglioError:
   case InvalidDeviceValue(field: String, value: Double)
   case UnresolvableLength(description: String)
   case LayoutOverflow(region: String)
+  case LayoutMeasurementFailed(exceptionType: String, detail: String)
   case InvalidRangeExpansion(multiplicative: Double, additive: Double, zeroWidth: Double)
   case MixedPositionScaling(aesthetic: String)
   case InvalidAxisCoordinate(kind: String, value: Double)
@@ -165,6 +173,8 @@ enum GraphicsError extends IntaglioError:
         s"transform '$name' has invalid domain [$lower, $upper]"
       case TransformOutsideDomain(name, value) =>
         s"value $value is outside transform '$name' domain"
+      case TransformEvaluationFailed(name, operation, exceptionType, detail) =>
+        s"transform '$name' $operation evaluation failed: $exceptionType: $detail"
       case InvalidLength(value) =>
         s"length value must be finite: $value"
       case InvalidExtent(description) =>
@@ -215,6 +225,8 @@ enum GraphicsError extends IntaglioError:
         s"break generator '$generator' attempted $attempted values; maximum is $maximum"
       case BreakIterationLimitExceeded(generator, maximum) =>
         s"break generator '$generator' exceeded its deterministic iteration limit of $maximum"
+      case BreakGenerationFailed(generator, exceptionType, detail) =>
+        s"break generator '$generator' failed: $exceptionType: $detail"
       case InvalidBand(center, width) =>
         s"band center must be finite and width must be finite and > 0: ($center, $width)"
       case InvalidBandPadding(value) =>
@@ -350,6 +362,8 @@ enum GraphicsError extends IntaglioError:
         s"length cannot be resolved to device pixels: $description"
       case LayoutOverflow(region) =>
         s"plot layout leaves no room for the $region"
+      case LayoutMeasurementFailed(exceptionType, detail) =>
+        s"plot layout text measurement failed: $exceptionType: $detail"
       case InvalidRangeExpansion(multiplicative, additive, zeroWidth) =>
         s"range expansion must be finite with multiplicative/additive >= 0 and zeroWidth > 0: ($multiplicative, $additive, $zeroWidth)"
       case MixedPositionScaling(aesthetic) =>
@@ -362,6 +376,10 @@ enum GraphicsError extends IntaglioError:
         s"axis labeler returned $labels labels for $values tick values"
 
 object GraphicsError:
+  private[intaglio] def throwableDetails(error: Throwable): (String, String) =
+    val detail = Option(error.getMessage).filter(_.nonEmpty).getOrElse("no message")
+    error.getClass.getName -> detail
+
   extension [A](either: Either[GraphicsError, A])
     def orThrow: A =
       either match

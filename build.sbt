@@ -148,7 +148,8 @@ lazy val java2d =
     .settings(commonSettings)
     .settings(
       name := "intaglio-java2d",
-      description := "Java2D renderer for Intaglio scenes (JVM)."
+      description := "Java2D renderer for Intaglio scenes (JVM).",
+      libraryDependencies += "org.apache.pdfbox" % "pdfbox" % "3.0.8" % Test
     )
 
 lazy val java2dJVM = java2d.jvm

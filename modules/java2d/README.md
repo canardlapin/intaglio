@@ -23,6 +23,11 @@ encoding. Pair a `Java2DTextMetrics(fallbackFamily)` value with its
 `fontRegistry` when installed-font measurements are required. `Java2DExportOptions`
 makes transparent versus solid backgrounds and geometry/text antialiasing
 explicit; PNG export preserves the ARGB pixels produced by `renderImage`.
+For controlled output, the target-bound overloads also accept a
+`Java2DFontResolver`; `fixed(font)` uses supplied immutable AWT font bytes
+without consulting the host family registry. Intaglio's committed perceptual
+golden exercises that path; see the
+[visual regression guide](../../docs/visual-regression.md).
 
 ```scala
 val metrics = Java2DTextMetrics("SansSerif")

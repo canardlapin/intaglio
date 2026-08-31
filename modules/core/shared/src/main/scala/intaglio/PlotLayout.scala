@@ -1,5 +1,7 @@
 package intaglio
 
+import scala.util.control.NonFatal
+
 /** Text-extent capability used by the layout solver to size axis strips and legend columns. The
   * portable default is a conservative estimate; platform backends may provide real font metrics
   * without changing the solver contract.
@@ -379,7 +381,40 @@ final case class PlotFrames(
   * Deterministic and portable: no font access, no platform calls.
   */
 object PlotLayoutSolver:
+  private final class MeasurementException(val error: GraphicsError) extends RuntimeException
+
   def solve(
+      policy: LayoutPolicy,
+      request: PlotLayoutRequest
+  ): Either[GraphicsError, PlotFrames] =
+    val guarded = policy.copy(metrics = guardedMetrics(policy.metrics))
+    try solveChecked(guarded, request)
+    catch case error: MeasurementException => Left(error.error)
+
+  private def guardedMetrics(metrics: TextMetrics): TextMetrics =
+    new TextMetrics:
+      override def widthPt(text: String, fontSizePt: Double): Double =
+        measure(metrics.widthPt(text, fontSizePt))
+
+      override def heightPt(fontSizePt: Double): Double =
+        measure(metrics.heightPt(fontSizePt))
+
+      override def widthPt(text: String, style: TextStyle): Double =
+        measure(metrics.widthPt(text, style))
+
+      override def heightPt(style: TextStyle): Double =
+        measure(metrics.heightPt(style))
+
+  private def measure(value: => Double): Double =
+    try value
+    catch
+      case NonFatal(error) =>
+        val (exceptionType, detail) = GraphicsError.throwableDetails(error)
+        throw new MeasurementException(
+          GraphicsError.LayoutMeasurementFailed(exceptionType, detail)
+        )
+
+  private def solveChecked(
       policy: LayoutPolicy,
       request: PlotLayoutRequest
   ): Either[GraphicsError, PlotFrames] =
