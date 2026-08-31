@@ -160,13 +160,23 @@ final case class PdfRenderProfile(
     embeddedSubsetFonts: Int
 )
 
+/** Package-visible semantic receipt recorded by the encoder branch that emitted each PDF element.
+  * It lets the PDF backend run the same named conformance contract as command-oriented renderers
+  * without adding test markers or Intaglio metadata to publication output.
+  */
+private[pdf] final case class PdfRenderTrace(
+    markers: Vector[GraphicsName],
+    requirements: Vector[RenderRequirement]
+)
+
 /** One-page PDF bytes plus the physical and resource contract observed while encoding them. */
 final class PdfDocument private[pdf] (
     private val encoded: Array[Byte],
     val widthPoints: Double,
     val heightPoints: Double,
     val rasterPolicy: PdfRasterPolicy,
-    val profile: PdfRenderProfile
+    val profile: PdfRenderProfile,
+    private[pdf] val trace: PdfRenderTrace
 ):
   def bytes: Array[Byte] =
     encoded.clone()

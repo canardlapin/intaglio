@@ -5,7 +5,11 @@ import intaglio.*
 class Java2DConformanceSuite extends munit.FunSuite:
 
   private object Java2DHarness extends RendererHarness[Java2DProgram]:
-    private val options = Java2DOptions.unsafe(width = 240, height = 160)
+    private val options = Java2DOptions.unsafe(
+      width = RendererConformance.targetWidth,
+      height = RendererConformance.targetHeight,
+      pixelsPerInch = RendererConformance.targetPixelsPerInch
+    )
 
     override def render(scene: Scene): Either[String, Java2DProgram] =
       Java2DRenderer.compile(scene, options).left.map(_.message)
@@ -55,6 +59,24 @@ class Java2DConformanceSuite extends munit.FunSuite:
               commandName.contains(
                 name
               ) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
+            case _ => false
+          }
+        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
+          out.commands.exists {
+            case Java2DCommand.Text(
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  actualFontSize,
+                  actualFontFamily,
+                  paint,
+                  commandName
+                ) =>
+              commandName.contains(name) && paint.fill.contains(Java2DColor.fromRgba(color)) &&
+              actualFontSize == fontSizePx && actualFontFamily == fontFamily && paint.opacity == alpha
             case _ => false
           }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>

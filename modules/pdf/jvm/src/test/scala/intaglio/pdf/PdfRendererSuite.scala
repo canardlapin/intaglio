@@ -1,6 +1,7 @@
 package intaglio.pdf
 
 import scala.jdk.CollectionConverters.*
+import scala.util.control.NonFatal
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.contentstream.operator.Operator
 import org.apache.pdfbox.pdfparser.PDFStreamParser
@@ -25,6 +26,37 @@ class PdfRendererSuite extends munit.FunSuite:
       .fold(error => fail(error.message), identity)
 
   private lazy val fonts = PdfFontCatalog.single(liberationSans)
+
+  private lazy val conformanceSans: PdfFont =
+    PdfFont
+      .fromBytes("Conformance Sans", bundledFontBytes())
+      .fold(error => fail(error.message), identity)
+
+  private final case class PdfSnapshot(bytes: Vector[Byte], trace: PdfRenderTrace)
+
+  private object PdfHarness extends RendererHarness[PdfSnapshot]:
+    private lazy val catalog = PdfFontCatalog.single(conformanceSans)
+    private lazy val context = RendererConformance.targetContext(catalog.fontRegistry)
+
+    override def render(scene: Scene): Either[String, PdfSnapshot] =
+      PdfRenderer
+        .render(RenderPlan(scene, context), catalog)
+        .left
+        .map(_.message)
+        .map(document => PdfSnapshot(document.bytes.toVector, document.trace))
+
+    override def containsMarker(out: PdfSnapshot, name: GraphicsName): Boolean =
+      out.trace.markers.contains(name)
+
+    override def satisfies(out: PdfSnapshot, requirement: RenderRequirement): Boolean =
+      out.trace.requirements.contains(requirement)
+
+    override def validate(out: PdfSnapshot): Option[String] =
+      try
+        val parsed = Loader.loadPDF(out.bytes.toArray)
+        try Option.when(parsed.getNumberOfPages != 1)("output is not a one-page PDF")
+        finally parsed.close()
+      catch case NonFatal(error) => Some(s"PDF parse failed: ${error.getClass.getSimpleName}")
 
   private def load(document: PdfDocument)(body: PDDocument => Unit): Unit =
     val parsed = Loader.loadPDF(document.bytes)
@@ -310,19 +342,9 @@ class PdfRendererSuite extends munit.FunSuite:
     }
   }
 
-  test("every renderer-conformance scene encodes as a parseable PDF") {
-    val cases = RendererConformance.cases.fold(error => fail(error.message), identity)
-    val context = RenderContext.unsafe(
-      width = 240,
-      height = 160,
-      fontRegistry = FontRegistry(_ => Some(liberationSans.family))
-    )
-    cases.foreach { sceneCase =>
-      val output = PdfRenderer
-        .render(RenderPlan(sceneCase.scene, context), fonts)
-        .fold(error => fail(s"${sceneCase.name}: ${error.message}"), identity)
-      load(output)(parsed => assertEquals(parsed.getNumberOfPages, 1, sceneCase.name))
-    }
+  test("the PDF backend passes the complete renderer conformance contract") {
+    val violations = RendererConformance.check(PdfHarness).fold(e => fail(e.message), identity)
+    assertEquals(violations, Vector.empty)
   }
 
   test("font inputs are immutable and catalogs reject duplicate families") {

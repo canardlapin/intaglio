@@ -8,7 +8,11 @@ import intaglio.*
 class SvgConformanceSuite extends munit.FunSuite:
 
   private object SvgHarness extends RendererHarness[String]:
-    private val options = SvgOptions.unsafe(width = 240, height = 160)
+    private val options = SvgOptions.unsafe(
+      width = RendererConformance.targetWidth,
+      height = RendererConformance.targetHeight,
+      pixelsPerInch = RendererConformance.targetPixelsPerInch
+    )
 
     override def render(scene: Scene): Either[String, String] =
       SvgRenderer.render(scene, options).map(_.value).left.map(_.message)
@@ -68,6 +72,13 @@ class SvgConformanceSuite extends munit.FunSuite:
             line.contains(s""" text-anchor="${textAnchor(horizontal)}"""") &&
             line.contains(s""" dominant-baseline="${textBaseline(vertical)}"""") &&
             line.contains(" transform=\"rotate(") == rotated
+          }
+        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
+          namedLines(out, name).exists { line =>
+            line.startsWith("<text") && hasPaint(line, "fill", Some(color)) &&
+            line.contains(s""" font-size="${number(fontSizePx)}"""") &&
+            fontFamily.forall(family => line.contains(s""" font-family="$family"""")) &&
+            hasOpacity(line, alpha)
           }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           namedLines(out, name).exists { line =>

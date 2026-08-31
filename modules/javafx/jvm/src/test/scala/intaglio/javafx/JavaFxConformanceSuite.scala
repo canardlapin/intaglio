@@ -5,7 +5,11 @@ import intaglio.*
 class JavaFxConformanceSuite extends munit.FunSuite:
 
   private object JavaFxHarness extends RendererHarness[JavaFxProgram]:
-    private val options = JavaFxOptions.unsafe(width = 240, height = 160)
+    private val options = JavaFxOptions.unsafe(
+      width = RendererConformance.targetWidth,
+      height = RendererConformance.targetHeight,
+      pixelsPerInch = RendererConformance.targetPixelsPerInch
+    )
 
     override def render(scene: Scene): Either[String, JavaFxProgram] =
       JavaFxRenderer.compile(scene, options).left.map(_.message)
@@ -55,6 +59,24 @@ class JavaFxConformanceSuite extends munit.FunSuite:
               commandName.contains(
                 name
               ) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
+            case _ => false
+          }
+        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
+          out.commands.exists {
+            case JavaFxCommand.Text(
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  actualFontSize,
+                  actualFontFamily,
+                  paint,
+                  commandName
+                ) =>
+              commandName.contains(name) && paint.fill.contains(JavaFxColor.fromRgba(color)) &&
+              actualFontSize == fontSizePx && actualFontFamily == fontFamily && paint.opacity == alpha
             case _ => false
           }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>

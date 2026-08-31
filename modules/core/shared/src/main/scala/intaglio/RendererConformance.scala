@@ -35,6 +35,13 @@ enum RenderRequirement:
   )
   case PatternFill(name: GraphicsName, paint: PatternPaint, alpha: Double)
   case Text(name: GraphicsName, horizontal: HJust, vertical: VJust, rotated: Boolean)
+  case TextStyle(
+      name: GraphicsName,
+      color: Rgba,
+      fontSizePx: Double,
+      fontFamily: Option[String],
+      alpha: Double
+  )
   case Image(
       name: GraphicsName,
       dimensions: RasterDimensions,
@@ -54,6 +61,8 @@ enum RenderRequirement:
         s"pattern fill '${name.value}' with recipe=${paint.recipe}, ink=${paint.ink}, background=${paint.background}, alpha=$alpha"
       case Text(name, horizontal, vertical, rotated) =>
         s"text '${name.value}' with anchor=($horizontal,$vertical) and rotated=$rotated"
+      case TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
+        s"text style '${name.value}' with color=$color, fontSizePx=$fontSizePx, fontFamily=$fontFamily, alpha=$alpha"
       case Image(name, dimensions, interpolation, alpha) =>
         s"image '${name.value}' with ${dimensions.width}x${dimensions.height} pixels, interpolation=$interpolation, alpha=$alpha"
 
@@ -68,8 +77,10 @@ final case class ConformanceCase(
     requirements: Vector[RenderRequirement] = Vector.empty
 )
 
-/** Adapter a backend implements to run the conformance contract. `Out` must have value equality
-  * (used for the determinism check).
+/** Adapter a backend implements to run the conformance contract. `render` must use
+  * [[RendererConformance.targetContext]] (or its published dimensions and density) because some
+  * requirements observe resolved physical units. `Out` must have value equality for the determinism
+  * check.
   */
 trait RendererHarness[Out]:
   def render(scene: Scene): Either[String, Out]
@@ -89,6 +100,22 @@ trait RendererHarness[Out]:
   */
 object RendererConformance:
   final case class Violation(caseName: String, group: ConformanceGroup, problem: String)
+
+  /** Canonical target for target-bound requirements such as point stroke widths and font sizes. */
+  val targetWidth: Int = 240
+  val targetHeight: Int = 160
+  val targetPixelsPerInch: Double = 96.0
+
+  val targetDevice: DeviceContext =
+    DeviceContext.unsafe(targetWidth.toDouble, targetHeight.toDouble, targetPixelsPerInch)
+
+  def targetContext(fontRegistry: FontRegistry = FontRegistry.passthrough): RenderContext =
+    RenderContext.unsafe(
+      targetWidth,
+      targetHeight,
+      pixelsPerInch = targetPixelsPerInch,
+      fontRegistry = fontRegistry
+    )
 
   /** Run every conformance case through a backend harness. An empty result means the backend
     * renders each case successfully, deterministically, with every marker present and its own
@@ -246,13 +273,14 @@ object RendererConformance:
           Point.npcUnsafe(0.5, 0.75),
           Point.npcUnsafe(0.9, 0.25)
         ),
-        gp = GraphicParams.unsafe(
-          stroke = Some(Rgba.unsafe(25, 75, 125)),
-          lineWidth = 1.5,
-          lineType = LineType.Dashed,
-          lineCap = LineCap.Round,
-          lineJoin = LineJoin.Bevel
-        ),
+        gp = GraphicParams
+          .unsafe(
+            stroke = Some(Rgba.unsafe(25, 75, 125)),
+            lineType = LineType.Dashed,
+            lineCap = LineCap.Round,
+            lineJoin = LineJoin.Bevel
+          )
+          .withStrokeWidth(StrokeWidth.pointsUnsafe(1.5)),
         name = Some(GraphicsName.unsafe("conformance-line"))
       )
       .map { grob =>
@@ -268,7 +296,7 @@ object RendererConformance:
               GraphicsName.unsafe("conformance-line"),
               Some(Rgba.unsafe(25, 75, 125)),
               None,
-              1.5,
+              2.0,
               LineType.Dashed,
               LineCap.Round,
               LineJoin.Bevel,
@@ -306,6 +334,20 @@ object RendererConformance:
         GraphicsName.unsafe("conformance-square"),
         GraphicsName.unsafe("conformance-triangle"),
         GraphicsName.unsafe("conformance-cross")
+      ),
+      Vector(
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("conformance-square"),
+          RenderPrimitiveKind.Rectangle
+        ),
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("conformance-triangle"),
+          RenderPrimitiveKind.Polygon
+        ),
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("conformance-cross"),
+          RenderPrimitiveKind.Polyline
+        )
       )
     )
 
@@ -438,30 +480,43 @@ object RendererConformance:
     )
 
   def textCase: Either[GraphicsError, ConformanceCase] =
+    val name = GraphicsName.unsafe("conformance-text")
+    val color = Rgba.unsafe(20, 40, 80, 0.8)
     Grob
       .text(
         "A&B <label>",
         Point.npcUnsafe(0.5, 0.75),
         anchor = Anchor(HJust.Left, VJust.Top),
         rotationDegrees = 30.0,
-        gp = GraphicParams
-          .unsafe(stroke = None, fill = Some(Rgba.Black), fontSize = Length.pointsUnsafe(9.0)),
-        name = Some(GraphicsName.unsafe("conformance-text"))
+        gp = GraphicParams.unsafe(
+          stroke = None,
+          fill = Some(color),
+          alpha = 0.65,
+          fontFamily = Some("Conformance Sans"),
+          fontSize = Length.pointsUnsafe(9.0)
+        ),
+        name = Some(name)
       )
       .map { grob =>
         ConformanceCase(
           GraphicsName.unsafe("text"),
           ConformanceGroup.Primitive,
           Scene(Vector(grob)),
-          Vector(GraphicsName.unsafe("conformance-text")),
+          Vector(name),
           Vector(
-            RenderRequirement
-              .Primitive(GraphicsName.unsafe("conformance-text"), RenderPrimitiveKind.Text),
+            RenderRequirement.Primitive(name, RenderPrimitiveKind.Text),
             RenderRequirement.Text(
-              GraphicsName.unsafe("conformance-text"),
+              name,
               HJust.Left,
               VJust.Top,
               rotated = true
+            ),
+            RenderRequirement.TextStyle(
+              name,
+              color,
+              fontSizePx = 12.0,
+              fontFamily = Some("Conformance Sans"),
+              alpha = 0.65
             )
           )
         )

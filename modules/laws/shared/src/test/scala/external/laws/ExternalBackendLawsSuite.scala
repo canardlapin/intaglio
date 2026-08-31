@@ -5,10 +5,8 @@ import intaglio.laws.*
 
 /** A consumer-package reference backend implemented only through public renderer contracts. */
 object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
-  private val device = DeviceContext.unsafe(240.0, 160.0)
-
   def render(scene: Scene): Either[String, DeviceScene] =
-    DeviceScene.fromScene(scene, device).left.map(_.message)
+    DeviceScene.fromScene(scene, RendererConformance.targetDevice).left.map(_.message)
 
   def containsMarker(out: DeviceScene, name: GraphicsName): Boolean =
     out.elements.exists(containsName(_, name))
@@ -81,6 +79,24 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
           case DevicePrimitive.TextRun(_, _, _, h, v, rotation, _, _, _, primitiveName) =>
             primitiveName.contains(name) && h == horizontal && v == vertical &&
             (rotation != 0.0) == rotated
+          case _ => false
+      case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
+        primitive match
+          case DevicePrimitive.TextRun(
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                actualFontSize,
+                actualFontFamily,
+                gp,
+                primitiveName
+              ) =>
+            primitiveName
+              .contains(name) && gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black) == color &&
+            actualFontSize == fontSizePx && actualFontFamily == fontFamily && gp.alpha == alpha
           case _ => false
       case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
         primitive match

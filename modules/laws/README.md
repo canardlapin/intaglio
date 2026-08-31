@@ -37,6 +37,14 @@ The available entry points are:
   density integration, contour topology, and declared-order invariance;
 - `NativePositionLaws` for identity, deterministic jitter, non-overlapping
   dodge, signed stack, and explicit stack-order preservation;
+- `SceneDeviceLaws` for scene identity/associativity, ordered depth-first
+  traversal, and deterministic numeric lowering;
+- `CoordinateInvolutionLaws` for the native transpose involution across rows,
+  grobs, annotations, and panel ranges;
+- `PlotLayoutLaws` for deterministic finite frames, root bounds, and measured
+  legend/colorbar stack fit;
+- `TargetRecompilationLaws` for equal-physical-target applicability,
+  renderer-neutral scene equality, and caller-selected target-bound facts;
 - `StatLaws` for public contracts, deterministic computation, and declared
   input preservation;
 - `GeomLaws` for checked aesthetic contracts and deterministic lowering;
@@ -44,8 +52,14 @@ The available entry points are:
   declarations;
 - `PlotRecipeLaws` for deterministic conversion, compiler bridging, and scene
   compilation;
-- `BackendLaws` for the complete marker, semantic, validation, and determinism
-  contract in `RendererConformance`.
+- `BackendLaws` for the complete marker, primitive-shape, paint, pattern, text
+  style, image, group-effect, validation, and determinism contract in
+  `RendererConformance`.
+
+Renderer harnesses must render the canonical scenes at
+`RendererConformance.targetContext()` (240 by 160 pixels at 96 ppi), or construct
+backend options from the published target fields. This keeps point-valued stroke
+widths and font sizes comparable across every backend.
 
 Scale, statistic, recipe, and coordinate outputs without ordinary value
 equality can use the corresponding `withEquality` variant and provide a
@@ -67,6 +81,12 @@ portable seed court that executes unchanged on the JVM and Scala.js. Pass an
 explicit `Vector[Long]` to replay or expand a court. Every returned
 counterexample—and every non-fatal exception caught during one seeded
 case—includes `seed=<value>` in its `LawFailure.detail`.
+
+`TargetRecompilationLaws` takes two `RenderContext` values that describe the
+same physical page at different pixel densities. Its observer receives each
+compiled `RenderPlan`; normalize the device facts that matter to physical units
+and use `withEquality` when those observations need a tolerance-aware
+comparison.
 
 The tests under `shared/src/test/scala/external/laws` are a consumer court, not
 production helpers. They independently implement every seam and run the kits

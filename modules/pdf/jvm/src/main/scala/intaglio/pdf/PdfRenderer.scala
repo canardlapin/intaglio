@@ -134,7 +134,8 @@ object PdfRenderer:
           pageContract.widthPoints,
           pageContract.heightPoints,
           PdfRasterPolicy.ExplicitImagesOnly,
-          encoder.profile(requiredFonts.size)
+          encoder.profile(requiredFonts.size),
+          encoder.trace
         )
       )
     catch
@@ -208,6 +209,8 @@ object PdfRenderer:
     private val images =
       mutable.LinkedHashMap.empty[(RasterImage, RasterInterpolation), PDImageXObject]
     private val alphaStates = mutable.HashMap.empty[(Float, Float), PDExtendedGraphicsState]
+    private val emittedMarkers = Vector.newBuilder[GraphicsName]
+    private val emittedRequirements = Vector.newBuilder[RenderRequirement]
     private var vectorShapes = 0
     private var textRuns = 0
     private var rasterPlacements = 0
@@ -234,10 +237,13 @@ object PdfRenderer:
         embeddedSubsetFonts = fontCount
       )
 
+    def trace: PdfRenderTrace =
+      PdfRenderTrace(emittedMarkers.result(), emittedRequirements.result())
+
     private def drawElement(element: DeviceElement): Unit =
       element match
-        case DeviceElement.Mark(primitive)                    => drawPrimitive(primitive)
-        case DeviceElement.Group(_, clip, rotation, children) =>
+        case DeviceElement.Mark(primitive)                       => drawPrimitive(primitive)
+        case DeviceElement.Group(name, clip, rotation, children) =>
           stream.saveGraphicsState()
           try
             rotation.foreach { value =>
@@ -260,47 +266,63 @@ object PdfRenderer:
             }
             children.foreach(drawElement)
           finally stream.restoreGraphicsState()
+          name.foreach { value =>
+            emittedMarkers += value
+            emittedRequirements += RenderRequirement.Group(
+              value,
+              clipped = clip.nonEmpty,
+              rotated = rotation.nonEmpty
+            )
+          }
 
     private def drawPrimitive(primitive: DevicePrimitive): Unit =
       primitive match
-        case DevicePrimitive.Disc(centerX, centerY, radius, gp, _) =>
+        case DevicePrimitive.Disc(centerX, centerY, radius, gp, name) =>
           if hasPaint(gp, allowFill = true) then
             withGraphics {
               appendCircle(stream, x(centerX), y(centerY), px(radius))
               paint(gp, allowFill = true)
             }
             vectorShapes += 1
-        case DevicePrimitive.PointBatch(points, radii, shapes, params, _) =>
+            recordStyledPrimitive(name, RenderPrimitiveKind.Disc, gp)
+        case DevicePrimitive.PointBatch(points, radii, shapes, params, name) =>
           var index = 0
           while index < points.length do
-            drawPoint(
-              points(index),
-              radii.valueAt(index),
-              shapes.valueAt(index),
-              params.valueAt(index)
-            )
+            val shape = shapes.valueAt(index)
+            val gp = params.valueAt(index)
+            if drawPoint(
+                points(index),
+                radii.valueAt(index),
+                shape,
+                gp
+              )
+            then recordStyledPrimitive(name, pointKind(shape), gp)
             index += 1
-        case DevicePrimitive.Polyline(points, closed, gp, _) =>
+        case DevicePrimitive.Polyline(points, closed, gp, name) =>
           if hasPaint(gp, allowFill = closed) then
             withGraphics {
               appendPolyline(points, closed)
               paint(gp, allowFill = closed)
             }
             vectorShapes += 1
-        case DevicePrimitive.CompoundPolygon(rings, gp, _) =>
+            val kind = if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline
+            recordStyledPrimitive(name, kind, gp)
+        case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
           if hasPaint(gp, allowFill = true) then
             withGraphics {
               rings.foreach(appendPolyline(_, closed = true))
               paint(gp, allowFill = true)
             }
             vectorShapes += 1
-        case DevicePrimitive.RectShape(rectX, rectY, width, height, gp, _) =>
+            recordStyledPrimitive(name, RenderPrimitiveKind.Polygon, gp)
+        case DevicePrimitive.RectShape(rectX, rectY, width, height, gp, name) =>
           if hasPaint(gp, allowFill = true) then
             withGraphics {
               stream.addRect(x(rectX), y(rectY + height), px(width), px(height))
               paint(gp, allowFill = true)
             }
             vectorShapes += 1
+            recordStyledPrimitive(name, RenderPrimitiveKind.Rectangle, gp)
         case DevicePrimitive.TextRun(
               label,
               textX,
@@ -311,10 +333,27 @@ object PdfRenderer:
               fontSize,
               family,
               gp,
-              _
+              name
             ) =>
           drawText(label, textX, textY, horizontal, vertical, rotation, fontSize, family, gp)
           textRuns += 1
+          name.foreach { value =>
+            emittedMarkers += value
+            emittedRequirements += RenderRequirement.Primitive(value, RenderPrimitiveKind.Text)
+            emittedRequirements += RenderRequirement.Text(
+              value,
+              horizontal,
+              vertical,
+              rotated = rotation != 0.0
+            )
+            emittedRequirements += RenderRequirement.TextStyle(
+              value,
+              gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black),
+              fontSize,
+              family,
+              gp.alpha
+            )
+          }
         case DevicePrimitive.Image(
               image,
               imageX,
@@ -323,17 +362,27 @@ object PdfRenderer:
               height,
               interpolation,
               alpha,
-              _
+              name
             ) =>
           drawImage(image, imageX, imageY, width, height, interpolation, alpha)
           rasterPlacements += 1
+          name.foreach { value =>
+            emittedMarkers += value
+            emittedRequirements += RenderRequirement.Primitive(value, RenderPrimitiveKind.Image)
+            emittedRequirements += RenderRequirement.Image(
+              value,
+              image.dimensions,
+              interpolation,
+              alpha
+            )
+          }
 
     private def drawPoint(
         point: DevicePoint,
         radius: Double,
         shape: PointShape,
         gp: GraphicParams
-    ): Unit =
+    ): Boolean =
       val allowFill = shape != PointShape.Cross
       if hasPaint(gp, allowFill) then
         withGraphics {
@@ -360,6 +409,38 @@ object PdfRenderer:
           paint(gp, allowFill)
         }
         vectorShapes += 1
+        true
+      else false
+
+    private def pointKind(shape: PointShape): RenderPrimitiveKind =
+      shape match
+        case PointShape.Circle   => RenderPrimitiveKind.Disc
+        case PointShape.Square   => RenderPrimitiveKind.Rectangle
+        case PointShape.Triangle => RenderPrimitiveKind.Polygon
+        case PointShape.Cross    => RenderPrimitiveKind.Polyline
+
+    private def recordStyledPrimitive(
+        name: Option[GraphicsName],
+        kind: RenderPrimitiveKind,
+        gp: GraphicParams
+    ): Unit =
+      name.foreach { value =>
+        emittedMarkers += value
+        emittedRequirements += RenderRequirement.Primitive(value, kind)
+        emittedRequirements += RenderRequirement.Style(
+          value,
+          gp.stroke,
+          gp.fill,
+          gp.lineWidth,
+          gp.lineType,
+          gp.lineCap,
+          gp.lineJoin,
+          gp.alpha
+        )
+        gp.fillPattern.foreach(pattern =>
+          emittedRequirements += RenderRequirement.PatternFill(value, pattern, gp.alpha)
+        )
+      }
 
     private def appendPolyline(points: Vector[DevicePoint], closed: Boolean): Unit =
       val first = points.head

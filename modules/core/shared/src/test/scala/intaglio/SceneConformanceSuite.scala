@@ -31,10 +31,8 @@ class SceneConformanceSuite extends munit.FunSuite:
     }
 
   private object DeviceHarness extends RendererHarness[DeviceScene]:
-    private val device = DeviceContext.unsafe(240.0, 160.0)
-
     override def render(scene: Scene): Either[String, DeviceScene] =
-      DeviceScene.fromScene(scene, device).left.map(_.message)
+      DeviceScene.fromScene(scene, RendererConformance.targetDevice).left.map(_.message)
 
     override def containsMarker(out: DeviceScene, name: GraphicsName): Boolean =
       out.elements.exists(containsName(_, name))
@@ -106,6 +104,24 @@ class SceneConformanceSuite extends munit.FunSuite:
               primitiveName.contains(
                 name
               ) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
+            case _ => false
+        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
+          primitive match
+            case DevicePrimitive.TextRun(
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  actualFontSize,
+                  actualFontFamily,
+                  gp,
+                  primitiveName
+                ) =>
+              primitiveName
+                .contains(name) && gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black) == color &&
+              actualFontSize == fontSizePx && actualFontFamily == fontFamily && gp.alpha == alpha
             case _ => false
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           primitive match
@@ -205,6 +221,48 @@ class SceneConformanceSuite extends munit.FunSuite:
       RendererConformance.group(ConformanceGroup.Primitive).fold(e => fail(e.message), identity)
     assert(primitives.nonEmpty)
     assert(primitives.forall(_.group == ConformanceGroup.Primitive))
+  }
+
+  test("the canonical contract pins marker shapes and every target-bound style channel") {
+    val shapes = RendererConformance.shapeCase.fold(e => fail(e.message), identity)
+    val shapeKinds = shapes.requirements.collect { case RenderRequirement.Primitive(name, kind) =>
+      name.value -> kind
+    }
+    assertEquals(
+      shapeKinds,
+      Vector(
+        "conformance-square" -> RenderPrimitiveKind.Rectangle,
+        "conformance-triangle" -> RenderPrimitiveKind.Polygon,
+        "conformance-cross" -> RenderPrimitiveKind.Polyline
+      )
+    )
+
+    val line = RendererConformance.lineCase.fold(e => fail(e.message), identity)
+    val sourceWidth = line.scene.grobs.collectFirst { case value: Grob.Lines =>
+      value.gp.strokeWidth
+    }
+    val resolvedWidth = line.requirements.collectFirst {
+      case RenderRequirement.Style(_, _, _, width, _, _, _, _) => width
+    }
+    assertEquals(sourceWidth, Some(StrokeWidth.pointsUnsafe(1.5)))
+    assertEquals(resolvedWidth, Some(2.0))
+
+    val text = RendererConformance.textCase.fold(e => fail(e.message), identity)
+    assert(
+      text.requirements.contains(
+        RenderRequirement.TextStyle(
+          GraphicsName.unsafe("conformance-text"),
+          Rgba.unsafe(20, 40, 80, 0.8),
+          fontSizePx = 12.0,
+          fontFamily = Some("Conformance Sans"),
+          alpha = 0.65
+        )
+      )
+    )
+    assertEquals(
+      RendererConformance.targetContext().deviceContext,
+      RendererConformance.targetDevice
+    )
   }
 
   test("the device lowering passes the full conformance contract") {
