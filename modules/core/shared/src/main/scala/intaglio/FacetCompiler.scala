@@ -45,7 +45,12 @@ private[intaglio] object FacetCompiler:
           options.provenance
         )
         globalLogical <- LayoutPhase.panelRanges(globalLayers)
-        globalCoordinates <- CoordPhase.transform(plot.coord, globalLayers, Some(globalLogical))
+        globalCoordinates <- CoordPhase.transform(
+          plot.coord,
+          globalLayers,
+          Some(globalLogical),
+          globalScales.registry
+        )
         globalPhysical <- requireRanges(globalCoordinates.ranges)
         panels <- resolvePanels(
           panelStats,
@@ -69,7 +74,7 @@ private[intaglio] object FacetCompiler:
           case guide: GuideSpec.Colorbar => guide
         }
         sizingAxes = representativeAxes(panels.flatMap(_.specs), policy)
-        expandedGlobal <- LayoutPhase.expandedRanges(
+        expandedGlobal <- plot.coord.expandRanges(
           options.expansion,
           globalPhysical._1,
           globalPhysical._2
@@ -157,20 +162,21 @@ private[intaglio] object FacetCompiler:
           if scales.xIsFree then localRanges._1 else globalRanges._1,
           if scales.yIsFree then localRanges._2 else globalRanges._2
         )
+        panelRegistry = registry(merged)
         specs <- GuidePhase.specs(
           axisPolicy(options.guides),
           coord,
-          registry(merged),
+          panelRegistry,
           Some(selected),
           relativeLegend = true,
           labels = labels
         )
-        coordinates <- CoordPhase.transform(coord, layers, Some(selected))
+        coordinates <- CoordPhase.transform(coord, layers, Some(selected), panelRegistry)
         physical <- requireRanges(coordinates.ranges)
       yield PanelResolution(
         panel.cell,
         coordinates.layers,
-        registry(merged),
+        panelRegistry,
         physical,
         specs.collect { case axis: GuideSpec.Axis => axis }
       )
@@ -269,7 +275,7 @@ private[intaglio] object FacetCompiler:
     else
       traverse(panels.zip(frames.grid)) { case (panel, frame) =>
         for
-          expanded <- LayoutPhase.expandedRanges(
+          expanded <- coord.expandRanges(
             options.expansion,
             panel.physicalRanges._1,
             panel.physicalRanges._2

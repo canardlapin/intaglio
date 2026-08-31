@@ -612,6 +612,7 @@ object Band:
 
 enum ScaleKind:
   case Continuous
+  case Temporal
   case Discrete
   case Band
   case Generic
@@ -626,6 +627,12 @@ enum ScaleTraining:
 
 enum ScaleDomain:
   case Continuous(raw: Interval, transformed: Interval)
+  case Temporal(
+      kind: TemporalKind,
+      encoded: Interval,
+      lowerLabel: String,
+      upperLabel: String
+  )
   case Discrete(levels: Vector[String], ordered: Boolean)
   case Band(levels: Vector[String], ordered: Boolean, padding: BandPadding)
   case Unspecified

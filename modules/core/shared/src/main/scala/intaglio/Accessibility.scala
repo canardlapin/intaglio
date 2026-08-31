@@ -232,7 +232,9 @@ object PlotSemantics:
 
   private def domainText(domain: ScaleDomain): String =
     domain match
-      case ScaleDomain.Continuous(raw, _)        => s"[${raw.lower}, ${raw.upper}]"
+      case ScaleDomain.Continuous(raw, _)              => s"[${raw.lower}, ${raw.upper}]"
+      case ScaleDomain.Temporal(kind, _, lower, upper) =>
+        s"${kind.label} [$lower, $upper]"
       case ScaleDomain.Discrete(levels, ordered) =>
         s"${if ordered then "ordered " else ""}[${levels.mkString(", ")}]"
       case ScaleDomain.Band(levels, ordered, _) =>

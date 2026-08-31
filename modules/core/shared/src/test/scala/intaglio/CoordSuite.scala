@@ -182,3 +182,152 @@ class CoordSuite extends munit.FunSuite:
 
     assertEquals(result.left.toOption, Some(GraphicsError.DegenerateFixedAspect(0.0, 0.0)))
   }
+
+  test("coordinate zoom changes only the post-stat viewport and preserves histogram observations") {
+    val values = Vector(1.0, 2.0, 3.0, 90.0, 95.0)
+    val bins = HistogramBins.breaksUnsafe(Vector(0.0, 10.0, 100.0))
+
+    def compile(coord: Coord): TrainedPlot =
+      Plot(values)
+        .addLayer(Layer.histogram(identity, bins = bins))
+        .map(_.withCoord(coord))
+        .flatMap(
+          PlotCompiler.resolve(
+            _,
+            PlotCompilerOptions(
+              policy = Some(LayoutPolicy()),
+              guides = GuidePolicy.Derived()
+            )
+          )
+        )
+        .fold(error => fail(error.message), identity)
+
+    val ordinary = compile(Coord.Cartesian())
+    val zoomed = compile(
+      Coord.zoomUnsafe(x = Some(Interval.unsafe(0.0, 10.0)))
+    )
+    val counts = zoomed.layers.head.statFrame.rows.collect { case output: StatRow.Binned[?] =>
+      output.count
+    }
+
+    assertEquals(counts, Vector(3, 2))
+    assertEquals(zoomed.layers.head.dataSize, values.length)
+    assertEquals(zoomed.layers.head.statFrame, ordinary.layers.head.statFrame)
+    assertEquals(zoomed.layers.head.rows, ordinary.layers.head.rows)
+    assertEquals(zoomed.layers.head.grobs, ordinary.layers.head.grobs)
+    assertEquals(zoomed.layers.head.droppedRows, Vector.empty)
+    assertEquals(zoomed.layout.map(_.xScale), Some(Interval.unsafe(0.0, 10.0)))
+    assertEquals(zoomed.layout.map(_.clip), Some(Clip.On))
+  }
+
+  test("raw numeric zoom bounds map through the trained scale without becoming scale limits") {
+    val data = Vector(
+      Observation(0.0, 1.0),
+      Observation(20.0, 2.0),
+      Observation(40.0, 3.0),
+      Observation(100.0, 4.0)
+    )
+    val xScale = ContinuousScale
+      .fixed("measurement", Vector(0.0, 100.0), Palette.numeric)
+      .fold(error => fail(error.message), identity)
+    val trained = plot(data)
+      .aes(_.x, _.y)
+      .encode(Aesthetic.X, _.x, xScale)
+      .coordZoom(x = Some(Interval.unsafe(20.0, 40.0)))
+      .geomPoint()
+      .resolve
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(trained.layers.head.rows.length, data.length)
+    assertEquals(trained.layers.head.droppedRows, Vector.empty)
+    assertEquals(trained.layout.map(_.xScale), Some(Interval.unsafe(0.2, 0.4)))
+    assertEquals(xScale.domain, Interval.unsafe(0.0, 100.0))
+    val xAxis = trained.guides
+      .collectFirst {
+        case ResolvedGuide(axis: GuideSpec.Axis, _) if axis.side == AxisSide.Bottom => axis
+      }
+      .getOrElse(fail("missing zoomed numeric axis"))
+    assertEquals(xAxis.ticks.toVector.flatten.map(_.label), Vector("20", "40"))
+  }
+
+  test("typed date windows map after temporal scale training and retain every row") {
+    final case class Dated(day: CalendarDate, value: Double)
+    val start = CalendarDate.parseUnsafe("2024-01-01")
+    val data =
+      Vector.tabulate(10)(index => Dated(start.addDaysUnsafe(index.toLong), index.toDouble))
+    val yScale = ContinuousScaleSpec.numeric("value").fold(error => fail(error.message), identity)
+    val window = CoordinateWindow.dateUnsafe(start.addDaysUnsafe(2), start.addDaysUnsafe(5))
+    val trained = plot(data)
+      .scaleXDate(
+        _.day,
+        name = "day",
+        breaks = TemporalBreaks.everyUnsafe(1, TemporalUnit.Day)
+      )
+      .encode(Aesthetic.Y, _.value, yScale)
+      .coordZoomWindows(x = Some(window))
+      .geomLine()
+      .resolve
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(trained.layers.head.rows.length, data.length)
+    assertEquals(trained.layers.head.droppedRows, Vector.empty)
+    val xRange = trained.layout.map(_.xScale).getOrElse(fail("missing date layout"))
+    assertEqualsDouble(xRange.lower, 2.0 / 9.0, tol)
+    assertEqualsDouble(xRange.upper, 5.0 / 9.0, tol)
+    val xAxis = trained.guides
+      .collectFirst {
+        case ResolvedGuide(axis: GuideSpec.Axis, _) if axis.side == AxisSide.Bottom => axis
+      }
+      .getOrElse(fail("missing zoomed date axis"))
+    assertEquals(
+      xAxis.ticks.toVector.flatten.map(_.label),
+      Vector("2024-01-03", "2024-01-04", "2024-01-05", "2024-01-06")
+    )
+  }
+
+  test("empty and scale-incompatible coordinate windows fail through typed errors") {
+    assertEquals(Coord.zoom().left.toOption, Some(GraphicsError.EmptyCoordinateZoom))
+
+    val dateWindow = CoordinateWindow.dateUnsafe(
+      CalendarDate.parseUnsafe("2024-01-01"),
+      CalendarDate.parseUnsafe("2024-01-02")
+    )
+    val zoom = Coord.zoomWindowsUnsafe(x = Some(dateWindow))
+    assertEquals(
+      zoom
+        .transform(
+          CoordInput(
+            Vector.empty,
+            Some(Interval.unsafe(0.0, 1.0) -> Interval.unsafe(0.0, 1.0))
+          )
+        )
+        .left
+        .toOption,
+      Some(GraphicsError.CoordinateZoomScaleMismatch("x", "date", "unscaled"))
+    )
+  }
+
+  test("coordinate zoom remains exact and non-filtering across facet panels") {
+    final case class Faceted(x: Double, y: Double, group: String)
+    val data = Vector(
+      Faceted(0.0, 1.0, "a"),
+      Faceted(5.0, 2.0, "a"),
+      Faceted(10.0, 3.0, "b"),
+      Faceted(15.0, 4.0, "b")
+    )
+    val trained = plot(data)
+      .aes(_.x, _.y)
+      .facetWrap(_.group)
+      .coordZoom(x = Some(Interval.unsafe(0.0, 1.0)))
+      .geomPoint()
+      .resolve
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(trained.facetPanels.length, 2)
+    assertEquals(
+      trained.facetPanels.map(_.layout.xScale),
+      Vector.fill(2)(Interval.unsafe(0.0, 1.0))
+    )
+    assertEquals(trained.facetPanels.flatMap(_.layers).map(_.rows.length).sum, data.length)
+    assertEquals(trained.facetPanels.flatMap(_.layers).flatMap(_.droppedRows), Vector.empty)
+  }

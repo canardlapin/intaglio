@@ -224,6 +224,42 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val y = ev(position).y
     bindContinuous(Aesthetic.Y, y, name, Palette.numeric, transform, oob)
 
+  def scaleXDate(
+      value: Row => CalendarDate,
+      name: String = "x",
+      breaks: TemporalBreaks = TemporalBreaks.default,
+      labeler: DateLabeler = DateLabeler.iso,
+      oob: OobPolicy = OobPolicy.Censor
+  )(using transition: EncodesX[Row, Position]): PlotBuilder[Row, transition.Out] =
+    encodeX(value, DateScaleSpec(name, breaks, labeler, oob))
+
+  def scaleYDate(
+      value: Row => CalendarDate,
+      name: String = "y",
+      breaks: TemporalBreaks = TemporalBreaks.default,
+      labeler: DateLabeler = DateLabeler.iso,
+      oob: OobPolicy = OobPolicy.Censor
+  )(using transition: EncodesY[Row, Position]): PlotBuilder[Row, transition.Out] =
+    encodeY(value, DateScaleSpec(name, breaks, labeler, oob))
+
+  def scaleXDateTime(
+      value: Row => UtcDateTime,
+      name: String = "x",
+      breaks: TemporalBreaks = TemporalBreaks.default,
+      labeler: DateTimeLabeler = DateTimeLabeler.isoUtcMilliseconds,
+      oob: OobPolicy = OobPolicy.Censor
+  )(using transition: EncodesX[Row, Position]): PlotBuilder[Row, transition.Out] =
+    encodeX(value, DateTimeScaleSpec(name, breaks, labeler, oob))
+
+  def scaleYDateTime(
+      value: Row => UtcDateTime,
+      name: String = "y",
+      breaks: TemporalBreaks = TemporalBreaks.default,
+      labeler: DateTimeLabeler = DateTimeLabeler.isoUtcMilliseconds,
+      oob: OobPolicy = OobPolicy.Censor
+  )(using transition: EncodesY[Row, Position]): PlotBuilder[Row, transition.Out] =
+    encodeY(value, DateTimeScaleSpec(name, breaks, labeler, oob))
+
   def scaleColorDiscrete(
       value: Row => String,
       levels: Vector[String] = Vector.empty,
@@ -529,6 +565,20 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   def coordFixed(ratio: Double = 1.0, clip: Clip = Clip.On): PlotBuilder[Row, Position] =
     updateResult(Coord.fixed(ratio, clip).flatMap(coord => result.map(_.withCoord(coord))))
 
+  def coordZoom(
+      x: Option[Interval] = None,
+      y: Option[Interval] = None,
+      clip: Clip = Clip.On
+  ): PlotBuilder[Row, Position] =
+    updateResult(Coord.zoom(x, y, clip).flatMap(coord => result.map(_.withCoord(coord))))
+
+  def coordZoomWindows(
+      x: Option[CoordinateWindow] = None,
+      y: Option[CoordinateWindow] = None,
+      clip: Clip = Clip.On
+  ): PlotBuilder[Row, Position] =
+    updateResult(Coord.zoomWindows(x, y, clip).flatMap(coord => result.map(_.withCoord(coord))))
+
   def labels(value: PlotLabels): PlotBuilder[Row, Position] =
     updatePlot(_.withLabels(value))
 
@@ -603,6 +653,36 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
         plot <- current.withScale(ScaleBinding(aesthetic, value, spec))
       yield plot
     updateResult(next)
+
+  private def encodeX[In](
+      value: Row => In,
+      scale: Either[GraphicsError, ScaleValue[In, Double]]
+  )(using transition: EncodesX[Row, Position]): PlotBuilder[Row, transition.Out] =
+    new PlotBuilder(
+      data,
+      transition(position),
+      for
+        current <- result
+        resolved <- scale
+        plot <- current.withScale(ScaleBinding(Aesthetic.X, value, resolved))
+      yield plot,
+      options
+    )
+
+  private def encodeY[In](
+      value: Row => In,
+      scale: Either[GraphicsError, ScaleValue[In, Double]]
+  )(using transition: EncodesY[Row, Position]): PlotBuilder[Row, transition.Out] =
+    new PlotBuilder(
+      data,
+      transition(position),
+      for
+        current <- result
+        resolved <- scale
+        plot <- current.withScale(ScaleBinding(Aesthetic.Y, value, resolved))
+      yield plot,
+      options
+    )
 
   private def bindThemeContinuous(
       aesthetic: Aesthetic[Rgba],

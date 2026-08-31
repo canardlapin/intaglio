@@ -108,6 +108,9 @@ enum GraphicsError extends IntaglioError:
   )
   case InvalidCoordinateRatio(value: Double)
   case InvalidCoordinateTranslation(x: Double, y: Double)
+  case EmptyCoordinateZoom
+  case CoordinateZoomScaleMismatch(axis: String, window: String, scale: String)
+  case CoordinateZoomMappingFailed(axis: String, bound: String, value: String, detail: String)
   case DegenerateFixedAspect(xWidth: Double, yWidth: Double)
   case InvalidFacetColumns(value: Int)
   case EmptyFacet
@@ -116,6 +119,20 @@ enum GraphicsError extends IntaglioError:
   case FacetFixedCoordinates
   case MissingLayout(feature: String)
   case InvalidLayoutCoordinate(kind: String, value: Double)
+  case InvalidCalendarDate(year: Int, month: Int, day: Int)
+  case InvalidUtcDateTime(
+      date: String,
+      hour: Int,
+      minute: Int,
+      second: Int,
+      millisecond: Int
+  )
+  case InvalidTemporalText(kind: String, value: String)
+  case InvalidTemporalDomain(kind: String, lower: String, upper: String)
+  case TemporalValueOutOfRange(kind: String, value: String, detail: String)
+  case InvalidTemporalBreakStep(value: Int)
+  case UnsupportedTemporalBreakUnit(kind: String, unit: String)
+  case InvalidTemporalCoordinate(scale: String, value: Double)
   case InvalidCompositionGrid(plotCount: Int, columns: Int)
   case InvalidCompositionGap(axis: String, value: Double)
   case InvalidCompositionPanel(index: Int, detail: String)
@@ -274,6 +291,12 @@ enum GraphicsError extends IntaglioError:
         s"coordinate ratio must be finite and > 0: $value"
       case InvalidCoordinateTranslation(x, y) =>
         s"coordinate translation must be finite: ($x, $y)"
+      case EmptyCoordinateZoom =>
+        "coordinate zoom requires at least one x or y window"
+      case CoordinateZoomScaleMismatch(axis, window, scale) =>
+        s"$axis coordinate zoom window '$window' is incompatible with scale '$scale'"
+      case CoordinateZoomMappingFailed(axis, bound, value, detail) =>
+        s"$axis coordinate zoom $bound bound '$value' could not be mapped: $detail"
       case DegenerateFixedAspect(xWidth, yWidth) =>
         s"fixed coordinates require non-degenerate expanded ranges: x width $xWidth, y width $yWidth"
       case InvalidFacetColumns(value) =>
@@ -290,6 +313,22 @@ enum GraphicsError extends IntaglioError:
         s"$feature requires a panel layout"
       case InvalidLayoutCoordinate(kind, value) =>
         s"layout $kind coordinate must be finite: $value"
+      case InvalidCalendarDate(year, month, day) =>
+        s"calendar date must be a valid proleptic-Gregorian day in years -9999 through 9999: ($year, $month, $day)"
+      case InvalidUtcDateTime(date, hour, minute, second, millisecond) =>
+        s"UTC date-time fields are invalid for $date: ($hour, $minute, $second, $millisecond)"
+      case InvalidTemporalText(kind, value) =>
+        s"$kind text is not in Intaglio's exact ISO format: '$value'"
+      case InvalidTemporalDomain(kind, lower, upper) =>
+        s"$kind domain lower bound must be <= upper bound: [$lower, $upper]"
+      case TemporalValueOutOfRange(kind, value, detail) =>
+        s"$kind value '$value' is outside the portable temporal domain: $detail"
+      case InvalidTemporalBreakStep(value) =>
+        s"temporal break step must be >= 1: $value"
+      case UnsupportedTemporalBreakUnit(kind, unit) =>
+        s"$kind scales do not support $unit breaks"
+      case InvalidTemporalCoordinate(scale, value) =>
+        s"temporal scale '$scale' inverse coordinate must be finite and in [0, 1]: $value"
       case InvalidCompositionGrid(plotCount, columns) =>
         s"plot composition requires at least one plot and between 1 and $plotCount columns: found $columns columns for $plotCount plots"
       case InvalidCompositionGap(axis, value) =>

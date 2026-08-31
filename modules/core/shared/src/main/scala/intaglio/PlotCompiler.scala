@@ -440,7 +440,12 @@ object PlotCompiler:
         relativeLegend = resolvedOptions.policy.nonEmpty,
         labels = plot.labels
       )
-      coordinates <- CoordPhase.transform(plot.coord, logicalLayers, logicalRanges)
+      coordinates <- CoordPhase.transform(
+        plot.coord,
+        logicalLayers,
+        logicalRanges,
+        scales.registry
+      )
       layers = coordinates.layers
       ranges = coordinates.ranges
       resolution <- LayoutPhase.assemble(plot.coord, resolvedOptions, ranges, specs, plot.labels)

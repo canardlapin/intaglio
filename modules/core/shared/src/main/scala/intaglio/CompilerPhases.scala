@@ -2179,9 +2179,10 @@ private[intaglio] object CoordPhase:
   def transform(
       coord: Coord,
       layers: Vector[TrainedLayer],
-      ranges: Option[(Interval, Interval)]
+      ranges: Option[(Interval, Interval)],
+      scales: PlotScaleRegistry = PlotScaleRegistry.empty
   ): Either[GraphicsError, CoordResult] =
-    coord.transform(CoordInput(layers, ranges))
+    coord.transform(CoordInput(layers, ranges, scales))
 
 /** Reusable, renderer-neutral transforms for built-in and ecosystem coordinates. */
 object CoordinateTransform:
@@ -2195,6 +2196,108 @@ object CoordinateTransform:
         input.ranges.map { case (xRange, yRange) => (yRange, xRange) }
       )
     )
+
+  /** Replace physical panel ranges from raw data-space windows after statistics and scale training.
+    * Rows and grobs are retained unchanged; ordinary panel clipping performs the visual zoom.
+    */
+  def zoom(
+      input: CoordInput,
+      x: Option[CoordinateWindow],
+      y: Option[CoordinateWindow]
+  ): Either[GraphicsError, CoordResult] =
+    input.ranges match
+      case None                   => Left(GraphicsError.MissingLayout("coordinate zoom"))
+      case Some((xRange, yRange)) =>
+        zoomRanges(xRange, yRange, input.scales, x, y).map { ranges =>
+          CoordResult(input.layers, Some(ranges))
+        }
+
+  private[intaglio] def zoomRanges(
+      xRange: Interval,
+      yRange: Interval,
+      scales: PlotScaleRegistry,
+      x: Option[CoordinateWindow],
+      y: Option[CoordinateWindow]
+  ): Either[GraphicsError, (Interval, Interval)] =
+    for
+      resolvedX <- resolveZoomRange("x", Aesthetic.X, xRange, scales, x)
+      resolvedY <- resolveZoomRange("y", Aesthetic.Y, yRange, scales, y)
+    yield (resolvedX, resolvedY)
+
+  private def resolveZoomRange(
+      axis: String,
+      aesthetic: Aesthetic[Double],
+      existing: Interval,
+      scales: PlotScaleRegistry,
+      requested: Option[CoordinateWindow]
+  ): Either[GraphicsError, Interval] =
+    requested match
+      case None         => Right(existing)
+      case Some(window) =>
+        scales.forAesthetic(aesthetic) match
+          case None =>
+            window match
+              case CoordinateWindow.Numeric(range) => Right(range)
+              case _                               =>
+                Left(
+                  GraphicsError.CoordinateZoomScaleMismatch(axis, window.kindLabel, "unscaled")
+                )
+          case Some(trained) =>
+            (window, trained.scale) match
+              case (CoordinateWindow.Numeric(range), scale: ContinuousScale[?]) =>
+                val numeric = scale.asInstanceOf[ContinuousScale[Double]]
+                mapZoomBounds(
+                  axis,
+                  range.lower,
+                  range.upper,
+                  range.lower.toString,
+                  range.upper.toString,
+                  numeric.mapValueResult
+                )
+              case (CoordinateWindow.Date(range), scale: DateScale) =>
+                mapZoomBounds(
+                  axis,
+                  range.lower,
+                  range.upper,
+                  range.lower.toString,
+                  range.upper.toString,
+                  scale.mapValueResult
+                )
+              case (CoordinateWindow.DateTime(range), scale: DateTimeScale) =>
+                mapZoomBounds(
+                  axis,
+                  range.lower,
+                  range.upper,
+                  range.lower.toString,
+                  range.upper.toString,
+                  scale.mapValueResult
+                )
+              case _ =>
+                Left(
+                  GraphicsError.CoordinateZoomScaleMismatch(
+                    axis,
+                    window.kindLabel,
+                    trained.descriptor.kind.toString.toLowerCase
+                  )
+                )
+
+  private def mapZoomBounds[A](
+      axis: String,
+      lowerValue: A,
+      upperValue: A,
+      lowerLabel: String,
+      upperLabel: String,
+      map: A => Either[ScaleMapFailure, Double]
+  ): Either[GraphicsError, Interval] =
+    for
+      lower <- map(lowerValue).left.map(failure =>
+        GraphicsError.CoordinateZoomMappingFailed(axis, "lower", lowerLabel, failure.toString)
+      )
+      upper <- map(upperValue).left.map(failure =>
+        GraphicsError.CoordinateZoomMappingFailed(axis, "upper", upperLabel, failure.toString)
+      )
+      range <- Interval(math.min(lower, upper), math.max(lower, upper))
+    yield range
 
   /** Translate all resolved row, annotation, grob, and range coordinates by a finite native delta.
     */
@@ -2397,7 +2500,7 @@ private[intaglio] object LayoutPhase:
           LayoutResolution(Some(layout.copy(xScale = xRange, yScale = yRange, clip = clip)), None)
         )
       case (None, Some(frame), _, Some((xRange, yRange))) =>
-        expandedRanges(options.expansion, xRange, yRange).map { case (expandedX, expandedY) =>
+        coord.expandRanges(options.expansion, xRange, yRange).map { case (expandedX, expandedY) =>
           LayoutResolution(
             Some(PanelLayout(frame, expandedX, expandedY, options.margins, clip)),
             None
@@ -2405,7 +2508,7 @@ private[intaglio] object LayoutPhase:
         }
       case (None, None, Some(policy), Some((xRange, yRange))) =>
         for
-          expanded <- expandedRanges(options.expansion, xRange, yRange)
+          expanded <- coord.expandRanges(options.expansion, xRange, yRange)
           aspect <- panelAspect(coord, expanded._1, expanded._2)
           frames <- PlotLayoutSolver.solve(
             policy,
@@ -2507,8 +2610,9 @@ private[intaglio] object LayoutPhase:
       layer.trainedScales.find(_.key eq aesthetic) match
         case Some(scale) =>
           sawScaled = true
-          if scale.descriptor.kind == ScaleKind.Continuous then
-            range = range.train(Vector(0.0, 1.0))
+          if scale.descriptor.kind == ScaleKind.Continuous ||
+            scale.descriptor.kind == ScaleKind.Temporal
+          then range = range.train(Vector(0.0, 1.0))
           range = range.train(positionData)
         case None =>
           if positionData.nonEmpty then sawUnscaledData = true
@@ -2642,8 +2746,11 @@ private[intaglio] object GuidePhase:
         if explicit.isEmpty then Right(Vector.empty)
         else
           ranges match
-            case Some((xRange, yRange)) => materializeAxisTicks(explicit, xRange, yRange)
-            case None                   => Left(GraphicsError.MissingLayout("guides"))
+            case Some((xRange, yRange)) =>
+              coord
+                .resolvedGuideLayout(xRange, yRange, plotScales)
+                .flatMap(materializeAxisTicks(explicit, _))
+            case None => Left(GraphicsError.MissingLayout("guides"))
       case GuidePolicy.Derived(overrides, deriveLegends) =>
         ranges match
           case None =>
@@ -2676,16 +2783,13 @@ private[intaglio] object GuidePhase:
       case _: GuideSpec.Colorbar => true
       case _                     => false
     }
-    val guideLayout = coord.guideLayout(xRange, yRange)
-    val (xSide, xPhysicalRange, ySide, yPhysicalRange) =
-      (
-        guideLayout.xSide,
-        guideLayout.xRange,
-        guideLayout.ySide,
-        guideLayout.yRange
-      )
     for
-      resolvedOverrides <- materializeAxisTicks(overrides, xRange, yRange)
+      guideLayout <- coord.resolvedGuideLayout(xRange, yRange, plotScales)
+      xSide = guideLayout.xSide
+      xPhysicalRange = guideLayout.xRange
+      ySide = guideLayout.ySide
+      yPhysicalRange = guideLayout.yRange
+      resolvedOverrides <- materializeAxisTicks(overrides, guideLayout)
       xAxis <-
         if overriddenSides.contains(xSide) then Right(None)
         else positionAxis(plotScales, Aesthetic.X, xSide, xPhysicalRange, labels.x)
@@ -2703,16 +2807,19 @@ private[intaglio] object GuidePhase:
     */
   private def materializeAxisTicks(
       specs: Vector[GuideSpec],
-      xRange: Interval,
-      yRange: Interval
+      layout: CoordGuideLayout
   ): Either[GraphicsError, Vector[GuideSpec]] =
+    val horizontalRange =
+      if layout.xSide.isHorizontal then layout.xRange else layout.yRange
+    val verticalRange =
+      if layout.xSide.isHorizontal then layout.yRange else layout.xRange
     val out = Vector.newBuilder[GuideSpec]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < specs.length && result.isRight do
       specs(idx) match
         case axis: GuideSpec.Axis if axis.ticks.isEmpty =>
-          val range = if axis.side.isHorizontal then xRange else yRange
+          val range = if axis.side.isHorizontal then horizontalRange else verticalRange
           result = Axis.ticks(range, axis.breaks, axis.labeler).map { ticks =>
             out += axis.copy(ticks = Some(ticks))
             ()
@@ -2743,8 +2850,19 @@ private[intaglio] object GuidePhase:
               Some(
                 GuideSpec.Axis(
                   side,
-                  ticks = Some(ticks),
+                  ticks = Some(ticks.filter(tick => range.contains(tick.value))),
                   title = requestedTitle.orElse(Some(continuous.name.value)),
+                  name = Some(name)
+                )
+              )
+            }
+          case temporal: TemporalAxisScale =>
+            temporal.axisTicksResult.map { ticks =>
+              Some(
+                GuideSpec.Axis(
+                  side,
+                  ticks = Some(ticks.filter(tick => range.contains(tick.value))),
+                  title = requestedTitle.orElse(Some(trained.descriptor.name.value)),
                   name = Some(name)
                 )
               )

@@ -1113,7 +1113,8 @@ object CoordinateRatio:
 /** Logical compiler output supplied to an open coordinate implementation. */
 final case class CoordInput(
     layers: Vector[TrainedLayer],
-    ranges: Option[(Interval, Interval)]
+    ranges: Option[(Interval, Interval)],
+    scales: PlotScaleRegistry = PlotScaleRegistry.empty
 )
 
 /** Physical compiler output returned by an open coordinate implementation. */
@@ -1130,6 +1131,39 @@ final case class CoordGuideLayout(
     yRange: Interval
 )
 
+/** Raw data-space window used by coordinate zoom. The compiler maps a window through its trained
+  * position scale after statistics have run; unscaled numeric windows remain native coordinates.
+  */
+enum CoordinateWindow:
+  case Numeric(range: Interval)
+  case Date(range: DateDomain)
+  case DateTime(range: DateTimeDomain)
+
+  def kindLabel: String =
+    this match
+      case Numeric(_)  => "numeric"
+      case Date(_)     => TemporalKind.Date.label
+      case DateTime(_) => TemporalKind.DateTime.label
+
+object CoordinateWindow:
+  def numeric(lower: Double, upper: Double): Either[GraphicsError, CoordinateWindow] =
+    Interval(lower, upper).map(CoordinateWindow.Numeric(_))
+
+  def numericUnsafe(lower: Double, upper: Double): CoordinateWindow =
+    numeric(lower, upper).orThrow
+
+  def date(lower: CalendarDate, upper: CalendarDate): Either[GraphicsError, CoordinateWindow] =
+    DateDomain(lower, upper).map(CoordinateWindow.Date(_))
+
+  def dateUnsafe(lower: CalendarDate, upper: CalendarDate): CoordinateWindow =
+    date(lower, upper).orThrow
+
+  def dateTime(lower: UtcDateTime, upper: UtcDateTime): Either[GraphicsError, CoordinateWindow] =
+    DateTimeDomain(lower, upper).map(CoordinateWindow.DateTime(_))
+
+  def dateTimeUnsafe(lower: UtcDateTime, upper: UtcDateTime): CoordinateWindow =
+    dateTime(lower, upper).orThrow
+
 /** Open logical-to-physical coordinate contract. */
 trait Coord:
   def clipping: Clip
@@ -1139,6 +1173,23 @@ trait Coord:
 
   def guideLayout(xRange: Interval, yRange: Interval): CoordGuideLayout =
     CoordGuideLayout(AxisSide.Bottom, xRange, AxisSide.Left, yRange)
+
+  private[intaglio] def resolvedGuideLayout(
+      xRange: Interval,
+      yRange: Interval,
+      scales: PlotScaleRegistry
+  ): Either[GraphicsError, CoordGuideLayout] =
+    Right(guideLayout(xRange, yRange))
+
+  private[intaglio] def expandRanges(
+      expansion: RangeExpansion,
+      xRange: Interval,
+      yRange: Interval
+  ): Either[GraphicsError, (Interval, Interval)] =
+    for
+      x <- expansion.expand(xRange)
+      y <- expansion.expand(yRange)
+    yield (x, y)
 
   def panelAspect(
       xRange: Interval,
@@ -1176,11 +1227,75 @@ object Coord:
     override def validateFacet: Either[GraphicsError, Unit] =
       Left(GraphicsError.FacetFixedCoordinates)
 
+  final case class Zoom private[intaglio] (
+      x: Option[CoordinateWindow],
+      y: Option[CoordinateWindow],
+      clip: Clip
+  ) extends Coord:
+    val clipping: Clip = clip
+
+    override def transform(input: CoordInput): Either[GraphicsError, CoordResult] =
+      CoordinateTransform.zoom(input, x, y)
+
+    override private[intaglio] def resolvedGuideLayout(
+        xRange: Interval,
+        yRange: Interval,
+        scales: PlotScaleRegistry
+    ): Either[GraphicsError, CoordGuideLayout] =
+      CoordinateTransform
+        .zoomRanges(xRange, yRange, scales, x, y)
+        .map { case (resolvedX, resolvedY) =>
+          CoordGuideLayout(AxisSide.Bottom, resolvedX, AxisSide.Left, resolvedY)
+        }
+
+    override private[intaglio] def expandRanges(
+        expansion: RangeExpansion,
+        xRange: Interval,
+        yRange: Interval
+    ): Either[GraphicsError, (Interval, Interval)] =
+      for
+        expandedX <- if x.nonEmpty then Right(xRange) else expansion.expand(xRange)
+        expandedY <- if y.nonEmpty then Right(yRange) else expansion.expand(yRange)
+      yield (expandedX, expandedY)
+
   def fixed(ratio: Double = 1.0, clip: Clip = Clip.On): Either[GraphicsError, Coord] =
     CoordinateRatio(ratio).map(Coord.Fixed(_, clip))
 
   def fixedUnsafe(ratio: Double = 1.0, clip: Clip = Clip.On): Coord =
     fixed(ratio, clip).orThrow
+
+  /** Checked raw numeric zoom. Bounds are mapped through trained continuous scales after
+    * statistics, or used directly for unscaled numeric positions.
+    */
+  def zoom(
+      x: Option[Interval] = None,
+      y: Option[Interval] = None,
+      clip: Clip = Clip.On
+  ): Either[GraphicsError, Coord] =
+    zoomWindows(x.map(CoordinateWindow.Numeric(_)), y.map(CoordinateWindow.Numeric(_)), clip)
+
+  def zoomUnsafe(
+      x: Option[Interval] = None,
+      y: Option[Interval] = None,
+      clip: Clip = Clip.On
+  ): Coord =
+    zoom(x, y, clip).orThrow
+
+  /** Checked mixed numeric/date/date-time zoom for typed position scales. */
+  def zoomWindows(
+      x: Option[CoordinateWindow] = None,
+      y: Option[CoordinateWindow] = None,
+      clip: Clip = Clip.On
+  ): Either[GraphicsError, Coord] =
+    if x.isEmpty && y.isEmpty then Left(GraphicsError.EmptyCoordinateZoom)
+    else Right(new Coord.Zoom(x, y, clip))
+
+  def zoomWindowsUnsafe(
+      x: Option[CoordinateWindow] = None,
+      y: Option[CoordinateWindow] = None,
+      clip: Clip = Clip.On
+  ): Coord =
+    zoomWindows(x, y, clip).orThrow
 
 enum ReferenceLineOrientation(val label: String):
   case Horizontal extends ReferenceLineOrientation("horizontal")

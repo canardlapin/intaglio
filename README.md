@@ -52,6 +52,9 @@ val logScaled =
   yield scene
 ```
 
+Typed `CalendarDate`/`UtcDateTime` scales and post-statistical coordinate
+windows are covered in the [date/time and zoom guide](docs/date-time-and-zoom.md).
+
 ## Artifacts
 
 | Artifact | JVM | Scala.js | Depends on |
@@ -85,7 +88,8 @@ Complete examples live in [`modules/laws`](modules/laws/README.md).
   with a typed DSL where position mappings change the builder's type — so
   `geomPoint` and `geomLine` are not callable until both `x` and `y` exist.
 - Scale transforms with explicit open/closed domains, trained ranges,
-  out-of-bounds policies, palettes, breaks, labels, and discrete domains.
+  out-of-bounds policies, palettes, breaks, labels, discrete domains, and
+  cross-platform date/time domains.
 - Immutable scene trees with units, viewports, graphical parameters, and grob
   primitives.
 - A device-resolution layer (`DeviceContext`, `DeviceScene`) flattening scenes
