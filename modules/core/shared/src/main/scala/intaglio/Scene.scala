@@ -770,6 +770,21 @@ object Grob:
       name: Option[GraphicsName]
   ) extends Grob
 
+  /** A child grob carrying [[GrobMeta]]. It has no viewport and no name of its own, its only
+    * descendant is `child`, and device lowering delegates to `child`, wrapping the result in a
+    * [[DeviceElement.Annotated]]. Raster backends and PDF draw the child unchanged; the SVG backend
+    * emits the metadata as a wrapping `<g>`.
+    */
+  final case class Annotated private[intaglio] (child: Grob, meta: GrobMeta) extends Grob:
+    def name: Option[GraphicsName] =
+      None
+
+    def viewport: Option[Viewport] =
+      None
+
+    override def children: Vector[Grob] =
+      Vector(child)
+
   def points(
       points: Vector[Point],
       size: ExtentExpr = ExtentExpr.pointsUnsafe(4.0),
@@ -964,6 +979,12 @@ object Grob:
       name: Option[GraphicsName] = None
   ): Grob =
     Group(children, viewport, name)
+
+  /** Attach presentation-neutral metadata to `child`. Total: `meta` is already checked and an empty
+    * `meta` is allowed (the SVG backend then wraps the child in a bare `<g>`).
+    */
+  def annotated(child: Grob, meta: GrobMeta): Grob =
+    Annotated(child, meta)
 
 final case class Scene private (grobs: Vector[Grob], semantics: SceneSemantics):
   def append(grob: Grob): Scene =

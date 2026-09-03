@@ -234,6 +234,24 @@ object SvgRenderer:
         validatePrimitive(primitive)
       case DeviceElement.Group(name, _, _, children) =>
         validateName(name).flatMap(_ => validateElements(children))
+      case DeviceElement.Annotated(meta, children) =>
+        validateMeta(meta).flatMap(_ => validateElements(children))
+
+  private def validateMeta(meta: GrobMeta): Either[SvgRenderError, Unit] =
+    val title = meta.title match
+      case Some(value) => validateXml("annotation title", value)
+      case None        => Right(())
+    val description = meta.description match
+      case Some(value) => validateXml("annotation description", value)
+      case None        => Right(())
+    val duplicate = meta.duplicateDataKey match
+      case Some(key) => Left(SvgRenderError.DuplicateDataKey(key.value))
+      case None      => Right(())
+    val values = meta.data.foldLeft[Either[SvgRenderError, Unit]](Right(())) {
+      case (result, (key, value)) =>
+        result.flatMap(_ => validateXml(s"annotation ${key.attributeName}", value))
+    }
+    title.flatMap(_ => description).flatMap(_ => duplicate).flatMap(_ => values)
 
   private def validatePrimitive(primitive: DevicePrimitive): Either[SvgRenderError, Unit] =
     primitive match
@@ -308,6 +326,19 @@ object SvgRenderer:
           )
           .getOrElse("")
         line(out, indent, s"<g$nameAttr$clipAttr$rotateAttr>")
+        children.foreach(writeElement(_, out, indent + 1, clips, patterns))
+        line(out, indent, "</g>")
+      case DeviceElement.Annotated(meta, children) =>
+        val classAttr =
+          meta.cssClass.map(value => s""" class="${escapeAttr(value.value)}"""").getOrElse("")
+        val dataAttrs = meta.data.map { case (key, value) =>
+          s""" ${key.attributeName}="${escapeAttr(value)}""""
+        }.mkString
+        line(out, indent, s"<g$classAttr$dataAttrs>")
+        meta.title.foreach(title => line(out, indent + 1, s"<title>${escapeText(title)}</title>"))
+        meta.description.foreach(description =>
+          line(out, indent + 1, s"<desc>${escapeText(description)}</desc>")
+        )
         children.foreach(writeElement(_, out, indent + 1, clips, patterns))
         line(out, indent, "</g>")
 

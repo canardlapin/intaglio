@@ -15,6 +15,7 @@ class RenderContextSuite extends munit.FunSuite:
     elements.flatMap {
       case DeviceElement.Mark(primitive)        => Vector(primitive)
       case DeviceElement.Group(_, _, _, nested) => primitives(nested)
+      case DeviceElement.Annotated(_, nested)   => primitives(nested)
     }
 
   private def titleText(scene: DeviceScene): (Double, Double, Double, Option[String]) =
@@ -42,6 +43,8 @@ class RenderContextSuite extends munit.FunSuite:
     elements.flatMap {
       case DeviceElement.Group(name, clip, _, nested) =>
         clip.map(name -> _).toVector ++ namedClips(nested)
+      case DeviceElement.Annotated(_, nested) =>
+        namedClips(nested)
       case DeviceElement.Mark(_) =>
         Vector.empty
     }

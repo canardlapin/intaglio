@@ -70,6 +70,7 @@ object PdfRenderer:
     def visit(elements: Vector[DeviceElement]): Unit =
       elements.foreach {
         case DeviceElement.Group(_, _, _, children) => visit(children)
+        case DeviceElement.Annotated(_, children)   => visit(children)
         case DeviceElement.Mark(DevicePrimitive.TextRun(_, _, _, _, _, _, _, family, _, _)) =>
           requested += family
         case DeviceElement.Mark(_) => ()
@@ -243,6 +244,7 @@ object PdfRenderer:
     private def drawElement(element: DeviceElement): Unit =
       element match
         case DeviceElement.Mark(primitive)                       => drawPrimitive(primitive)
+        case DeviceElement.Annotated(_, children)                => children.foreach(drawElement)
         case DeviceElement.Group(name, clip, rotation, children) =>
           stream.saveGraphicsState()
           try

@@ -127,6 +127,7 @@ object PointShapeLaws:
     elements.flatMap {
       case DeviceElement.Mark(primitive)          => Vector(primitive)
       case DeviceElement.Group(_, _, _, children) => primitives(children)
+      case DeviceElement.Annotated(_, children)   => primitives(children)
     }
 
   /** Axis-aligned bounds `(minX, minY, maxX, maxY)` of the drawn geometry, ignoring stroke width.

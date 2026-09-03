@@ -5,6 +5,7 @@ import intaglio.{GraphicsError, IntaglioError}
 enum SvgRenderError extends IntaglioError:
   case InvalidDocumentSize(width: Int, height: Int)
   case InvalidXmlCharacter(field: String, codePoint: Int)
+  case DuplicateDataKey(key: String)
   case Graphics(error: GraphicsError)
 
   def message: String =
@@ -13,6 +14,8 @@ enum SvgRenderError extends IntaglioError:
         s"SVG document size must be positive: ${width}x$height"
       case InvalidXmlCharacter(field, codePoint) =>
         s"SVG $field contains XML-illegal code point U+${codePoint.toHexString.toUpperCase}"
+      case DuplicateDataKey(key) =>
+        s"SVG annotation repeats data attribute 'data-$key'; an element carries each attribute once"
       case Graphics(error) =>
         error.message
 

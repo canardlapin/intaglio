@@ -31,6 +31,7 @@ class SceneLayoutLawsSuite extends munit.FunSuite:
     elements.flatMap {
       case DeviceElement.Mark(primitive)        => Vector(primitive)
       case DeviceElement.Group(_, _, _, nested) => primitives(nested)
+      case DeviceElement.Annotated(_, nested)   => primitives(nested)
     }
 
   private def panelClip(elements: Vector[DeviceElement]): Option[DeviceClip] =
@@ -38,7 +39,8 @@ class SceneLayoutLawsSuite extends munit.FunSuite:
       .map {
         case DeviceElement.Group(name, clip, _, nested) =>
           clip.filter(_ => name.contains(PlotRegion.Panel)).orElse(panelClip(nested))
-        case DeviceElement.Mark(_) => None
+        case DeviceElement.Annotated(_, nested) => panelClip(nested)
+        case DeviceElement.Mark(_)              => None
       }
       .collectFirst { case Some(value) => value }
 
@@ -115,6 +117,40 @@ class SceneLayoutLawsSuite extends munit.FunSuite:
     )
 
     assertValid(SceneDeviceLaws(first, second, third, DeviceContext.unsafe(320.0, 200.0)))
+  }
+
+  test("annotated grobs keep the scene-device laws and contribute no name of their own") {
+    val meta = GrobMeta(
+      title = Some("Unit 7 & \"friends\""),
+      cssClass = Some(CssClass.unsafe("mark decode-filled")),
+      data = Vector(DataKey.unsafe("kind") -> "anchor")
+    )
+    val plain = Grob
+      .points(
+        Vector(Point.npcUnsafe(0.3, 0.6)),
+        name = Some(GraphicsName.unsafe("annotated-point"))
+      )
+      .orThrow
+    val first = Scene(Vector(Grob.annotated(plain, meta)))
+    val second = Scene(
+      Vector(
+        Grob.group(
+          Vector(Grob.annotated(Grob.annotated(plain, GrobMeta.empty), meta)),
+          name = Some(GraphicsName.unsafe("outer-group"))
+        )
+      )
+    )
+    val third = Scene(Vector(plain))
+
+    assertValid(SceneDeviceLaws(first, second, third, DeviceContext.unsafe(320.0, 200.0)))
+
+    def names(grob: Grob): Vector[Option[String]] =
+      grob.name.map(_.value) +: grob.children.flatMap(names)
+    assertEquals(first.grobs.flatMap(names), Vector(None, Some("annotated-point")))
+    assertEquals(
+      second.grobs.flatMap(names),
+      Vector(Some("outer-group"), None, None, Some("annotated-point"))
+    )
   }
 
   test("the native coordinate transpose is an involution for rows, grobs, and ranges") {

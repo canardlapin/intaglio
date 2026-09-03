@@ -159,6 +159,7 @@ object RendererConformance:
       point <- pointCase
       line <- lineCase
       shapes <- shapeCase
+      annotated <- annotatedCase
       rectAndCircle <- rectCircleCase
       patternFills <- patternFillCase
       text <- textCase
@@ -200,6 +201,7 @@ object RendererConformance:
       point,
       line,
       shapes,
+      annotated,
       rectAndCircle,
       patternFills,
       text,
@@ -361,6 +363,54 @@ object RendererConformance:
         )
       )
     )
+
+  /** A named disc wrapped in [[Grob.Annotated]]. Every backend must accept the wrapper, keep the
+    * child's marker and primitive, and leave its style untouched; only the SVG backend can show the
+    * metadata, so this case pins acceptance and transparency, not emission.
+    */
+  def annotatedCase: Either[GraphicsError, ConformanceCase] =
+    for
+      disc <- Grob.points(
+        Vector(Point.npcUnsafe(0.5, 0.5)),
+        size = ExtentExpr.pointsUnsafe(5.0),
+        gp = GraphicParams.unsafe(
+          stroke = Some(Rgba.unsafe(30, 60, 90)),
+          fill = Some(Rgba.unsafe(200, 220, 240)),
+          alpha = 0.9
+        ),
+        name = Some(GraphicsName.unsafe("conformance-annotated"))
+      )
+      cssClass <- CssClass("mark decode-filled")
+      kind <- DataKey("kind")
+    yield
+      val meta = GrobMeta(
+        title = Some("Recall unit 7 & \"friends\" <b>"),
+        description = Some("Mass 0.5 ]]> end"),
+        cssClass = Some(cssClass),
+        data = Vector(kind -> "anchor")
+      )
+      ConformanceCase(
+        GraphicsName.unsafe("annotated"),
+        ConformanceGroup.Primitive,
+        Scene(Vector(Grob.annotated(disc, meta))),
+        Vector(GraphicsName.unsafe("conformance-annotated")),
+        Vector(
+          RenderRequirement.Primitive(
+            GraphicsName.unsafe("conformance-annotated"),
+            RenderPrimitiveKind.Disc
+          ),
+          RenderRequirement.Style(
+            GraphicsName.unsafe("conformance-annotated"),
+            Some(Rgba.unsafe(30, 60, 90)),
+            Some(Rgba.unsafe(200, 220, 240)),
+            1.0,
+            LineType.Solid,
+            LineCap.Butt,
+            LineJoin.Miter,
+            0.9
+          )
+        )
+      )
 
   def rectCircleCase: Either[GraphicsError, ConformanceCase] =
     for

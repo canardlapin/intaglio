@@ -156,6 +156,8 @@ enum GraphicsError extends IntaglioError:
   case InvalidAxisCoordinate(kind: String, value: Double)
   case AxisTickOutsideRange(value: Double, lower: Double, upper: Double)
   case AxisLabelCountMismatch(values: Int, labels: Int)
+  case InvalidCssClass(value: String, expectation: String)
+  case InvalidDataKey(value: String, expectation: String)
 
   def message: String =
     this match
@@ -374,6 +376,10 @@ enum GraphicsError extends IntaglioError:
         s"axis tick $value is outside range [$lower, $upper]"
       case AxisLabelCountMismatch(values, labels) =>
         s"axis labeler returned $labels labels for $values tick values"
+      case InvalidCssClass(value, expectation) =>
+        s"CSS class '$value' must be $expectation"
+      case InvalidDataKey(value, expectation) =>
+        s"data attribute key '$value' must be $expectation"
 
 object GraphicsError:
   private[intaglio] def throwableDetails(error: Throwable): (String, String) =

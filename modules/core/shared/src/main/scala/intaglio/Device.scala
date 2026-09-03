@@ -287,6 +287,11 @@ enum DeviceElement:
       children: Vector[DeviceElement]
   )
 
+  /** Metadata around already-lowered children. It carries no name, clip, or rotation; a backend
+    * that cannot express the metadata draws `children` as if the wrapper were absent.
+    */
+  case Annotated(meta: GrobMeta, children: Vector[DeviceElement])
+
 /** A scene flattened against a device context: the portable, numeric render contract shared by all
   * backends.
   */
@@ -363,6 +368,8 @@ object DeviceScene:
             )
           case None => Right(())
         clipResult.flatMap(_ => rotationResult).flatMap(_ => validateElements(children))
+      case DeviceElement.Annotated(_, children) =>
+        validateElements(children)
 
   private def validatePrimitive(primitive: DevicePrimitive): Either[GraphicsError, Unit] =
     primitive match
@@ -558,6 +565,10 @@ object DeviceScene:
             lowerAll(group.children, device, frame, fontRegistry, lineHeightPt).map { children =>
               Vector(DeviceElement.Group(group.name, None, None, children))
             }
+          case annotated: Grob.Annotated =>
+            lower(annotated.child, device, frame, fontRegistry, lineHeightPt).map { children =>
+              Vector(DeviceElement.Annotated(annotated.meta, children))
+            }
           case other =>
             contents(other, device, frame, fontRegistry, lineHeightPt)
 
@@ -571,6 +582,8 @@ object DeviceScene:
     grob match
       case group: Grob.Group =>
         lowerAll(group.children, device, frame, fontRegistry, lineHeightPt)
+      case annotated: Grob.Annotated =>
+        lower(annotated, device, frame, fontRegistry, lineHeightPt)
       case other =>
         marks(other, LengthResolver(device, frame, fontRegistry, lineHeightPt))
           .map(_.map(DeviceElement.Mark(_)))
@@ -636,6 +649,8 @@ object DeviceScene:
         imageMark(image, resolver)
       case group: Grob.Group =>
         Left(GraphicsError.UnresolvableLength("group grobs have no marks"))
+      case _: Grob.Annotated =>
+        Left(GraphicsError.UnresolvableLength("annotated grobs have no marks of their own"))
 
   private def pointMarks(
       points: Grob.Points,

@@ -28,6 +28,7 @@ class SceneConformanceSuite extends munit.FunSuite:
         }.toVector
       case DeviceElement.Mark(_)                  => Vector.empty
       case DeviceElement.Group(_, _, _, children) => discs(children)
+      case DeviceElement.Annotated(_, children)   => discs(children)
     }
 
   private object DeviceHarness extends RendererHarness[DeviceScene]:
@@ -49,6 +50,8 @@ class SceneConformanceSuite extends munit.FunSuite:
           primitiveName(primitive).contains(name)
         case DeviceElement.Group(groupName, _, _, children) =>
           groupName.contains(name) || children.exists(containsName(_, name))
+        case DeviceElement.Annotated(_, children) =>
+          children.exists(containsName(_, name))
 
     private def primitiveName(primitive: DevicePrimitive): Option[GraphicsName] =
       primitive match
@@ -70,6 +73,8 @@ class SceneConformanceSuite extends munit.FunSuite:
               name.contains(expected) && clip.nonEmpty == clipped && rotation.nonEmpty == rotated
             case _ => false
           groupMatches || children.exists(satisfiesElement(_, requirement))
+        case DeviceElement.Annotated(_, children) =>
+          children.exists(satisfiesElement(_, requirement))
 
     private def satisfiesPrimitive(
         primitive: DevicePrimitive,
@@ -188,6 +193,8 @@ class SceneConformanceSuite extends munit.FunSuite:
           if values.forall(_.isFinite) then None
           else Some(s"non-finite device coordinate in $primitive")
         case DeviceElement.Group(_, _, _, children) =>
+          firstNonFinite(children)
+        case DeviceElement.Annotated(_, children) =>
           firstNonFinite(children)
 
     private def pointShapeKind(shape: PointShape): RenderPrimitiveKind =

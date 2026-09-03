@@ -23,6 +23,8 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
         primitiveName(primitive).contains(name)
       case DeviceElement.Group(groupName, _, _, children) =>
         groupName.contains(name) || children.exists(containsName(_, name))
+      case DeviceElement.Annotated(_, children) =>
+        children.exists(containsName(_, name))
 
   private def primitiveName(primitive: DevicePrimitive): Option[GraphicsName] =
     primitive match
@@ -47,6 +49,8 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
             name.contains(expected) && clip.nonEmpty == clipped && rotation.nonEmpty == rotated
           case _ => false
         groupMatches || children.exists(satisfiesElement(_, requirement))
+      case DeviceElement.Annotated(_, children) =>
+        children.exists(satisfiesElement(_, requirement))
 
   private def satisfiesPrimitive(
       primitive: DevicePrimitive,
@@ -168,6 +172,8 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
           s"non-finite device coordinate in $primitive"
         )
       case DeviceElement.Group(_, _, _, children) =>
+        firstNonFinite(children)
+      case DeviceElement.Annotated(_, children) =>
         firstNonFinite(children)
 
   private def pointShapeKind(shape: PointShape): RenderPrimitiveKind =

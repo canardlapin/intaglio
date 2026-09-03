@@ -202,6 +202,7 @@ private[performance] object PerformanceProfiles:
     elements.foldLeft(0L) {
       case (count, DeviceElement.Mark(_))                  => count + 1L
       case (count, DeviceElement.Group(_, _, _, children)) => count + primitiveCount(children)
+      case (count, DeviceElement.Annotated(_, children))   => count + primitiveCount(children)
     }
 
   private def occurrences(value: String, needle: String): Long =

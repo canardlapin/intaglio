@@ -37,6 +37,8 @@ private[intaglio] object PatternTile:
         result = elements(index) match
           case DeviceElement.Group(_, _, _, children) =>
             validateElements(children)
+          case DeviceElement.Annotated(_, children) =>
+            validateElements(children)
           case DeviceElement.Mark(primitive) =>
             primitive match
               case DevicePrimitive.PointBatch(_, _, _, params, _) =>

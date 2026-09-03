@@ -55,6 +55,8 @@ class ProvenancePolicySuite extends munit.FunSuite:
         Vector[DeviceElement](
           DeviceElement.Group(name, clip, rotation, normalizeBatches(children))
         )
+      case DeviceElement.Annotated(meta, children) =>
+        Vector[DeviceElement](DeviceElement.Annotated(meta, normalizeBatches(children)))
       case mark: DeviceElement.Mark => Vector(mark)
     }
 

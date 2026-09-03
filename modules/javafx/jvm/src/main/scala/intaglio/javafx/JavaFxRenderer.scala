@@ -291,6 +291,8 @@ object JavaFxProgram:
         )
         children.foreach(appendElement(_, out))
         out += JavaFxCommand.Restore(name)
+      case DeviceElement.Annotated(_, children) =>
+        children.foreach(appendElement(_, out))
 
   private def fromPrimitive(primitive: DevicePrimitive): JavaFxCommand =
     primitive match

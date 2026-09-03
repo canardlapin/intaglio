@@ -2374,6 +2374,8 @@ object CoordinateTransform:
         image.copy(at = flipPoint(image.at), size = flipSize(image.size))
       case group: Grob.Group =>
         group.copy(children = group.children.map(flipGrob))
+      case annotated: Grob.Annotated =>
+        annotated.copy(child = flipGrob(annotated.child))
 
   private def translateLayer(layer: TrainedLayer, x: Double, y: Double): TrainedLayer =
     translateTypedLayer(layer.value, x, y)
@@ -2456,6 +2458,8 @@ object CoordinateTransform:
         image.copy(at = translatePoint(image.at, x, y))
       case group: Grob.Group =>
         group.copy(children = group.children.map(translateGrob(_, x, y)))
+      case annotated: Grob.Annotated =>
+        annotated.copy(child = translateGrob(annotated.child, x, y))
 
 /** Phase 8 — layout resolution: use the explicit panel layout when given, or derive one from an
   * explicit frame plus panel data ranges computed from the layers' position scales (mapped space is

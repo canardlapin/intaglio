@@ -267,7 +267,8 @@ class CompositionSuite extends munit.FunSuite:
       .map {
         case group @ DeviceElement.Group(groupName, _, _, children) =>
           if groupName.contains(name) then Some(group) else findGroup(children, name)
-        case _: DeviceElement.Mark => None
+        case DeviceElement.Annotated(_, children) => findGroup(children, name)
+        case _: DeviceElement.Mark                => None
       }
       .collectFirst { case Some(group) => group }
 

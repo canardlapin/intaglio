@@ -364,6 +364,8 @@ object Java2DProgram:
         )
         children.foreach(appendElement(_, out))
         out += Java2DCommand.Restore(name)
+      case DeviceElement.Annotated(_, children) =>
+        children.foreach(appendElement(_, out))
 
   private def fromPrimitive(primitive: DevicePrimitive): Java2DCommand =
     primitive match
