@@ -60,6 +60,44 @@ class FeatureVisualRegressionSuite extends munit.FunSuite:
     assert(difference.changedFraction > FeatureVisualFixtures.fullThreshold.changedFraction)
   }
 
+  /** Every case's own geometry threshold must still reject a material change inside its own
+    * compared region. Two cases carry a relaxed threshold because their region is mostly text and
+    * AWT rasterizes glyphs differently on each host; this test is what keeps that relaxation from
+    * becoming a threshold that no longer judges anything.
+    */
+  test("every case's geometry threshold rejects a material change in its own region") {
+    FeatureVisualFixtures.cases.foreach { example =>
+      val expected = FeatureVisualFixtures.expected(example)
+      val changed = copy(expected)
+      val bounds = example.geometryBounds
+      // A tenth of each axis of the compared region, centred in it: small enough that a threshold
+      // meant to absorb glyph noise cannot swallow it by being generous, large enough that any
+      // usable threshold must catch it.
+      val width = (bounds.maximumXExclusive - bounds.minimumX) / 10
+      val height = (bounds.maximumYExclusive - bounds.minimumY) / 10
+      val startX = bounds.minimumX + (bounds.maximumXExclusive - bounds.minimumX - width) / 2
+      val startY = bounds.minimumY + (bounds.maximumYExclusive - bounds.minimumY - height) / 2
+      var y = startY
+      while y < startY + height do
+        var x = startX
+        while x < startX + width do
+          changed.setRGB(x, y, 0xff000000)
+          x += 1
+        y += 1
+      val difference =
+        FeaturePixelDifference.compare(expected, changed, Some(bounds))
+
+      assert(
+        difference.changedFraction > example.geometryThreshold.changedFraction ||
+          difference.meanChannelError > example.geometryThreshold.meanChannelError,
+        s"${example.name}: a ${width}x$height black block inside its own region produced " +
+          s"changed fraction ${difference.changedFraction} and mean channel error " +
+          s"${difference.meanChannelError}, neither above its threshold " +
+          s"${example.geometryThreshold}"
+      )
+    }
+  }
+
   private def countNonWhite(image: BufferedImage): Int =
     var count = 0
     var y = 0

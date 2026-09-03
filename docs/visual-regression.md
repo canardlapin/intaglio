@@ -43,6 +43,19 @@ feed a paired human-review gallery against ggplot2, using patchwork where compos
 the relevant peer. See the [recent-feature visual QA guide](visual-qa/recent-features.md) for the
 feature inventory, review contracts, peer layer receipts, and deliberate update workflow.
 
+Each case compares its whole frame against `fullThreshold` and its own region against its own
+`geometryThreshold`. Two cases—`style-aesthetics` and `composition`—use the shared
+`FeatureVisualCase.textDominatedThreshold` instead of the tight default, because their compared
+region is mostly titles and axis labels. The font is pinned (Liberation Sans, shipped inside
+pdfbox) and layout uses the portable `TextMetrics.estimate`, so neither the typeface nor the
+geometry is host-dependent, but AWT's glyph *rasterization* is: hinting and subpixel positioning
+belong to the host. Between macOS and Linux the `composition` case moves by a changed fraction of
+0.0060 and a mean channel error of 0.253, which is not a regression and which the tight default
+could never have admitted. The relaxed threshold is not a weakened court: `every case's geometry
+threshold rejects a material change in its own region` blackens a tenth of each axis of every
+case's own region and asserts that case's own threshold still catches it—for `style-aesthetics`
+that block registers a mean channel error of 1.91 against a limit of 0.5.
+
 ## Deterministic fuzz court
 
 `FuzzRegressionSuite` executes 256 fixed SplitMix64 seeds on both the JVM and Scala.js. A failure

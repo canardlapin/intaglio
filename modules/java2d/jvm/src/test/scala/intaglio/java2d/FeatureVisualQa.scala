@@ -23,6 +23,19 @@ private[java2d] final case class FeatureVisualCase(
     geometryThreshold: PerceptualThreshold = PerceptualThreshold(0.001, 0.03)
 )
 
+private[java2d] object FeatureVisualCase:
+  /** The threshold for a case whose compared region is mostly text.
+    *
+    * AWT rasterizes the same pinned font differently on macOS and Linux --- hinting and subpixel
+    * positioning are the host's, not the file's --- so a region dominated by titles and axis labels
+    * carries a host-sized difference that is not a regression. The measured macOS-to-Linux delta
+    * for the `composition` case is a changed fraction of 0.0060 and a mean channel error of 0.253;
+    * this threshold clears both with roughly threefold and twofold headroom while still rejecting a
+    * material change, which `FeatureVisualRegressionSuite` proves for every case that uses it.
+    */
+  val textDominatedThreshold: PerceptualThreshold =
+    PerceptualThreshold(changedFraction = 0.02, meanChannelError = 0.5)
+
 /** Deterministic fixtures for visual features added after the original plotting comparison gallery.
   * Each case compiles through the public grammar and ordinary render-plan boundary.
   */
@@ -60,7 +73,7 @@ private[java2d] object FeatureVisualFixtures:
       "Point shape, size, stroke/fill, grouped line type/width, and rotated text anchors should convey the same channels; exact symbol and dash rasterization may differ.",
       styleAestheticsPlan,
       PixelBounds(85, 55, 615, 405),
-      PerceptualThreshold(0.02, 0.5)
+      FeatureVisualCase.textDominatedThreshold
     ),
     FeatureVisualCase(
       "ecdf",
@@ -81,7 +94,11 @@ private[java2d] object FeatureVisualFixtures:
       "ggplot2 + patchwork",
       "Two independently trained plots should occupy aligned side-by-side panels despite very different y-label widths; titles and physical gaps need only remain legible and non-overlapping.",
       compositionPlan,
-      PixelBounds(30, 45, 625, 405)
+      // Nearly the whole frame, and most of it is two titles and two sets of axis labels, so this
+      // case reads glyph rasterization more than geometry --- exactly what its contract above says
+      // it does not judge.
+      PixelBounds(30, 45, 625, 405),
+      FeatureVisualCase.textDominatedThreshold
     )
   )
 
