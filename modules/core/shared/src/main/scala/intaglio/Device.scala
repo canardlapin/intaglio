@@ -707,6 +707,21 @@ object DeviceScene:
             points.name
           )
         )
+      case PointShape.Diamond =>
+        val half = PointShape.diamondHalfDiagonal(radius)
+        Vector(
+          DevicePrimitive.Polyline(
+            Vector(
+              DevicePoint(at.x, at.y - half),
+              DevicePoint(at.x + half, at.y),
+              DevicePoint(at.x, at.y + half),
+              DevicePoint(at.x - half, at.y)
+            ),
+            closed = true,
+            gp,
+            points.name
+          )
+        )
 
   private def segmentMarks(
       segments: Grob.Segments,

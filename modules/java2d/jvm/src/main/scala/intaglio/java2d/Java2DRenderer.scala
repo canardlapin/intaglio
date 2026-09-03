@@ -773,6 +773,15 @@ object Java2DRenderer:
         path.lineTo(point.x - radius, point.y + radius)
         path.closePath()
         paintShape(graphics, path, paint, true, patterns, accumulator, renderingHints)
+      case PointShape.Diamond =>
+        val half = PointShape.diamondHalfDiagonal(radius)
+        val path = new Path2D.Double()
+        path.moveTo(point.x, point.y - half)
+        path.lineTo(point.x + half, point.y)
+        path.lineTo(point.x, point.y + half)
+        path.lineTo(point.x - half, point.y)
+        path.closePath()
+        paintShape(graphics, path, paint, true, patterns, accumulator, renderingHints)
       case PointShape.Cross =>
         paintPointLine(
           graphics,

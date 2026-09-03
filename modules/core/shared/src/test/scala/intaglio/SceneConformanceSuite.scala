@@ -196,6 +196,7 @@ class SceneConformanceSuite extends munit.FunSuite:
         case PointShape.Square   => RenderPrimitiveKind.Rectangle
         case PointShape.Triangle => RenderPrimitiveKind.Polygon
         case PointShape.Cross    => RenderPrimitiveKind.Polyline
+        case PointShape.Diamond  => RenderPrimitiveKind.Polygon
 
   test("conformance cases cover all behavior groups") {
     val cases = RendererConformance.cases.fold(e => fail(e.message), identity)
@@ -233,7 +234,8 @@ class SceneConformanceSuite extends munit.FunSuite:
       Vector(
         "conformance-square" -> RenderPrimitiveKind.Rectangle,
         "conformance-triangle" -> RenderPrimitiveKind.Polygon,
-        "conformance-cross" -> RenderPrimitiveKind.Polyline
+        "conformance-cross" -> RenderPrimitiveKind.Polyline,
+        "conformance-diamond" -> RenderPrimitiveKind.Polygon
       )
     )
 

@@ -22,9 +22,10 @@ class SvgRendererSuite extends munit.FunSuite:
       Point.npcUnsafe(0.2, 0.25),
       Point.npcUnsafe(0.4, 0.5),
       Point.npcUnsafe(0.6, 0.75),
-      Point.npcUnsafe(0.8, 0.5)
+      Point.npcUnsafe(0.8, 0.5),
+      Point.npcUnsafe(0.5, 0.15)
     )
-    val sizes = Vector(3.0, 4.0, 5.0, 6.0).map(ExtentExpr.pointsUnsafe)
+    val sizes = Vector(3.0, 4.0, 5.0, 6.0, 7.0).map(ExtentExpr.pointsUnsafe)
     val shapes = PointShape.values.toVector
     val params = Vector(
       GraphicParams.unsafe(
@@ -47,6 +48,11 @@ class SvgRendererSuite extends munit.FunSuite:
         fill = None,
         lineWidth = 2.0,
         lineType = LineType.Dashed
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(30, 120, 120)),
+        fill = Some(Rgba.unsafe(200, 240, 240)),
+        lineWidth = 1.0
       )
     )
     val batch = Grob.pointBatchUnsafe(
@@ -290,6 +296,17 @@ class SvgRendererSuite extends munit.FunSuite:
         )
         .toOption
         .get
+    val diamond =
+      Grob
+        .points(
+          Vector(Point.npcUnsafe(0.75, 0.25)),
+          size = ExtentExpr.pointsUnsafe(6.0),
+          shape = PointShape.Diamond,
+          gp = GraphicParams.unsafe(fill = Some(Rgba.White)),
+          name = Some(GraphicsName.unsafe("shape-diamond"))
+        )
+        .toOption
+        .get
     val rect =
       Grob
         .rect(
@@ -303,7 +320,7 @@ class SvgRendererSuite extends munit.FunSuite:
         .get
     val group =
       Grob.group(
-        Vector(square, triangle, cross, rect),
+        Vector(square, triangle, cross, diamond, rect),
         name = Some(GraphicsName.unsafe("shape-group"))
       )
 
@@ -328,6 +345,12 @@ class SvgRendererSuite extends munit.FunSuite:
     assert(
       svg.contains(
         """<polyline data-name="shape-cross" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="75,17 75,33" />"""
+      )
+    )
+    // Radius 8 px; the diamond half-diagonal 8 * sqrt(pi / 2) = 10.0265... formats to 10.0265.
+    assert(
+      svg.contains(
+        """<polygon data-name="shape-diamond" stroke="#000000" fill="#ffffff" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="75,64.9735 85.0265,75 75,85.0265 64.9735,75" />"""
       )
     )
     assert(

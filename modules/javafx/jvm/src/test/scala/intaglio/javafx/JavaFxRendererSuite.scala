@@ -131,9 +131,10 @@ class JavaFxRendererSuite extends munit.FunSuite:
       Point.npcUnsafe(0.2, 0.25),
       Point.npcUnsafe(0.4, 0.5),
       Point.npcUnsafe(0.6, 0.75),
-      Point.npcUnsafe(0.8, 0.5)
+      Point.npcUnsafe(0.8, 0.5),
+      Point.npcUnsafe(0.5, 0.15)
     )
-    val sizes = Vector(3.0, 4.0, 5.0, 6.0).map(ExtentExpr.pointsUnsafe)
+    val sizes = Vector(3.0, 4.0, 5.0, 6.0, 7.0).map(ExtentExpr.pointsUnsafe)
     val shapes = PointShape.values.toVector
     val params = Vector(
       GraphicParams.unsafe(
@@ -156,6 +157,11 @@ class JavaFxRendererSuite extends munit.FunSuite:
         fill = None,
         lineWidth = 2.0,
         lineType = LineType.Dashed
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(30, 120, 120)),
+        fill = Some(Rgba.unsafe(200, 240, 240)),
+        lineWidth = 1.0
       )
     )
     val batch = Grob.pointBatchUnsafe(

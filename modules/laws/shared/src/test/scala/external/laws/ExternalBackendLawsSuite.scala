@@ -176,6 +176,7 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
       case PointShape.Square   => RenderPrimitiveKind.Rectangle
       case PointShape.Triangle => RenderPrimitiveKind.Polygon
       case PointShape.Cross    => RenderPrimitiveKind.Polyline
+      case PointShape.Diamond  => RenderPrimitiveKind.Polygon
 
 class ExternalBackendLawsSuite extends munit.FunSuite:
   test("an external backend passes the complete published renderer laws") {

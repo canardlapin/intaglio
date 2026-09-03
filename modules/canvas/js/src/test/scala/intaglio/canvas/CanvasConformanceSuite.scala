@@ -165,6 +165,7 @@ class CanvasConformanceSuite extends munit.FunSuite:
       case PointShape.Square   => RenderPrimitiveKind.Rectangle
       case PointShape.Triangle => RenderPrimitiveKind.Polygon
       case PointShape.Cross    => RenderPrimitiveKind.Polyline
+      case PointShape.Diamond  => RenderPrimitiveKind.Polygon
 
   private def groupEffects(
       commands: Vector[CanvasCommand],

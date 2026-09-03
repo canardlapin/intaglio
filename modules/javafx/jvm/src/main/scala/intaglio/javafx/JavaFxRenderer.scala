@@ -627,6 +627,17 @@ object JavaFxRenderer:
           context.closePath()
           paintPath(context, paint, true, accumulator)
         }
+      case PointShape.Diamond =>
+        val half = PointShape.diamondHalfDiagonal(radius)
+        withSaved(context) {
+          context.beginPath()
+          context.moveTo(point.x, point.y - half)
+          context.lineTo(point.x + half, point.y)
+          context.lineTo(point.x, point.y + half)
+          context.lineTo(point.x - half, point.y)
+          context.closePath()
+          paintPath(context, paint, true, accumulator)
+        }
       case PointShape.Cross =>
         drawPointLine(
           point.x - radius,

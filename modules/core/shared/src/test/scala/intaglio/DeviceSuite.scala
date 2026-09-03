@@ -290,6 +290,38 @@ class DeviceSuite extends munit.FunSuite:
         fail(s"unexpected device elements: $other")
   }
 
+  test("diamond points lower to an equal-area closed polyline on the axes") {
+    val grob = Grob
+      .points(
+        Vector(Point.npcUnsafe(0.5, 0.5)),
+        size = ExtentExpr.pointsUnsafe(6.0),
+        shape = PointShape.Diamond,
+        name = Some(GraphicsName.unsafe("diamond"))
+      )
+      .toOption
+      .get
+    val scene =
+      DeviceScene.fromScene(Scene(Vector(grob)), DeviceContext.unsafe(100.0, 100.0)).toOption.get
+    // 6 pt at 96 ppi is an 8 px radius; the half-diagonal is 8 * sqrt(pi / 2).
+    val half = 8.0 * math.sqrt(math.Pi / 2.0)
+
+    scene.elements match
+      case Vector(DeviceElement.Mark(DevicePrimitive.Polyline(points, true, _, name))) =>
+        assertEquals(name.map(_.value), Some("diamond"))
+        assertEquals(points.length, 4)
+        assertEqualsDouble(points(0).x, 50.0, tol)
+        assertEqualsDouble(points(0).y, 50.0 - half, tol)
+        assertEqualsDouble(points(1).x, 50.0 + half, tol)
+        assertEqualsDouble(points(1).y, 50.0, tol)
+        assertEqualsDouble(points(2).x, 50.0, tol)
+        assertEqualsDouble(points(2).y, 50.0 + half, tol)
+        assertEqualsDouble(points(3).x, 50.0 - half, tol)
+        assertEqualsDouble(points(3).y, 50.0, tol)
+        assertEqualsDouble(2.0 * half * half, math.Pi * 64.0, tol)
+      case other =>
+        fail(s"unexpected device elements: $other")
+  }
+
   test("viewport rotation pivots on the resolved origin corner") {
     val viewport = Viewport.unsafe(
       origin = Point.npcUnsafe(0.1, 0.2),

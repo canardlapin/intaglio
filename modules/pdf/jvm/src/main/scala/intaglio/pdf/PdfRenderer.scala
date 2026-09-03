@@ -406,6 +406,13 @@ object PdfRenderer:
               stream.lineTo(x(point.x + radius), y(point.y))
               stream.moveTo(x(point.x), y(point.y - radius))
               stream.lineTo(x(point.x), y(point.y + radius))
+            case PointShape.Diamond =>
+              val half = PointShape.diamondHalfDiagonal(radius)
+              stream.moveTo(x(point.x), y(point.y - half))
+              stream.lineTo(x(point.x + half), y(point.y))
+              stream.lineTo(x(point.x), y(point.y + half))
+              stream.lineTo(x(point.x - half), y(point.y))
+              stream.closePath()
           paint(gp, allowFill)
         }
         vectorShapes += 1
@@ -418,6 +425,7 @@ object PdfRenderer:
         case PointShape.Square   => RenderPrimitiveKind.Rectangle
         case PointShape.Triangle => RenderPrimitiveKind.Polygon
         case PointShape.Cross    => RenderPrimitiveKind.Polyline
+        case PointShape.Diamond  => RenderPrimitiveKind.Polygon
 
     private def recordStyledPrimitive(
         name: Option[GraphicsName],

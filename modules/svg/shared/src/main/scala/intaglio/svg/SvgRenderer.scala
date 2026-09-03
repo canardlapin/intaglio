@@ -456,6 +456,15 @@ object SvgRenderer:
               point.y - radius
             )} ${format(point.x)},${format(point.y + radius)}" />"""
         )
+      case PointShape.Diamond =>
+        val half = PointShape.diamondHalfDiagonal(radius)
+        val coords =
+          s"${format(point.x)},${format(point.y - half)} ${format(point.x + half)},${format(
+              point.y
+            )} ${format(point.x)},${format(point.y + half)} ${format(point.x - half)},${format(
+              point.y
+            )}"
+        line(out, indent, s"""<polygon${commonAttrs(name, gp, patterns)} points="$coords" />""")
 
   private def commonAttrs(
       name: Option[GraphicsName],

@@ -326,14 +326,21 @@ object RendererConformance:
         shape = PointShape.Cross,
         name = Some(GraphicsName.unsafe("conformance-cross"))
       )
+      diamond <- Grob.points(
+        Vector(Point.npcUnsafe(0.5, 0.25)),
+        size = ExtentExpr.pointsUnsafe(6.0),
+        shape = PointShape.Diamond,
+        name = Some(GraphicsName.unsafe("conformance-diamond"))
+      )
     yield ConformanceCase(
       GraphicsName.unsafe("shapes"),
       ConformanceGroup.Primitive,
-      Scene(Vector(square, triangle, cross)),
+      Scene(Vector(square, triangle, cross, diamond)),
       Vector(
         GraphicsName.unsafe("conformance-square"),
         GraphicsName.unsafe("conformance-triangle"),
-        GraphicsName.unsafe("conformance-cross")
+        GraphicsName.unsafe("conformance-cross"),
+        GraphicsName.unsafe("conformance-diamond")
       ),
       Vector(
         RenderRequirement.Primitive(
@@ -347,6 +354,10 @@ object RendererConformance:
         RenderRequirement.Primitive(
           GraphicsName.unsafe("conformance-cross"),
           RenderPrimitiveKind.Polyline
+        ),
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("conformance-diamond"),
+          RenderPrimitiveKind.Polygon
         )
       )
     )

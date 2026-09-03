@@ -113,6 +113,21 @@ class ProvenancePolicySuite extends munit.FunSuite:
             name
           )
         )
+      case PointShape.Diamond =>
+        val half = PointShape.diamondHalfDiagonal(radius)
+        Vector(
+          DevicePrimitive.Polyline(
+            Vector(
+              DevicePoint(point.x, point.y - half),
+              DevicePoint(point.x + half, point.y),
+              DevicePoint(point.x, point.y + half),
+              DevicePoint(point.x - half, point.y)
+            ),
+            closed = true,
+            params,
+            name
+          )
+        )
 
   test("provenance policies publish their retained-memory costs") {
     assertEquals(PlotCompilerOptions.default.provenance, ProvenancePolicy.Full)

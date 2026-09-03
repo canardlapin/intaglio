@@ -97,11 +97,30 @@ object Aesthetic:
       case -1    => None
       case index => Some(index)
 
+/** Mark shapes for point grobs. Every shape is centred on its point and sized by one resolved
+  * device radius `r` (the point size): `Circle` is the disc of radius `r`; `Square` and `Triangle`
+  * span `[-r, r]` on both axes; `Cross` is two strokes of length `2r`; `Diamond` is a square
+  * rotated 45 degrees whose area equals the circle's, so a size-by-value encoding reads the same
+  * across those two shapes.
+  */
 enum PointShape:
   case Circle
   case Square
   case Triangle
   case Cross
+  case Diamond
+
+object PointShape:
+  /** Half-diagonal of a `Diamond` per unit of point radius: `sqrt(pi / 2)`. A diamond with
+    * half-diagonal `d` covers `2 d^2`, so `d = r sqrt(pi / 2)` gives it the circle's area `pi r^2`.
+    * Every backend derives the diamond's vertices from this one value.
+    */
+  val DiamondHalfDiagonalRatio: Double =
+    math.sqrt(math.Pi / 2.0)
+
+  /** Device half-diagonal of a `Diamond` mark drawn at point radius `radius`. */
+  def diamondHalfDiagonal(radius: Double): Double =
+    radius * DiamondHalfDiagonalRatio
 
 enum LineType:
   case Solid

@@ -901,6 +901,17 @@ object CanvasRenderer:
           context.closePath()
           paintPath(context, paint, true, patterns, accumulator)
         }
+      case PointShape.Diamond =>
+        val half = PointShape.diamondHalfDiagonal(radius)
+        withSavedEither(context) {
+          context.beginPath()
+          context.moveTo(point.x, point.y - half)
+          context.lineTo(point.x + half, point.y)
+          context.lineTo(point.x, point.y + half)
+          context.lineTo(point.x - half, point.y)
+          context.closePath()
+          paintPath(context, paint, true, patterns, accumulator)
+        }
       case PointShape.Cross =>
         drawPointLine(
           DevicePoint(point.x - radius, point.y),

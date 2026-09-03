@@ -74,12 +74,13 @@ class BatchIrSuite extends munit.FunSuite:
       Point.npcUnsafe(0.2, 0.2),
       Point.npcUnsafe(0.4, 0.4),
       Point.npcUnsafe(0.6, 0.6),
-      Point.npcUnsafe(0.8, 0.8)
+      Point.npcUnsafe(0.8, 0.8),
+      Point.npcUnsafe(0.9, 0.1)
     )
     val shapes = BatchColumn.Values(PointShape.values.toVector)
     val black = GraphicParams.unsafe(fill = Some(Rgba.Black))
     val white = GraphicParams.unsafe(fill = Some(Rgba.White), alpha = 0.5)
-    val params = BatchColumn.Values(Vector(black, white, black, white))
+    val params = BatchColumn.Values(Vector(black, white, black, white, black))
     val grob = Grob
       .pointBatch(
         points,
@@ -96,12 +97,12 @@ class BatchIrSuite extends munit.FunSuite:
       case DeviceElement.Mark(value: DevicePrimitive.PointBatch) => value
       case other => fail(s"expected a device point batch, found $other")
 
-    assertEquals(batch.points.length, 4)
+    assertEquals(batch.points.length, 5)
     assert(batch.radii.isConstant)
-    assertEquals(Vector.tabulate(4)(batch.shapes.valueAt), PointShape.values.toVector)
+    assertEquals(Vector.tabulate(5)(batch.shapes.valueAt), PointShape.values.toVector)
     assertEquals(
-      Vector.tabulate(4)(batch.graphicParams.valueAt),
-      Vector(black, white, black, white)
+      Vector.tabulate(5)(batch.graphicParams.valueAt),
+      Vector(black, white, black, white, black)
     )
     assertEquals(batch.name.map(_.value), Some("mixed-point-batch"))
   }
