@@ -10,7 +10,7 @@
 # It publishes to a throwaway local repository -- `publishM2` into a temporary
 # directory -- and then reads back every generated POM, checking that:
 #   * every module the build aggregates and does not skip actually produced a
-#     POM, a jar, and a sources jar;
+#     POM, a jar, a sources jar, and a javadoc jar;
 #   * each POM carries the metadata the Central Portal requires: name,
 #     description, url, licence, developer, and SCM;
 #   * no dependency in the closure is a SNAPSHOT, which Central refuses;
@@ -88,7 +88,9 @@ for module in $expected_modules; do
     report "$module produced no POM"
     continue
   fi
-  for artifact in ".jar" "-sources.jar"; do
+  # Central requires all three. The javadoc jar is the one a build can silently stop producing,
+  # because nothing else in the build asks scaladoc to run.
+  for artifact in ".jar" "-sources.jar" "-javadoc.jar"; do
     if [[ ! -f "$base/$module-$rehearsal_version$artifact" ]]; then
       report "$module produced no $artifact"
     fi

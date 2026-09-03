@@ -57,8 +57,10 @@ stale local artifact cannot stand in for a missing dependency. It publishes
 every module to a throwaway local Maven repository and then reads the generated
 POM closure back, checking that:
 
-- every module the build aggregates and does not skip produced a POM, a jar and
-  a sources jar — including both platform variants of each cross-built module;
+- every module the build aggregates and does not skip produced a POM, a jar, a
+  sources jar and a javadoc jar — including both platform variants of each
+  cross-built module. Scaladoc runs nowhere else in the build, so the javadoc
+  jar is the artifact a change can silently stop producing;
 - each POM carries the metadata the Central Portal requires: `name`,
   `description`, `url`, `licenses`, `developers`, `scm`;
 - nothing in the closure depends on a SNAPSHOT, which Central refuses;

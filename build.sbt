@@ -50,6 +50,20 @@ ThisBuild / developers := List(
   )
 )
 
+/** Scaladoc runs inside the sbt JVM and is not safe to run beside itself: a `publishM2` or
+  * `publishSigned` over the whole aggregate starts a `doc` task per module, and under load that has
+  * twice died with a `NullPointerException` in `MemberRenderer` --- once during a release rehearsal.
+  * Serializing the doc tasks costs wall-clock only on the publishing path, which is not hot, and
+  * removes the only shared-state race available to them.
+  *
+  * This is insurance, not a verified fix: the crash has never reproduced in isolation, so the
+  * hypothesis that concurrency causes it is untested. If it recurs with this in place, the cause is
+  * elsewhere and this restriction should be removed rather than widened.
+  */
+val scaladocTag = Tags.Tag("scaladoc")
+
+Global / concurrentRestrictions += Tags.limit(scaladocTag, 1)
+
 lazy val commonSettings = Seq(
   /** Stated in project scope, not only on `ThisBuild`, because a consumer that loads Intaglio as a
     * `ProjectRef` may carry a plugin deriving `scalaVersion` from `crossScalaVersions` in project
@@ -66,9 +80,10 @@ lazy val commonSettings = Seq(
     "-unchecked",
     "-Xmax-inlines:64"
   ),
-  apiURL := Some(url("https://canardlapin.github.io/intaglio/api/")),
-  autoAPIMappings := true,
+  // No `apiURL`: a POM is immutable once published, and there is no API site to point one at.
+  // Set it, with `autoAPIMappings`, in the change that first deploys one.
   Test / fork := false,
+  Compile / doc / tags := Seq(scaladocTag -> 1),
   libraryDependencies += "org.scalameta" %%% "munit" % "1.2.1" % Test,
   mimaReportSignatureProblems := true,
   mimaPreviousArtifacts ++= sys.env
