@@ -77,6 +77,7 @@ class ProvenancePolicySuite extends munit.FunSuite:
             point.y - radius,
             radius * 2.0,
             radius * 2.0,
+            0.0,
             params,
             name
           )

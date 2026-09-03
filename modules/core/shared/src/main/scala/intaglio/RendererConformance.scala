@@ -160,7 +160,9 @@ object RendererConformance:
       line <- lineCase
       shapes <- shapeCase
       annotated <- annotatedCase
+      steps <- stepLineCase
       rectAndCircle <- rectCircleCase
+      roundedRect <- roundedRectCase
       patternFills <- patternFillCase
       text <- textCase
       image <- imageCase
@@ -202,7 +204,9 @@ object RendererConformance:
       line,
       shapes,
       annotated,
+      steps,
       rectAndCircle,
+      roundedRect,
       patternFills,
       text,
       image,
@@ -411,6 +415,80 @@ object RendererConformance:
           )
         )
       )
+
+  /** A step-after and a step-before track over the same three points, so a backend proves it draws
+    * the expanded corners rather than the three given vertices. Both lower to open polylines.
+    */
+  def stepLineCase: Either[GraphicsError, ConformanceCase] =
+    val after = GraphicsName.unsafe("conformance-step-after")
+    val before = GraphicsName.unsafe("conformance-step-before")
+    val points =
+      Vector(
+        Point.npcUnsafe(0.15, 0.2),
+        Point.npcUnsafe(0.5, 0.6),
+        Point.npcUnsafe(0.85, 0.4)
+      )
+    for
+      stepAfter <- Grob.lines(
+        points,
+        interpolation = LineInterpolation.StepAfter,
+        gp = GraphicParams.unsafe(stroke = Some(Rgba.unsafe(20, 90, 60))),
+        name = Some(after)
+      )
+      stepBefore <- Grob.lines(
+        points,
+        interpolation = LineInterpolation.StepBefore,
+        gp =
+          GraphicParams.unsafe(stroke = Some(Rgba.unsafe(150, 60, 20)), lineType = LineType.Dotted),
+        name = Some(before)
+      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("step-lines"),
+      ConformanceGroup.Primitive,
+      Scene(Vector(stepAfter, stepBefore)),
+      Vector(after, before),
+      Vector(
+        RenderRequirement.Primitive(after, RenderPrimitiveKind.Polyline),
+        RenderRequirement.Primitive(before, RenderPrimitiveKind.Polyline)
+      )
+    )
+
+  /** A rounded rectangle beside one whose requested radius exceeds half its shorter side, so a
+    * backend proves it draws the clamped corner and keeps the sharp bounding box.
+    */
+  def roundedRectCase: Either[GraphicsError, ConformanceCase] =
+    val rounded = GraphicsName.unsafe("conformance-rounded-rect")
+    val clamped = GraphicsName.unsafe("conformance-clamped-rect")
+    for
+      radius <- ExtentExpr.points(4.0)
+      oversized <- ExtentExpr.points(90.0)
+      bar <- Grob.rect(
+        Point.npcUnsafe(0.3, 0.5),
+        Size.npcUnsafe(0.3, 0.2),
+        cornerRadius = radius,
+        gp = GraphicParams.unsafe(
+          fill = Some(Rgba.unsafe(40, 110, 160)),
+          stroke = Some(Rgba.unsafe(10, 30, 50))
+        ),
+        name = Some(rounded)
+      )
+      pill <- Grob.rect(
+        Point.npcUnsafe(0.75, 0.5),
+        Size.npcUnsafe(0.2, 0.12),
+        cornerRadius = oversized,
+        gp = GraphicParams.unsafe(fill = Some(Rgba.unsafe(200, 170, 90))),
+        name = Some(clamped)
+      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("rounded-rect"),
+      ConformanceGroup.Primitive,
+      Scene(Vector(bar, pill)),
+      Vector(rounded, clamped),
+      Vector(
+        RenderRequirement.Primitive(rounded, RenderPrimitiveKind.Rectangle),
+        RenderRequirement.Primitive(clamped, RenderPrimitiveKind.Rectangle)
+      )
+    )
 
   def rectCircleCase: Either[GraphicsError, ConformanceCase] =
     for

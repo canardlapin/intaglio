@@ -327,10 +327,10 @@ class CanvasRendererSuite extends munit.FunSuite:
     assertEquals(transforms, 1)
     assertEquals(fills, 4)
     val paints = program.commands.collect {
-      case CanvasCommand.Disc(_, _, _, paint, _)         => paint
-      case CanvasCommand.Polyline(_, true, paint, _)     => paint
-      case CanvasCommand.CompoundPolygon(_, paint, _)    => paint
-      case CanvasCommand.Rectangle(_, _, _, _, paint, _) => paint
+      case CanvasCommand.Disc(_, _, _, paint, _)            => paint
+      case CanvasCommand.Polyline(_, true, paint, _)        => paint
+      case CanvasCommand.CompoundPolygon(_, paint, _)       => paint
+      case CanvasCommand.Rectangle(_, _, _, _, _, paint, _) => paint
     }
     assertEquals(paints.length, 4)
     assert(paints.forall(_.fillPattern.contains(pattern)))

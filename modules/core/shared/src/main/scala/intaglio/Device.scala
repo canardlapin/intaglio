@@ -243,11 +243,16 @@ enum DevicePrimitive:
       gp: GraphicParams,
       name: Option[GraphicsName]
   )
+
+  /** `cornerRadius` is already resolved and clamped to half the shorter side, so a backend rounds
+    * the corner it is given without re-deriving a limit. Zero is the sharp rectangle.
+    */
   case RectShape(
       x: Double,
       y: Double,
       width: Double,
       height: Double,
+      cornerRadius: Double,
       gp: GraphicParams,
       name: Option[GraphicsName]
   )
@@ -396,13 +401,14 @@ object DeviceScene:
         }
       case DevicePrimitive.CompoundPolygon(rings, gp, _) =>
         validatePointGroups(rings).flatMap(_ => validateFillGraphicParams(gp))
-      case DevicePrimitive.RectShape(x, y, width, height, gp, _) =>
+      case DevicePrimitive.RectShape(x, y, width, height, cornerRadius, gp, _) =>
         validateNumbers(
           Vector(
             "rectangle x" -> x,
             "rectangle y" -> y,
             "rectangle width" -> width,
-            "rectangle height" -> height
+            "rectangle height" -> height,
+            "rectangle corner radius" -> cornerRadius
           )
         ).flatMap(_ => validateFillGraphicParams(gp))
       case DevicePrimitive.TextRun(_, x, y, _, _, rotationDegrees, fontSizePx, _, _, _) =>
@@ -601,7 +607,14 @@ object DeviceScene:
         for
           resolved <- resolvePoints(lines.points, resolver)
           gp <- resolver.graphicParams(lines.gp)
-        yield Vector(DevicePrimitive.Polyline(resolved, closed = false, gp, lines.name))
+        yield Vector(
+          DevicePrimitive.Polyline(
+            interpolate(resolved, lines.interpolation),
+            closed = false,
+            gp,
+            lines.name
+          )
+        )
       case polygon: Grob.Polygon =>
         for
           resolved <- resolvePoints(polygon.points, resolver)
@@ -690,6 +703,7 @@ object DeviceScene:
             at.y - radius,
             radius * 2.0,
             radius * 2.0,
+            0.0,
             gp,
             points.name
           )
@@ -772,10 +786,50 @@ object DeviceScene:
   ): Either[GraphicsError, Vector[DevicePrimitive]] =
     for
       bounds <- anchoredBounds(rect.center, rect.size, rect.anchor, resolver)
+      requested <- resolver.extent(rect.cornerRadius)
       gp <- resolver.graphicParams(rect.gp)
     yield
       val (x, y, width, height) = bounds
-      Vector(DevicePrimitive.RectShape(x, y, width, height, gp, rect.name))
+      Vector(
+        DevicePrimitive
+          .RectShape(x, y, width, height, cornerRadius(requested, width, height), gp, rect.name)
+      )
+
+  /** A corner cannot consume more than half a side, so an over-large request becomes the largest
+    * radius the rectangle admits rather than an error or a self-intersecting outline. This is the
+    * SVG `rx`/`ry` rule, applied once in lowering so raster and vector backends agree.
+    */
+  private def cornerRadius(requested: Double, width: Double, height: Double): Double =
+    if !requested.isFinite || requested <= 0.0 then 0.0
+    else math.min(requested, math.min(math.abs(width), math.abs(height)) / 2.0)
+
+  /** Expand a step interpolation into the corner points it stands for. The result is exactly the
+    * vector an author would have written by hand, so a step line and its explicit form lower to the
+    * same polyline.
+    */
+  private def interpolate(
+      points: Vector[DevicePoint],
+      interpolation: LineInterpolation
+  ): Vector[DevicePoint] =
+    interpolation match
+      case LineInterpolation.Linear                                   => points
+      case LineInterpolation.StepAfter | LineInterpolation.StepBefore =>
+        if points.length < 2 then points
+        else
+          val out = Vector.newBuilder[DevicePoint]
+          out.sizeHint(points.length * 2 - 1)
+          out += points.head
+          var index = 1
+          while index < points.length do
+            val previous = points(index - 1)
+            val current = points(index)
+            interpolation match
+              case LineInterpolation.StepAfter  => out += DevicePoint(current.x, previous.y)
+              case LineInterpolation.StepBefore => out += DevicePoint(previous.x, current.y)
+              case LineInterpolation.Linear     => ()
+            out += current
+            index += 1
+          out.result()
 
   private def imageMark(
       image: Grob.Image,

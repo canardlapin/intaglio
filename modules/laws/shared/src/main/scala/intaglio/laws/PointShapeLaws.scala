@@ -159,7 +159,7 @@ object PointShapeLaws:
           xs += point.x
           ys += point.y
         }
-      case DevicePrimitive.RectShape(x, y, width, height, _, _) =>
+      case DevicePrimitive.RectShape(x, y, width, height, _, _, _) =>
         xs += x
         xs += x + width
         ys += y

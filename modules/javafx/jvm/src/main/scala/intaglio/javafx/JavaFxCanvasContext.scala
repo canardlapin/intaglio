@@ -45,6 +45,9 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
   override def rect(x: Double, y: Double, width: Double, height: Double): Unit =
     context.rect(x, y, width, height)
 
+  override def arcTo(x1: Double, y1: Double, x2: Double, y2: Double, radius: Double): Unit =
+    context.arcTo(x1, y1, x2, y2, radius)
+
   override def clip(): Unit =
     context.clip()
 

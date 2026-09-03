@@ -131,7 +131,7 @@ class JavaFxConformanceSuite extends munit.FunSuite:
       case JavaFxCommand.PointBatch(_, _, _, _, name)                         => name
       case JavaFxCommand.Polyline(_, _, _, name)                              => name
       case JavaFxCommand.CompoundPolygon(_, _, name)                          => name
-      case JavaFxCommand.Rectangle(_, _, _, _, _, name)                       => name
+      case JavaFxCommand.Rectangle(_, _, _, _, _, _, name)                    => name
       case JavaFxCommand.Text(_, _, _, _, _, _, _, _, _, name)                => name
       case JavaFxCommand.Image(_, _, _, _, _, _, _, name)                     => name
       case JavaFxCommand.Rotate(_, _, _) | JavaFxCommand.ClipRect(_, _, _, _) => None
@@ -144,7 +144,7 @@ class JavaFxConformanceSuite extends munit.FunSuite:
       case JavaFxCommand.Polyline(_, closed, _, _) =>
         Some(if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline)
       case JavaFxCommand.CompoundPolygon(_, _, _)           => Some(RenderPrimitiveKind.Polygon)
-      case JavaFxCommand.Rectangle(_, _, _, _, _, _)        => Some(RenderPrimitiveKind.Rectangle)
+      case JavaFxCommand.Rectangle(_, _, _, _, _, _, _)     => Some(RenderPrimitiveKind.Rectangle)
       case JavaFxCommand.Text(_, _, _, _, _, _, _, _, _, _) => Some(RenderPrimitiveKind.Text)
       case JavaFxCommand.Image(_, _, _, _, _, _, _, _)      => Some(RenderPrimitiveKind.Image)
       case _                                                => None
@@ -155,7 +155,7 @@ class JavaFxConformanceSuite extends munit.FunSuite:
       case JavaFxCommand.PointBatch(_, _, _, paints, _)         => Some(paints.valueAt(0))
       case JavaFxCommand.Polyline(_, _, paint, _)               => Some(paint)
       case JavaFxCommand.CompoundPolygon(_, paint, _)           => Some(paint)
-      case JavaFxCommand.Rectangle(_, _, _, _, paint, _)        => Some(paint)
+      case JavaFxCommand.Rectangle(_, _, _, _, _, paint, _)     => Some(paint)
       case JavaFxCommand.Text(_, _, _, _, _, _, _, _, paint, _) => Some(paint)
       case _                                                    => None
 

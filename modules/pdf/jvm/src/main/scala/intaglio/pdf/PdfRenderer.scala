@@ -317,10 +317,20 @@ object PdfRenderer:
             }
             vectorShapes += 1
             recordStyledPrimitive(name, RenderPrimitiveKind.Polygon, gp)
-        case DevicePrimitive.RectShape(rectX, rectY, width, height, gp, name) =>
+        case DevicePrimitive.RectShape(rectX, rectY, width, height, cornerRadius, gp, name) =>
           if hasPaint(gp, allowFill = true) then
             withGraphics {
-              stream.addRect(x(rectX), y(rectY + height), px(width), px(height))
+              if cornerRadius == 0.0 then
+                stream.addRect(x(rectX), y(rectY + height), px(width), px(height))
+              else
+                appendRoundedRect(
+                  stream,
+                  x(rectX),
+                  y(rectY + height),
+                  px(width),
+                  px(height),
+                  px(cornerRadius)
+                )
               paint(gp, allowFill = true)
             }
             vectorShapes += 1
@@ -708,6 +718,52 @@ object PdfRenderer:
       stream.saveGraphicsState()
       try body
       finally stream.restoreGraphicsState()
+
+  /** A rounded rectangle in PDF user space (y-up), corners approximated by the same quarter-circle
+    * Bezier control ratio [[appendCircle]] uses.
+    */
+  private def appendRoundedRect(
+      stream: PDPageContentStream,
+      left: Float,
+      bottom: Float,
+      width: Float,
+      height: Float,
+      radius: Float
+  ): Unit =
+    val control = radius * 0.55228475f
+    val right = left + width
+    val top = bottom + height
+    stream.moveTo(left + radius, bottom)
+    stream.lineTo(right - radius, bottom)
+    stream.curveTo(
+      right - radius + control,
+      bottom,
+      right,
+      bottom + radius - control,
+      right,
+      bottom + radius
+    )
+    stream.lineTo(right, top - radius)
+    stream.curveTo(
+      right,
+      top - radius + control,
+      right - radius + control,
+      top,
+      right - radius,
+      top
+    )
+    stream.lineTo(left + radius, top)
+    stream.curveTo(left + radius - control, top, left, top - radius + control, left, top - radius)
+    stream.lineTo(left, bottom + radius)
+    stream.curveTo(
+      left,
+      bottom + radius - control,
+      left + radius - control,
+      bottom,
+      left + radius,
+      bottom
+    )
+    stream.closePath()
 
   private def appendCircle(
       stream: PDPageContentStream,

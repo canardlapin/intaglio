@@ -11,7 +11,7 @@ import java.awt.{
   Shape,
   TexturePaint
 }
-import java.awt.geom.{AffineTransform, Ellipse2D, Path2D, Rectangle2D}
+import java.awt.geom.{AffineTransform, Ellipse2D, Path2D, Rectangle2D, RoundRectangle2D}
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
 import scala.collection.mutable
@@ -274,6 +274,7 @@ enum Java2DCommand:
       y: Double,
       width: Double,
       height: Double,
+      cornerRadius: Double,
       paint: Java2DPaint,
       name: Option[GraphicsName]
   )
@@ -383,8 +384,9 @@ object Java2DProgram:
         Java2DCommand.Polyline(points, closed, Java2DPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
         Java2DCommand.CompoundPolygon(rings, Java2DPaint.fromGraphicParams(gp), name)
-      case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
-        Java2DCommand.Rectangle(x, y, width, height, Java2DPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.RectShape(x, y, width, height, cornerRadius, gp, name) =>
+        Java2DCommand
+          .Rectangle(x, y, width, height, cornerRadius, Java2DPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.TextRun(
             label,
             x,
@@ -442,8 +444,8 @@ object Java2DProgram:
               paint.lineWidth,
               paint.opacity
             )
-          case Java2DCommand.Rectangle(x, y, width, height, paint, _) =>
-            Vector(x, y, width, height, paint.lineWidth, paint.opacity)
+          case Java2DCommand.Rectangle(x, y, width, height, cornerRadius, paint, _) =>
+            Vector(x, y, width, height, cornerRadius, paint.lineWidth, paint.opacity)
           case Java2DCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
             Vector(x, y, rotation, fontSize, paint.opacity)
           case Java2DCommand.Image(_, x, y, width, height, _, alpha, _) =>
@@ -681,10 +683,13 @@ object Java2DRenderer:
           path.closePath()
         }
         paintShape(graphics, path, paint, true, patterns, accumulator, renderingHints)
-      case Java2DCommand.Rectangle(x, y, width, height, paint, _) =>
+      case Java2DCommand.Rectangle(x, y, width, height, cornerRadius, paint, _) =>
         paintShape(
           graphics,
-          new Rectangle2D.Double(x, y, width, height),
+          if cornerRadius == 0.0 then new Rectangle2D.Double(x, y, width, height)
+          else
+            new RoundRectangle2D.Double(x, y, width, height, cornerRadius * 2.0, cornerRadius * 2.0)
+          ,
           paint,
           true,
           patterns,

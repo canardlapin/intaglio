@@ -122,6 +122,30 @@ object PointShape:
   def diamondHalfDiagonal(radius: Double): Double =
     radius * DiamondHalfDiagonalRatio
 
+/** How a [[Grob.Lines]] joins its given points.
+  *
+  * `Linear` connects them directly. The step forms insert one corner between each neighbouring
+  * pair, so a track that holds a value and then jumps is one grob with one name rather than one
+  * grob per horizontal run: `StepAfter` holds each y until the next x, `StepBefore` jumps to the
+  * next y at the current x. Lowering expands them into the same device polyline the explicit corner
+  * points would have produced.
+  */
+enum LineInterpolation:
+  case Linear
+  case StepAfter
+  case StepBefore
+
+  /** The interpolation that draws the same track once the axes are exchanged. Transposing turns a
+    * hold-then-jump into a jump-then-hold, because the corner a step-after inserts at
+    * `(x(i+1), y(i))` becomes the corner a step-before inserts at `(y(i), x(i+1))`. A coordinate
+    * implementation that transposes a scene must apply this to every `Lines` grob it flips.
+    */
+  def transposed: LineInterpolation =
+    this match
+      case Linear     => Linear
+      case StepAfter  => StepBefore
+      case StepBefore => StepAfter
+
 enum LineType:
   case Solid
   case Dashed

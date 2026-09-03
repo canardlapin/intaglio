@@ -233,6 +233,7 @@ enum CanvasCommand:
       y: Double,
       width: Double,
       height: Double,
+      cornerRadius: Double,
       paint: CanvasPaint,
       name: Option[GraphicsName]
   )
@@ -342,8 +343,9 @@ object CanvasProgram:
         CanvasCommand.Polyline(points, closed, CanvasPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
         CanvasCommand.CompoundPolygon(rings, CanvasPaint.fromGraphicParams(gp), name)
-      case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
-        CanvasCommand.Rectangle(x, y, width, height, CanvasPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.RectShape(x, y, width, height, cornerRadius, gp, name) =>
+        CanvasCommand
+          .Rectangle(x, y, width, height, cornerRadius, CanvasPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.TextRun(
             label,
             x,
@@ -401,8 +403,8 @@ object CanvasProgram:
               paint.lineWidth,
               paint.opacity
             )
-          case CanvasCommand.Rectangle(x, y, width, height, paint, _) =>
-            Vector(x, y, width, height, paint.lineWidth, paint.opacity)
+          case CanvasCommand.Rectangle(x, y, width, height, cornerRadius, paint, _) =>
+            Vector(x, y, width, height, cornerRadius, paint.lineWidth, paint.opacity)
           case CanvasCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
             Vector(x, y, rotation, fontSize, paint.opacity)
           case CanvasCommand.Image(_, x, y, width, height, _, alpha, _) =>
@@ -452,6 +454,7 @@ trait CanvasRenderingContext2D extends js.Object:
   def moveTo(x: Double, y: Double): Unit = js.native
   def lineTo(x: Double, y: Double): Unit = js.native
   def rect(x: Double, y: Double, width: Double, height: Double): Unit = js.native
+  def arcTo(x1: Double, y1: Double, x2: Double, y2: Double, radius: Double): Unit = js.native
   def arc(
       x: Double,
       y: Double,
@@ -830,10 +833,19 @@ object CanvasRenderer:
           }
           paintPath(context, paint, true, patterns, accumulator)
         }
-      case CanvasCommand.Rectangle(x, y, width, height, paint, _) =>
+      case CanvasCommand.Rectangle(x, y, width, height, cornerRadius, paint, _) =>
         withSavedEither(context) {
           context.beginPath()
-          context.rect(x, y, width, height)
+          if cornerRadius == 0.0 then context.rect(x, y, width, height)
+          else
+            // The `arcTo` recipe JavaFX and SVG's rx/ry describe: start past the top-left corner,
+            // then four circular corners tangent to the sides.
+            context.moveTo(x + cornerRadius, y)
+            context.arcTo(x + width, y, x + width, y + height, cornerRadius)
+            context.arcTo(x + width, y + height, x, y + height, cornerRadius)
+            context.arcTo(x, y + height, x, y, cornerRadius)
+            context.arcTo(x, y, x + width, y, cornerRadius)
+            context.closePath()
           paintPath(context, paint, true, patterns, accumulator)
         }
       case CanvasCommand.Text(

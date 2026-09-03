@@ -197,10 +197,10 @@ class Java2DRendererSuite extends munit.FunSuite:
 
     assertEquals(profile, Java2DDrawProfile(4, 3, 1))
     val paints = program.commands.collect {
-      case Java2DCommand.Disc(_, _, _, paint, _)         => paint
-      case Java2DCommand.Polyline(_, true, paint, _)     => paint
-      case Java2DCommand.CompoundPolygon(_, paint, _)    => paint
-      case Java2DCommand.Rectangle(_, _, _, _, paint, _) => paint
+      case Java2DCommand.Disc(_, _, _, paint, _)            => paint
+      case Java2DCommand.Polyline(_, true, paint, _)        => paint
+      case Java2DCommand.CompoundPolygon(_, paint, _)       => paint
+      case Java2DCommand.Rectangle(_, _, _, _, _, paint, _) => paint
     }
     assertEquals(paints.length, 4)
     assert(paints.forall(_.fillPattern.contains(pattern)))

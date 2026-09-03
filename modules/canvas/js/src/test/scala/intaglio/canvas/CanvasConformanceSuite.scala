@@ -131,7 +131,7 @@ class CanvasConformanceSuite extends munit.FunSuite:
       case CanvasCommand.PointBatch(_, _, _, _, name)                         => name
       case CanvasCommand.Polyline(_, _, _, name)                              => name
       case CanvasCommand.CompoundPolygon(_, _, name)                          => name
-      case CanvasCommand.Rectangle(_, _, _, _, _, name)                       => name
+      case CanvasCommand.Rectangle(_, _, _, _, _, _, name)                    => name
       case CanvasCommand.Text(_, _, _, _, _, _, _, _, _, name)                => name
       case CanvasCommand.Image(_, _, _, _, _, _, _, name)                     => name
       case CanvasCommand.Rotate(_, _, _) | CanvasCommand.ClipRect(_, _, _, _) => None
@@ -144,7 +144,7 @@ class CanvasConformanceSuite extends munit.FunSuite:
       case CanvasCommand.Polyline(_, closed, _, _) =>
         Some(if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline)
       case CanvasCommand.CompoundPolygon(_, _, _)           => Some(RenderPrimitiveKind.Polygon)
-      case CanvasCommand.Rectangle(_, _, _, _, _, _)        => Some(RenderPrimitiveKind.Rectangle)
+      case CanvasCommand.Rectangle(_, _, _, _, _, _, _)     => Some(RenderPrimitiveKind.Rectangle)
       case CanvasCommand.Text(_, _, _, _, _, _, _, _, _, _) => Some(RenderPrimitiveKind.Text)
       case CanvasCommand.Image(_, _, _, _, _, _, _, _)      => Some(RenderPrimitiveKind.Image)
       case _                                                => None
@@ -155,7 +155,7 @@ class CanvasConformanceSuite extends munit.FunSuite:
       case CanvasCommand.PointBatch(_, _, _, paints, _)         => Some(paints.valueAt(0))
       case CanvasCommand.Polyline(_, _, paint, _)               => Some(paint)
       case CanvasCommand.CompoundPolygon(_, paint, _)           => Some(paint)
-      case CanvasCommand.Rectangle(_, _, _, _, paint, _)        => Some(paint)
+      case CanvasCommand.Rectangle(_, _, _, _, _, paint, _)     => Some(paint)
       case CanvasCommand.Text(_, _, _, _, _, _, _, _, paint, _) => Some(paint)
       case _                                                    => None
 

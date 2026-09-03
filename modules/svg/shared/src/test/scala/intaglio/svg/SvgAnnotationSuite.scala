@@ -237,7 +237,7 @@ class SvgAnnotationSuite extends munit.FunSuite:
 
   /** Cases added after the pin was taken; each must be listed here deliberately. */
   private val postPinCases: Set[String] =
-    Set("annotated")
+    Set("annotated", "step-lines", "rounded-rect")
 
   test("scenes without annotation render byte-identically to the pre-annotation renderer") {
     val cases = RendererConformance.cases.fold(error => fail(error.message), identity)

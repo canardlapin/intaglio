@@ -201,6 +201,7 @@ enum JavaFxCommand:
       y: Double,
       width: Double,
       height: Double,
+      cornerRadius: Double,
       paint: JavaFxPaint,
       name: Option[GraphicsName]
   )
@@ -310,8 +311,9 @@ object JavaFxProgram:
         JavaFxCommand.Polyline(points, closed, JavaFxPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.CompoundPolygon(rings, gp, name) =>
         JavaFxCommand.CompoundPolygon(rings, JavaFxPaint.fromGraphicParams(gp), name)
-      case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
-        JavaFxCommand.Rectangle(x, y, width, height, JavaFxPaint.fromGraphicParams(gp), name)
+      case DevicePrimitive.RectShape(x, y, width, height, cornerRadius, gp, name) =>
+        JavaFxCommand
+          .Rectangle(x, y, width, height, cornerRadius, JavaFxPaint.fromGraphicParams(gp), name)
       case DevicePrimitive.TextRun(
             label,
             x,
@@ -369,8 +371,8 @@ object JavaFxProgram:
               paint.lineWidth,
               paint.opacity
             )
-          case JavaFxCommand.Rectangle(x, y, width, height, paint, _) =>
-            Vector(x, y, width, height, paint.lineWidth, paint.opacity)
+          case JavaFxCommand.Rectangle(x, y, width, height, cornerRadius, paint, _) =>
+            Vector(x, y, width, height, cornerRadius, paint.lineWidth, paint.opacity)
           case JavaFxCommand.Text(_, x, y, _, _, rotation, fontSize, _, paint, _) =>
             Vector(x, y, rotation, fontSize, paint.opacity)
           case JavaFxCommand.Image(_, x, y, width, height, _, alpha, _) =>
@@ -397,6 +399,11 @@ trait JavaFxGraphicsContext:
   def lineTo(x: Double, y: Double): Unit
   def closePath(): Unit
   def rect(x: Double, y: Double, width: Double, height: Double): Unit
+
+  /** Line to `(x1, y1)` then a circular arc of `radius` tangent to that segment and to the segment
+    * toward `(x2, y2)`, matching `GraphicsContext.arcTo`.
+    */
+  def arcTo(x1: Double, y1: Double, x2: Double, y2: Double, radius: Double): Unit
   def clip(): Unit
   def fillPath(): Unit
   def strokePath(): Unit
@@ -420,6 +427,26 @@ trait JavaFxGraphicsContext:
   def setGlobalAlpha(alpha: Double): Unit
   def setImageSmoothing(enabled: Boolean): Unit
   def drawImage(image: RasterImage, x: Double, y: Double, width: Double, height: Double): Unit
+
+/** The one rounded-rectangle outline every path-based backend traces: start on the top edge past
+  * the corner, then four `arcTo` corners. `arcTo` is defined identically by the HTML canvas and
+  * JavaFX, so this recipe produces the circular corners SVG's `rx`/`ry` describe.
+  */
+private[javafx] object RoundedRectPath:
+  def append(
+      context: JavaFxGraphicsContext,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double,
+      radius: Double
+  ): Unit =
+    context.moveTo(x + radius, y)
+    context.arcTo(x + width, y, x + width, y + height, radius)
+    context.arcTo(x + width, y + height, x, y + height, radius)
+    context.arcTo(x, y + height, x, y, radius)
+    context.arcTo(x, y, x + width, y, radius)
+    context.closePath()
 
 private[javafx] object JavaFxRaster:
   /** Row-major top-left ARGB pixels matching `PixelFormat.getIntArgbInstance`. */
@@ -555,10 +582,11 @@ object JavaFxRenderer:
           }
           paintPath(context, paint, true, accumulator)
         }
-      case JavaFxCommand.Rectangle(x, y, width, height, paint, _) =>
+      case JavaFxCommand.Rectangle(x, y, width, height, cornerRadius, paint, _) =>
         withSaved(context) {
           context.beginPath()
-          context.rect(x, y, width, height)
+          if cornerRadius == 0.0 then context.rect(x, y, width, height)
+          else RoundedRectPath.append(context, x, y, width, height, cornerRadius)
           paintPath(context, paint, true, accumulator)
         }
       case JavaFxCommand.Text(

@@ -32,6 +32,8 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   override def lineTo(x: Double, y: Double): Unit = calls += "lineTo"
   override def closePath(): Unit = calls += "closePath"
   override def rect(x: Double, y: Double, width: Double, height: Double): Unit = calls += "rect"
+  override def arcTo(x1: Double, y1: Double, x2: Double, y2: Double, radius: Double): Unit =
+    calls += "arcTo"
   override def clip(): Unit = calls += "clip"
   override def fillPath(): Unit = calls += "fillPath"
   override def strokePath(): Unit = calls += "strokePath"
@@ -301,10 +303,10 @@ class JavaFxRendererSuite extends munit.FunSuite:
     assert(context.globalAlphaValues.contains(0.8))
     assertEquals(context.globalAlpha, 1.0)
     val paints = program.commands.collect {
-      case JavaFxCommand.Disc(_, _, _, paint, _)         => paint
-      case JavaFxCommand.Polyline(_, true, paint, _)     => paint
-      case JavaFxCommand.CompoundPolygon(_, paint, _)    => paint
-      case JavaFxCommand.Rectangle(_, _, _, _, paint, _) => paint
+      case JavaFxCommand.Disc(_, _, _, paint, _)            => paint
+      case JavaFxCommand.Polyline(_, true, paint, _)        => paint
+      case JavaFxCommand.CompoundPolygon(_, paint, _)       => paint
+      case JavaFxCommand.Rectangle(_, _, _, _, _, paint, _) => paint
     }
     assertEquals(paints.length, 4)
     assert(paints.forall(_.fillPattern.contains(pattern)))

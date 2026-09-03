@@ -263,7 +263,7 @@ object SvgRenderer:
         validateName(name)
       case DevicePrimitive.CompoundPolygon(_, _, name) =>
         validateName(name)
-      case DevicePrimitive.RectShape(_, _, _, _, _, name) =>
+      case DevicePrimitive.RectShape(_, _, _, _, _, _, name) =>
         validateName(name)
       case DevicePrimitive.TextRun(label, _, _, _, _, _, _, fontFamily, _, name) =>
         val family = fontFamily match
@@ -390,13 +390,16 @@ object SvgRenderer:
           indent,
           s"""<path${commonAttrs(name, gp, patterns)} fill-rule="nonzero" d="$path" />"""
         )
-      case DevicePrimitive.RectShape(x, y, width, height, gp, name) =>
+      case DevicePrimitive.RectShape(x, y, width, height, cornerRadius, gp, name) =>
+        val corners =
+          if cornerRadius == 0.0 then ""
+          else s""" rx="${format(cornerRadius)}" ry="${format(cornerRadius)}""""
         line(
           out,
           indent,
           s"""<rect${commonAttrs(name, gp, patterns)} x="${format(x)}" y="${format(
               y
-            )}" width="${format(width)}" height="${format(height)}" />"""
+            )}" width="${format(width)}" height="${format(height)}"$corners />"""
         )
       case DevicePrimitive.TextRun(
             label,

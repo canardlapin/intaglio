@@ -2355,7 +2355,10 @@ object CoordinateTransform:
       case points: Grob.PointBatch =>
         points.copy(points = points.points.map(flipPoint))
       case lines: Grob.Lines =>
-        lines.copy(points = lines.points.map(flipPoint))
+        lines.copy(
+          points = lines.points.map(flipPoint),
+          interpolation = lines.interpolation.transposed
+        )
       case polygon: Grob.Polygon =>
         polygon.copy(points = polygon.points.map(flipPoint))
       case polygon: Grob.CompoundPolygon =>

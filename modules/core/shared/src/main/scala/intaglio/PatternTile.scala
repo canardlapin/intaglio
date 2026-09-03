@@ -57,7 +57,7 @@ private[intaglio] object PatternTile:
                   case DevicePrimitive.Disc(_, _, _, gp, _)                  => Some(gp)
                   case DevicePrimitive.Polyline(_, true, gp, _)              => Some(gp)
                   case DevicePrimitive.CompoundPolygon(_, gp, _)             => Some(gp)
-                  case DevicePrimitive.RectShape(_, _, _, _, gp, _)          => Some(gp)
+                  case DevicePrimitive.RectShape(_, _, _, _, _, gp, _)       => Some(gp)
                   case DevicePrimitive.Polyline(_, false, _, _)              => None
                   case DevicePrimitive.TextRun(_, _, _, _, _, _, _, _, _, _) => None
                   case DevicePrimitive.Image(_, _, _, _, _, _, _, _)         => None

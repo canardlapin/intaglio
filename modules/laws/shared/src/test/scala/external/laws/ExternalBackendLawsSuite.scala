@@ -32,7 +32,7 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
       case DevicePrimitive.PointBatch(_, _, _, _, name)             => name
       case DevicePrimitive.Polyline(_, _, _, name)                  => name
       case DevicePrimitive.CompoundPolygon(_, _, name)              => name
-      case DevicePrimitive.RectShape(_, _, _, _, _, name)           => name
+      case DevicePrimitive.RectShape(_, _, _, _, _, _, name)        => name
       case DevicePrimitive.TextRun(_, _, _, _, _, _, _, _, _, name) => name
       case DevicePrimitive.Image(_, _, _, _, _, _, _, name)         => name
 
@@ -129,7 +129,7 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
         if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline
       case DevicePrimitive.CompoundPolygon(_, _, _) =>
         RenderPrimitiveKind.Polygon
-      case DevicePrimitive.RectShape(_, _, _, _, _, _) =>
+      case DevicePrimitive.RectShape(_, _, _, _, _, _, _) =>
         RenderPrimitiveKind.Rectangle
       case DevicePrimitive.TextRun(_, _, _, _, _, _, _, _, _, _) =>
         RenderPrimitiveKind.Text
@@ -142,7 +142,7 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
       case DevicePrimitive.PointBatch(_, _, _, params, _)         => Some(params.valueAt(0))
       case DevicePrimitive.Polyline(_, _, gp, _)                  => Some(gp)
       case DevicePrimitive.CompoundPolygon(_, gp, _)              => Some(gp)
-      case DevicePrimitive.RectShape(_, _, _, _, gp, _)           => Some(gp)
+      case DevicePrimitive.RectShape(_, _, _, _, _, gp, _)        => Some(gp)
       case DevicePrimitive.TextRun(_, _, _, _, _, _, _, _, gp, _) => Some(gp)
       case DevicePrimitive.Image(_, _, _, _, _, _, _, _)          => None
 
@@ -162,8 +162,8 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
             points.flatMap(point => Vector(point.x, point.y))
           case DevicePrimitive.CompoundPolygon(rings, _, _) =>
             rings.flatten.flatMap(point => Vector(point.x, point.y))
-          case DevicePrimitive.RectShape(x, y, width, height, _, _) =>
-            Vector(x, y, width, height)
+          case DevicePrimitive.RectShape(x, y, width, height, radius, _, _) =>
+            Vector(x, y, width, height, radius)
           case DevicePrimitive.TextRun(_, x, y, _, _, rotation, fontSize, _, _, _) =>
             Vector(x, y, rotation, fontSize)
           case DevicePrimitive.Image(_, x, y, width, height, _, alpha, _) =>

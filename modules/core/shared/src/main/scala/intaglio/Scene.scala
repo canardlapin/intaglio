@@ -108,6 +108,12 @@ final case class ExtentExpr private (expr: LengthExpr):
     else Right(ExtentExpr.unsafe(LengthExpr.Mul(factor, expr)))
 
 object ExtentExpr:
+  /** The additive identity extent. Frame-relative, physical, and native zero all resolve to zero
+    * device pixels, so one value serves as the neutral default wherever an extent is optional.
+    */
+  val zero: ExtentExpr =
+    new ExtentExpr(LengthExpr.Const(Length.unsafe(0.0, LengthUnit.Native)))
+
   def apply(length: Length): Either[GraphicsError, ExtentExpr] =
     fromExpr(LengthExpr(length))
 
@@ -688,6 +694,7 @@ object Grob:
 
   final case class Lines private[intaglio] (
       points: Vector[Point],
+      interpolation: LineInterpolation,
       gp: GraphicParams,
       viewport: Option[Viewport],
       name: Option[GraphicsName]
@@ -728,6 +735,7 @@ object Grob:
       center: Point,
       size: Size,
       anchor: Anchor,
+      cornerRadius: ExtentExpr,
       gp: GraphicParams,
       viewport: Option[Viewport],
       name: Option[GraphicsName]
@@ -833,12 +841,22 @@ object Grob:
 
   def lines(
       points: Vector[Point],
+      interpolation: LineInterpolation = LineInterpolation.Linear,
       gp: GraphicParams = GraphicParams.unsafe(),
       viewport: Option[Viewport] = None,
       name: Option[GraphicsName] = None
   ): Either[GraphicsError, Grob] =
     if points.isEmpty then Left(GraphicsError.EmptyGeometry("lines"))
-    else Right(Lines(points, gp, viewport, name))
+    else Right(Lines(points, interpolation, gp, viewport, name))
+
+  def linesUnsafe(
+      points: Vector[Point],
+      interpolation: LineInterpolation = LineInterpolation.Linear,
+      gp: GraphicParams = GraphicParams.unsafe(),
+      viewport: Option[Viewport] = None,
+      name: Option[GraphicsName] = None
+  ): Grob =
+    lines(points, interpolation, gp, viewport, name).orThrow
 
   def polygon(
       points: Vector[Point],
@@ -887,25 +905,31 @@ object Grob:
     if segments.isEmpty then Left(GraphicsError.EmptyGeometry("segments"))
     else Right(Segments(segments, gp, viewport, name))
 
+  /** `cornerRadius` is an axis-neutral extent, resolved like a circle radius and then clamped to
+    * half the shorter resolved side, so every backend rounds the same corner. `ExtentExpr.zero`
+    * keeps the sharp rectangle every backend emitted before corners existed.
+    */
   def rect(
       center: Point,
       size: Size,
       anchor: Anchor = Anchor.Center,
+      cornerRadius: ExtentExpr = ExtentExpr.zero,
       gp: GraphicParams = GraphicParams.unsafe(),
       viewport: Option[Viewport] = None,
       name: Option[GraphicsName] = None
   ): Either[GraphicsError, Grob] =
-    Right(Rect(center, size, anchor, gp, viewport, name))
+    Right(Rect(center, size, anchor, cornerRadius, gp, viewport, name))
 
   def rectUnsafe(
       center: Point,
       size: Size,
       anchor: Anchor = Anchor.Center,
+      cornerRadius: ExtentExpr = ExtentExpr.zero,
       gp: GraphicParams = GraphicParams.unsafe(),
       viewport: Option[Viewport] = None,
       name: Option[GraphicsName] = None
   ): Grob =
-    rect(center, size, anchor, gp, viewport, name).orThrow
+    rect(center, size, anchor, cornerRadius, gp, viewport, name).orThrow
 
   def circle(
       center: Point,

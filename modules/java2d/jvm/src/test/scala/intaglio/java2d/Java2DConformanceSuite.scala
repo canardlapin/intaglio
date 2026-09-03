@@ -131,7 +131,7 @@ class Java2DConformanceSuite extends munit.FunSuite:
       case Java2DCommand.PointBatch(_, _, _, _, name)                         => name
       case Java2DCommand.Polyline(_, _, _, name)                              => name
       case Java2DCommand.CompoundPolygon(_, _, name)                          => name
-      case Java2DCommand.Rectangle(_, _, _, _, _, name)                       => name
+      case Java2DCommand.Rectangle(_, _, _, _, _, _, name)                    => name
       case Java2DCommand.Text(_, _, _, _, _, _, _, _, _, name)                => name
       case Java2DCommand.Image(_, _, _, _, _, _, _, name)                     => name
       case Java2DCommand.Rotate(_, _, _) | Java2DCommand.ClipRect(_, _, _, _) => None
@@ -144,7 +144,7 @@ class Java2DConformanceSuite extends munit.FunSuite:
       case Java2DCommand.Polyline(_, closed, _, _) =>
         Some(if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline)
       case Java2DCommand.CompoundPolygon(_, _, _)           => Some(RenderPrimitiveKind.Polygon)
-      case Java2DCommand.Rectangle(_, _, _, _, _, _)        => Some(RenderPrimitiveKind.Rectangle)
+      case Java2DCommand.Rectangle(_, _, _, _, _, _, _)     => Some(RenderPrimitiveKind.Rectangle)
       case Java2DCommand.Text(_, _, _, _, _, _, _, _, _, _) => Some(RenderPrimitiveKind.Text)
       case Java2DCommand.Image(_, _, _, _, _, _, _, _)      => Some(RenderPrimitiveKind.Image)
       case _                                                => None
@@ -155,7 +155,7 @@ class Java2DConformanceSuite extends munit.FunSuite:
       case Java2DCommand.PointBatch(_, _, _, paints, _)         => Some(paints.valueAt(0))
       case Java2DCommand.Polyline(_, _, paint, _)               => Some(paint)
       case Java2DCommand.CompoundPolygon(_, paint, _)           => Some(paint)
-      case Java2DCommand.Rectangle(_, _, _, _, paint, _)        => Some(paint)
+      case Java2DCommand.Rectangle(_, _, _, _, _, paint, _)     => Some(paint)
       case Java2DCommand.Text(_, _, _, _, _, _, _, _, paint, _) => Some(paint)
       case _                                                    => None
 
