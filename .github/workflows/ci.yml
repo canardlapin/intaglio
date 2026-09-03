@@ -14,14 +14,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  # Formatting and the documentation courts are platform-independent, so they
+  # run once rather than once per matrix cell.
+  style:
+    name: Formatting and documentation
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     env:
       JAVA_OPTS: -Xms1G -Xmx3G -Xss6M -Dfile.encoding=UTF-8
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -30,7 +35,68 @@ jobs:
           cache: sbt
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
-      - name: Check formatting and test every platform
-        run: sbt -Djava.awt.headless=true -Dsbt.supershell=false scalafmtCheckAll testAll
+      - name: Check formatting
+        run: sbt -Djava.awt.headless=true -Dsbt.supershell=false scalafmtCheckAll
+      - name: Compile every documentation example and re-render the gallery
+        run: tools/check-docs.sh
+
+  # Every supported Scala line on every supported JDK, for the JVM and for
+  # Scala.js. `testAll` names all thirteen modules explicitly, so a cell that
+  # passes has compiled every backend and run its unit, law, conformance,
+  # differential, fuzz, golden, and performance-gate suites.
+  test:
+    name: Scala ${{ matrix.scala }} / JDK ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scala:
+          - "3.3.8"
+          - "3.9.0"
+        java:
+          - "17"
+          - "21"
+    env:
+      JAVA_OPTS: -Xms1G -Xmx3G -Xss6M -Dfile.encoding=UTF-8
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: sbt
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+      - name: Test every module on the JVM and Scala.js
+        run: >-
+          sbt -Djava.awt.headless=true -Dsbt.supershell=false
+          "++${{ matrix.scala }}" testAll
+
+  # The compatibility gate builds the exact baseline from source in an isolated
+  # sandbox, so it runs once on the published Scala line rather than per cell.
+  compatibility:
+    name: Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      JAVA_OPTS: -Xms1G -Xmx4G -Xss6M -Dfile.encoding=UTF-8
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: sbt
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
       - name: Check compatibility against the exact Intaglio baseline
         run: tools/check-compatibility.sh

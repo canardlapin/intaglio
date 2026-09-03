@@ -125,9 +125,11 @@ object RectCornerLaws:
 /** Laws for [[intaglio.LineInterpolation]] under device lowering.
   *
   * A step interpolation is a shorthand, not a new curve: it must lower to exactly the polyline an
-  * author would have written by hand, `Linear` must remain the untouched default, and transposing
-  * the axes must exchange the two step forms so a flipped step line has the flip of its own
-  * expansion.
+  * author would have written by hand, and `Linear` must remain the untouched default. The kit also
+  * pins the rule a coordinate implementation has to honour --- expanding transposed points under
+  * `interpolation.transposed` gives the transpose of the original expansion --- so a coord that
+  * flips a scene without transposing its step lines fails a published law rather than a golden
+  * image.
   */
 object LineInterpolationLaws:
   def apply(
@@ -248,6 +250,55 @@ object LineInterpolationLaws:
                         s"$interpolation produced a diagonal segment in $resolved"
                       )
                     ).flatten
+            }
+        ),
+        Law(
+          "transposing an interpolation is an involution that fixes only Linear",
+          () =>
+            LineInterpolation.values.toVector.flatMap { interpolation =>
+              Vector(
+                LawDiagnostics.problemWhen(
+                  interpolation.transposed.transposed != interpolation,
+                  s"$interpolation transposed twice is ${interpolation.transposed.transposed}"
+                ),
+                LawDiagnostics.problemWhen(
+                  (interpolation == LineInterpolation.Linear) !=
+                    (interpolation.transposed == interpolation),
+                  s"$interpolation transposes to ${interpolation.transposed}"
+                )
+              ).flatten
+            }
+        ),
+        Law(
+          "a transposed step line has the transposed vertices of its own expansion",
+          () =>
+            Vector(
+              (LineInterpolation.StepAfter, explicitAfter(points)),
+              (LineInterpolation.StepBefore, explicitBefore(points))
+            ).flatMap { case (interpolation, explicit) =>
+              val swapped = points.map(point => Point(point.y, point.x))
+              (
+                lowered(swapped, interpolation.transposed),
+                lowered(explicit.map(point => Point(point.y, point.x)), LineInterpolation.Linear),
+                lowered(swapped, interpolation)
+              ) match
+                case (Left(problem), _, _) => Vector(s"transposed $interpolation: $problem")
+                case (_, Left(problem), _) =>
+                  Vector(s"transposed $interpolation explicit: $problem")
+                case (_, _, Left(problem)) => Vector(s"untransposed $interpolation: $problem")
+                case (Right(transposed), Right(expected), Right(untransposed)) =>
+                  Vector(
+                    LawDiagnostics.problemWhen(
+                      transposed != expected,
+                      s"$interpolation on transposed points lowered to $transposed, not the transposed expansion $expected"
+                    ),
+                    // Without this the law would pass for a coordinate that never
+                    // transposes, because both forms agree on a symmetric fixture.
+                    LawDiagnostics.problemWhen(
+                      untransposed == expected,
+                      s"the fixture cannot distinguish $interpolation from ${interpolation.transposed}"
+                    )
+                  ).flatten
             }
         ),
         Law(

@@ -3,8 +3,21 @@ import sbtcrossproject.CrossPlugin.autoImport.*
 import scalajscrossproject.ScalaJSCrossPlugin.autoImport.*
 
 ThisBuild / organization := "io.github.canardlapin"
-ThisBuild / scalaVersion := "3.4.2"
-ThisBuild / version      := "0.1.0-SNAPSHOT"
+
+/** The published artifact is built with the Scala 3 LTS line, because TASTy is forward- but not
+  * backward-compatible: a consumer on any later 3.x can read an LTS-built library, while a
+  * library built with a feature release locks out every earlier compiler. `crossScalaVersions`
+  * adds the current feature release as a CI court only --- both would produce the same `_3`
+  * coordinates, so a release publishes the default version alone (see docs/releasing.md).
+  */
+val scalaLts = "3.3.8"
+val scalaNext = "3.9.0"
+
+ThisBuild / scalaVersion := scalaLts
+
+/** `version` is deliberately absent: sbt-ci-release derives it from the git state through
+  * sbt-dynver, so a tag is the only thing that names a release.
+  */
 ThisBuild / versionScheme := Some("early-semver")
 
 /** Before the first published release, `tools/check-compatibility.sh` supplies an exact local
@@ -38,12 +51,15 @@ ThisBuild / developers := List(
 )
 
 lazy val commonSettings = Seq(
+  crossScalaVersions := Seq(scalaLts, scalaNext),
   scalacOptions ++= Seq(
     "-deprecation",
     "-feature",
     "-unchecked",
     "-Xmax-inlines:64"
   ),
+  apiURL := Some(url("https://canardlapin.github.io/intaglio/api/")),
+  autoAPIMappings := true,
   Test / fork := false,
   libraryDependencies += "org.scalameta" %%% "munit" % "1.2.1" % Test,
   mimaReportSignatureProblems := true,
@@ -268,6 +284,38 @@ lazy val javafx =
 
 lazy val javafxJVM = javafx.jvm
 
+/** Executable documentation. Every fenced block marked `mdoc` in `docs/` is compiled against the
+  * real modules, so a guide cannot drift from the API it documents, and the gallery writes its own
+  * SVG output next to its source (see docs/gallery.md).
+  */
+lazy val docs =
+  project
+    .in(file("modules/docs"))
+    .enablePlugins(MdocPlugin)
+    .dependsOn(coreJVM, lawsJVM, svgJVM, java2dJVM, pdfJVM, notebookJVM)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-docs",
+      description := "Compiled documentation examples and the SVG gallery generator.",
+      publish / skip := true,
+      mimaPreviousArtifacts := Set.empty,
+      tastyMiMaPreviousArtifacts := Set.empty,
+      versionPolicyCheck / skip := true,
+      versionCheck / skip := true,
+      mdocIn := (ThisBuild / baseDirectory).value / "docs",
+      // mdoc's link hygiene only knows the files under `mdocIn`, so it reports
+      // every link out to the repository root as unknown. tools/check-links.sh
+      // checks the whole repository, targets and heading anchors alike.
+      mdocExtraArguments += "--no-link-hygiene",
+      mdocOut := target.value / "docs",
+      mdocVariables := Map(
+        "VERSION" -> (if (isSnapshot.value) previousStableVersion.value.getOrElse("0.1.0")
+                      else version.value),
+        "SCALA_LTS" -> scalaLts,
+        "SCALA_NEXT" -> scalaNext
+      )
+    )
+
 lazy val root =
   project
     .in(file("."))
@@ -290,6 +338,11 @@ lazy val root =
       name := "intaglio",
       publish / skip := true
     )
+
+addCommandAlias(
+  "docsCheck",
+  ";docs/mdoc"
+)
 
 addCommandAlias(
   "compileAll",

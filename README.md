@@ -52,14 +52,12 @@ val logScaled =
   yield scene
 ```
 
-Typed `CalendarDate`/`UtcDateTime` scales and post-statistical coordinate
-windows are covered in the [date/time and zoom guide](docs/date-time-and-zoom.md).
-Histogram closure, compensated summaries, KDE normalization and strategy, and
-contour topology are specified in the [numerical standards guide](docs/numerical-standards.md).
-The [visual regression guide](docs/visual-regression.md) documents pinned-font
-goldens, perceptual thresholds, failure artifacts, and deterministic fuzz replay.
-The [compatibility policy](docs/compatibility.md) defines pre-1.0 and stable-release
-guarantees and the exact-baseline MiMa/TASTy-MiMa gate.
+Start with the [documentation index](docs/README.md): a task-oriented tutorial,
+the gallery with each plate's source beside its rendered SVG, guides for every
+backend and output route, the architecture decision records, and the guides for
+authoring your own scale, stat, geom, coord, recipe, or backend. Every example
+in them is compiled against these modules by `tools/check-docs.sh`, so a guide
+cannot claim an API that does not exist.
 
 ## Artifacts
 
@@ -143,6 +141,18 @@ sbt testAll      # every module, both platforms
 sbt coreJVM/test svgJS/test   # or one at a time
 ```
 
+Supported versions are the Scala 3 LTS and the current feature release, on
+JDK 17 and 21, for the JVM and Scala.js. The published artifact is built with
+the LTS: TASTy is forward- but not backward-compatible, so an LTS build can be
+read by any later 3.x consumer.
+
+```sh
+sbt "++3.9.0" testAll            # the feature-release court
+tools/check-docs.sh              # compile every documented example, re-render the gallery, check links
+tools/check-compatibility.sh     # the compatibility gate against the exact baseline
+tools/release-rehearsal.sh       # rehearse a release on a clean clone, publishing nothing
+```
+
 Render the visual gallery:
 
 ```sh
@@ -164,8 +174,12 @@ tools/render_feature_visual_qa.sh
 
 ## Status
 
-`0.1.0-SNAPSHOT`, unpublished. The core and all five backends are green on their
-supported platforms.
+Unpublished. The core and all five backends are green on their supported
+platforms and on both Scala lines. `build.sbt` sets no `version`: sbt-dynver
+derives it from the git state, so a `v*` tag is the only thing that names a
+release. See [docs/releasing.md](docs/releasing.md),
+[CHANGELOG.md](CHANGELOG.md), [MIGRATION.md](MIGRATION.md),
+[CONTRIBUTING.md](CONTRIBUTING.md), and [SECURITY.md](SECURITY.md).
 
 ## License
 

@@ -34,10 +34,13 @@ surface, not accidental extraction types. The baseline freezes them until a poli
 this repository's history. `tools/check-compatibility.sh`:
 
 1. validates the pinned commit;
-2. exports that commit into a temporary directory;
+2. exports that commit into a temporary directory and names its version there, because an export
+   has no Git history for sbt-dynver to read;
 3. publishes every Intaglio module at the baseline version into an isolated local Ivy repository;
 4. compares every JVM module with that artifact using sbt-version-policy/MiMa, including signature
-   problems; and
+   problems, building the working tree as the patch release that follows the baseline version --- a
+   version sbt-version-policy derives its expectations from, so it is computed from `baseline.conf`
+   rather than fixed in the script; and
 5. runs TASTy-MiMa sequentially over every JVM and Scala.js artifact under an explicit memory
    budget.
 
@@ -61,6 +64,20 @@ Scala 3 TASTy court. sbt-version-policy uses forward MiMa as an approximation fo
 compatibility, and TASTy-MiMa checks retyping compatibility for all Scala 3 artifacts. These tools
 cannot prove behavioral compatibility; Intaglio's law, conformance, differential, fuzz, and golden
 suites cover that separate contract.
+
+### The baseline is compiler-bound
+
+The baseline is built from source, not downloaded, so both sides of the comparison are compiled ---
+and neither court is compiler-neutral. Comparing an artifact built with one Scala version against a
+working tree built with another produces two kinds of noise that are not API changes: MiMa reports
+`IncompatibleSignatureProblem` wherever the two compilers emit different generic signatures (in
+Intaglio, `PlotBuilder.encodePositionX` and `encodePositionY` do this between 3.4.2 and 3.3.8), and
+sbt-version-policy's dependency check reports `scala3-library_3` itself as an incompatible version
+change.
+
+Changing `ThisBuild / scalaVersion` therefore obliges a baseline move, whether or not the public API
+moved with it. Treat the compiler change as part of the same breaking boundary, and pin a
+replacement commit that already carries the new default.
 
 ## Moving the baseline
 

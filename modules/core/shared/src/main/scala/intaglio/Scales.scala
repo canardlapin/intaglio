@@ -971,8 +971,16 @@ object ContinuousScale:
     val domains = trainDomains(values, transform)
     for
       scaleName <- GraphicsName(name, "continuous scale")
-      (domain, transformedDomain) <- domains
-    yield ContinuousScale(scaleName, domain, transformedDomain, transform, palette, oob, training)
+      trained <- domains
+    yield ContinuousScale(
+      scaleName,
+      trained._1,
+      trained._2,
+      transform,
+      palette,
+      oob,
+      training
+    )
 
   def fixed[A](
       name: String,
