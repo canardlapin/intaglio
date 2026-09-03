@@ -12,3 +12,4 @@ project/project/
 node_modules/
 .mote/local/
 .mote/tmp/
+.worktrees/
