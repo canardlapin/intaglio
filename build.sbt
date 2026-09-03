@@ -51,6 +51,14 @@ ThisBuild / developers := List(
 )
 
 lazy val commonSettings = Seq(
+  /** Stated in project scope, not only on `ThisBuild`, because a consumer that loads Intaglio as a
+    * `ProjectRef` may carry a plugin deriving `scalaVersion` from `crossScalaVersions` in project
+    * scope --- sbt-typelevel-settings sets `scalaVersion := crossScalaVersions.value.last`. Project
+    * scope beats `ThisBuild`, so without this line such a build would compile Intaglio with the
+    * feature release and hand its own LTS-era compiler a TASTy file it cannot read. `++` appends
+    * its own project-scope setting, so the cross court still switches.
+    */
+  scalaVersion := scalaLts,
   crossScalaVersions := Seq(scalaLts, scalaNext),
   scalacOptions ++= Seq(
     "-deprecation",
