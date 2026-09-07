@@ -26,7 +26,10 @@ final case class DisplayWindow private (lower: Double, upper: Double):
     upper - lower
 
   def normalize(value: Double): Double =
-    math.max(0.0, math.min(1.0, (value - lower) / width))
+    if value <= lower then 0.0
+    else if value >= upper then 1.0
+    else if width.isFinite then (value - lower) / width
+    else (value / 2.0 - lower / 2.0) / (upper / 2.0 - lower / 2.0)
 
 object DisplayWindow:
   def make(lower: Double, upper: Double): Either[DisplayError, DisplayWindow] =
