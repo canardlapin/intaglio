@@ -362,3 +362,11 @@ requirements.
 `intaglio-java2d` and `intaglio-javafx` independently adopt the same contract,
 and `intaglio-java2d` adds raster-level `BufferedImage` assertions for JVM
 rendering behavior.
+
+Categorical and manual keys use `SwatchLegendDrawing.draw(title, entries, notes,
+style)`, where entries are `(String, Rgba32)` pairs. `SwatchLegendStyle` controls
+physical width, font and swatch sizes; labels and titles wrap within the measured
+card. Transparent colors appear over a checkerboard. `LegendTextLayout.wrap`
+exposes the same measured text layout for publication annotations. Scalar cards
+also accept `extraNotes` for explanations such as opacity or compositing, without
+changing their calibration identity.

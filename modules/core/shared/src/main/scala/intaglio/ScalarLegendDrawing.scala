@@ -40,7 +40,9 @@ final case class ScalarLegendDrawing(
   * split the strips, so interpolation cannot smear threshold or gap colors.
   */
 object ScalarLegendDrawing:
-  def draw(legend: ScalarLegend, style: ScalarLegendStyle = ScalarLegendStyle()): Either[LegendError, ScalarLegendDrawing] =
+  def draw(legend: ScalarLegend, style: ScalarLegendStyle = ScalarLegendStyle(),
+    extraNotes: Vector[String] = Vector.empty): Either[LegendError, ScalarLegendDrawing] =
+    if extraNotes.exists(_.trim.isEmpty) then return Left(LegendError.InvalidMetadata("supplied legend notes must be nonempty"))
     val available = style.widthPt - style.marginPt * 2
     val textStyle = TextStyle(style.fontFamily, style.fontPt)
     val lineHeight = style.metrics.heightPt(textStyle)
@@ -87,7 +89,7 @@ object ScalarLegendDrawing:
       laneHeights(lane) = math.max(laneHeights(lane), lines.length * lineHeight)
       (tick, lines, labelWidth, fraction, left, lane)
     val laneTops = laneHeights.scanLeft(labelTop)((top, height) => top + height + style.gapPt)
-    val notes = legend.notes.flatMap(text => wrap(text, available))
+    val notes = (legend.notes ++ extraNotes).flatMap(text => wrap(text, available))
     val noteTop = laneTops.last + style.gapPt
     val keyTop = noteTop + notes.length * lineHeight + style.gapPt
     val keys = (if legend.showHidden then Vector("Hidden" -> legend.mapping.hidden) else Vector.empty) ++
