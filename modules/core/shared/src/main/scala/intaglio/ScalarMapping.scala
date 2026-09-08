@@ -186,6 +186,17 @@ final case class ScalarMapping(
   /** Adapt only color evaluation. Resolve checked overrides first, then create this adapter. */
   def colorizer: Colorizer[Double] = new ScalarMappingColorizer(this)
 
+  /** Physical ramp knots and visibility endpoints, in ascending scalar order. */
+  lazy val boundaries: Vector[Double] =
+    val knots = scale.segments.flatMap: segment =>
+      segment.ramp.stops.map: (t, _) =>
+        (1.0 - t) * segment.window.lower + t * segment.window.upper
+    val selected = visibility match
+      case ScalarVisibility.All => Vector.empty
+      case ScalarVisibility.Inside(interval) => Vector(interval.lower, interval.upper)
+      case ScalarVisibility.Outside(interval) => Vector(interval.lower, interval.upper)
+    (knots ++ selected).distinct.sorted
+
   /** Complete, versioned descriptor identity, identical on JVM and JS; not a lossy hash.
     * Signed zero is canonicalized because it has no distinct display semantics here.
     */
