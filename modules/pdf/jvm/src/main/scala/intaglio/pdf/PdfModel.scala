@@ -11,7 +11,8 @@ enum PdfRenderError extends IntaglioError:
   case InvalidPageSize(widthPoints: Double, heightPoints: Double)
   case BlankFontFamily
   case EmptyFontData(family: String)
-  case DuplicateFontFamily(family: String)
+  case DuplicateFontFace(family: String, weight: Int)
+  case MissingFontWeight(family: Option[String], weight: Int)
   case FontReadFailed(path: Path, details: String)
   case MissingFont(family: Option[String])
   case FontLoadFailed(family: String, details: String)
@@ -28,8 +29,12 @@ enum PdfRenderError extends IntaglioError:
         "PDF font family must not be blank"
       case EmptyFontData(family) =>
         s"PDF font '$family' has no font data"
-      case DuplicateFontFamily(family) =>
-        s"PDF font catalog contains duplicate family '$family'"
+      case DuplicateFontFace(family, weight) =>
+        s"font catalog has more than one face for family '$family' at weight $weight"
+      case MissingFontWeight(family, weight) =>
+        s"font catalog has no face at weight $weight for ${family.fold("the default family")(name =>
+            s"family '$name'"
+          )}"
       case FontReadFailed(path, details) =>
         s"Could not read PDF font '$path': $details"
       case MissingFont(Some(family)) =>
@@ -60,17 +65,25 @@ object PdfRenderError:
   */
 final class PdfFont private (
     val family: String,
+    val weight: FontWeight,
     private val encoded: Array[Byte]
 ):
   private[pdf] def inputStream: ByteArrayInputStream =
     new ByteArrayInputStream(encoded)
 
 object PdfFont:
-  def fromBytes(family: String, bytes: Array[Byte]): Either[PdfRenderError, PdfFont] =
+  /** A face is one family at one weight. PDF embeds font programs and PDFBox will not synthesize a
+    * bold face for a subset, so a document that draws bold has to be given a bold face.
+    */
+  def fromBytes(
+      family: String,
+      bytes: Array[Byte],
+      weight: FontWeight = FontWeight.Regular
+  ): Either[PdfRenderError, PdfFont] =
     val canonical = family.trim
     if canonical.isEmpty then Left(PdfRenderError.BlankFontFamily)
     else if bytes.isEmpty then Left(PdfRenderError.EmptyFontData(canonical))
-    else Right(new PdfFont(canonical, bytes.clone()))
+    else Right(new PdfFont(canonical, weight, bytes.clone()))
 
   def load(family: String, path: Path): Either[PdfRenderError, PdfFont] =
     try fromBytes(family, Files.readAllBytes(path))
@@ -84,18 +97,43 @@ object PdfFont:
   */
 final class PdfFontCatalog private (
     private val default: Option[PdfFont],
-    private val indexed: Map[String, PdfFont],
+    private val indexed: Map[(String, Int), PdfFont],
     val families: Vector[String]
 ):
-  private[pdf] def resolve(family: Option[String]): Option[PdfFont] =
+  /** The face for a family at a weight.
+    *
+    * An unset weight means whatever the family was registered as, which keeps a catalog that never
+    * mentions weight behaving exactly as it did. A set weight is looked up exactly: PDF embeds font
+    * programs and cannot synthesize a face it was not given, so a near miss would be a document
+    * that silently reads as regular.
+    */
+  private[pdf] def resolve(family: Option[String], weight: Option[FontWeight]): Option[PdfFont] =
+    (family, weight) match
+      case (Some(value), Some(requested)) =>
+        indexed.get((PdfFontCatalog.normalize(value), requested.value))
+      case (Some(value), None) =>
+        facesFor(PdfFontCatalog.normalize(value)).minByOption(_.weight.value)
+      case (None, Some(requested)) =>
+        default.flatMap(font =>
+          indexed.get((PdfFontCatalog.normalize(font.family), requested.value))
+        )
+      case (None, None) => default
+
+  /** Whether the family exists at any weight, which separates "no such family" from "no such
+    * weight" when reporting a failure.
+    */
+  private[pdf] def hasFamily(family: Option[String]): Boolean =
     family match
-      case Some(value) => indexed.get(PdfFontCatalog.normalize(value))
-      case None        => default
+      case Some(value) => facesFor(PdfFontCatalog.normalize(value)).nonEmpty
+      case None        => default.isDefined
+
+  private def facesFor(key: String): Vector[PdfFont] =
+    indexed.iterator.collect { case ((family, _), font) if family == key => font }.toVector
 
   val fontRegistry: FontRegistry =
     FontRegistry {
       case Some(value) =>
-        indexed.get(PdfFontCatalog.normalize(value)).map(_.family).orElse(Some(value))
+        facesFor(PdfFontCatalog.normalize(value)).headOption.map(_.family).orElse(Some(value))
       case None => default.map(_.family)
     }
 
@@ -104,31 +142,34 @@ object PdfFontCatalog:
     new PdfFontCatalog(None, Map.empty, Vector.empty)
 
   def single(font: PdfFont): PdfFontCatalog =
-    val key = normalize(font.family)
-    new PdfFontCatalog(Some(font), Map(key -> font), Vector(font.family))
+    new PdfFontCatalog(
+      Some(font),
+      Map((normalize(font.family), font.weight.value) -> font),
+      Vector(font.family)
+    )
 
   def from(
       default: PdfFont,
       additional: PdfFont*
   ): Either[PdfRenderError, PdfFontCatalog] =
     val all = default +: additional.toVector
-    var seen = Set.empty[String]
-    var duplicate: Option[String] = None
+    var seen = Set.empty[(String, Int)]
+    var duplicate: Option[PdfFont] = None
     var index = 0
     while index < all.length && duplicate.isEmpty do
       val font = all(index)
-      val key = normalize(font.family)
-      if seen.contains(key) then duplicate = Some(font.family)
+      val key = (normalize(font.family), font.weight.value)
+      if seen.contains(key) then duplicate = Some(font)
       else seen += key
       index += 1
     duplicate match
-      case Some(family) => Left(PdfRenderError.DuplicateFontFamily(family))
-      case None         =>
+      case Some(font) => Left(PdfRenderError.DuplicateFontFace(font.family, font.weight.value))
+      case None       =>
         Right(
           new PdfFontCatalog(
             Some(default),
-            all.iterator.map(font => normalize(font.family) -> font).toMap,
-            all.map(_.family)
+            all.iterator.map(font => (normalize(font.family), font.weight.value) -> font).toMap,
+            all.map(_.family).distinct
           )
         )
 

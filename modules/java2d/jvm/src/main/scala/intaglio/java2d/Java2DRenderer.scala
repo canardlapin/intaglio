@@ -80,19 +80,52 @@ object Java2DRenderingHints:
   * ordinary Java2D behavior; `fixed` lets reproducible exports and golden tests supply font bytes
   * without consulting host-installed families.
   */
-final class Java2DFontResolver private (resolveFont: (Option[String], Double) => Font):
-  private[java2d] def resolve(requestedFamily: Option[String], sizePx: Double): Font =
-    resolveFont(requestedFamily, sizePx)
+final class Java2DFontResolver private (
+    resolveFont: (Option[String], Double, Option[FontWeight]) => Font
+):
+  private[java2d] def resolve(
+      requestedFamily: Option[String],
+      sizePx: Double,
+      weight: Option[FontWeight] = None
+  ): Font =
+    resolveFont(requestedFamily, sizePx, weight)
 
 object Java2DFontResolver:
   val system: Java2DFontResolver =
-    new Java2DFontResolver((requestedFamily, sizePx) =>
-      val family = requestedFamily.getOrElse(Font.SANS_SERIF)
-      new Font(family, Font.PLAIN, 1).deriveFont(sizePx.toFloat)
+    new Java2DFontResolver((requestedFamily, sizePx, weight) =>
+      Java2DFontResolver.derive(requestedFamily.getOrElse(Font.SANS_SERIF), sizePx, weight)
     )
 
+  /** A resolver pinned to one font, for goldens that must not depend on installed families. It
+    * still honours weight, because a golden that could not draw bold could not pin bold.
+    */
   def fixed(font: Font): Java2DFontResolver =
-    new Java2DFontResolver((_, sizePx) => font.deriveFont(sizePx.toFloat))
+    new Java2DFontResolver((_, sizePx, weight) =>
+      Java2DFontResolver.applyWeight(font.deriveFont(sizePx.toFloat), weight)
+    )
+
+  /** The one rule for turning a family, a size and a weight into a font.
+    *
+    * `Java2DTextMetrics` measures through this and the renderer draws through it, so the advance
+    * the layout solver reserves is the advance the glyphs take. They were two independent copies of
+    * `new Font(family, Font.PLAIN, 1).deriveFont(size)` before weight existed.
+    */
+  private[java2d] def derive(family: String, sizePx: Double, weight: Option[FontWeight]): Font =
+    applyWeight(new Font(family, Font.PLAIN, 1).deriveFont(sizePx.toFloat), weight)
+
+  private def applyWeight(font: Font, weight: Option[FontWeight]): Font =
+    weight match
+      case None        => font
+      case Some(value) =>
+        // `TextAttribute.WEIGHT` is the continuous scale, honoured when the family has a matching
+        // face. AWT does not synthesize intermediate weights, so a family with only two faces
+        // resolves to the nearer of them.
+        val attributes = new java.util.HashMap[java.awt.font.TextAttribute, Any]()
+        attributes.put(
+          java.awt.font.TextAttribute.WEIGHT,
+          java.lang.Float.valueOf(value.java2dWeight)
+        )
+        font.deriveFont(attributes)
 
 enum Java2DBackground:
   case Transparent
@@ -157,7 +190,8 @@ final case class Java2DPaint(
     lineCap: LineCap,
     lineJoin: LineJoin,
     opacity: Double,
-    fillPattern: Option[PatternPaint] = None
+    fillPattern: Option[PatternPaint] = None,
+    fontWeight: Option[FontWeight] = None
 ):
   /** Binary bridge for callers compiled before pattern fills were added. */
   def this(
@@ -217,7 +251,8 @@ object Java2DPaint:
       gp.lineCap,
       gp.lineJoin,
       gp.alpha,
-      None
+      None,
+      gp.fontWeight
     )
 
 final case class Java2DDrawProfile(
@@ -709,7 +744,7 @@ object Java2DRenderer:
           ) =>
         withCopy(graphics) { copy =>
           renderingHints.configure(copy)
-          val font = fontResolver.resolve(fontFamily, fontSize)
+          val font = fontResolver.resolve(fontFamily, fontSize, paint.fontWeight)
           copy.setFont(font)
           val bounds = font.getStringBounds(label, copy.getFontRenderContext)
           val drawX = horizontal match

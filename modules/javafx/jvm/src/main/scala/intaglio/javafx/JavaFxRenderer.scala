@@ -78,7 +78,8 @@ final case class JavaFxPaint(
     lineCap: LineCap,
     lineJoin: LineJoin,
     opacity: Double,
-    fillPattern: Option[PatternPaint] = None
+    fillPattern: Option[PatternPaint] = None,
+    fontWeight: Option[FontWeight] = None
 ):
   /** Binary bridge for callers compiled before pattern fills were added. */
   def this(
@@ -138,7 +139,8 @@ object JavaFxPaint:
       gp.lineCap,
       gp.lineJoin,
       gp.alpha,
-      None
+      None,
+      gp.fontWeight
     )
 
 final case class JavaFxDrawProfile(
@@ -417,7 +419,9 @@ trait JavaFxGraphicsContext:
 
   /** An empty pattern means solid strokes. */
   def setLineDashes(pattern: Vector[Double]): Unit
-  def setFont(family: Option[String], sizePx: Double): Unit
+
+  /** `weight` is the 100-to-900 scale; JavaFX resolves it to the nearest named face it has. */
+  def setFont(family: Option[String], sizePx: Double, weight: Option[FontWeight]): Unit
   def setTextAlign(horizontal: HJust): Unit
   def setTextBaseline(vertical: VJust): Unit
   def fillText(label: String, x: Double, y: Double): Unit
@@ -601,7 +605,7 @@ object JavaFxRenderer:
         withSaved(context) {
           val color = paint.fill.getOrElse(JavaFxColor.fromRgba(Rgba.Black))
           context.setFill(color.combined(paint.opacity))
-          context.setFont(fontFamily, fontSize)
+          context.setFont(fontFamily, fontSize, paint.fontWeight)
           context.setTextAlign(horizontal)
           context.setTextBaseline(vertical)
           if rotation == 0.0 then context.fillText(label, x, y)

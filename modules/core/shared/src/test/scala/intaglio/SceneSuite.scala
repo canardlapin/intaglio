@@ -229,3 +229,42 @@ class SceneSuite extends munit.FunSuite:
     // existing vocabulary rather than a parallel channel.
     assertEquals(LineType.Custom(DashPattern.unsafe(6.0, 4.0)).dash, LineType.Dashed.dash)
   }
+
+  test("font weight is bounded and reaches every derived style") {
+    assertEquals(
+      FontWeight(99).left.toOption,
+      Some(GraphicsError.InvalidFontWeight(99))
+    )
+    assertEquals(
+      FontWeight(901).left.toOption,
+      Some(GraphicsError.InvalidFontWeight(901))
+    )
+    assert(FontWeight(100).isRight)
+    assert(FontWeight(900).isRight)
+    // Intermediate values are legal, not only multiples of a hundred: a variable font can honour
+    // 550, and a backend that cannot rounds to the nearest face it has.
+    assert(FontWeight(550).isRight)
+
+    assertEquals(FontWeight.Regular.value, 400)
+    assertEquals(FontWeight.Bold.value, 700)
+    assert(!FontWeight.Regular.isBold)
+    assert(FontWeight.Bold.isBold)
+    assertEqualsDouble(FontWeight.Regular.java2dWeight.toDouble, 1.0, 1e-9)
+
+    val params = GraphicParams.unsafe().withFontWeight(FontWeight.Bold)
+    assertEquals(params.fontWeight, Some(FontWeight.Bold))
+    assertEquals(params.withoutFontWeight.fontWeight, None)
+
+    // The channel has to reach the value layout measures with, or the solver reserves a regular
+    // advance for text a backend draws bold.
+    val theme = Theme.default.copy(
+      axis = Theme.default.axis.copy(
+        title = GraphicParams
+          .unsafe(fill = Some(Rgba.Black), fontSize = Length.pointsUnsafe(11.0))
+          .withFontWeight(FontWeight.Bold)
+      )
+    )
+    assertEquals(theme.layoutPolicy.axisTitleFontWeight, Some(FontWeight.Bold))
+    assertEquals(theme.layoutPolicy.axisTitleTextStyle.fontWeight, Some(FontWeight.Bold))
+    assertEquals(theme.layoutPolicy.axisTextStyle.fontWeight, None)
+  }

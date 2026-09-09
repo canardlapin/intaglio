@@ -12,6 +12,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Breaking
 
+- `GraphicParams`, `TextStyle`, `LayoutPolicy` and `RenderRequirement.TextStyle`
+  each gained a trailing defaulted field for typographic weight, changing their
+  `apply`/`copy`/`unapply` descriptors. `PdfFont.fromBytes` gained a trailing
+  `weight`, `PdfFontCatalog` indexes `(family, weight)`, and
+  `PdfRenderError.DuplicateFontFamily` was removed because it can no longer be
+  produced. See [MIGRATION.md](MIGRATION.md).
+
 - `LineType` gained the parameterised case `Custom(DashPattern)`, so Scala 3
   emits its synthetic `values`/`valueOf` differently and four symbols move off
   `class intaglio.LineType`. Source is unaffected — `LineType.values` still
@@ -20,6 +27,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   [MIGRATION.md](MIGRATION.md).
 
 ### Added
+
+- **Typographic weight, measured as well as drawn.** `GraphicParams.fontWeight`
+  carries a checked `FontWeight` on the 100-to-900 scale, so a figure can
+  establish hierarchy without changing size or family. Resolves the weight half
+  of #3.
+
+  Weight changes glyph advance, so it is threaded through measurement first:
+  `TextStyle` carries it, `LayoutPolicy` carries one per text role beside the
+  family it already had, and `Theme.layoutPolicy` feeds them. `Java2DTextMetrics`
+  and `CanvasTextMetrics` now build the same font for measuring that their
+  renderers build for drawing — one rule each, in one place, rather than the two
+  independent copies that existed before.
+
+  SVG emits `font-weight`; Canvas puts it in the CSS shorthand; Java2D applies
+  `TextAttribute.WEIGHT`; JavaFX resolves through `FontWeight.findByWeight`. PDF
+  is different in kind — it embeds font programs and cannot synthesize a face —
+  so `PdfFontCatalog` now indexes `(family, weight)` and a run asking for a
+  weight no registered face carries is a typed `MissingFontWeight` rather than a
+  document that silently reads as regular. A new `bold-text` conformance case
+  makes every backend prove it, so the channel cannot be accepted and discarded.
+
+  Letter-spacing, the other half of #3, is not included: it has no route on
+  JavaFX at all, and a channel that affects layout should not be a documented
+  no-op in one backend.
 
 - **Arbitrary dash rhythms.** `LineType` gained `Custom(DashPattern)` beside
   `Solid`, `Dashed` and `Dotted`, so a plot that encodes categorical state in

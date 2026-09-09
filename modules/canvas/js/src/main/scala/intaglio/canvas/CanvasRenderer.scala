@@ -129,7 +129,8 @@ final case class CanvasPaint(
     lineCap: LineCap,
     lineJoin: LineJoin,
     opacity: Double,
-    fillPattern: Option[PatternPaint] = None
+    fillPattern: Option[PatternPaint] = None,
+    fontWeight: Option[FontWeight] = None
 ):
   /** Binary bridge for callers compiled before pattern fills were added. */
   def this(
@@ -189,8 +190,22 @@ object CanvasPaint:
       gp.lineCap,
       gp.lineJoin,
       gp.alpha,
-      None
+      None,
+      gp.fontWeight
     )
+
+/** The CSS font shorthand, in one place.
+  *
+  * `CanvasRenderer` draws with it and `CanvasTextMetrics` measures with it. They were two
+  * independent strings before a weight slot existed; a weight added to one and not the other would
+  * mean the layout measured a regular face for text the canvas drew bold.
+  */
+private[canvas] object CanvasFont:
+  /** CSS orders the shorthand `[style] [variant] [weight] size family`, so the weight precedes the
+    * size and is omitted entirely when unset.
+    */
+  def shorthand(weight: Option[FontWeight], sizePx: Double, family: String): String =
+    weight.fold(s"${sizePx}px $family")(value => s"${value.value} ${sizePx}px $family")
 
 /** Deterministic Canvas 2D operations in device coordinates. Group effects deliberately record
   * rotation before clipping: the clip is installed in the rotated local coordinate system, matching
@@ -861,7 +876,8 @@ object CanvasRenderer:
           val color = paint.fill.getOrElse(CanvasColor.fromRgba(Rgba.Black))
           context.fillStyle = color.css
           context.globalAlpha = paint.opacity * color.alpha
-          context.font = s"${fontSize}px ${canvasFontFamily(fontFamily)}"
+          context.font =
+            CanvasFont.shorthand(paint.fontWeight, fontSize, canvasFontFamily(fontFamily))
           context.textAlign = textAlign(horizontal)
           context.textBaseline = textBaseline(vertical)
           if rotation == 0.0 then context.fillText(label, x, y)

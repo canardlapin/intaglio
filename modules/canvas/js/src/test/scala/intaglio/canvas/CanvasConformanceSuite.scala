@@ -61,7 +61,7 @@ class CanvasConformanceSuite extends munit.FunSuite:
               ) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
             case _ => false
           }
-        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
+        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha, fontWeight) =>
           out.commands.exists {
             case CanvasCommand.Text(
                   _,
@@ -76,7 +76,8 @@ class CanvasConformanceSuite extends munit.FunSuite:
                   commandName
                 ) =>
               commandName.contains(name) && paint.fill.contains(CanvasColor.fromRgba(color)) &&
-              actualFontSize == fontSizePx && actualFontFamily == fontFamily && paint.opacity == alpha
+              actualFontSize == fontSizePx && actualFontFamily == fontFamily &&
+              paint.opacity == alpha && paint.fontWeight == fontWeight
             case _ => false
           }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>

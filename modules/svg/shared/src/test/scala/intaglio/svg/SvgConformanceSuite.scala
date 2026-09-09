@@ -73,12 +73,12 @@ class SvgConformanceSuite extends munit.FunSuite:
             line.contains(s""" dominant-baseline="${textBaseline(vertical)}"""") &&
             line.contains(" transform=\"rotate(") == rotated
           }
-        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
+        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha, fontWeight) =>
           namedLines(out, name).exists { line =>
             line.startsWith("<text") && hasPaint(line, "fill", Some(color)) &&
             line.contains(s""" font-size="${number(fontSizePx)}"""") &&
             fontFamily.forall(family => line.contains(s""" font-family="$family"""")) &&
-            hasOpacity(line, alpha)
+            hasOpacity(line, alpha) && hasFontWeight(line, fontWeight)
           }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           namedLines(out, name).exists { line =>
@@ -116,6 +116,14 @@ class SvgConformanceSuite extends munit.FunSuite:
         case None          => !line.contains(" stroke-dasharray=")
         case Some(pattern) =>
           line.contains(s""" stroke-dasharray="${pattern.segments.map(number).mkString(" ")}"""")
+
+    /** An unset weight must emit no attribute at all, so a document that never asks for one is
+      * byte-identical to the pre-weight renderer.
+      */
+    private def hasFontWeight(line: String, weight: Option[FontWeight]): Boolean =
+      weight match
+        case None        => !line.contains(" font-weight=")
+        case Some(value) => line.contains(s""" font-weight="${value.value}"""")
 
     private def patternId(line: String): Option[String] =
       val prefix = """ fill="url(#"""

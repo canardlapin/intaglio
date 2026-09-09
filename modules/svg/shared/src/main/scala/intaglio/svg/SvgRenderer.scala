@@ -614,6 +614,7 @@ object SvgRenderer:
     appendPaint(attrs, "fill", gp.fill.orElse(gp.stroke).orElse(Some(Rgba.Black)))
     attrs.append(""" stroke="none"""")
     fontFamily.foreach(family => attrs.append(s""" font-family="${escapeAttr(family)}""""))
+    gp.fontWeight.foreach(weight => attrs.append(s""" font-weight="${weight.value}""""))
     attrs.append(s""" font-size="${format(fontSizePx)}"""")
     if gp.alpha != 1.0 then attrs.append(s""" opacity="${format(gp.alpha)}"""")
     attrs.result()

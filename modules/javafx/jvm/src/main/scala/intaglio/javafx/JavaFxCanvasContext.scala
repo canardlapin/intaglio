@@ -5,7 +5,7 @@ import javafx.scene.canvas.GraphicsContext
 import javafx.scene.image.{Image, PixelFormat, WritableImage}
 import javafx.scene.paint.{Color, ImagePattern}
 import javafx.scene.shape.{StrokeLineCap, StrokeLineJoin}
-import javafx.scene.text.{Font, TextAlignment}
+import javafx.scene.text.{Font, FontWeight as FxFontWeight, TextAlignment}
 import scala.collection.mutable
 import intaglio.*
 
@@ -97,8 +97,14 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
   override def setLineDashes(pattern: Vector[Double]): Unit =
     context.setLineDashes(pattern.toArray*)
 
-  override def setFont(family: Option[String], sizePx: Double): Unit =
-    context.setFont(family.fold(Font.font(sizePx))(name => Font.font(name, sizePx)))
+  override def setFont(family: Option[String], sizePx: Double, weight: Option[FontWeight]): Unit =
+    val resolved =
+      (family, weight.map(value => FxFontWeight.findByWeight(value.value))) match
+        case (Some(name), Some(face)) => Font.font(name, face, sizePx)
+        case (Some(name), None)       => Font.font(name, sizePx)
+        case (None, Some(face))       => Font.font(null, face, sizePx)
+        case (None, None)             => Font.font(sizePx)
+    context.setFont(resolved)
 
   override def setTextAlign(horizontal: HJust): Unit =
     context.setTextAlign(

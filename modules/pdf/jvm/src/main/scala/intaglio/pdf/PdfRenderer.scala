@@ -65,32 +65,42 @@ object PdfRenderer:
       scene: DeviceScene,
       catalog: PdfFontCatalog
   ): Either[PdfRenderError, Vector[PdfFont]] =
-    val requested = Vector.newBuilder[Option[String]]
+    // A face is a family at a weight, so the scan collects pairs. Two runs of the same family at
+    // different weights are two font programs to embed.
+    val requested = Vector.newBuilder[(Option[String], Option[FontWeight])]
 
     def visit(elements: Vector[DeviceElement]): Unit =
       elements.foreach {
         case DeviceElement.Group(_, _, _, children) => visit(children)
         case DeviceElement.Annotated(_, children)   => visit(children)
-        case DeviceElement.Mark(DevicePrimitive.TextRun(_, _, _, _, _, _, _, family, _, _)) =>
-          requested += family
+        case DeviceElement.Mark(DevicePrimitive.TextRun(_, _, _, _, _, _, _, family, gp, _)) =>
+          requested += ((family, gp.fontWeight))
         case DeviceElement.Mark(_) => ()
       }
 
     visit(scene.elements)
     val values = requested.result()
     val out = Vector.newBuilder[PdfFont]
-    var seen = Set.empty[String]
+    var seen = Set.empty[(String, Int)]
     var index = 0
     var failure: Option[PdfRenderError] = None
     while index < values.length && failure.isEmpty do
-      val family = values(index)
-      catalog.resolve(family) match
-        case None       => failure = Some(PdfRenderError.MissingFont(family))
+      val (family, weight) = values(index)
+      catalog.resolve(family, weight) match
         case Some(font) =>
-          val key = PdfFontCatalog.normalize(font.family)
+          val key = (PdfFontCatalog.normalize(font.family), font.weight.value)
           if !seen.contains(key) then
             seen += key
             out += font
+        case None =>
+          // Distinguish an unknown family from a known family with no face at this weight; the
+          // second is the one a caller fixes by registering another font, not by renaming.
+          failure = Some(
+            weight match
+              case Some(value) if catalog.hasFamily(family) =>
+                PdfRenderError.MissingFontWeight(family, value.value)
+              case _ => PdfRenderError.MissingFont(family)
+          )
       index += 1
     failure.fold[Either[PdfRenderError, Vector[PdfFont]]](Right(out.result()))(Left(_))
 
@@ -172,7 +182,7 @@ object PdfRenderer:
   private def loadFonts(
       document: PDDocument,
       fonts: Vector[PdfFont]
-  ): Map[String, PDType0Font] =
+  ): Map[(String, Int), PDType0Font] =
     fonts.iterator.map { supplied =>
       val input = supplied.inputStream
       val loaded =
@@ -188,7 +198,7 @@ object PdfRenderer:
             "the font did not enter embedded subset mode"
           )
         )
-      PdfFontCatalog.normalize(supplied.family) -> loaded
+      (PdfFontCatalog.normalize(supplied.family), supplied.weight.value) -> loaded
     }.toMap
 
   private final case class RenderAbort(error: PdfRenderError)
@@ -204,7 +214,7 @@ object PdfRenderer:
       deviceHeight: Double,
       contract: PageContract,
       catalog: PdfFontCatalog,
-      fonts: Map[String, PDType0Font]
+      fonts: Map[(String, Int), PDType0Font]
   ):
     private val patterns = mutable.LinkedHashMap.empty[PatternPaint, PDColor]
     private val images =
@@ -363,7 +373,8 @@ object PdfRenderer:
               gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black),
               fontSize,
               family,
-              gp.alpha
+              gp.alpha,
+              gp.fontWeight
             )
           }
         case DevicePrimitive.Image(
@@ -523,8 +534,17 @@ object PdfRenderer:
         family: Option[String],
         gp: GraphicParams
     ): Unit =
-      val supplied = catalog.resolve(family).getOrElse(abort(PdfRenderError.MissingFont(family)))
-      val font = fonts(PdfFontCatalog.normalize(supplied.family))
+      val supplied = catalog
+        .resolve(family, gp.fontWeight)
+        .getOrElse(
+          abort(
+            gp.fontWeight match
+              case Some(value) if catalog.hasFamily(family) =>
+                PdfRenderError.MissingFontWeight(family, value.value)
+              case _ => PdfRenderError.MissingFont(family)
+          )
+        )
+      val font = fonts((PdfFontCatalog.normalize(supplied.family), supplied.weight.value))
       validateGlyphs(label, supplied.family, font)
       val size = px(fontSizePx)
       val width = font.getStringWidth(label) / 1000.0f * size
