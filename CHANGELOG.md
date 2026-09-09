@@ -12,19 +12,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Breaking
 
-- `GraphicParams`, `TextStyle`, `LayoutPolicy` and `RenderRequirement.TextStyle`
-  each gained a trailing defaulted field for typographic weight, changing their
-  `apply`/`copy`/`unapply` descriptors. `PdfFont.fromBytes` gained a trailing
+- `GraphicParams`, `TextStyle`, `LayoutPolicy`, `RenderRequirement.TextStyle`,
+  `Java2DPaint` and `JavaFxPaint` each gained a trailing defaulted field for
+  typographic weight, changing their `apply`/`copy`/`unapply` descriptors, and
+  `JavaFxGraphicsContext.setFont` gained a `weight` parameter. `PdfFont.fromBytes` gained a trailing
   `weight`, `PdfFontCatalog` indexes `(family, weight)`, and
   `PdfRenderError.DuplicateFontFamily` was removed because it can no longer be
   produced. See [MIGRATION.md](MIGRATION.md).
-
-- `LineType` gained the parameterised case `Custom(DashPattern)`, so Scala 3
-  emits its synthetic `values`/`valueOf` differently and four symbols move off
-  `class intaglio.LineType`. Source is unaffected — `LineType.values` still
-  compiles and means the same — but already-compiled callers must be recompiled.
-  This is why the change lands at a `0.y.0` boundary rather than a patch. See
-  [MIGRATION.md](MIGRATION.md).
 
 ### Added
 

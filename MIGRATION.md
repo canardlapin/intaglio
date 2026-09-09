@@ -46,30 +46,26 @@ destructures it positionally with five bindings no longer compiles:
 Wrong number of argument patterns for intaglio.RenderRequirement.TextStyle; expected: (GraphicsName, Rgba, Double, Option[String], Double, Option[FontWeight])
 ```
 
-### `LineType` gained a parameterised case, moving `values` and `valueOf`
+### Backend paint records and the JavaFX font contract carry a weight
 
-`LineType` is no longer a simple enum: `Custom(pattern: DashPattern)` joins
-`Solid`, `Dashed` and `Dotted`. Scala 3 emits the synthetic `values` and
-`valueOf` differently for a parameterised enum, so four symbols move off
-`class intaglio.LineType`:
+`Java2DPaint` and `JavaFxPaint` gained a trailing defaulted `fontWeight`, changing their `apply`,
+`copy` and constructor descriptors. Both are public because a backend author reads them; a
+positional construction that filled every field no longer compiles, and a named one is unaffected.
+
+`JavaFxGraphicsContext.setFont` gained a third parameter:
 
 ```
-static method values()Array[intaglio.LineType] in class intaglio.LineType
-static method valueOf(java.lang.String)intaglio.LineType in class intaglio.LineType
+def setFont(family: Option[String], sizePx: Double, weight: Option[FontWeight]): Unit
 ```
 
-**Source code is unaffected.** `LineType.values` and `LineType.valueOf` continue
-to compile and mean the same thing; only the emitted class file changed, so this
-is a binary and TASTy break for already-compiled callers rather than an edit
-anyone has to make. Recompiling against the new release is the whole migration.
+An implementation of that trait — the interception point for a test double or an alternative canvas
+— must add the parameter. Ignoring it draws at the face's own weight, which is the previous
+behaviour:
 
-An exhaustive `match` on `LineType` that does not handle `Custom` is a new
-warning rather than an error, and will draw a solid stroke if it falls through a
-default. `LineType.dash` returns the rhythm for any line type, including the
-named ones, and is the intended way to consume the channel:
-
-```scala
-lineType.dash.fold(solidStroke)(pattern => dashedStroke(pattern.segments))
+```
+class MyContext extends JavaFxGraphicsContext:
+  override def setFont(family: Option[String], sizePx: Double, weight: Option[FontWeight]): Unit =
+    ...
 ```
 
 ### `Grob.rect` and `Grob.lines` gained a geometry parameter before `gp`
