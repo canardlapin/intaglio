@@ -10,6 +10,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Changed
+
+- **The default theme palette is now colour-vision-measured.**
+  `Theme.defaultPalettes.discrete` is the first six of
+  `DiscretePalette.okabeItoColors` instead of the first six tab10 colours.
+  **Every plot that does not name its own colours changes colour.** The reason
+  is measured rather than aesthetic: from three series on, protanopia brought
+  tab10's orange and its green to CIE76 5.6 and deuteranopia brought its blue
+  and its purple to 7.2, both below the floor the new
+  `AccessibilityDiagnostic.IndistinguishablePalette` reports at, while the
+  replacement holds 17.0 through six series.
+  `DiscretePaletteEvidenceSuite` pins both palettes so the comparison stays a
+  fact.
+
+  Three of the ten committed gallery plates moved and were reviewed at native
+  size; the java2d golden images did not, because those fixtures name their
+  colours explicitly. To restore the previous look in one line:
+
+  ```scala
+  Theme.default.copy(
+    palettes = Theme.default.palettes.copy(
+      discrete = Vector(
+        Rgba.unsafe(31, 119, 180),
+        Rgba.unsafe(255, 127, 14),
+        Rgba.unsafe(44, 160, 44),
+        Rgba.unsafe(214, 39, 40),
+        Rgba.unsafe(148, 103, 189),
+        Rgba.unsafe(140, 86, 75)
+      )
+    )
+  )
+  ```
+
 ### Added
 
 - **The compile pipeline splits at the data/device seam.** `PlotCompiler.train`
@@ -35,6 +68,82 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   workloads — faceted trellises, resize sweeps, dense picking — on named
   hardware, produced by a timing harness in the performance module and
   summarized in `docs/limits.md`. Wall-clock time remains outside CI gates.
+
+- **A diverging palette primitive with a neutral at zero.** `DivergingPalette`
+  takes `negative`, `neutral`, and `positive` colours and answers on a signed,
+  symmetric domain: `-1` is the negative endpoint, `0` is exactly the neutral,
+  `+1` is the positive endpoint. The sign of the argument names the arm, so two
+  call sites in one application cannot silently adopt opposite conventions.
+  `pixel` is `color` packed through `Rgba32.fromRgba`, so a raster overlay and a
+  scene mark showing the same value are the same colour by construction rather
+  than by convention, and `unitPalette` exposes the same ramp on `[0, 1]` for
+  wiring into a continuous colour scale with the neutral exactly at `0.5`. The
+  constructor returns `Either` and refuses a palette whose sign could not be
+  read back — identical endpoints, or an arm with no gradient — as
+  `GraphicsError.DegenerateDivergingPalette`.
+
+  `DivergingColorizer` is the raster face and `ContinuousScale.diverging` the
+  scene face, and both exist so the library rather than the caller owns the
+  midpoint. The colorizer carries a magnitude rather than a window, so zero is
+  on the neutral by construction; re-windowing it takes the enclosing symmetric
+  window instead of moving the middle, and a non-finite value takes an explicit
+  invalid pixel rather than rendering as a value of exactly zero. The scale
+  builds the domain `[-limit, +limit]` with `ScaleTraining.Fixed`, so a later
+  plot-wide training pass cannot widen one side and slide the neutral onto the
+  data's midpoint.
+
+  `docs/adr/0008-signed-color-is-a-primitive.md` records the reasoning, what was
+  rejected, and what is deferred. The additive API review in
+  `compatibility/interaction-additions.txt` gained a third supported problem
+  kind along the way: a Scala 3 `enum` case compiles to a class, a companion,
+  and a static field, and the review had no way to name the field.
+
+- **Oklab, and interpolation through it.** `Oklab` is a checked perceptual
+  colour type with `fromRgba`, `toRgba`, and `mix`. The round trip is byte-exact
+  for every one of the 16 777 216 sRGB colours, encoding clamps an out-of-gamut
+  coordinate into gamut rather than failing, and both endpoints of a mix are
+  returned identically rather than recomputed, so a ramp reaches its own
+  endpoints exactly. `Palette.oklabGradient(from, to)` is the sequential ramp
+  built on it, and `DivergingPalette` interpolates each arm outward from the
+  neutral in the same space. `Palette.gradient` still interpolates the stored
+  sRGB bytes and is unchanged; between hue-distant endpoints that path collapses
+  to grey in the middle — `#0000FF` to `#FFFF00` passes through `#808080` — and
+  the doc comment now says so.
+
+- **Named palettes chosen against a colour-vision measurement.**
+  `DivergingPalette.BlueRust` keeps its two arms at least CIE76 17.9 apart at
+  matched magnitude under normal vision, protanopia, and deuteranopia, and never
+  reverses lightness outward along either arm. `DiscretePalette.okabeIto` is the
+  eight-colour qualitative palette of Okabe and Ito, reordered so that every
+  prefix is the best set of its size, with a published separation floor per
+  prefix length. `DiscretePalette.okabeItoColors` is the same order as a
+  `Vector[Rgba]` for `ThemePalettes`. Neither replaces a default: the default
+  theme palette is unchanged, so no existing plot changes colour.
+
+  `DivergingPaletteEvidenceSuite` and `DiscretePaletteEvidenceSuite` assert
+  every published figure on each run, through the same public API a consumer
+  would use. `docs/accessibility.md` covers choosing sequential against
+  diverging and why no rainbow or jet ramp is shipped;
+  `evidence/diverging-palette/README.md` records the method and the boundary.
+
+- **Colour vision simulation, and a diagnostic that uses it.** `ColorVision`
+  simulates protanopia, deuteranopia, and tritanopia with the two-half-plane
+  construction of Brettel, Vienot and Mollon (1997); `ColorSeparation` reports
+  CIE76 distance in CIELAB as a named observer sees it, finds the closest pair
+  in a set, and exposes CIE L* and C*. `ColorVisionSuite` pins the simulated
+  sRGB primaries and secondaries against the published reference values of
+  libDaltonLens, and checks that every grey is a fixed point and that each
+  separation plane contains the neutral axis. Only dichromacy is modelled;
+  anomalous trichromacy, which is more common, is not, and the documentation
+  states that wherever it states a figure.
+
+  `AccessibilityDiagnostic.IndistinguishablePalette` is reported for a discrete
+  colour or fill scale whose closest pair of levels falls below
+  `ColorSeparation.SeriesFloor` for some observer, naming the observer, the two
+  levels, and the separation. Exact RGBA collision keeps its own diagnostic.
+  Continuous ramps are not checked: neighbouring samples there are supposed to
+  be close.
+
 
 - **Per-grob titles, descriptions, classes, and data attributes.**
   `Grob.annotated(child, meta)` attaches a `GrobMeta` — an optional `title`, an

@@ -97,14 +97,30 @@ enum AccessibilityDiagnostic:
       distinctColors: Int
   )
 
+  /** Two levels of a discrete color scale that are distinct as RGBA but too close to be told apart
+    * by the named observer. `deltaE76` is rounded to one decimal so the diagnostic compares equal
+    * across platforms.
+    */
+  case IndistinguishablePalette(
+      aesthetic: String,
+      scale: String,
+      vision: ColorVision,
+      firstLevel: Int,
+      secondLevel: Int,
+      deltaE76: Double
+  )
+
   def code: String =
     this match
-      case AmbiguousPalette(_, _, _, _) => "ambiguous-palette"
+      case AmbiguousPalette(_, _, _, _)               => "ambiguous-palette"
+      case IndistinguishablePalette(_, _, _, _, _, _) => "indistinguishable-palette"
 
   def message: String =
     this match
       case AmbiguousPalette(aesthetic, scale, sampledValues, distinctColors) =>
         s"$aesthetic scale '$scale' maps $sampledValues sampled values to only $distinctColors distinct RGBA colors"
+      case IndistinguishablePalette(aesthetic, scale, vision, first, second, deltaE76) =>
+        s"$aesthetic scale '$scale' separates levels $first and $second by only dE76 $deltaE76 under ${vision.label}"
 
 /** Accessibility and identity contract for one compiled plot. */
 final case class PlotSemantics(
@@ -248,16 +264,48 @@ object PlotSemantics:
       if (scale.key eq Aesthetic.Color) || (scale.key eq Aesthetic.Fill) then
         val colors = sampledColors(scale)
         val distinct = colors.distinct.length
-        Option.when(colors.lengthCompare(1) > 0 && distinct < colors.length)(
-          AccessibilityDiagnostic.AmbiguousPalette(
-            scale.aesthetic,
-            scale.descriptor.name.value,
-            colors.length,
-            distinct
+        if colors.lengthCompare(1) <= 0 then Vector.empty
+        else if distinct < colors.length then
+          Vector(
+            AccessibilityDiagnostic.AmbiguousPalette(
+              scale.aesthetic,
+              scale.descriptor.name.value,
+              colors.length,
+              distinct
+            )
           )
-        )
-      else None
+        else visionDiagnostics(scale, colors)
+      else Vector.empty
     }
+
+  /** Colour-vision separation is reported for discrete scales only.
+    *
+    * On a discrete scale two close colours mean two categories a reader cannot tell apart, which is
+    * a defect. On a continuous ramp neighbouring samples are *supposed* to be close — that is what
+    * makes it a ramp — so the same measurement there would report the design rather than a fault.
+    */
+  private def visionDiagnostics(
+      scale: TrainedScale,
+      colors: Vector[Rgba]
+  ): Vector[AccessibilityDiagnostic] =
+    scale.scale match
+      case _: DiscreteScale[?, ?] =>
+        ColorVision.values.toVector.flatMap { vision =>
+          ColorSeparation
+            .closest(colors, vision)
+            .filter(_.deltaE76 < ColorSeparation.SeriesFloor)
+            .map { separation =>
+              AccessibilityDiagnostic.IndistinguishablePalette(
+                scale.aesthetic,
+                scale.descriptor.name.value,
+                vision,
+                separation.first,
+                separation.second,
+                math.rint(separation.deltaE76 * 10.0) / 10.0
+              )
+            }
+        }
+      case _ => Vector.empty
 
   private def sampledColors(scale: TrainedScale): Vector[Rgba] =
     scale.scale match

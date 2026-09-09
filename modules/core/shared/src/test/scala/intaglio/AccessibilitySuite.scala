@@ -129,6 +129,57 @@ class AccessibilitySuite extends munit.FunSuite:
     assert(trained.textSummary.contains("Diagnostic ambiguous-palette:"))
   }
 
+  test("colors a dichromat cannot separate emit a diagnostic naming the observer") {
+    val domain = DiscreteDomain
+      .ordered(Vector("control", "treatment", "sham"))
+      .fold(error => fail(error.message), identity)
+    // Distinct to normal vision, and the last two are the tab10 orange and green that protanopia
+    // brings to dE76 5.6 — the collapse this diagnostic exists to name.
+    val scale = DiscreteScale(
+      "condition-color",
+      domain,
+      DiscretePalette.valuesUnsafe(
+        Vector(Rgba.unsafe(31, 119, 180), Rgba.unsafe(255, 127, 14), Rgba.unsafe(44, 160, 44))
+      )
+    ).fold(error => fail(error.message), identity)
+    val plot = Plot(data)
+      .withScale(ScaleBinding(Aesthetic.Color, _.condition, scale))
+      .flatMap(_.addLayer(Layer.point[Observation](_.x, _.y)))
+      .fold(error => fail(error.message), identity)
+    val trained = PlotCompiler.resolve(plot).fold(error => fail(error.message), identity)
+
+    assertEquals(
+      trained.accessibilityDiagnostics,
+      Vector(
+        AccessibilityDiagnostic
+          .IndistinguishablePalette("color", "condition-color", ColorVision.Protanopia, 1, 2, 5.6)
+      )
+    )
+    assert(
+      trained.textSummary.contains(
+        "Diagnostic indistinguishable-palette: color scale 'condition-color' separates levels 1 and 2 by only dE76 5.6 under protanopia."
+      )
+    )
+  }
+
+  test("a palette every observer can separate emits nothing") {
+    val domain = DiscreteDomain
+      .ordered(Vector("control", "treatment", "sham"))
+      .fold(error => fail(error.message), identity)
+    val scale = DiscreteScale(
+      "condition-color",
+      domain,
+      DiscretePalette.valuesUnsafe(DiscretePalette.okabeItoColors.take(3))
+    ).fold(error => fail(error.message), identity)
+    val plot = Plot(data)
+      .withScale(ScaleBinding(Aesthetic.Color, _.condition, scale))
+      .flatMap(_.addLayer(Layer.point[Observation](_.x, _.y)))
+      .fold(error => fail(error.message), identity)
+    val trained = PlotCompiler.resolve(plot).fold(error => fail(error.message), identity)
+
+    assertEquals(trained.accessibilityDiagnostics, Vector.empty[AccessibilityDiagnostic])
+  }
+
   test("duplicate explicit layer IDs fail before a scene can expose invalid DOM identity") {
     val duplicate = SemanticId.unsafe("repeated-layer")
     val first = Layer.point[Observation](_.x, _.y).withSemanticId(duplicate)

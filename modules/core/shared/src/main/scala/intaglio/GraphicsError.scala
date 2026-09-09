@@ -17,6 +17,7 @@ enum GraphicsError extends IntaglioError:
   case InvalidLength(value: Double)
   case InvalidExtent(description: String)
   case InvalidColorChannel(channel: String, value: Int)
+  case NonFiniteColorComponent(component: String, value: Double)
   case InvalidRasterDimensions(width: Int, height: Int)
   case RasterPixelCountMismatch(expected: Int, actual: Int)
   case RasterPixelOutsideBounds(x: Int, y: Int, width: Int, height: Int)
@@ -49,6 +50,7 @@ enum GraphicsError extends IntaglioError:
   case InvalidBandPadding(value: Double)
   case EmptyPalette
   case DiscretePaletteOverflow(scale: String, levels: Int, capacity: Int)
+  case DegenerateDivergingPalette(part: String)
   case DuplicateLevel(level: String)
   case EmptyGeometry(kind: String)
   case InvalidGeometrySize(kind: String, minimum: Int, actual: Int)
@@ -183,6 +185,8 @@ enum GraphicsError extends IntaglioError:
         s"extent must be provably non-negative: $description"
       case InvalidColorChannel(channel, value) =>
         s"color channel '$channel' must be in [0, 255]: $value"
+      case NonFiniteColorComponent(component, value) =>
+        s"color component '$component' must be finite: $value"
       case InvalidRasterDimensions(width, height) =>
         s"raster dimensions must be positive with a representable pixel count: ${width}x$height"
       case RasterPixelCountMismatch(expected, actual) =>
@@ -237,6 +241,8 @@ enum GraphicsError extends IntaglioError:
         "palette must contain at least one value"
       case DiscretePaletteOverflow(scale, levels, capacity) =>
         s"discrete scale '$scale' has $levels levels but its palette capacity is $capacity; select an explicit cycling policy to reuse values"
+      case DegenerateDivergingPalette(part) =>
+        s"diverging palette uses the same color for $part; the sign of a value would not be readable"
       case DuplicateLevel(level) =>
         s"duplicate discrete level '$level'"
       case EmptyGeometry(kind) =>

@@ -218,6 +218,14 @@ The palette limit has one number most people meet: the default theme's discrete 
 **six** colours, and the default overflow policy is `Reject`. A seventh level is a typed error, not a
 reused colour. `PaletteOverflowPolicy.Cycle` wraps instead.
 
+`DiscretePalette.okabeIto` holds **eight** and also rejects. Its capacity is not the interesting
+number: every prefix clears the CIE76 floor of 10 that `ColorSeparation.SeriesFloor` names, but the
+seventh and eighth clear it by about a unit rather than by a margin, so past about **six** series
+the honest move is faceting or direct labelling rather than a longer palette. The default theme
+palette falls below that floor from **three** series on, and the compiler now says so through
+`AccessibilityDiagnostic.IndistinguishablePalette`.
+[Accessible plots](accessibility.md#colour-vision-deficiency) has the per-prefix figures.
+
 ## What is not limited
 
 Stated plainly, because absence is easy to mistake for a promise:

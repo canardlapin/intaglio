@@ -105,16 +105,17 @@ object Theme:
       fontSize = Length.pointsUnsafe(sizePt)
     )
 
+  /** The first six of [[DiscretePalette.okabeItoColors]].
+    *
+    * Six because a theme palette that rejects a seventh level is a typed error a caller can see,
+    * where a longer one silently invites plots no reader can follow. These six rather than the
+    * first six tab10 colours, which this replaced, because tab10's orange and green fall to CIE76
+    * 5.6 under protanopia from three series on while these hold 17.0 through six.
+    * `DiscretePaletteEvidenceSuite` pins both figures.
+    */
   val defaultPalettes: ThemePalettes =
     ThemePalettes(
-      discrete = Vector(
-        Rgba.unsafe(31, 119, 180),
-        Rgba.unsafe(255, 127, 14),
-        Rgba.unsafe(44, 160, 44),
-        Rgba.unsafe(214, 39, 40),
-        Rgba.unsafe(148, 103, 189),
-        Rgba.unsafe(140, 86, 75)
-      ),
+      discrete = DiscretePalette.okabeItoColors.take(6),
       continuousLow = Rgba.unsafe(239, 243, 255),
       continuousHigh = Rgba.unsafe(8, 81, 156)
     )

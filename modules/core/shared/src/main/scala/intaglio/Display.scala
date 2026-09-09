@@ -4,6 +4,7 @@ enum DisplayError extends IntaglioError:
   case InvalidWindow(lower: Double, upper: Double)
   case InvalidThresholdBand(lower: Double, upper: Double)
   case InvalidOpacity(value: Double)
+  case InvalidDivergingLimit(value: Double)
 
   def message: String =
     this match
@@ -13,6 +14,8 @@ enum DisplayError extends IntaglioError:
         s"display threshold band must have finite lower < upper; got [$lower, $upper]"
       case InvalidOpacity(value) =>
         s"display opacity must be finite and in [0, 1]; got $value"
+      case InvalidDivergingLimit(value) =>
+        s"diverging display limit must be finite and > 0; got $value"
 
 object DisplayError:
   extension [A](either: Either[DisplayError, A])
@@ -129,6 +132,12 @@ enum DisplayBlendMode:
   * and the builder are both `final` and derived from them, so an implementation cannot claim
   * support it does not provide. Callers that only need to ask — before they hold a `DisplayWindow`
   * to try — use `supportsWindow`/`supportsThreshold`.
+  *
+  * `Some` promises that the colorizer rebuilds itself for the request, not that it adopts the
+  * request verbatim. A colorizer with its own domain invariant may take the nearest window it can
+  * honour; [[DivergingColorizer]] widens an asymmetric window rather than moving its neutral off
+  * zero. Where that matters, ask the rebuilt colorizer what it is showing rather than assuming the
+  * window that was passed.
   */
 trait Colorizer[A]:
   def color(value: A): Rgba32
@@ -188,6 +197,69 @@ final case class ScalarColorizer(
     Some(value => copy(threshold = value))
 
 object ScalarColorizer:
+  private val Transparent: Rgba32 =
+    Rgba32.unsafe(0, 0, 0, 0)
+
+/** Colorizes signed scalar data so that zero is exactly the palette's neutral.
+  *
+  * The window is symmetric by construction. `limit` is the magnitude that reaches a full endpoint,
+  * and the displayed extremes are `-limit` and `+limit`; there is no way to place the neutral
+  * anywhere but zero. That is the point: an asymmetric window silently moves the neutral off the
+  * value the neutral is supposed to mean, and a reader has no way to see that it moved.
+  *
+  * [[windowing]] therefore accepts a [[DisplayWindow]] and takes the enclosing symmetric window,
+  * `max(|lower|, |upper|)`, rather than the window as given. Interactive window adjustment keeps
+  * working; it cannot break the zero.
+  *
+  * Non-finite values take `invalid` and never reach the palette, so a `NaN` statistic cannot render
+  * as a value of exactly zero.
+  */
+final case class DivergingColorizer private (
+    limit: Double,
+    palette: DivergingPalette,
+    invalid: Rgba32,
+    threshold: DisplayThreshold
+) extends Colorizer[Double]:
+  /** The symmetric window this colorizer displays, for legends and colorbars. */
+  def window: DisplayWindow =
+    DisplayWindow.unsafe(-limit, limit)
+
+  def color(value: Double): Rgba32 =
+    if !value.isFinite then invalid
+    else if threshold.hides(value) then DivergingColorizer.Transparent
+    else palette.pixel(value / limit)
+
+  override def windowing: Option[DisplayWindow => Colorizer[Double]] =
+    Some(value => copy(limit = DivergingColorizer.covering(value)))
+
+  override def thresholding: Option[DisplayThreshold => Colorizer[Double]] =
+    Some(value => copy(threshold = value))
+
+object DivergingColorizer:
+  def make(
+      limit: Double,
+      palette: DivergingPalette = DivergingPalette.BlueRust,
+      invalid: Rgba32 = Rgba32.unsafe(0, 0, 0, 0),
+      threshold: DisplayThreshold = DisplayThreshold.Disabled
+  ): Either[DisplayError, DivergingColorizer] =
+    if limit.isFinite && limit > 0.0 then
+      Right(new DivergingColorizer(limit, palette, invalid, threshold))
+    else Left(DisplayError.InvalidDivergingLimit(limit))
+
+  def unsafe(
+      limit: Double,
+      palette: DivergingPalette = DivergingPalette.BlueRust,
+      invalid: Rgba32 = Rgba32.unsafe(0, 0, 0, 0),
+      threshold: DisplayThreshold = DisplayThreshold.Disabled
+  ): DivergingColorizer =
+    make(limit, palette, invalid, threshold).orThrow
+
+  /** The magnitude of the smallest symmetric window that contains `window`. A window with
+    * `lower < upper` always has a positive widest magnitude, so this never yields zero.
+    */
+  def covering(window: DisplayWindow): Double =
+    math.max(math.abs(window.lower), math.abs(window.upper))
+
   private val Transparent: Rgba32 =
     Rgba32.unsafe(0, 0, 0, 0)
 

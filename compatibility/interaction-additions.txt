@@ -82,6 +82,9 @@ MissingClassProblem intaglio.interaction.TargetLowering$
 MissingClassProblem intaglio.interaction.TargetSeries
 MissingClassProblem intaglio.interaction.TargetSeries$
 MissingClassProblem intaglio.interaction.VisualTargetId
+# Colour primitives: signed palettes, Oklab mixing, colour-vision measurement, and the
+# accessibility diagnostic built on it. `intaglio.Srgb` is `private[intaglio]` and appears here only
+# because a qualified-private object still emits a public class file.
 DirectMissingMethodProblem intaglio.ContinuousScale.diverging
 DirectMissingMethodProblem intaglio.ContinuousScale.diverging$default$3
 DirectMissingMethodProblem intaglio.ContinuousScale.diverging$default$4
@@ -103,3 +106,12 @@ MissingClassProblem intaglio.Oklab$
 MissingFieldProblem intaglio.DisplayError.InvalidDivergingLimit
 MissingFieldProblem intaglio.GraphicsError.DegenerateDivergingPalette
 MissingFieldProblem intaglio.GraphicsError.NonFiniteColorComponent
+MissingClassProblem intaglio.AccessibilityDiagnostic$IndistinguishablePalette
+MissingClassProblem intaglio.AccessibilityDiagnostic$IndistinguishablePalette$
+MissingClassProblem intaglio.ColorSeparation
+MissingClassProblem intaglio.ColorSeparation$
+MissingClassProblem intaglio.ColorVision
+MissingClassProblem intaglio.ColorVision$
+MissingClassProblem intaglio.Srgb
+MissingClassProblem intaglio.Srgb$
+MissingFieldProblem intaglio.AccessibilityDiagnostic.IndistinguishablePalette
