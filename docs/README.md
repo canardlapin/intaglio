@@ -35,6 +35,8 @@ one directly above it.
   measured against.
 - [Composition](composition.md) — the renderer-neutral mechanism behind
   tutorial 6.
+- [Interaction state and events](../modules/interaction/README.md) — source-only
+  typed selection, input traces, subscriptions, and disposal on JVM and Scala.js.
 - [Date/time scales and coordinate zoom](date-time-and-zoom.md).
 - [Common statistical layers](common-statistics.md).
 - [Style aesthetics](style-aesthetics.md) — which channels each geom accepts,
@@ -59,6 +61,10 @@ Guides for authoring an Intaglio extension, each ending in the law kit from
 [Architecture decision records](adr/README.md): eight accepted records covering
 extension identity, the typed error channel, the scale lifecycle, target
 layout, the compatibility courts, the batch IR, provenance, and signed colour.
+
+The [interactive graphics proposal](design/interaction.md) defines the ggiraph
+feature baseline, proposed interaction contracts, and delivery gates. Its status
+section separates the implemented foundation from remaining widget and analytical work.
 
 ## Contracts and process
 
