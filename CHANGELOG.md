@@ -10,6 +10,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Breaking
+
+- `LineType` gained the parameterised case `Custom(DashPattern)`, so Scala 3
+  emits its synthetic `values`/`valueOf` differently and four symbols move off
+  `class intaglio.LineType`. Source is unaffected — `LineType.values` still
+  compiles and means the same — but already-compiled callers must be recompiled.
+  This is why the change lands at a `0.y.0` boundary rather than a patch. See
+  [MIGRATION.md](MIGRATION.md).
+
+### Added
+
+- **Arbitrary dash rhythms.** `LineType` gained `Custom(DashPattern)` beside
+  `Solid`, `Dashed` and `Dotted`, so a plot that encodes categorical state in
+  dash rhythm is no longer limited to the two the library happened to name.
+  `DashPattern` holds alternating on and off lengths in device pixels and
+  refuses a rhythm no backend could draw: empty, longer than
+  `DashPattern.MaximumSegments`, non-finite, negative, or all zero. The last is
+  not pedantry — `java.awt.BasicStroke` throws on an all-zero dash array, so an
+  unchecked value would render on three backends and fail on the fourth.
+
+  `LineType.dash` resolves any line type to an `Option[DashPattern]`, and all
+  five backends now go through it. Before, each of SVG, Canvas, Java2D, JavaFX
+  and PDF carried its own copy of `6 4` and `1 3`; the two named rhythms now
+  have one definition. Their rendered output is unchanged. The renderer
+  conformance contract gained a `custom-dash` case, so every backend proves it
+  honours a five-segment rhythm rather than only the two it used to receive.
+
+  Resolves #2.
+
 ### Fixed
 
 - **A faceted plot names each dimension once.** The axis title was lowered as

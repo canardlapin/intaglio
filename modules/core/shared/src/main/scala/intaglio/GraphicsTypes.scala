@@ -146,10 +146,85 @@ enum LineInterpolation:
       case StepAfter  => StepBefore
       case StepBefore => StepAfter
 
+/** A stroke dash rhythm: alternating on and off lengths, in device pixels.
+  *
+  * Lengths are device pixels rather than points, which is what the named rhythms of [[LineType]]
+  * have always meant. A stroke measured in points therefore scales with the device while its dash
+  * does not; that is a pre-existing property of `Dashed` and `Dotted`, not something this type
+  * introduces, and it is recorded in `docs/limits.md`.
+  *
+  * The constructor refuses a pattern no backend could draw: empty, longer than
+  * [[DashPattern.MaximumSegments]], non-finite, negative, or all zero. The last is not pedantry —
+  * `java.awt.BasicStroke` throws on an all-zero dash array, so an unchecked value would render on
+  * three backends and fail on the fourth.
+  */
+final case class DashPattern private (segments: Vector[Double])
+
+object DashPattern:
+  /** Enough rhythms to distinguish any categorical encoding a reader could follow, and few enough
+    * that a malformed value cannot inflate a document.
+    */
+  val MaximumSegments: Int = 32
+
+  def apply(segments: Vector[Double]): Either[GraphicsError, DashPattern] =
+    if segments.isEmpty then Left(GraphicsError.InvalidDashPattern("at least one segment", "empty"))
+    else if segments.lengthCompare(MaximumSegments) > 0 then
+      Left(
+        GraphicsError.InvalidDashPattern(
+          s"at most $MaximumSegments segments",
+          segments.length.toString
+        )
+      )
+    else
+      // The offending segment is reported by index rather than by value: `Double.toString`
+      // disagrees between the JVM and Scala.js for whole numbers, so interpolating one here would
+      // make the message platform-dependent. The index locates it exactly and is stable.
+      segments.zipWithIndex.collectFirst {
+        case (value, index) if !value.isFinite =>
+          GraphicsError.InvalidDashPattern("finite segments", s"segment $index is not finite")
+        case (value, index) if value < 0.0 =>
+          GraphicsError.InvalidDashPattern("non-negative segments", s"segment $index is negative")
+      } match
+        case Some(error) => Left(error)
+        case None        =>
+          if segments.forall(_ == 0.0) then
+            Left(
+              GraphicsError.InvalidDashPattern("one segment above zero", "every segment is zero")
+            )
+          else Right(new DashPattern(segments))
+
+  def unsafe(segments: Double*): DashPattern =
+    apply(segments.toVector).orThrow
+
+  /** The rhythm `LineType.Dashed` draws. Named here rather than in a `LineType` companion because
+    * declaring one moves the enum's synthetic `values`/`valueOf` out of the class, which is a
+    * binary break for already-compiled callers.
+    */
+  val Dashed: DashPattern = unsafe(6.0, 4.0)
+
+  /** The rhythm `LineType.Dotted` draws. */
+  val Dotted: DashPattern = unsafe(1.0, 3.0)
+
 enum LineType:
   case Solid
   case Dashed
   case Dotted
+
+  /** An explicit rhythm, for an encoding that needs more than the two named ones. */
+  case Custom(pattern: DashPattern)
+
+  /** The rhythm this line type draws, or `None` for a solid stroke.
+    *
+    * Every backend resolves a dash through here, so the two named rhythms have one definition
+    * rather than one per renderer. Before this existed each of the five backends carried its own
+    * copy of `6 4` and `1 3`.
+    */
+  def dash: Option[DashPattern] =
+    this match
+      case Solid           => None
+      case Dashed          => Some(DashPattern.Dashed)
+      case Dotted          => Some(DashPattern.Dotted)
+      case Custom(pattern) => Some(pattern)
 
 enum LineCap:
   case Butt

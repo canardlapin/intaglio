@@ -627,10 +627,9 @@ object SvgRenderer:
         out.append(s""" $attr="none"""")
 
   private def lineTypeAttr(lineType: LineType): Option[String] =
-    lineType match
-      case LineType.Solid  => None
-      case LineType.Dashed => Some(""" stroke-dasharray="6 4"""")
-      case LineType.Dotted => Some(""" stroke-dasharray="1 3"""")
+    lineType.dash.map { pattern =>
+      s""" stroke-dasharray="${pattern.segments.map(format).mkString(" ")}""""
+    }
 
   private def lineCap(value: LineCap): String =
     value match

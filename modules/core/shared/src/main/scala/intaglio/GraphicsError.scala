@@ -27,6 +27,7 @@ enum GraphicsError extends IntaglioError:
   case NonFiniteScalarFieldValue(index: Int, value: Double)
   case ScalarFieldIndexOutsideBounds(x: Int, y: Int, width: Int, height: Int)
   case InvalidContourLevels(expectation: String, actual: String)
+  case InvalidDashPattern(expectation: String, actual: String)
   case InvalidContourPoint(x: Double, y: Double)
   case ContourGridTooSmall(width: Int, height: Int)
   case InvalidContourTopology(detail: String)
@@ -205,6 +206,8 @@ enum GraphicsError extends IntaglioError:
         s"scalar field index ($x, $y) is outside ${width}x$height"
       case InvalidContourLevels(expectation, actual) =>
         s"contour levels require $expectation: $actual"
+      case InvalidDashPattern(expectation, actual) =>
+        s"dash pattern requires $expectation: found $actual"
       case InvalidContourPoint(x, y) =>
         s"contour point coordinates must be finite: ($x, $y)"
       case ContourGridTooSmall(width, height) =>

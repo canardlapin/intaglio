@@ -60,6 +60,7 @@ are omitted because they are not reachable from a consumer package.
 | Scene geometry | None — `ColorVision.simulate`, `ColorSeparation.between`, `.closest`, `.lightness`, and `.chroma` are total for every input | | |
 | Scene geometry | `DivergingPalette.unsafe(negative, neutral, positive)` | `IllegalArgumentException` when two of the three colours are equal | `DivergingPalette.apply`. `DivergingPalette.BlueRust` is already valid, and `color`/`pixel`/`unitPalette` are total for every argument including a non-finite one |
 | Scene geometry | `StrokeWidth.unsafe`, `StrokeWidth.devicePixelsUnsafe`, `StrokeWidth.pointsUnsafe` | `IllegalArgumentException` | `StrokeWidth.checked`, `.devicePixels`, `.points` |
+| Scene geometry | `DashPattern.unsafe(segments*)` | `IllegalArgumentException` for an empty, over-long, non-finite, negative, or all-zero rhythm | `DashPattern.apply` |
 | Scene geometry | `GraphicParams.unsafe(...)` | `IllegalArgumentException` | `GraphicParams.checked` |
 | Scene geometry | `Viewport.unsafe(...)` | `IllegalArgumentException` | `Viewport.checked` |
 | Scene geometry | `Grob.pointBatchUnsafe`, `Grob.linesUnsafe`, `Grob.polygonUnsafe`, `Grob.compoundPolygonUnsafe`, `Grob.rectUnsafe`, `Grob.circleUnsafe`, `Grob.textUnsafe`, `Grob.imageUnsafe` | `IllegalArgumentException` | `Grob.pointBatch`, `.lines`, `.polygon`, `.compoundPolygon`, `.rect`, `.circle`, `.text`, `.image`. `Grob.points`, `Grob.segments`, `Grob.group`, and `Grob.annotated` have no throwing twin |

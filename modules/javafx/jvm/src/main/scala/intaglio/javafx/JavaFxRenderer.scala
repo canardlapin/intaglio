@@ -68,10 +68,7 @@ enum JavaFxLineDash:
 
 object JavaFxLineDash:
   def fromLineType(lineType: LineType): JavaFxLineDash =
-    lineType match
-      case LineType.Solid  => JavaFxLineDash.Solid
-      case LineType.Dashed => JavaFxLineDash.Pattern(Vector(6.0, 4.0))
-      case LineType.Dotted => JavaFxLineDash.Pattern(Vector(1.0, 3.0))
+    lineType.dash.fold(JavaFxLineDash.Solid)(pattern => JavaFxLineDash.Pattern(pattern.segments))
 
 final case class JavaFxPaint(
     stroke: Option[JavaFxColor],

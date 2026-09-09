@@ -506,9 +506,11 @@ object PdfRenderer:
           case LineJoin.Bevel => 2
       )
       gp.lineType match
-        case LineType.Solid  => stream.setLineDashPattern(Array.emptyFloatArray, 0.0f)
-        case LineType.Dashed => stream.setLineDashPattern(Array(px(6.0), px(4.0)), 0.0f)
-        case LineType.Dotted => stream.setLineDashPattern(Array(px(1.0), px(3.0)), 0.0f)
+        case other =>
+          stream.setLineDashPattern(
+            other.dash.fold(Array.emptyFloatArray)(_.segments.map(px).toArray),
+            0.0f
+          )
 
     private def drawText(
         label: String,

@@ -117,3 +117,17 @@ MissingClassProblem intaglio.Srgb$
 MissingFieldProblem intaglio.AccessibilityDiagnostic.IndistinguishablePalette
 # The block-spanning outer axis strip, where a faceted plot draws its one axis title per dimension.
 DirectMissingMethodProblem intaglio.PlotFrames.axisViewport
+# Dash rhythms: an explicit `LineType.Custom` beside the two named ones. The parameterised case also
+# moves `LineType.values`/`.valueOf` off the class, which is a backward break rather than an
+# addition: it is recorded in MIGRATION.md and is why this lands at a 0.y.0 boundary. This file
+# filters forward findings only, so those two are deliberately not listed here.
+DirectMissingMethodProblem intaglio.LineType.dash
+DirectMissingMethodProblem intaglio.RendererConformance.customDashCase
+MissingClassProblem intaglio.DashPattern
+MissingClassProblem intaglio.DashPattern$
+MissingClassProblem intaglio.GraphicsError$InvalidDashPattern
+MissingClassProblem intaglio.GraphicsError$InvalidDashPattern$
+MissingClassProblem intaglio.LineType$Custom
+MissingClassProblem intaglio.LineType$Custom$
+MissingFieldProblem intaglio.GraphicsError.InvalidDashPattern
+MissingFieldProblem intaglio.LineType.Custom

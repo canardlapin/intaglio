@@ -207,12 +207,18 @@ These are enforced at construction or at a render boundary, and each produces a 
 | PDF page side | ≤ **14400** points (200 inches) | `PdfRenderer` | `PdfRenderError.InvalidPageSize` |
 | Raster dimensions | the PNG-encoded size must fit in an `Int` | `RasterDimensions` | `GraphicsError.InvalidRasterDimensions` |
 | Discrete palette capacity | the palette's own length | `DiscretePalette.validateDomain` | `GraphicsError.DiscretePaletteOverflow` under `PaletteOverflowPolicy.Reject` |
+| Dash pattern segments | **32**, at least one above zero | `DashPattern` | `GraphicsError.InvalidDashPattern` |
 
 The raster limit is a formula rather than a fixed pixel count. `RasterDimensions` computes
 `scanlineBytes = pixels * 4 + height`, adds five bytes per 65,535-byte stored deflate block plus a
 constant, and rejects anything whose encoded size would exceed `Int.MaxValue`. The block framing
 comes from the PNG encoder, so the constructor rejects exactly the images the encoder could not
 produce.
+
+The dash limit has a reason beyond tidiness: `java.awt.BasicStroke` throws on an all-zero dash
+array, so a pattern that three backends would draw and Java2D would reject is refused at
+construction instead. Dash segments are device pixels, which is what `Dashed` and `Dotted` have
+always meant — a stroke measured in points scales with the device while its dash does not.
 
 The palette limit has one number most people meet: the default theme's discrete palette holds
 **six** colours, and the default overflow policy is `Reject`. A seventh level is a typed error, not a

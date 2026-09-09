@@ -119,10 +119,7 @@ enum CanvasLineDash:
 
 object CanvasLineDash:
   def fromLineType(lineType: LineType): CanvasLineDash =
-    lineType match
-      case LineType.Solid  => CanvasLineDash.Solid
-      case LineType.Dashed => CanvasLineDash.Pattern(Vector(6.0, 4.0))
-      case LineType.Dotted => CanvasLineDash.Pattern(Vector(1.0, 3.0))
+    lineType.dash.fold(CanvasLineDash.Solid)(pattern => CanvasLineDash.Pattern(pattern.segments))
 
 final case class CanvasPaint(
     stroke: Option[CanvasColor],

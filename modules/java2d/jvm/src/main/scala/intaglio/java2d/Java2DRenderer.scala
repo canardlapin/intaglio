@@ -145,10 +145,9 @@ enum Java2DLineDash:
 
 object Java2DLineDash:
   def fromLineType(lineType: LineType): Java2DLineDash =
-    lineType match
-      case LineType.Solid  => Java2DLineDash.Solid
-      case LineType.Dashed => Java2DLineDash.Pattern(Vector(6.0f, 4.0f))
-      case LineType.Dotted => Java2DLineDash.Pattern(Vector(1.0f, 3.0f))
+    lineType.dash.fold(Java2DLineDash.Solid)(pattern =>
+      Java2DLineDash.Pattern(pattern.segments.map(_.toFloat))
+    )
 
 final case class Java2DPaint(
     stroke: Option[Java2DColor],
