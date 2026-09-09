@@ -166,7 +166,7 @@ lazy val core =
           (ThisBuild / baseDirectory).value / "compatibility" / "interaction-additions.txt",
           (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
         )
-        InteractionCompatibility.calibrate(review)
+        InteractionCompatibility.calibrate()
         val previous = mimaPreviousClassfiles.value
         val current = mimaCurrentClassfiles.value
         InteractionCompatibility.validateArtifacts(review, previous, current)
@@ -296,6 +296,13 @@ lazy val java2d =
               "intaglio.java2d.Java2DRenderingHints.configure"
             ),
             ProblemMatcher.make(ProblemKind.InternalError, "intaglio.java2d.Java2DColor.awt"),
+            // Qualified-private members that touch AWT types read as internal errors here, as the
+            // neighbours above already do. `derive` is the single font rule the renderer and the
+            // metrics provider share.
+            ProblemMatcher.make(
+              ProblemKind.InternalError,
+              "intaglio.java2d.Java2DFontResolver.derive"
+            ),
             ProblemMatcher.make(ProblemKind.InternalError, "intaglio.java2d.Java2DRenderer.render"),
             ProblemMatcher.make(ProblemKind.InternalError, "intaglio.java2d.Java2DRenderer.draw"),
             ProblemMatcher.make(

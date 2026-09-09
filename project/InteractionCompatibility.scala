@@ -77,8 +77,25 @@ object InteractionCompatibility {
     }
   }
 
-  /** Real class-file calibration: unreviewed additions and a removed legacy method still report. */
-  def calibrate(review: Review): Unit = IO.withTemporaryDirectory { directory =>
+  /** Real class-file calibration: unreviewed additions and a removed legacy method still report.
+    *
+    * The review it exercises is synthetic and fixed, built from the fixture symbols below rather
+    * than from `compatibility/interaction-additions.txt`. This tests the filtering mechanism, and a
+    * mechanism test that depended on the project's current review contents would stop working the
+    * moment that list is legitimately empty — which is exactly its state immediately after the
+    * baseline moves.
+    */
+  def calibrate(): Unit = IO.withTemporaryDirectory { directory =>
+    val review = Review(
+      "calibration",
+      "calibration",
+      Vector(
+        "DirectMissingMethodProblem" -> "intaglio.Plot.addPackagedLayer",
+        "MissingClassProblem" -> "intaglio.interaction.DataRevision",
+        "MissingFieldProblem" -> "intaglio.GraphicsError.DegenerateDivergingPalette"
+      )
+    )
+
     def compile(name: String, sources: Map[String, String]): File = {
       val out = directory / name / "classes"
       IO.createDirectory(out)
