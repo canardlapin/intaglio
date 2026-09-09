@@ -197,8 +197,10 @@ object Breaks:
   /** Deterministic 1/2/5-style breaks with an approximate target count.
     *
     * The grid is anchored at zero and chosen without logarithms so the same interval produces
-    * byte-identical labels on the JVM and Scala.js. Use [[count]] when the number of breaks must be
-    * exact.
+    * byte-identical labels on the JVM and Scala.js. For a nondegenerate interval with fewer than
+    * two grid points, its exact endpoints provide a readable scale without moving data or emitting
+    * out-of-range ticks. An explicit target of one still returns the midpoint. Use [[count]] when
+    * the number of breaks must be exact.
     */
   def pretty(targetCount: Int = 5): Either[GraphicsError, Breaks] =
     if targetCount < 1 then Left(GraphicsError.InvalidBreakCount(targetCount))
@@ -410,7 +412,7 @@ object Breaks:
         case Some(value) => Left(value)
         case None        =>
           val result = out.result()
-          if result.nonEmpty then Right(result) else Right(Vector(midpoint(range)))
+          if result.size >= 2 then Right(result) else Right(boundaryFallback(range))
 
   private def boundaryFallback(range: Interval): Vector[Double] =
     if range.lower == range.upper then Vector(range.lower)
