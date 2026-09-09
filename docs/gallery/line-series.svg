@@ -19,34 +19,34 @@ Scale color (channel): kind=discrete, domain=ordered [left, right].</desc>
     <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,159.3775 456,159.3775" />
     <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,118.5892 456,118.5892" />
     <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,77.8008 456,77.8008" />
-    <polyline stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="76.6636,281.7424 106.7697,254.0064 136.8758,227.9018 166.9818,203.4289 197.0879,180.5874 227.1939,159.3775 257.3,139.7991 287.4061,121.8522 317.5121,105.5369 347.6182,90.8531 377.7242,77.8008 407.8303,66.3801 437.9364,56.5909" />
-    <polyline stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="76.6636,281.7424 106.7697,263.9995 136.8758,247.8881 166.9818,233.4083 197.0879,220.5599 227.1939,209.3432 257.3,199.7579 287.4061,191.8042 317.5121,185.482 347.6182,180.7913 377.7242,177.7322 407.8303,176.3046 437.9364,176.5086" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="76.6636" cy="281.7424" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="106.7697" cy="254.0064" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="136.8758" cy="227.9018" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="166.9818" cy="203.4289" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="197.0879" cy="180.5874" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="227.1939" cy="159.3775" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="257.3" cy="139.7991" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="287.4061" cy="121.8522" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="317.5121" cy="105.5369" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="347.6182" cy="90.8531" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="377.7242" cy="77.8008" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="407.8303" cy="66.3801" r="5.3333" />
-    <circle stroke="#1f77b4" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="437.9364" cy="56.5909" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="76.6636" cy="281.7424" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="106.7697" cy="263.9995" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="136.8758" cy="247.8881" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="166.9818" cy="233.4083" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="197.0879" cy="220.5599" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="227.1939" cy="209.3432" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="257.3" cy="199.7579" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="287.4061" cy="191.8042" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="317.5121" cy="185.482" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="347.6182" cy="180.7913" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="377.7242" cy="177.7322" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="407.8303" cy="176.3046" r="5.3333" />
-    <circle stroke="#ff7f0e" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="437.9364" cy="176.5086" r="5.3333" />
+    <polyline stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="76.6636,281.7424 106.7697,254.0064 136.8758,227.9018 166.9818,203.4289 197.0879,180.5874 227.1939,159.3775 257.3,139.7991 287.4061,121.8522 317.5121,105.5369 347.6182,90.8531 377.7242,77.8008 407.8303,66.3801 437.9364,56.5909" />
+    <polyline stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="76.6636,281.7424 106.7697,263.9995 136.8758,247.8881 166.9818,233.4083 197.0879,220.5599 227.1939,209.3432 257.3,199.7579 287.4061,191.8042 317.5121,185.482 347.6182,180.7913 377.7242,177.7322 407.8303,176.3046 437.9364,176.5086" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="76.6636" cy="281.7424" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="106.7697" cy="254.0064" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="136.8758" cy="227.9018" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="166.9818" cy="203.4289" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="197.0879" cy="180.5874" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="227.1939" cy="159.3775" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="257.3" cy="139.7991" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="287.4061" cy="121.8522" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="317.5121" cy="105.5369" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="347.6182" cy="90.8531" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="377.7242" cy="77.8008" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="407.8303" cy="66.3801" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="437.9364" cy="56.5909" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="76.6636" cy="281.7424" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="106.7697" cy="263.9995" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="136.8758" cy="247.8881" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="166.9818" cy="233.4083" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="197.0879" cy="220.5599" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="227.1939" cy="209.3432" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="257.3" cy="199.7579" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="287.4061" cy="191.8042" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="317.5121" cy="185.482" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="347.6182" cy="180.7913" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="377.7242" cy="177.7322" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="407.8303" cy="176.3046" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="437.9364" cy="176.5086" r="5.3333" />
   </g>
   <g data-name="x-axis">
     <polyline data-name="x-axis-baseline" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,293 456,293" />
@@ -84,9 +84,9 @@ Scale color (channel): kind=discrete, domain=ordered [left, right].</desc>
   </g>
   <g data-name="channel-legend">
     <text data-name="channel-legend-title" fill="#000000" stroke="none" font-size="13.3333" x="477.3333" y="53.3333" text-anchor="start" dominant-baseline="text-before-edge">channel</text>
-    <circle data-name="channel-legend-entry-0-key" stroke="#1f77b4" fill="#1f77b4" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="477.3333" cy="83.6667" r="13.3333" />
+    <circle data-name="channel-legend-entry-0-key" stroke="#000000" fill="#000000" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="477.3333" cy="83.6667" r="13.3333" />
     <text data-name="channel-legend-entry-0-label" fill="#000000" stroke="none" font-size="13.3333" x="497.3333" y="83.6667" text-anchor="start" dominant-baseline="middle">left</text>
-    <circle data-name="channel-legend-entry-1-key" stroke="#ff7f0e" fill="#ff7f0e" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="477.3333" cy="105.6667" r="13.3333" />
+    <circle data-name="channel-legend-entry-1-key" stroke="#e69f00" fill="#e69f00" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="477.3333" cy="105.6667" r="13.3333" />
     <text data-name="channel-legend-entry-1-label" fill="#000000" stroke="none" font-size="13.3333" x="497.3333" y="105.6667" text-anchor="start" dominant-baseline="middle">right</text>
   </g>
   <g data-name="plot-title">

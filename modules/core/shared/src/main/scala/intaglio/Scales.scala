@@ -792,6 +792,13 @@ object Palette:
   val numeric: Palette[Double] =
     value => value
 
+  /** Two-point interpolation of the stored sRGB channel bytes.
+    *
+    * This is the literal byte ramp, kept because some callers want exactly that. It is not the
+    * right default for a magnitude ramp between hue-distant endpoints, where the mid-ramp chroma
+    * collapses towards grey; use [[oklabGradient]] for those, and [[DivergingPalette]] for signed
+    * data that needs a neutral at zero.
+    */
   def gradient(from: Rgba, to: Rgba): Palette[Rgba] =
     value =>
       val t = math.max(0.0, math.min(1.0, value))
@@ -802,6 +809,22 @@ object Palette:
         channel(from.green, to.green),
         channel(from.blue, to.blue),
         from.alpha + (to.alpha - from.alpha) * t
+      )
+
+  /** Two-point interpolation through [[Oklab]], keeping chroma and a roughly even perceptual step
+    * along the ramp. Alpha is interpolated linearly, outside the mixing space.
+    */
+  def oklabGradient(from: Rgba, to: Rgba): Palette[Rgba] =
+    val start = Oklab.fromRgba(from)
+    val end = Oklab.fromRgba(to)
+    value =>
+      val t = Oklab.clampUnit(value)
+      val blended = Oklab.toRgba(Oklab.mix(start, end, t))
+      Rgba.unsafe(
+        blended.red,
+        blended.green,
+        blended.blue,
+        Oklab.clampUnit(Oklab.lerp(from.alpha, to.alpha, t))
       )
 
 enum PaletteOverflowPolicy:
@@ -871,6 +894,48 @@ object DiscretePalette:
   /** Stable zero-based positions for discrete axes and other ordinal output. */
   val indices: DiscretePalette[Double] =
     (index, _) => index.toDouble
+
+  /** The eight-colour qualitative palette of Okabe and Ito (2008), reordered so that every prefix
+    * is the best set of that size rather than an arbitrary slice of eight.
+    *
+    * `DiscretePalette` assigns by index, so a plot with four series takes the first four colours.
+    * Publishing the colours in their original order would mean a four-series plot inherits
+    * whichever four happened to be listed first. This order is the one that maximises the smallest
+    * pairwise separation at each prefix length, taken as the worst of normal vision, protanopia,
+    * deuteranopia, and tritanopia, subject to two constraints: black leads, because a first series
+    * is conventionally black; and every colour before the sixth holds `L* <= 80`, so a thin series
+    * stroke keeps lightness contrast against a light panel. Yellow is the sixth for that reason and
+    * no other.
+    *
+    * Measured floors — the smallest CIE76 separation between any two of the first `n`, taken as the
+    * worst of the four observers:
+    *
+    *   - `n = 2`: 79.2, `n = 3`: 66.1, `n = 4`: 23.5, `n = 5`: 19.4
+    *   - `n = 6`: 17.0, `n = 7`: 11.2, `n = 8`: 10.9
+    *
+    * The name is the source rather than a promise. Every prefix clears
+    * [[ColorSeparation.SeriesFloor]] under every observer modelled, but the seventh and eighth
+    * clear it by a tenth of a unit rather than by a margin: past about six series the answer is
+    * faceting or direct labelling, not more colours. For comparison the default theme palette,
+    * which this does not replace, falls to 5.6 from three series on. `DiscretePaletteEvidenceSuite`
+    * pins the whole table and proves by exhaustive search over all 40 320 orderings that none
+    * admissible under those constraints does better.
+    */
+  val okabeItoColors: Vector[Rgba] =
+    Vector(
+      Rgba.unsafe(0, 0, 0),
+      Rgba.unsafe(230, 159, 0),
+      Rgba.unsafe(86, 180, 233),
+      Rgba.unsafe(0, 114, 178),
+      Rgba.unsafe(213, 94, 0),
+      Rgba.unsafe(240, 228, 66),
+      Rgba.unsafe(204, 121, 167),
+      Rgba.unsafe(0, 158, 115)
+    )
+
+  /** [[okabeItoColors]] as a finite palette that refuses a ninth level rather than cycling. */
+  val okabeIto: DiscretePalette[Rgba] =
+    valuesUnsafe(okabeItoColors)
 
 final case class ContinuousScale[A] private (
     name: GraphicsName,
@@ -990,6 +1055,27 @@ object ContinuousScale:
       oob: OobPolicy = OobPolicy.Censor
   ): Either[GraphicsError, ContinuousScale[A]] =
     train(name, limits, palette, transform, oob, ScaleTraining.Fixed)
+
+  /** A colour scale over `[-limit, +limit]` whose palette neutral falls exactly on zero.
+    *
+    * This is the scene counterpart of [[DivergingColorizer]], and it exists for the same reason: a
+    * diverging palette wired to a plot-wide scale puts its neutral at the *data* midpoint, which
+    * for signed data is almost never the value the neutral means. The domain is symmetric and the
+    * training is [[ScaleTraining.Fixed]], so a later plot-wide pass cannot widen one side and slide
+    * the neutral off zero. The caller names the limit; the library owns the midpoint.
+    *
+    * `oob` follows the file's default. `Censor` drops a value outside the limit — and drops `NaN`
+    * before it reaches the palette. `Squish` clamps to the endpoint, which is what
+    * [[DivergingColorizer]] does, at the cost of passing `NaN` through to the palette's `neutral`.
+    */
+  def diverging(
+      name: String,
+      limit: Double,
+      palette: DivergingPalette = DivergingPalette.BlueRust,
+      oob: OobPolicy = OobPolicy.Censor
+  ): Either[GraphicsError, ContinuousScale[Rgba]] =
+    if !limit.isFinite || limit <= 0.0 then Left(GraphicsError.InvalidInterval(-limit, limit))
+    else fixed(name, Vector(-limit, limit), palette.unitPalette, Transform.identity, oob)
 
   private def trainDomains(
       values: IterableOnce[Double],

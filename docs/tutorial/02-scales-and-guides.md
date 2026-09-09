@@ -245,7 +245,19 @@ weighted.resolve.map(_.guides.flatMap(_.grob.name.map(_.value)))
 
 `palette` also defaults to `ThemePalette.Default`, which resolves to
 `Palette.gradient(theme.palettes.continuousLow, theme.palettes.continuousHigh)`. Supply
-`Palette.gradient(from, to)` for your own two-point ramp, or any `Palette[Rgba]` for something else.
+`Palette.gradient(from, to)` for your own two-point ramp, `Palette.oklabGradient(from, to)` for one
+that keeps its chroma through the middle, or any `Palette[Rgba]` for something else.
+
+Signed data — a contrast, a difference, anything centred on a zero that means something — wants a
+diverging ramp and a symmetric domain instead. `ContinuousScale.diverging` builds both, so the
+neutral lands on zero rather than on the data's midpoint:
+
+```scala mdoc:silent
+val contrast =
+  ContinuousScale.diverging("contrast", limit = 2.5, palette = DivergingPalette.BlueRust)
+```
+
+[Accessible plots](../accessibility.md#choosing-a-colour-ramp) covers when each kind applies.
 
 ## Guide policy
 

@@ -41,7 +41,8 @@ this repository's history. `tools/check-compatibility.sh`:
    problems, building the working tree as the patch release that follows the baseline version --- a
    version sbt-version-policy derives its expectations from, so it is computed from `baseline.conf`
    rather than fixed in the script; and
-5. runs TASTy-MiMa sequentially over every JVM and Scala.js artifact under an explicit memory
+5. validates the version-scoped additive API review and its compiled negative fixtures; and
+6. runs TASTy-MiMa sequentially over every JVM and Scala.js artifact under an explicit memory
    budget.
 
 The temporary checkout, caches, and local artifacts are removed when the command exits. The ordinary
@@ -49,8 +50,33 @@ CI workflow runs this command after tests. TASTy-MiMa `InternalError` filters ar
 `PackedStatPlan.Aux` and `StatResult.Aux`, whose refinement aliases trigger the tool's
 `Unexpected local ref` parser limitation; to eight Java2D API symbols whose `java.awt` types trigger
 package-resolution failures; and to the JavaFX context constructor, whose `javafx` type triggers the
-same limitation. Each occurs when comparing identical artifacts. No compatibility problem kind is
-suppressed; any other report must be fixed or accompanied by a reviewed policy decision.
+same limitation. Each occurs when comparing identical artifacts. Other reports must be fixed or
+accompanied by a reviewed policy decision. The additive interaction review below applies only to
+forward MiMa; it does not filter backward MiMa or TASTy-MiMa.
+
+### Reviewed interaction additions
+
+The new interaction package adds public types without changing any existing core type signature.
+`Plot.addPackagedLayer` adds a distinct method so an application can preserve a layer's row-type
+witness; the existing `addLayer` overloads and their contextual inference remain unchanged.
+`PlotCompiler.resolveBeforeRetention` and `PlotLayer.inheritedPackage` are package-scoped compiler
+hooks. Ordinary compilation still applies the same retention policy after resolution.
+
+Forward MiMa reports these additions because the older artifact does not contain them. Its
+[source-compatibility approximation](https://github.com/scalacenter/sbt-version-policy#source-incompatibilities-detection)
+can produce false positives and false negatives. We accept only the exact additions recorded in
+[`compatibility/interaction-additions.txt`](../compatibility/interaction-additions.txt), against
+the baseline SHA and version named there. There are no wildcard exclusions. An addition to this
+list requires reviewing the API change and the ordinary plotting examples, especially overload
+and extension-method name resolution; adding a member is not a universal source-compatibility proof.
+
+The build checks that reviewed classes exist in the candidate and not in the baseline, and that
+every listed symbol is an actual forward finding. It rejects a stale list or changed baseline.
+Compiled Java fixtures exercise the real MiMa engine: a reviewed addition is accepted, while an
+unreviewed class, an unreviewed method, and removal of a legacy method remain detectable. Backward
+MiMa and TASTy-MiMa run without these exclusions. Public Scala examples and renderer suites provide
+additional source and behavior evidence. The new `intaglio-interaction` artifact itself has no
+historical artifact to compare; its tests and later external-consumer check cover that new surface.
 
 Run the same court locally with:
 

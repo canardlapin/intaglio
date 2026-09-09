@@ -18,3 +18,4 @@ the old one, and the superseded record keeps its number.
 | [0005](0005-three-compatibility-courts.md) | Three compatibility courts | Accepted |
 | [0006](0006-columnar-marks-stay-one-grob.md) | Columnar marks stay one grob | Accepted |
 | [0007](0007-provenance-is-a-compiler-policy.md) | Provenance is a compiler policy | Accepted |
+| [0008](0008-signed-color-is-a-primitive.md) | Signed colour is a primitive, and mixing happens in Oklab | Accepted |

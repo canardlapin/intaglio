@@ -64,6 +64,7 @@ cannot claim an API that does not exist.
 | Artifact | JVM | Scala.js | Depends on |
 |---|:---:|:---:|---|
 | `intaglio-core` | yes | yes | nothing |
+| `intaglio-interaction` | yes | yes | core |
 | `intaglio-laws` | yes | yes | core |
 | `intaglio-svg` | yes | yes | core |
 | `intaglio-canvas` | no | yes | core |
@@ -73,6 +74,10 @@ cannot claim an API that does not exist.
 
 The backends are separately selectable, so a portable consumer never acquires a
 platform renderer or toolkit transitively. A boundary test enforces this.
+
+The new [interaction module](modules/interaction/README.md) provides portable
+selection state and typed events in the source tree. Browser widgets and picking
+remain in development; it is not yet an interactive rendering backend.
 
 Extension authors can add the framework-neutral law artifact in test scope:
 

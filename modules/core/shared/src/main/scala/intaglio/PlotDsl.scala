@@ -143,6 +143,15 @@ final case class PlotProgram[Row] private[intaglio] (
   def resolve(context: RenderContext): Either[GraphicsError, TrainedPlot] =
     PlotCompiler.resolve(plot, context, compilerOptions)
 
+  /** Resolve through a caller-owned [[PlotCompileCache]]. A program is a stable (plot, options)
+    * pair, so resolving the same program repeatedly hits the cache; see [[PlotCompileCache]].
+    */
+  def resolve(
+      context: RenderContext,
+      cache: PlotCompileCache
+  ): Either[GraphicsError, TrainedPlot] =
+    PlotCompiler.resolve(plot, context, compilerOptions, cache)
+
   def renderPlan(context: RenderContext): Either[GraphicsError, RenderPlan] =
     PlotCompiler.compile(plot, context, compilerOptions)
 
@@ -621,6 +630,15 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
 
   def resolve(context: RenderContext): Either[GraphicsError, TrainedPlot] =
     build.flatMap(_.resolve(context))
+
+  /** Resolve through a caller-owned [[PlotCompileCache]]. The built plot value is stable across
+    * calls on one builder, so repeated resolves of an unchanged builder hit the cache.
+    */
+  def resolve(
+      context: RenderContext,
+      cache: PlotCompileCache
+  ): Either[GraphicsError, TrainedPlot] =
+    build.flatMap(_.resolve(context, cache))
 
   def renderPlan(context: RenderContext): Either[GraphicsError, RenderPlan] =
     build.flatMap(_.renderPlan(context))

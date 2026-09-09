@@ -1,9 +1,12 @@
 # Performance and limits
 
-Intaglio does not publish throughput numbers, and its CI does not fail on elapsed time. What it
-publishes instead is a receipt: a set of deterministic work and output-cardinality measurements that
-are reproduced identically on the JVM and Scala.js, and a small set of hard constructor limits. This
-page says exactly what is measured, what is bounded, and what is not bounded at all.
+Intaglio's CI does not fail on elapsed time. What CI gates is a receipt: a set of deterministic
+work and output-cardinality measurements that are reproduced identically on the JVM and Scala.js,
+and a small set of hard constructor limits. Alongside that, the repository publishes a second,
+non-gating receipt of measured elapsed time and allocation on named hardware
+([`performance/timings/v1.tsv`](../performance/timings/v1.tsv), summarized
+[below](#measured-time-the-non-gating-receipt)), so capacity planning no longer starts from zero.
+This page says exactly what is measured, what is bounded, and what is not bounded at all.
 
 ## Why not wall-clock
 
@@ -19,8 +22,9 @@ and, on refreshing a baseline:
 > Use a profiler or a proper benchmark runner for exploratory wall-clock work; do not convert timing
 > observations into hosted-CI pass/fail assertions.
 
-Take that at face value when planning your own capacity work. Nothing in this repository tells you
-how many marks per second your machine will draw.
+Take that at face value when planning your own capacity work. The
+[measured-time receipt](#measured-time-the-non-gating-receipt) tells you what one named machine
+observed; it does not tell you how many marks per second *your* machine will draw.
 
 ## The receipt
 
@@ -79,6 +83,62 @@ proof that lookup does not re-derive per level.
 `svg/mark_elements = 10000` is the load-bearing one for expectations: **batching does not reduce
 output cardinality.** The SVG backend unrolls a point batch into one `<circle>` per mark. The saving
 is in the compiler, the scene, and the device IR, not in the document.
+
+## Measured time: the non-gating receipt
+
+The deterministic receipt above records work and cardinality, not time. A second receipt,
+[`performance/timings/v1.tsv`](../performance/timings/v1.tsv), records elapsed time and allocation
+for interactive-rate workloads — many-panel trellises, repeated device-size changes over unchanged
+data, and dense hover picking. It is produced manually by
+`sbt "performanceJVM/Test/runMain intaglio.performance.TimingHarness"` on named hardware
+(currently an Apple M3 Max, JVM 25), reports run counts with min/median/max rather than a single
+run, and is deliberately **not** a CI gate, for exactly the reasons quoted above. Treat the numbers
+as one machine's honest observation, not a promise.
+
+What the receipt (2026-09-08, 12 measured runs after 4 warm-ups) establishes:
+
+- **A 30-panel faceted compile** (6 × 5 grid, 20 ribbon+line series per panel, 24,000 rows, shared
+  scales, lean provenance) takes ~169 ms median and allocates ~359 MB. The first recording measured
+  ~287 ms and ~688 MB; the difference is the shared-scale fast path, which resolves each panel's
+  rows exactly once instead of once globally plus once per panel, and computes the scale registry
+  and axis specs once instead of per panel (`FacetScales.Shared` makes the per-panel merge a no-op,
+  so the general per-panel path — still used for free scales — is provably redundant there;
+  `FacetSharedScalesSuite` verifies the two paths panel by panel against each other). Free-scale
+  facets are unchanged at ~307 ms because they genuinely need per-panel training.
+- **A resize through `resolve` recompiles everything; through `train`/`place` it recompiles almost
+  nothing.** Re-resolving that unchanged plot at five successive `RenderContext` sizes costs
+  ~1.2 s and ~3.4 GB of allocation — ~240 ms and ~690 MB per resize in which not one datum
+  changed. Training once with `PlotCompiler.train` and placing the trained value at the same five
+  sizes (`resize-place`) costs ~4 ms and ~1.1 MB total — roughly 1 ms per resize, over two orders
+  of magnitude faster — and the phase clock records no mapping, statistics, scale training, or row
+  resolution during placement. The scenes are identical to full recompiles (`TrainPlaceSuite`
+  asserts equality). A caller who cannot restructure onto `train`/`place` can pass a
+  `PlotCompileCache` to plain `resolve`: the same five-size sweep with a warm cache
+  (`resize-cached`) costs ~0.07 ms and ~0.2 MB, because every resolve is a lookup and the phase
+  clock records no compile phases at all.
+- **Hover picking is indexed and tracks local density, not mark count.** On a 20,000-mark faceted
+  plot, one `hits` query costs ~24 µs median and one `nearest` query ~45 µs: `Picking.compile`
+  builds a uniform spatial grid over target bounds (raising plan compile from ~21 ms to ~53 ms,
+  paid once) and queries evaluate exact geometry only on the grid's candidate set, with results
+  identical to a full scan. Before the index the same queries cost ~6.4 ms and ~5.7 ms each with
+  ~9.5 MB allocated per query. A 150 × 300 px rectangle `select` over dense data still costs
+  ~42 ms (down from ~460 ms) because it genuinely intersects hundreds of targets.
+- **Rich provenance is a retention cost, not (here) a time cost.** The same trellis compiled rich
+  retains 48,000 resolved rows (one per datum per layer) against lean's zero, at statistically
+  indistinguishable elapsed time for this line/ribbon workload. The DSL's `PlotBuilder.resolve`
+  defaults to rich; `PlotCompiler.compile` defaults to lean (see [The batch IR](#the-batch-ir)).
+  A consumer who reaches a faceted plot through the DSL therefore pays the retention without
+  asking; the receipt's `facet-grid-30-rich` row is where that cost is visible, and
+  `ProvenancePolicy.None` in the compiler options is the one-line escape.
+- **Empty grid cells now cost what their data costs.** The same grid with half its cells empty
+  (12,000 rows, 15 occupied of 30 panels) costs ~79 ms and ~180 MB — about half the dense grid,
+  i.e. proportional to the occupied cells, where it previously cost ~171 ms and ~341 MB because
+  every declared cell paid per-panel scale training, a per-panel range scan, and its own guide
+  specification. Empty cells still render a panel and a strip; they no longer buy compile work.
+
+The resize and picking figures are the after-numbers for the interactive-rate work tracked in the
+issue log (the before-numbers are quoted inline); the per-phase split exists precisely so the
+data/device pipeline split can prove that a resize does no statistical work.
 
 ## The batch IR
 
@@ -158,6 +218,14 @@ The palette limit has one number most people meet: the default theme's discrete 
 **six** colours, and the default overflow policy is `Reject`. A seventh level is a typed error, not a
 reused colour. `PaletteOverflowPolicy.Cycle` wraps instead.
 
+`DiscretePalette.okabeIto` holds **eight** and also rejects. Its capacity is not the interesting
+number: every prefix clears the CIE76 floor of 10 that `ColorSeparation.SeriesFloor` names, but the
+seventh and eighth clear it by about a unit rather than by a margin, so past about **six** series
+the honest move is faceting or direct labelling rather than a longer palette. The default theme
+palette falls below that floor from **three** series on, and the compiler now says so through
+`AccessibilityDiagnostic.IndistinguishablePalette`.
+[Accessible plots](accessibility.md#colour-vision-deficiency) has the per-prefix figures.
+
 ## What is not limited
 
 Stated plainly, because absence is easy to mistake for a promise:
@@ -168,10 +236,19 @@ Stated plainly, because absence is easy to mistake for a promise:
   receipt ceilings, not runtime limits; the renderer will emit a larger document.
 - **There is no documented maximum row count** and no "does not scale beyond N" statement anywhere in
   the repository.
-- **There is no streaming or incremental render path.** A `Scene` is a fully materialized immutable
-  tree, and `DeviceScene.fromScene` walks all of it.
-- **There is no caching of compiled plots.** Compilation is pure, so the same inputs give the same
-  output, but nothing memoizes it for you.
+- **There is no streaming render path.** A `Scene` is a fully materialized immutable tree, and
+  `DeviceScene.fromScene` walks all of it. There *is* an incremental compile path: the pipeline is
+  split at the data/device seam, so `PlotCompiler.train` runs the data-dependent phases once and
+  `PlotCompiler.place` re-runs only layout and lowering per `RenderContext`.
+  `resolve(plot, context, options)` is exactly the composition of the two, and the resize saving is
+  quantified in [Measured time](#measured-time-the-non-gating-receipt).
+- **Caching of compiled plots is opt-in and caller-owned.** Compilation is pure, so the same inputs
+  give the same output; `PlotCompileCache.bounded()` memoizes that purity when you pass it to
+  `PlotCompiler.resolve`/`train`/`place` or `PlotProgram.resolve`. Keys are plot and options
+  *reference* identity (plot values carry user functions, so structural equality is undecidable)
+  plus context value; `profile` reports hits, misses, and evictions so a cache that never hits is
+  visible; `PlotCompileCache.Disabled` is the default everywhere and is exactly the uncached path.
+  Nothing is ever cached behind your back, and a cache you never construct costs nothing.
 
 If you are plotting enough marks that any of these matter, the honest advice is: measure it on your
 own target with a real benchmark runner, use `PlotCompilerOptions.lean`, and prefer point layers so

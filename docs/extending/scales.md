@@ -123,6 +123,56 @@ val sequential: Palette[Rgba] =
 `Either[GraphicsError, DiscretePalette[A]]`, refusing an empty vector. `DiscretePalette.indices` is
 the zero-based ordinal palette used by discrete position output.
 
+### Interpolating a continuous ramp
+
+`Palette.gradient` interpolates the stored sRGB bytes. `Palette.oklabGradient` interpolates through
+`Oklab`, a perceptual space, which is the right default for a ramp that has to carry magnitude:
+between hue-distant endpoints the sRGB path collapses to grey in the middle (`#0000FF` to `#FFFF00`
+passes through `#808080`) while the Oklab path keeps its chroma. `Oklab.fromRgba` / `Oklab.toRgba`
+are exposed for ramps with more than two stops; the round trip is byte-exact for every sRGB colour,
+and encoding clamps an out-of-gamut coordinate rather than failing.
+
+### Signed data needs a diverging palette
+
+`DivergingPalette` is the primitive for data centred on a value that means something. Its domain is
+signed, not normalized: the sign of the argument names the arm, so two call sites in one
+application cannot silently adopt opposite conventions.
+
+```scala mdoc:compile-only
+import intaglio.*
+
+/** Named endpoints; the library owns the interpolation and the midpoint. */
+val palette: DivergingPalette =
+  DivergingPalette
+    .apply(
+      negative = Rgba.unsafe(33, 102, 172),
+      neutral = Rgba.unsafe(245, 240, 230),
+      positive = Rgba.unsafe(180, 85, 45)
+    )
+    .fold(error => throw new IllegalArgumentException(error.message), identity)
+
+/** -1 is the negative endpoint, 0 is exactly the neutral, +1 is the positive endpoint. */
+val scene: Rgba = palette.color(-0.4)
+
+/** The same interpolation, packed. An overlay and a plot of one value cannot disagree. */
+val raster: Rgba32 = palette.pixel(-0.4)
+
+/** Wire it into a continuous colour scale: 0 is negative, 0.5 is exactly the neutral, 1 is positive. */
+val unit: Palette[Rgba] = palette.unitPalette
+```
+
+The constructor refuses a palette whose sign could not be read back — identical endpoints, or an arm
+with no gradient — with `GraphicsError.DegenerateDivergingPalette`. `DivergingPalette.BlueRust` is a
+named default chosen against a colour-vision measurement rather than by taste, and
+`ColorVision`/`ColorSeparation` are the same measurement, published, so a consumer choosing their
+own endpoints can check them; see
+[accessibility](../accessibility.md#colour-vision-deficiency) for when to use it and what it does
+not promise.
+
+For raster display, `DivergingColorizer` carries a magnitude rather than a window, so zero is on the
+neutral by construction; re-windowing it widens to the enclosing symmetric window instead of moving
+the middle, and a non-finite value takes an explicit invalid pixel rather than rendering as zero.
+
 ## Category identity
 
 `DiscreteDomain[A]` and `BandScale[A]` keep your category type. They need a `CategoryIdentity[A]`

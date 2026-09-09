@@ -368,6 +368,15 @@ final case class PlotFrames(
       )
     }
 
+  /** The outer strip reserved for one axis side, spanning the whole panel block.
+    *
+    * For a faceted plot the block is every panel, so this is where a single axis title belongs: the
+    * title describes the plot's dimension, not one panel's copy of the axis. Ticks stay
+    * panel-local.
+    */
+  def axisViewport(side: AxisSide): Option[Viewport] =
+    axes.get(side).map(frameViewport)
+
   def titleViewport: Option[Viewport] =
     title.map(frameViewport)
 

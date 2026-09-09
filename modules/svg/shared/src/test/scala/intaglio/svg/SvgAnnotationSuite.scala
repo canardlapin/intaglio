@@ -190,6 +190,10 @@ class SvgAnnotationSuite extends munit.FunSuite:
     * immediately before per-grob annotation existed. A case with two digests already rendered
     * differently on the JVM and on Scala.js before annotation; both pre-annotation outputs are
     * accepted so the law is about this change, not that pre-existing divergence.
+    *
+    * A digest moves only for a deliberate rendering change, named here:
+    *   - `faceted-plot` moved when a faceted plot stopped drawing its axis title once per rendered
+    *     axis and started drawing it once per dimension, centred on the panel block.
     */
   private val preAnnotationDigests: Map[String, Set[String]] =
     Map(
@@ -222,7 +226,7 @@ class SvgAnnotationSuite extends munit.FunSuite:
       "comparison-kde2d" -> Set("c7e1736175d0cad9", "44815109bef561b9"),
       "comparison-contour" -> Set("16b773129e554ec8"),
       "comparison-filled-contour" -> Set("cf3dc9e20cb6d80e"),
-      "faceted-plot" -> Set("ef7bd76b8ab36584"),
+      "faceted-plot" -> Set("3a940c9fcf7e1a9e"),
       "count-plot" -> Set("98f0d26d360295fd"),
       "band-position-plot" -> Set("5c5d3bd9e1ab68ff"),
       "position-dodge" -> Set("4eb565137d4b5075"),

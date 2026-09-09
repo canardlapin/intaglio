@@ -1799,6 +1799,11 @@ sealed trait PlotLayer[PlotRow]:
 object PlotLayer:
   type Aux[PlotRow, Row0] = PlotLayer[PlotRow] { type Row = Row0 }
 
+  private[intaglio] def inheritedPackage[Row](packed: PlotLayer[Row]): Option[Aux[Row, Row]] =
+    packed match
+      case value @ Inherited(_) => Some(value)
+      case _                    => None
+
   private final case class Inherited[PlotRow](layer: Layer[PlotRow]) extends PlotLayer[PlotRow]:
     type Row = PlotRow
 
@@ -1915,6 +1920,14 @@ final case class Plot[Row] private (
     Layer
       .validate(layer, layer.effectiveMapping(mapping))
       .map(_ => copy(layers = layers :+ PlotLayer.inherited(layer)))
+
+  /** Add an already packaged layer while preserving its row-type witness for optional consumers
+    * such as interaction bindings. Validation is the same as ordinary layer insertion.
+    */
+  def addPackagedLayer(layer: PlotLayer[Row]): Either[GraphicsError, Plot[Row]] =
+    Layer
+      .validate(layer.layer, layer.effectiveMapping(mapping))
+      .map(_ => copy(layers = layers :+ layer))
 
   /** Add a layer with a row type independent of the plot-level data. Its data and mapping are
     * self-contained, and its facet behavior is mandatory.

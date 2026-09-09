@@ -9,7 +9,8 @@ import scala.jdk.CollectionConverters.*
   * at a time — a portable consumer must never acquire a platform renderer or toolkit transitively.
   */
 class ModuleBoundarySuite extends munit.FunSuite:
-  private val modules = Vector("core", "laws", "svg", "canvas", "java2d", "pdf", "javafx")
+  private val modules =
+    Vector("core", "interaction", "laws", "svg", "canvas", "java2d", "pdf", "javafx")
 
   private lazy val root: Path =
     var candidate = Path.of(sys.props("user.dir")).toAbsolutePath.normalize
@@ -36,14 +37,14 @@ class ModuleBoundarySuite extends munit.FunSuite:
     assertEquals(violations, Vector.empty)
   }
 
-  test("the core stays platform-neutral") {
+  test("the core and interaction runtime stay platform-neutral") {
     // The core is the portable kernel: it compiles unchanged for the JVM and
     // Scala.js, so a platform import here would silently break one of them.
     // Backends are where `java.*` and `scala.scalajs.*` belong.
     val forbidden = """(?m)^\s*import\s+(java\.|javax\.|scala\.scalajs\.)""".r
-    val coreMain = root.resolve("modules").resolve("core")
+    val portable = Vector("core", "interaction").map(root.resolve("modules").resolve(_))
     val violations = productionSources
-      .filter(_.startsWith(coreMain))
+      .filter(path => portable.exists(path.startsWith))
       .flatMap { path =>
         forbidden.findAllMatchIn(Files.readString(path)).map { found =>
           s"${root.relativize(path)}: ${found.matched.trim}"
@@ -93,10 +94,19 @@ class ModuleBoundarySuite extends munit.FunSuite:
     assertEquals(violations, Vector.empty)
   }
 
+  test("the optional interaction module depends only on core on both platforms") {
+    val build = Files.readString(root.resolve("build.sbt"))
+    val block = projectBlock(build, "interaction", "interactionJS")
+    assertEquals(dependencies(block), Vector("core"))
+    assert(block.contains("crossProject(JSPlatform, JVMPlatform)"))
+    assert(!block.contains("libraryDependencies"))
+  }
+
   test("only the JavaFX backend carries a toolkit dependency") {
     val build = Files.readString(root.resolve("build.sbt"))
     Vector(
       ("core", "coreJS"),
+      ("interaction", "interactionJS"),
       ("laws", "lawsJS"),
       ("svg", "svgJS"),
       ("canvas", "canvasJS"),

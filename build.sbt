@@ -5,10 +5,10 @@ import scalajscrossproject.ScalaJSCrossPlugin.autoImport.*
 ThisBuild / organization := "io.github.canardlapin"
 
 /** The published artifact is built with the Scala 3 LTS line, because TASTy is forward- but not
-  * backward-compatible: a consumer on any later 3.x can read an LTS-built library, while a
-  * library built with a feature release locks out every earlier compiler. `crossScalaVersions`
-  * adds the current feature release as a CI court only --- both would produce the same `_3`
-  * coordinates, so a release publishes the default version alone (see docs/releasing.md).
+  * backward-compatible: a consumer on any later 3.x can read an LTS-built library, while a library
+  * built with a feature release locks out every earlier compiler. `crossScalaVersions` adds the
+  * current feature release as a CI court only --- both would produce the same `_3` coordinates, so
+  * a release publishes the default version alone (see docs/releasing.md).
   */
 val scalaLts = "3.3.8"
 val scalaNext = "3.9.0"
@@ -52,9 +52,9 @@ ThisBuild / developers := List(
 
 /** Scaladoc runs inside the sbt JVM and is not safe to run beside itself: a `publishM2` or
   * `publishSigned` over the whole aggregate starts a `doc` task per module, and under load that has
-  * twice died with a `NullPointerException` in `MemberRenderer` --- once during a release rehearsal.
-  * Serializing the doc tasks costs wall-clock only on the publishing path, which is not hot, and
-  * removes the only shared-state race available to them.
+  * twice died with a `NullPointerException` in `MemberRenderer` --- once during a release
+  * rehearsal. Serializing the doc tasks costs wall-clock only on the publishing path, which is not
+  * hot, and removes the only shared-state race available to them.
   *
   * This is insurance, not a verified fix: the crash has never reproduced in isolation, so the
   * hypothesis that concurrency causes it is untested. If it recurs with this in place, the cause is
@@ -115,8 +115,8 @@ lazy val jsSettingsBase = Seq(
   versionCheck / skip := true
 )
 
-/** OpenJFX publishes per-platform artifacts, so the classifier is resolved from
-  * the building machine. It stays `Provided`: a consumer picks its own runtime.
+/** OpenJFX publishes per-platform artifacts, so the classifier is resolved from the building
+  * machine. It stays `Provided`: a consumer picks its own runtime.
   */
 lazy val javafxPlatformClassifier: String = {
   val os = sys.props.getOrElse("os.name", "").toLowerCase
@@ -128,6 +128,10 @@ lazy val javafxPlatformClassifier: String = {
   if (arch.contains("aarch64") && base != "win") base + "-aarch64" else base
 }
 
+lazy val interactionCompatibilityCheck = taskKey[Unit](
+  "Validate reviewed additive API entries and calibrate forward-only filtering"
+)
+
 lazy val core =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Full)
@@ -137,10 +141,63 @@ lazy val core =
       name := "intaglio-core",
       description := "Renderer-neutral grammar-of-graphics core for Scala 3, cross-compiled to JVM and Scala.js."
     )
+    .jvmSettings(
+      mimaForwardIssueFilters ++= {
+        val review = InteractionCompatibility.read(
+          (ThisBuild / baseDirectory).value / "compatibility" / "interaction-additions.txt",
+          (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
+        )
+        val previous = mimaPreviousClassfiles.value
+        InteractionCompatibility.validateArtifacts(
+          review,
+          previous,
+          mimaCurrentClassfiles.value
+        )
+        if (previous.isEmpty) Map.empty[String, Seq[com.typesafe.tools.mima.core.ProblemFilter]]
+        else Map(review.version -> review.filters)
+      },
+
+      interactionCompatibilityCheck := {
+        val review = InteractionCompatibility.read(
+          (ThisBuild / baseDirectory).value / "compatibility" / "interaction-additions.txt",
+          (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
+        )
+        InteractionCompatibility.calibrate(review)
+        val previous = mimaPreviousClassfiles.value
+        val current = mimaCurrentClassfiles.value
+        InteractionCompatibility.validateArtifacts(review, previous, current)
+        val classpath = (Compile / dependencyClasspath).value.map(_.data)
+        val mima = new com.typesafe.tools.mima.lib.MiMaLib(classpath)
+        previous.values.foreach { old =>
+          InteractionCompatibility.validateFindings(review, mima.collectProblems(current, old, Nil))
+        }
+        streams.value.log.info(
+          "Additive review calibration passed: legacy removals and unreviewed additions still report"
+        )
+      }
+    )
     .jsSettings(jsSettingsBase)
 
-lazy val coreJS  = core.js
+lazy val coreJS = core.js
 lazy val coreJVM = core.jvm
+
+lazy val interaction =
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/interaction"))
+    .dependsOn(core)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-interaction",
+      description := "Portable interaction state, events, and picking for Intaglio.",
+      // This new artifact has no historical baseline yet.
+      mimaPreviousArtifacts := Set.empty,
+      tastyMiMaPreviousArtifacts := Set.empty
+    )
+    .jsSettings(jsSettingsBase)
+
+lazy val interactionJS = interaction.js
+lazy val interactionJVM = interaction.jvm
 
 lazy val laws =
   crossProject(JSPlatform, JVMPlatform)
@@ -154,7 +211,7 @@ lazy val laws =
     )
     .jsSettings(jsSettingsBase)
 
-lazy val lawsJS  = laws.js
+lazy val lawsJS = laws.js
 lazy val lawsJVM = laws.jvm
 
 lazy val svg =
@@ -169,7 +226,7 @@ lazy val svg =
     )
     .jsSettings(jsSettingsBase)
 
-lazy val svgJS  = svg.js
+lazy val svgJS = svg.js
 lazy val svgJVM = svg.jvm
 
 lazy val notebook =
@@ -189,7 +246,7 @@ lazy val performance =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Full)
     .in(file("modules/performance"))
-    .dependsOn(core, svg)
+    .dependsOn(core, svg, interaction)
     .settings(commonSettings)
     .settings(
       name := "intaglio-performance-gates",
@@ -198,7 +255,7 @@ lazy val performance =
     )
     .jsSettings(jsSettingsBase)
 
-lazy val performanceJS  = performance.js
+lazy val performanceJS = performance.js
 lazy val performanceJVM = performance.jvm
 
 lazy val canvas =
@@ -345,6 +402,8 @@ lazy val root =
     .aggregate(
       coreJS,
       coreJVM,
+      interactionJS,
+      interactionJVM,
       lawsJS,
       lawsJVM,
       svgJS,
@@ -369,17 +428,17 @@ addCommandAlias(
 
 addCommandAlias(
   "compileAll",
-  ";coreJVM/compile;coreJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile"
+  ";coreJVM/compile;coreJS/compile;interactionJVM/compile;interactionJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile"
 )
 
 addCommandAlias(
   "testAll",
-  ";coreJVM/test;coreJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test"
+  ";coreJVM/test;coreJS/test;interactionJVM/test;interactionJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test"
 )
 
 addCommandAlias(
   "compatibilityCheck",
-  ";versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
+  ";coreJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
 )
 
 addCommandAlias(

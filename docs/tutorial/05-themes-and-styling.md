@@ -141,10 +141,10 @@ themeFirst.map(_.scene) == themeLast.map(_.scene)
 Theme.default.palettes.discrete.length
 ```
 
-The default is the first six tab10 colours. `discretePalette` builds a `DiscretePalette[Rgba]` with
-the default `PaletteOverflowPolicy.Reject`, which is why a theme-default discrete scale fails on a
-seventh level rather than reusing a colour. `continuousPalette` is
-`Palette.gradient(continuousLow, continuousHigh)`.
+The default is the first six of `DiscretePalette.okabeItoColors`. `discretePalette` builds a
+`DiscretePalette[Rgba]` with the default `PaletteOverflowPolicy.Reject`, which is why a
+theme-default discrete scale fails on a seventh level rather than reusing a colour.
+`continuousPalette` is `Palette.gradient(continuousLow, continuousHigh)`.
 
 ```scala mdoc:silent
 val ownPalette =
@@ -164,6 +164,25 @@ val ownPalette =
 `ThemePalettes` requires a non-empty discrete vector and throws on an empty one — it is a
 constructor invariant, not a checked `Either`. An explicit palette passed to `scaleColorDiscrete` or
 `scaleFillContinuous` overrides the theme's for that scale only.
+
+The default discrete palette is the one the accessibility measurements are made against, so a theme
+that only changes typography inherits it. Take all eight when a plot needs more than six series, and
+reach for `DivergingPalette` when the data is signed — anything centred on a zero that means
+something, where a sequential ramp would hide the sign:
+
+```scala mdoc:silent
+val eightSeries =
+  editorial.copy(
+    palettes = editorial.palettes.copy(discrete = DiscretePalette.okabeItoColors)
+  )
+
+/** Signed fractions in [-1, 1]; 0 is exactly the neutral. */
+val signed: Palette[Rgba] =
+  DivergingPalette.BlueRust.unitPalette
+```
+
+[Accessible plots](../accessibility.md#choosing-a-colour-ramp) covers when each one applies, what
+they were measured against, and why no rainbow ramp is shipped.
 
 ## Style aesthetics
 

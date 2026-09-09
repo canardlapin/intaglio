@@ -56,6 +56,9 @@ are omitted because they are not reachable from a consumer package.
 | Scene geometry | `ExtentExpr.unsafe(expr)`, `ExtentExpr.unsafe(length)`, `ExtentExpr.npcUnsafe`, `.nativeUnsafe`, `.pointsUnsafe`, `.linesUnsafe` | `IllegalArgumentException` (`InvalidExtent` when non-negativity is not provable) | `ExtentExpr.fromExpr`, `ExtentExpr.apply`, `.npc`, `.native`, `.points`, `.lines` |
 | Scene geometry | `Point.npcUnsafe`, `Point.nativeUnsafe`, `Size.npcUnsafe` | `IllegalArgumentException` | `Point.npc`, `Point.native`, `Size.npc` |
 | Scene geometry | `Rgba.unsafe(red, green, blue, alpha)` | `IllegalArgumentException` | `Rgba.apply` |
+| Scene geometry | `Oklab.unsafe(lightness, a, b)` | `IllegalArgumentException` for a non-finite component | `Oklab.apply`. `Oklab.fromRgba`, `Oklab.toRgba`, and `Oklab.mix` are total |
+| Scene geometry | None — `ColorVision.simulate`, `ColorSeparation.between`, `.closest`, `.lightness`, and `.chroma` are total for every input | | |
+| Scene geometry | `DivergingPalette.unsafe(negative, neutral, positive)` | `IllegalArgumentException` when two of the three colours are equal | `DivergingPalette.apply`. `DivergingPalette.BlueRust` is already valid, and `color`/`pixel`/`unitPalette` are total for every argument including a non-finite one |
 | Scene geometry | `StrokeWidth.unsafe`, `StrokeWidth.devicePixelsUnsafe`, `StrokeWidth.pointsUnsafe` | `IllegalArgumentException` | `StrokeWidth.checked`, `.devicePixels`, `.points` |
 | Scene geometry | `GraphicParams.unsafe(...)` | `IllegalArgumentException` | `GraphicParams.checked` |
 | Scene geometry | `Viewport.unsafe(...)` | `IllegalArgumentException` | `Viewport.checked` |
@@ -65,6 +68,7 @@ are omitted because they are not reachable from a consumer package.
 | Scales | `Breaks.countUnsafe(n)`, `Breaks.prettyUnsafe(targetCount)` | `IllegalArgumentException` | `Breaks.count`, `Breaks.pretty` |
 | Scales | `BandPadding.unsafe(value)`, `Band.unsafe(center, width)` | `IllegalArgumentException` | `BandPadding.apply`, `Band.apply` |
 | Scales | `DiscretePalette.valuesUnsafe(values, overflow)` | `IllegalArgumentException` (empty palette) | `DiscretePalette.values` |
+| Display | `DivergingColorizer.unsafe(limit, palette, invalid, threshold)` | `IllegalArgumentException` for a limit that is not finite and positive | `DivergingColorizer.make` |
 | Compiler options | `RangeExpansion.unsafe(multiplicative, additive, zeroWidth)` | `IllegalArgumentException` | `RangeExpansion.apply`; `RangeExpansion.default` and `.none` are total |
 | Geometry contracts | `GeomAestheticContract.unsafe(required, optional, groupConstant)` | `IllegalArgumentException` for a malformed contract | `GeomAestheticContract.checked` |
 | Coordinates | `CoordinateRatio.unsafe(value)` | `IllegalArgumentException` | `CoordinateRatio.apply` |

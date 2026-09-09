@@ -30,7 +30,9 @@ one directly above it.
 - [Notebooks and publication](notebooks.md) — Jupyter MIME bundles, print
   output, device scale, fonts.
 - [Accessibility](accessibility.md) — semantic identity, per-grob titles and
-  descriptions, `class` and `data-*` hooks, ARIA in SVG output.
+  descriptions, `class` and `data-*` hooks, ARIA in SVG output, choosing a
+  sequential or diverging colour ramp, and what the named palettes were
+  measured against.
 - [Composition](composition.md) — the renderer-neutral mechanism behind
   tutorial 6.
 - [Date/time scales and coordinate zoom](date-time-and-zoom.md).
@@ -54,9 +56,9 @@ Guides for authoring an Intaglio extension, each ending in the law kit from
 
 ## Why it is shaped this way
 
-[Architecture decision records](adr/README.md): seven accepted records covering
+[Architecture decision records](adr/README.md): eight accepted records covering
 extension identity, the typed error channel, the scale lifecycle, target
-layout, the compatibility courts, the batch IR, and provenance.
+layout, the compatibility courts, the batch IR, provenance, and signed colour.
 
 ## Contracts and process
 
