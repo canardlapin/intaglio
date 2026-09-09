@@ -287,13 +287,16 @@ private[intaglio] object FacetCompiler:
       labels <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
         PlotLabelPhase.lower(trained.labels, Some(frames), options.theme.plotText)
       )
+      axisTitles <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
+        lowerAxisTitles(sizingAxes, frames, policy, options.theme)
+      )
     yield TrainedPlot(
       layers = resolvedPanels.flatMap(_.layers),
       layout = resolvedPanels.headOption.map(_.layout),
       guides = axes ++ globalGuides,
       scaleRegistry = faceted.registry,
       panelGrobs = Vector.empty,
-      labelGrobs = labels,
+      labelGrobs = labels ++ axisTitles,
       facetPanels = resolvedPanels,
       semantics = faceted.semantics
     )
@@ -408,10 +411,17 @@ private[intaglio] object FacetCompiler:
         .maxByOption(axisExtentPt(_, policy))
     }
 
-  private def axisExtentPt(axis: GuideSpec.Axis, policy: LayoutPolicy): Double =
-    val title = axis.title.fold(0.0)(_ =>
-      policy.axisTitleGapPt + policy.metrics.heightPt(policy.axisTitleTextStyle)
-    )
+  private def axisExtentPt(
+      axis: GuideSpec.Axis,
+      policy: LayoutPolicy,
+      includeTitle: Boolean = true
+  ): Double =
+    val title =
+      if includeTitle then
+        axis.title.fold(0.0)(_ =>
+          policy.axisTitleGapPt + policy.metrics.heightPt(policy.axisTitleTextStyle)
+        )
+      else 0.0
     val labels =
       if axis.side.isHorizontal then policy.metrics.heightPt(policy.axisTextStyle)
       else
@@ -445,6 +455,12 @@ private[intaglio] object FacetCompiler:
       rowGapPt = rowGap
     )
 
+  /** Widest inner axis on `side`, measured without a title.
+    *
+    * This sizes the gap *between* panels, where an axis carries ticks and labels but no title. The
+    * outer strip is sized separately by [[representativeAxes]], which keeps the title because the
+    * one title the plot has is drawn there.
+    */
   private def maximumAxisExtent(
       axes: Vector[GuideSpec.Axis],
       side: AxisSide,
@@ -452,7 +468,7 @@ private[intaglio] object FacetCompiler:
   ): Double =
     axes.iterator
       .filter(_.side == side)
-      .map(axisExtentPt(_, policy))
+      .map(axisExtentPt(_, policy, includeTitle = false))
       .maxOption
       .getOrElse(0.0)
 
@@ -529,7 +545,11 @@ private[intaglio] object FacetCompiler:
       val specs = panels(panelIndex).specs.collect {
         case axis: GuideSpec.Axis
             if rendersAxis(axis.side, panel.cell, scales, bottomByColumn, rightByRow) =>
-          axis.copy(name = Some(axisName(axis, panel.cell)))
+          // The title is dropped here and drawn once for the whole block by `lowerAxisTitles`.
+          // `rendersAxis` answers "which panels get ticks", which is a different question from
+          // "how many titles does this plot have"; letting the first answer the second is what
+          // put six copies of one y title down the left edge of a free-scale grid.
+          axis.copy(title = None, name = Some(axisName(axis, panel.cell)))
       }
       var specIndex = 0
       while specIndex < specs.length && result.isRight do
@@ -542,6 +562,54 @@ private[intaglio] object FacetCompiler:
         specIndex += 1
       panelIndex += 1
     result.map(_ => out.result())
+
+  /** One axis title per position dimension, centred on the whole panel block.
+    *
+    * The title goes in `frames.axes(side)`, the outer strip the layout solver already reserves and
+    * sizes to include a title band. Panels keep their own ticks and labels; only the title is
+    * hoisted, so a reader sees the quantity named once, where an unfaceted plot names it.
+    *
+    * These are emitted as label grobs rather than guides. A title is not a guide — it has no
+    * breaks, no scale, and nothing to lower — and keeping it out of `guides` leaves the axis guide
+    * count equal to the number of drawn axes, which is what that count means.
+    */
+  private def lowerAxisTitles(
+      sizingAxes: Vector[GuideSpec],
+      frames: PlotFrames,
+      policy: LayoutPolicy,
+      theme: Theme
+  ): Either[GraphicsError, Vector[Grob]] =
+    val half = ExtentExpr.pointsUnsafe(policy.metrics.heightPt(policy.axisTitleTextStyle) / 2.0)
+    traverse(sizingAxes.collect { case axis: GuideSpec.Axis => axis }) { axis =>
+      (axis.title, frames.axisViewport(axis.side)) match
+        case (Some(title), Some(viewport)) =>
+          val outer = LengthExpr.npcUnsafe(0.0) + half
+          val inner = LengthExpr.npcUnsafe(1.0) - half
+          val centre = LengthExpr.npcUnsafe(0.5)
+          val (at, rotation) =
+            axis.side match
+              case AxisSide.Bottom => (Point(centre, outer), 0.0)
+              case AxisSide.Top    => (Point(centre, inner), 0.0)
+              case AxisSide.Left   => (Point(outer, centre), 90.0)
+              case AxisSide.Right  => (Point(inner, centre), -90.0)
+          Grob
+            .text(
+              title,
+              at,
+              anchor = Anchor(HJust.Center, VJust.Center),
+              rotationDegrees = rotation,
+              gp = axis.titleGp.getOrElse(theme.axis.title),
+              viewport = Some(viewport),
+              name = Some(axisTitleName(axis))
+            )
+            .map(Vector(_))
+        case _ => Right(Vector.empty)
+    }.map(_.flatten)
+
+  /** `y-axis-title`, matching the name an unfaceted plot gives the same text. */
+  private def axisTitleName(axis: GuideSpec.Axis): GraphicsName =
+    val base = axis.name.fold(axis.side.toString.toLowerCase)(_.value)
+    GraphicsName.unsafe(s"$base-title")
 
   private def rendersAxis(
       side: AxisSide,

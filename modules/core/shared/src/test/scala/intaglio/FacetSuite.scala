@@ -398,6 +398,97 @@ class FacetSuite extends munit.FunSuite:
     }
   }
 
+  test("a faceted plot names each dimension exactly once, under every scale policy") {
+    val options =
+      PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
+
+    def titleCount(grob: Grob, text: String): Int =
+      grob match
+        case value: Grob.Text => if value.label == text then 1 else 0
+        case other            => other.children.map(titleCount(_, text)).sum
+
+    def counts(facet: Option[FacetSpec[Observation]]): (Int, Int) =
+      val base = Plot(rows)
+      val plot = facet
+        .fold(base)(base.withFacet)
+        .addLayer(Layer.point[Observation](_.x, _.y))
+        .fold(error => fail(error.message), identity)
+        .withAxisTitles("Session", "Response")
+      val trained =
+        PlotCompiler.resolve(plot, options).fold(error => fail(error.message), identity)
+      (
+        trained.scene.grobs.map(titleCount(_, "Session")).sum,
+        trained.scene.grobs.map(titleCount(_, "Response")).sum
+      )
+
+    // An unfaceted plot was already right; it is the baseline the faceted cases must match.
+    assertEquals(counts(None), (1, 1))
+
+    for scales <- FacetScales.values do
+      val grid = FacetSpec
+        .grid[Observation](_.condition, _.session, scales = scales)
+        .fold(error => fail(error.message), identity)
+      assertEquals(counts(Some(grid)), (1, 1), clues(scales))
+
+      val wrap = FacetSpec
+        .wrap[Observation](_.condition, scales = scales)
+        .fold(error => fail(error.message), identity)
+      assertEquals(counts(Some(wrap)), (1, 1), clues(scales))
+  }
+
+  test("the single facet axis title sits in the outer strip, centred on the whole block") {
+    val options =
+      PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
+    val facet = FacetSpec
+      .grid[Observation](_.condition, _.session, scales = FacetScales.FreeY)
+      .fold(error => fail(error.message), identity)
+    val plot = Plot(rows)
+      .withFacet(facet)
+      .addLayer(Layer.point[Observation](_.x, _.y))
+      .fold(error => fail(error.message), identity)
+      .withAxisTitles("Session", "Response")
+    val trained =
+      PlotCompiler.resolve(plot, options).fold(error => fail(error.message), identity)
+
+    def texts(grob: Grob): Vector[Grob.Text] =
+      grob match
+        case value: Grob.Text => Vector(value)
+        case other            => other.children.flatMap(texts)
+
+    val titles =
+      trained.scene.grobs.flatMap(texts).filter(t => t.name.exists(_.value.endsWith("-title")))
+
+    assertEquals(
+      titles.flatMap(_.name.map(_.value)).sorted,
+      Vector("x-axis-title", "y-axis-title")
+    )
+
+    val yTitle = titles.find(_.name.exists(_.value == "y-axis-title")).getOrElse(fail("no y title"))
+    val xTitle = titles.find(_.name.exists(_.value == "x-axis-title")).getOrElse(fail("no x title"))
+
+    // Rotated a quarter turn on the left, upright on the bottom, and centred on the block in the
+    // dimension the axis runs along.
+    assertEqualsDouble(yTitle.rotationDegrees, 90.0, 0.0)
+    assertEqualsDouble(xTitle.rotationDegrees, 0.0, 0.0)
+    assertEquals(yTitle.anchor, Anchor(HJust.Center, VJust.Center))
+
+    def npcConst(expr: LengthExpr): Double =
+      expr match
+        case LengthExpr.Const(length) => length.value
+        case other                    => fail(s"expected an npc constant, got $other")
+
+    assertEqualsDouble(npcConst(yTitle.at.y), 0.5, tolerance)
+    assertEqualsDouble(npcConst(xTitle.at.x), 0.5, tolerance)
+
+    // It is a label, not a guide: the axis guide count still counts drawn axes. Two panels under a
+    // free y gives a left axis on each and one shared bottom axis.
+    assertEquals(trained.guides.count(_.spec.isInstanceOf[GuideSpec.Axis]), 3)
+    assert(
+      trained.guides.forall(guide => !guide.grob.name.exists(_.value.endsWith("-title"))),
+      "an axis title was lowered as a guide"
+    )
+  }
+
   test("free-axis sizing uses target text metrics for outer strips and panel gaps") {
     val metrics = new TextMetrics:
       override def widthPt(text: String, fontSizePt: Double): Double =
@@ -426,19 +517,23 @@ class FacetSuite extends munit.FunSuite:
         .resolve
         .fold(error => fail(error.message), identity)
 
-    val expectedAxisPt =
-      theme.layout.tickLengthPt + theme.layout.tickLabelGapPt + 100.0 +
-        theme.layout.axisTitleGapPt + metrics.heightPt(theme.layout.axisTitleTextStyle)
+    // Ticks and labels are panel-local, so both the outer strip and the gap between panels reserve
+    // them. The title is not: the plot has one, drawn once in the outer strip, so only the outer
+    // strip reserves a title band. The difference between these two expectations is that band.
+    val tickAndLabelPt =
+      theme.layout.tickLengthPt + theme.layout.tickLabelGapPt + 100.0
+    val titleBandPt =
+      theme.layout.axisTitleGapPt + metrics.heightPt(theme.layout.axisTitleTextStyle)
     val first = trained.facetPanels(0).layout.frame
     val second = trained.facetPanels(1).layout.frame
     assertEqualsDouble(
       originX(first),
-      npcX(theme.layout.outerMarginPt + expectedAxisPt),
+      npcX(theme.layout.outerMarginPt + tickAndLabelPt + titleBandPt),
       tolerance
     )
     assertEqualsDouble(
       originX(second) - originX(first) - width(first),
-      npcX(theme.layout.panelGapPt + expectedAxisPt),
+      npcX(theme.layout.panelGapPt + tickAndLabelPt),
       tolerance
     )
   }

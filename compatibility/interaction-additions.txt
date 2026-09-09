@@ -115,3 +115,5 @@ MissingClassProblem intaglio.ColorVision$
 MissingClassProblem intaglio.Srgb
 MissingClassProblem intaglio.Srgb$
 MissingFieldProblem intaglio.AccessibilityDiagnostic.IndistinguishablePalette
+# The block-spanning outer axis strip, where a faceted plot draws its one axis title per dimension.
+DirectMissingMethodProblem intaglio.PlotFrames.axisViewport

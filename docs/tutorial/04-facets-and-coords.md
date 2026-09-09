@@ -70,6 +70,7 @@ derived, not stringly assembled at the call site:
 | panel group | `panel-<row>-<column>` |
 | strip text | `strip-<row>-<column>` |
 | per-panel axis | `<base>-<row>-<column>`, e.g. `x-axis-1-0` — the base is the guide's own name, and an unnamed explicit override falls back to the lowercased side |
+| axis title | `<base>-title`, e.g. `y-axis-title` — one per dimension, the same name an unfaceted plot uses |
 | unfaceted panel | `plot-panel` |
 
 ## Shared and free scales
@@ -98,6 +99,13 @@ of its column, left-most of its row — which for derived bottom-and-left axes m
 the left column. The solver also widens the inter-panel gap when a free dimension causes inner axes
 to be repeated, and it measures those independently trained tick labels with the active
 `LayoutPolicy.metrics`, so a free panel's labels stay legible instead of colliding.
+
+**Ticks repeat; the title does not.** How many axes a plot draws is a question about panels, and it
+is answered above. How many times the plot names a dimension is a different question with one
+answer: once. The axis title is drawn a single time per dimension, centred on the whole panel block
+in the outer strip the solver reserves for it, under every `FacetScales` policy. Only the tick
+labels are panel-local, because only they say something panel-specific. The inter-panel gap
+therefore reserves ticks and labels but no title band — the title is not in there to reserve for.
 
 Order of operations matters for statistics: **facets partition each layer before statistics run**.
 A faceted histogram bins within its panel; it does not bin globally and then split the bars.

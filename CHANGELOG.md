@@ -10,6 +10,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- **A faceted plot names each dimension once.** The axis title was lowered as
+  part of every rendered axis, so "how many axes are drawn" silently decided
+  "how many titles are drawn". A 3x2 `facetGrid` drew the y title three times
+  down the left edge; under `FacetScales.FreeY`, where every panel gets an axis,
+  it drew it six times. Supplying titles as explicit guides did not help — the
+  title travelled with each lowered axis regardless of guide policy — so a
+  consumer's only escapes were dropping axis titles or drawing them outside the
+  scene, which breaks SVG and PDF self-containment.
+
+  The title is now drawn once per position dimension, centred on the whole panel
+  block in the outer strip `PlotLayoutSolver` already reserves, under every
+  `FacetScales` policy and for both `facetGrid` and `facetWrap`. Ticks and tick
+  labels stay panel-local, because only they say something panel-specific. The
+  title is named `<base>-title` — `y-axis-title`, the same name an unfaceted
+  plot uses — and is emitted as a label grob rather than a guide, so the axis
+  guide count still counts drawn axes.
+
+  Under free scales this also returns space: the inter-panel gap reserved a
+  title band for a title that will no longer be drawn there, so a free-scale
+  grid now gives that width back to the panels. `PlotFrames.axisViewport(side)`
+  exposes the block-spanning outer strip that the single title occupies.
+  Unfaceted plots are unchanged.
+
 ### Changed
 
 - **The default theme palette is now colour-vision-measured.**
