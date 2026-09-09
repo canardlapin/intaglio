@@ -36,6 +36,24 @@ val labels = AesSpec
   .withVJust(_.verticalJustification)
 ```
 
+## Dash rhythms
+
+`LineType` has three named cases and one open one. `Solid`, `Dashed` and `Dotted` cover the common
+figure; `Custom(DashPattern)` carries an explicit rhythm for an encoding that needs to tell apart
+more states than two dash patterns can:
+
+```scala mdoc:silent
+import intaglio.*
+
+val reference = LineType.Dashed
+val embedded = LineType.Custom(DashPattern.unsafe(8.0, 2.0, 1.0, 2.0))
+```
+
+`LineType.dash` resolves any of the four to an `Option[DashPattern]`, and every backend goes through
+it, so the two named rhythms have one definition rather than one per renderer. Segments are
+alternating on and off lengths in device pixels; `DashPattern` refuses a rhythm no backend could
+draw, and [limits](limits.md) records the bound and why an all-zero rhythm is rejected.
+
 ## Point shapes
 
 `shape` values are `PointShape` cases. Every shape is centred on its point and sized by one resolved

@@ -188,3 +188,44 @@ class SceneSuite extends munit.FunSuite:
       case _                                  => false
     })
   }
+
+  test("dash patterns refuse rhythms a backend could not draw") {
+    assertEquals(
+      DashPattern(Vector.empty).left.toOption,
+      Some(GraphicsError.InvalidDashPattern("at least one segment", "empty"))
+    )
+    assertEquals(
+      DashPattern(Vector(0.0, 0.0)).left.toOption,
+      Some(GraphicsError.InvalidDashPattern("one segment above zero", "every segment is zero"))
+    )
+    assertEquals(
+      DashPattern(Vector(4.0, -1.0)).left.toOption,
+      Some(GraphicsError.InvalidDashPattern("non-negative segments", "segment 1 is negative"))
+    )
+    assertEquals(
+      DashPattern(Vector(1.0, Double.NaN)).left.toOption,
+      Some(GraphicsError.InvalidDashPattern("finite segments", "segment 1 is not finite"))
+    )
+    assert(DashPattern(Vector(1.0, Double.NaN)).isLeft)
+    assert(DashPattern(Vector(1.0, Double.PositiveInfinity)).isLeft)
+    assert(DashPattern(Vector.fill(DashPattern.MaximumSegments + 1)(1.0)).isLeft)
+
+    // A zero segment is legal beside a positive one: "0 4" with a round cap is how a dotted
+    // rhythm is drawn, and only an all-zero array is what `java.awt.BasicStroke` rejects.
+    assert(DashPattern(Vector(0.0, 4.0)).isRight)
+    assert(DashPattern(Vector.fill(DashPattern.MaximumSegments)(1.0)).isRight)
+    assertEquals(DashPattern.unsafe(6.0, 4.0).segments, Vector(6.0, 4.0))
+  }
+
+  test("every line type resolves through one dash definition") {
+    assertEquals(LineType.Solid.dash, None)
+    assertEquals(LineType.Dashed.dash.map(_.segments), Some(Vector(6.0, 4.0)))
+    assertEquals(LineType.Dotted.dash.map(_.segments), Some(Vector(1.0, 3.0)))
+
+    val custom = DashPattern.unsafe(8.0, 2.0, 1.0, 2.0)
+    assertEquals(LineType.Custom(custom).dash, Some(custom))
+
+    // The named rhythms are expressible as custom ones, which is what makes this a widening of the
+    // existing vocabulary rather than a parallel channel.
+    assertEquals(LineType.Custom(DashPattern.unsafe(6.0, 4.0)).dash, LineType.Dashed.dash)
+  }

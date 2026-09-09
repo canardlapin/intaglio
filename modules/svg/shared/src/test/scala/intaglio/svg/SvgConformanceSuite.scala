@@ -112,10 +112,10 @@ class SvgConformanceSuite extends munit.FunSuite:
           line.contains(s""" $attribute="none"""")
 
     private def hasLineType(line: String, lineType: LineType): Boolean =
-      lineType match
-        case LineType.Solid  => !line.contains(" stroke-dasharray=")
-        case LineType.Dashed => line.contains(""" stroke-dasharray="6 4"""")
-        case LineType.Dotted => line.contains(""" stroke-dasharray="1 3"""")
+      lineType.dash match
+        case None          => !line.contains(" stroke-dasharray=")
+        case Some(pattern) =>
+          line.contains(s""" stroke-dasharray="${pattern.segments.map(number).mkString(" ")}"""")
 
     private def patternId(line: String): Option[String] =
       val prefix = """ fill="url(#"""

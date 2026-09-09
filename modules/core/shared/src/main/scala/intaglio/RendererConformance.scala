@@ -158,6 +158,7 @@ object RendererConformance:
     for
       point <- pointCase
       line <- lineCase
+      customDash <- customDashCase
       shapes <- shapeCase
       annotated <- annotatedCase
       steps <- stepLineCase
@@ -202,6 +203,7 @@ object RendererConformance:
     yield Vector(
       point,
       line,
+      customDash,
       shapes,
       annotated,
       steps,
@@ -306,6 +308,52 @@ object RendererConformance:
               LineType.Dashed,
               LineCap.Round,
               LineJoin.Bevel,
+              1.0
+            )
+          )
+        )
+      }
+
+  /** A dash rhythm that is neither of the two named ones.
+    *
+    * Every backend widens a dash to a sequence internally, and before `LineType.Custom` existed
+    * each of them only ever received the same two sequences. This case is the proof that the
+    * widening is real: a five-segment rhythm no named line type can express has to survive to the
+    * device.
+    */
+  def customDashCase: Either[GraphicsError, ConformanceCase] =
+    val rhythm = LineType.Custom(DashPattern.unsafe(8.0, 2.0, 1.0, 2.0, 1.0))
+    Grob
+      .lines(
+        Vector(
+          Point.npcUnsafe(0.1, 0.35),
+          Point.npcUnsafe(0.9, 0.65)
+        ),
+        gp = GraphicParams
+          .unsafe(stroke = Some(Rgba.unsafe(90, 40, 140)), lineType = rhythm)
+          .withStrokeWidth(StrokeWidth.pointsUnsafe(1.5)),
+        name = Some(GraphicsName.unsafe("conformance-custom-dash"))
+      )
+      .map { grob =>
+        ConformanceCase(
+          GraphicsName.unsafe("custom-dash"),
+          ConformanceGroup.Primitive,
+          Scene(Vector(grob)),
+          Vector(GraphicsName.unsafe("conformance-custom-dash")),
+          Vector(
+            RenderRequirement
+              .Primitive(
+                GraphicsName.unsafe("conformance-custom-dash"),
+                RenderPrimitiveKind.Polyline
+              ),
+            RenderRequirement.Style(
+              GraphicsName.unsafe("conformance-custom-dash"),
+              Some(Rgba.unsafe(90, 40, 140)),
+              None,
+              2.0,
+              rhythm,
+              LineCap.Butt,
+              LineJoin.Miter,
               1.0
             )
           )

@@ -787,3 +787,27 @@ class SvgRendererSuite extends munit.FunSuite:
     assert(svg.contains("""image-rendering="auto"""))
     assert(svg.indexOf("""data-name="smooth-image""") < svg.indexOf("""data-name="image-overlay"""))
   }
+
+  test("a custom dash rhythm reaches the document as its own stroke-dasharray") {
+    val rhythm = LineType.Custom(DashPattern.unsafe(8.0, 2.5, 1.0, 2.5))
+    val grob = Grob
+      .lines(
+        Vector(Point.nativeUnsafe(0.0, 0.0), Point.nativeUnsafe(120.0, 80.0)),
+        gp = GraphicParams.unsafe(stroke = Some(Rgba.unsafe(200, 10, 5)), lineType = rhythm)
+      )
+      .fold(error => fail(error.message), identity)
+
+    val svg = render(Scene(Vector(grob)))
+
+    assert(svg.contains(""" stroke-dasharray="8 2.5 1 2.5""""), svg)
+
+    // The conformance suite refuses any document containing a percent sign, and the shared
+    // formatter is what keeps a fractional segment out of exponent form. Both are checked on the
+    // attribute value rather than the document, because "stroke-" itself contains "e-".
+    val marker = """ stroke-dasharray=""""
+    val start = svg.indexOf(marker) + marker.length
+    val emitted = svg.substring(start, svg.indexOf('"', start))
+    assertEquals(emitted, "8 2.5 1 2.5")
+    assert(emitted.forall(character => character.isDigit || character == '.' || character == ' '))
+    assert(!svg.contains("%"))
+  }

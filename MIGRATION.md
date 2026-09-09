@@ -8,6 +8,32 @@ given release preserves, and what moving the baseline requires — is
 
 ## Unreleased
 
+### `LineType` gained a parameterised case, moving `values` and `valueOf`
+
+`LineType` is no longer a simple enum: `Custom(pattern: DashPattern)` joins
+`Solid`, `Dashed` and `Dotted`. Scala 3 emits the synthetic `values` and
+`valueOf` differently for a parameterised enum, so four symbols move off
+`class intaglio.LineType`:
+
+```
+static method values()Array[intaglio.LineType] in class intaglio.LineType
+static method valueOf(java.lang.String)intaglio.LineType in class intaglio.LineType
+```
+
+**Source code is unaffected.** `LineType.values` and `LineType.valueOf` continue
+to compile and mean the same thing; only the emitted class file changed, so this
+is a binary and TASTy break for already-compiled callers rather than an edit
+anyone has to make. Recompiling against the new release is the whole migration.
+
+An exhaustive `match` on `LineType` that does not handle `Custom` is a new
+warning rather than an error, and will draw a solid stroke if it falls through a
+default. `LineType.dash` returns the rhythm for any line type, including the
+named ones, and is the intended way to consume the channel:
+
+```scala
+lineType.dash.fold(solidStroke)(pattern => dashedStroke(pattern.segments))
+```
+
 ### `Grob.rect` and `Grob.lines` gained a geometry parameter before `gp`
 
 `Grob.rect` and `Grob.rectUnsafe` now take `cornerRadius: ExtentExpr` between
