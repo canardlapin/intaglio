@@ -1,0 +1,1 @@
+{"actor":"codex-intaglio-interaction-impl","entity":"bd-01M1Z9B131PK2DW4D6004XQ5Q4","kind":"reserve_open","mode":"exclusive","op":"20260908T025818.341684Z-p92669-c0000-re3ec-ha1a6a0","paths":["modules/core/shared/src/test/scala/intaglio/InteractionCompilerSuite.scala"],"reservation_id":"rv-01M1ZF7FK5GTXDHH7T2BQNT0N4","ts":"2026-09-08T02:58:18.341684Z","ttl_s":3600,"v":2}
