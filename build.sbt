@@ -158,6 +158,10 @@ lazy val core =
       },
 
       interactionCompatibilityCheck := {
+        // MiMa reads this project's compiled classes, so the task has to depend on compiling them.
+        // Without this it passes on a warm `target/` and dies with a NoSuchFileException on a clean
+        // checkout — which is every CI run, and is why this court has never actually run there.
+        val _ = (Compile / compile).value
         val review = InteractionCompatibility.read(
           (ThisBuild / baseDirectory).value / "compatibility" / "interaction-additions.txt",
           (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
