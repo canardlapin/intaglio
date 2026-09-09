@@ -246,7 +246,7 @@ lazy val performance =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Full)
     .in(file("modules/performance"))
-    .dependsOn(core, svg)
+    .dependsOn(core, svg, interaction)
     .settings(commonSettings)
     .settings(
       name := "intaglio-performance-gates",

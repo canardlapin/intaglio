@@ -10,7 +10,7 @@ private[intaglio] object FacetCompiler:
       plans: Vector[PackedStatPlan]
   )
 
-  private final case class PanelResolution(
+  private[intaglio] final case class PanelResolution(
       cell: FacetCell,
       layers: Vector[TrainedLayer],
       registry: PlotScaleRegistry,
@@ -18,118 +18,300 @@ private[intaglio] object FacetCompiler:
       specs: Vector[GuideSpec]
   )
 
-  def resolve[Row](
-      plot: Plot[Row],
-      facet: FacetSpec[Row],
-      options: PlotCompilerOptions
-  ): Either[GraphicsError, TrainedPlot] =
-    (options.layout, options.frame, options.policy) match
-      case (None, None, Some(policy)) => resolveWithPolicy(plot, facet, options, policy)
-      case _                          => Left(GraphicsError.FacetRequiresSolver)
+  /** The three facet-global values that the panel body must establish: the resolved panels, the
+    * shared logical ranges, and the shared physical ranges.
+    */
+  private final case class FacetResolution(
+      panels: Vector[PanelResolution],
+      globalLogical: (Interval, Interval),
+      globalPhysical: (Interval, Interval)
+  )
 
-  private def resolveWithPolicy[Row](
+  /** Data-side facet phases: panel membership, per-panel statistics, global and per-panel scale
+    * training, row resolution, coordinate transforms, and guide specification. Device-independent.
+    */
+  private[intaglio] def train[Row](
       plot: Plot[Row],
       facet: FacetSpec[Row],
       options: PlotCompilerOptions,
-      policy: LayoutPolicy
-  ): Either[GraphicsError, TrainedPlot] =
+      baseOptions: PlotCompilerOptions
+  ): Either[GraphicsError, TrainedPlotData] =
+    (options.layout, options.frame, options.policy) match
+      case (None, None, Some(_)) =>
+        trainWithSolver(plot, facet, options, baseOptions, exhaustive = false)
+      case _ => Left(GraphicsError.FacetRequiresSolver)
+
+  /** Test oracle: forces the general per-panel path even when both position dimensions share
+    * scales. The shared-scale fast path must match this panel by panel.
+    */
+  private[intaglio] def trainExhaustive[Row](
+      plot: Plot[Row],
+      facet: FacetSpec[Row],
+      options: PlotCompilerOptions,
+      baseOptions: PlotCompilerOptions
+  ): Either[GraphicsError, TrainedPlotData] =
+    (options.layout, options.frame, options.policy) match
+      case (None, None, Some(_)) =>
+        trainWithSolver(plot, facet, options, baseOptions, exhaustive = true)
+      case _ => Left(GraphicsError.FacetRequiresSolver)
+
+  private def trainWithSolver[Row](
+      plot: Plot[Row],
+      facet: FacetSpec[Row],
+      options: PlotCompilerOptions,
+      baseOptions: PlotCompilerOptions,
+      exhaustive: Boolean
+  ): Either[GraphicsError, TrainedPlotData] =
     plot.coord.validateFacet.flatMap { _ =>
       val allData = plot.data ++ plot.layers.flatMap(_.facetSeedData(plot.data))
       for
-        facetLayout <- facet.layout(allData)
+        facetLayout <- PhaseClock.timed(PhaseClock.Phase.Mapping)(facet.layout(allData))
         panelStats <- transformPanels(plot, facet, facetLayout)
-        globalScales <- ScalePhase.trainFacets(panelStats.flatMap(_.plans), options.theme)
-        globalLayers <- PlotCompiler.resolveLayers(
-          globalScales.plans,
-          options.theme,
-          options.provenance
+        globalScales <- PhaseClock.timed(PhaseClock.Phase.ScaleTraining)(
+          ScalePhase.trainFacets(panelStats.flatMap(_.plans), options.theme)
         )
-        globalLogical <- LayoutPhase.panelRanges(globalLayers)
-        globalCoordinates <- CoordPhase.transform(
-          plot.coord,
-          globalLayers,
-          Some(globalLogical),
-          globalScales.registry
-        )
-        globalPhysical <- requireRanges(globalCoordinates.ranges)
-        panels <- resolvePanels(
-          panelStats,
-          globalScales.plans,
-          globalLogical,
-          plot.coord,
-          plot.labels,
-          facet.scales,
-          options
-        )
-        globalSpecs <- GuidePhase.specs(
-          options.guides,
-          plot.coord,
-          globalScales.registry,
-          Some(globalLogical),
-          relativeLegend = true,
-          labels = plot.labels
+        resolution <-
+          if !exhaustive && !facet.scales.xIsFree && !facet.scales.yIsFree then
+            resolveSharedPanels(panelStats, globalScales, plot.coord, plot.labels, options)
+          else
+            resolveFreePanels(
+              panelStats,
+              globalScales,
+              plot.coord,
+              plot.labels,
+              facet.scales,
+              options
+            )
+        globalSpecs <- PhaseClock.timed(PhaseClock.Phase.Layout)(
+          GuidePhase.specs(
+            options.guides,
+            plot.coord,
+            globalScales.registry,
+            Some(resolution.globalLogical),
+            relativeLegend = true,
+            labels = plot.labels
+          )
         )
         nonPositionGuides = globalSpecs.collect {
           case guide: GuideSpec.Legend   => guide
           case guide: GuideSpec.Colorbar => guide
         }
-        sizingAxes = representativeAxes(panels.flatMap(_.specs), policy)
-        expandedGlobal <- plot.coord.expandRanges(
-          options.expansion,
-          globalPhysical._1,
-          globalPhysical._2
-        )
-        frames <- PlotLayoutSolver.solve(
-          policy,
-          LayoutPhase.layoutRequest(
-            sizingAxes ++ nonPositionGuides,
-            expandedGlobal._1,
-            expandedGlobal._2,
-            plot.labels,
-            panelAspect = None,
-            grid = Some(
-              facetGridRequest(facetLayout, facet.scales, panels, policy)
-            )
-          )
-        )
-        resolvedPanels <- lowerPanels[Row](panels, frames, plot.coord, options)
-        axes <- lowerAxes(resolvedPanels, panels, facetLayout, facet.scales, policy, options)
-        globalGuides <- GuidePhase.lower(
-          resolvedPanels.headOption.map(_.layout),
-          Some(frames),
-          nonPositionGuides,
-          policy,
-          options.theme
-        )
-        labels <- PlotLabelPhase.lower(plot.labels, Some(frames), options.theme.plotText)
         semantics <- PlotSemantics.build(
           plot.accessibility,
           plot.labels,
-          resolvedPanels.flatMap(_.layers),
+          resolution.panels.flatMap(_.layers),
           globalScales.registry
         )
-      yield TrainedPlot(
-        layers = resolvedPanels.flatMap(_.layers),
-        layout = resolvedPanels.headOption.map(_.layout),
-        guides = axes ++ globalGuides,
-        scaleRegistry = globalScales.registry,
-        panelGrobs = Vector.empty,
-        labelGrobs = labels,
-        facetPanels = resolvedPanels,
-        semantics = semantics
+      yield TrainedPlotData(
+        plot.coord,
+        plot.labels,
+        baseOptions,
+        TrainedStage.Faceted(
+          facetLayout,
+          facet.scales,
+          resolution.panels,
+          nonPositionGuides,
+          resolution.globalPhysical,
+          globalScales.registry,
+          semantics
+        )
       )
     }
+
+  /** General path: one global resolution pass establishes the shared ranges, then every panel
+    * trains, merges, and resolves its own scales. Required when either dimension is free; also the
+    * semantic oracle for [[resolveSharedPanels]].
+    */
+  private def resolveFreePanels(
+      panelStats: Vector[PanelStats],
+      globalScales: ScaleResolution,
+      coord: Coord,
+      labels: PlotLabels,
+      scales: FacetScales,
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, FacetResolution] =
+    for
+      globalLayers <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
+        PlotCompiler.resolveLayers(
+          globalScales.plans,
+          options.theme,
+          options.provenance
+        )
+      )
+      globalLogical <- LayoutPhase.panelRanges(globalLayers)
+      globalCoordinates <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
+        CoordPhase.transform(
+          coord,
+          globalLayers,
+          Some(globalLogical),
+          globalScales.registry
+        )
+      )
+      globalPhysical <- requireRanges(globalCoordinates.ranges)
+      panels <- resolvePanels(
+        panelStats,
+        globalScales.plans,
+        globalLogical,
+        coord,
+        labels,
+        scales,
+        options
+      )
+    yield FacetResolution(panels, globalLogical, globalPhysical)
+
+  /** Shared-scale fast path. With both position dimensions shared, `mergePositionScales` returns
+    * the globally trained plan unchanged, so each panel's rows are resolved exactly once against
+    * its global slice and the global view is the concatenation of the panels. Per-panel position
+    * training, per-panel range scans, and per-panel guide specification are all redundant here: the
+    * registry and axis specs are computed once and shared by every panel.
+    */
+  private def resolveSharedPanels(
+      panelStats: Vector[PanelStats],
+      globalScales: ScaleResolution,
+      coord: Coord,
+      labels: PlotLabels,
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, FacetResolution] =
+    val plansPerPanel = panelStats.headOption.fold(0)(_.plans.length)
+    def slice(panelIndex: Int): Vector[PackedStatPlan] =
+      globalScales.plans.slice(panelIndex * plansPerPanel, (panelIndex + 1) * plansPerPanel)
+    for
+      panelLayers <- traverse(panelStats.indices.toVector) { panelIndex =>
+        PhaseClock.timed(PhaseClock.Phase.Resolve)(
+          PlotCompiler.resolveLayers(slice(panelIndex), options.theme, options.provenance)
+        )
+      }
+      allLayers = panelLayers.flatten
+      globalLogical <- LayoutPhase.panelRanges(allLayers)
+      globalCoordinates <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
+        CoordPhase.transform(
+          coord,
+          allLayers,
+          Some(globalLogical),
+          globalScales.registry
+        )
+      )
+      globalPhysical <- requireRanges(globalCoordinates.ranges)
+      sharedRegistry = registry(slice(0))
+      sharedSpecs <- PhaseClock.timed(PhaseClock.Phase.Layout)(
+        GuidePhase.specs(
+          axisPolicy(options.guides),
+          coord,
+          sharedRegistry,
+          Some(globalLogical),
+          relativeLegend = true,
+          labels = labels
+        )
+      )
+      axisSpecs = sharedSpecs.collect { case axis: GuideSpec.Axis => axis }
+      panels <- traverse(panelStats.zip(panelLayers)) { case (panel, layers) =>
+        for
+          coordinates <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
+            CoordPhase.transform(coord, layers, Some(globalLogical), sharedRegistry)
+          )
+          physical <- requireRanges(coordinates.ranges)
+        yield PanelResolution(
+          panel.cell,
+          coordinates.layers,
+          sharedRegistry,
+          physical,
+          axisSpecs
+        )
+      }
+    yield FacetResolution(panels, globalLogical, globalPhysical)
+
+  /** Device-side facet phases: axis measurement, grid layout solve, and panel, axis, guide, and
+    * label lowering for one effective layout policy.
+    */
+  private[intaglio] def place(
+      trained: TrainedPlotData,
+      faceted: TrainedStage.Faceted,
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, TrainedPlot] =
+    (options.layout, options.frame, options.policy) match
+      case (None, None, Some(policy)) => placeWithPolicy(trained, faceted, options, policy)
+      case _                          => Left(GraphicsError.FacetRequiresSolver)
+
+  private def placeWithPolicy(
+      trained: TrainedPlotData,
+      faceted: TrainedStage.Faceted,
+      options: PlotCompilerOptions,
+      policy: LayoutPolicy
+  ): Either[GraphicsError, TrainedPlot] =
+    val sizingAxes = PhaseClock.timed(PhaseClock.Phase.Layout)(
+      representativeAxes(faceted.panels.flatMap(_.specs), policy)
+    )
+    for
+      expandedGlobal <- trained.coord.expandRanges(
+        options.expansion,
+        faceted.globalRanges._1,
+        faceted.globalRanges._2
+      )
+      frames <- PhaseClock.timed(PhaseClock.Phase.Layout)(
+        PlotLayoutSolver.solve(
+          policy,
+          LayoutPhase.layoutRequest(
+            sizingAxes ++ faceted.nonPositionGuides,
+            expandedGlobal._1,
+            expandedGlobal._2,
+            trained.labels,
+            panelAspect = None,
+            grid = Some(
+              facetGridRequest(faceted.facetLayout, faceted.facetScales, faceted.panels, policy)
+            )
+          )
+        )
+      )
+      resolvedPanels <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
+        lowerPanels(faceted.panels, frames, trained.coord, options)
+      )
+      axes <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
+        lowerAxes(
+          resolvedPanels,
+          faceted.panels,
+          faceted.facetLayout,
+          faceted.facetScales,
+          policy,
+          options
+        )
+      )
+      globalGuides <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
+        GuidePhase.lower(
+          resolvedPanels.headOption.map(_.layout),
+          Some(frames),
+          faceted.nonPositionGuides,
+          policy,
+          options.theme
+        )
+      )
+      labels <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
+        PlotLabelPhase.lower(trained.labels, Some(frames), options.theme.plotText)
+      )
+    yield TrainedPlot(
+      layers = resolvedPanels.flatMap(_.layers),
+      layout = resolvedPanels.headOption.map(_.layout),
+      guides = axes ++ globalGuides,
+      scaleRegistry = faceted.registry,
+      panelGrobs = Vector.empty,
+      labelGrobs = labels,
+      facetPanels = resolvedPanels,
+      semantics = faceted.semantics
+    )
 
   private def transformPanels[Row](
       plot: Plot[Row],
       facet: FacetSpec[Row],
       layout: FacetLayout
   ): Either[GraphicsError, Vector[PanelStats]] =
-    MappingPhase.planPanels(plot, facet, layout).flatMap { plansByPanel =>
-      traverse(layout.cells.zip(plansByPanel)) { case (cell, plans) =>
-        StatPhase.transform(plans).map(PanelStats(cell, _))
+    PhaseClock
+      .timed(PhaseClock.Phase.Mapping)(MappingPhase.planPanels(plot, facet, layout))
+      .flatMap { plansByPanel =>
+        traverse(layout.cells.zip(plansByPanel)) { case (cell, plans) =>
+          PhaseClock
+            .timed(PhaseClock.Phase.Stat)(StatPhase.transform(plans))
+            .map(PanelStats(cell, _))
+        }
       }
-    }
 
   private def resolvePanels(
       panels: Vector[PanelStats],
@@ -152,26 +334,35 @@ private[intaglio] object FacetCompiler:
               )
             )
           then Right(global)
-          else ScalePhase.trainFacetPositions(panel.plans, scales, options.theme)
+          else
+            PhaseClock.timed(PhaseClock.Phase.ScaleTraining)(
+              ScalePhase.trainFacetPositions(panel.plans, scales, options.theme)
+            )
         merged = global.zip(localPlans).map { case (globalPlan, localPlan) =>
           PackedStatPlan.mergePositionScales(globalPlan, localPlan, scales)
         }
-        layers <- PlotCompiler.resolveLayers(merged, options.theme, options.provenance)
+        layers <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
+          PlotCompiler.resolveLayers(merged, options.theme, options.provenance)
+        )
         localRanges <- localRangesOrGlobal(layers, globalRanges)
         selected = (
           if scales.xIsFree then localRanges._1 else globalRanges._1,
           if scales.yIsFree then localRanges._2 else globalRanges._2
         )
         panelRegistry = registry(merged)
-        specs <- GuidePhase.specs(
-          axisPolicy(options.guides),
-          coord,
-          panelRegistry,
-          Some(selected),
-          relativeLegend = true,
-          labels = labels
+        specs <- PhaseClock.timed(PhaseClock.Phase.Layout)(
+          GuidePhase.specs(
+            axisPolicy(options.guides),
+            coord,
+            panelRegistry,
+            Some(selected),
+            relativeLegend = true,
+            labels = labels
+          )
         )
-        coordinates <- CoordPhase.transform(coord, layers, Some(selected), panelRegistry)
+        coordinates <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
+          CoordPhase.transform(coord, layers, Some(selected), panelRegistry)
+        )
         physical <- requireRanges(coordinates.ranges)
       yield PanelResolution(
         panel.cell,

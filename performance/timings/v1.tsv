@@ -1,0 +1,86 @@
+# Intaglio interactive-rate timing receipt
+# schema_version=1
+# recorded_on=2026-09-08
+# source_sha=38e8c62b5b3fb74d0a32664a168e95e9f708bd49-dirty
+# os=Mac OS X 14.3 aarch64
+# cpu=Apple M3 Max cores=14
+# jvm=OpenJDK 64-Bit Server VM 25.0.1
+# protocol=warmup:4 measured:12 single-thread
+# Elapsed time is not CI-gated; see performance/README.md.
+workload	metric	unit	runs	min	median	max
+facet-grid-30	total	ms	12	127.702	182.202	215.691
+facet-grid-30	alloc	mb	12	306.983	307.233	308.106
+facet-grid-30	phase.mapping	ms	12	6.227	14.138	55.471
+facet-grid-30	phase.stat	ms	12	1.962	3.350	39.173
+facet-grid-30	phase.scale_training	ms	12	0.185	0.221	0.389
+facet-grid-30	phase.resolve	ms	12	63.397	80.602	127.153
+facet-grid-30	phase.layout	ms	12	0.317	0.424	0.857
+facet-grid-30	phase.lowering	ms	12	15.399	21.129	27.634
+facet-grid-30-rich	total	ms	12	131.933	170.339	230.032
+facet-grid-30-rich	alloc	mb	12	310.188	310.204	310.218
+facet-grid-30-rich	phase.mapping	ms	12	6.275	9.088	17.117
+facet-grid-30-rich	phase.stat	ms	12	1.895	3.457	6.167
+facet-grid-30-rich	phase.scale_training	ms	12	0.103	0.173	9.976
+facet-grid-30-rich	phase.resolve	ms	12	66.557	103.883	151.582
+facet-grid-30-rich	phase.layout	ms	12	0.335	0.525	0.920
+facet-grid-30-rich	phase.lowering	ms	12	12.437	15.790	24.279
+facet-grid-sparse	total	ms	12	61.447	80.811	104.833
+facet-grid-sparse	alloc	mb	12	153.864	153.870	153.873
+facet-grid-sparse	phase.mapping	ms	12	3.228	3.308	7.085
+facet-grid-sparse	phase.stat	ms	12	0.985	1.016	3.357
+facet-grid-sparse	phase.scale_training	ms	12	0.073	0.076	0.140
+facet-grid-sparse	phase.resolve	ms	12	29.485	38.907	79.573
+facet-grid-sparse	phase.layout	ms	12	0.280	0.347	1.399
+facet-grid-sparse	phase.lowering	ms	12	5.654	9.943	13.541
+facet-free-scales	total	ms	12	257.267	308.332	338.976
+facet-free-scales	alloc	mb	12	592.808	592.817	592.879
+facet-free-scales	phase.mapping	ms	12	6.309	10.000	14.526
+facet-free-scales	phase.stat	ms	12	1.925	1.981	4.089
+facet-free-scales	phase.scale_training	ms	12	0.282	0.414	0.624
+facet-free-scales	phase.resolve	ms	12	127.389	185.455	211.626
+facet-free-scales	phase.layout	ms	12	0.838	1.130	3.555
+facet-free-scales	phase.lowering	ms	12	27.295	38.936	78.339
+resize-only	total	ms	12	755.840	807.247	863.135
+resize-only	alloc	mb	12	1533.866	1534.007	1534.141
+resize-only	phase.mapping	ms	12	35.154	99.116	143.472
+resize-only	phase.stat	ms	12	10.655	16.362	51.675
+resize-only	phase.scale_training	ms	12	0.190	0.340	25.047
+resize-only	phase.resolve	ms	12	350.144	376.596	490.543
+resize-only	phase.layout	ms	12	0.922	1.488	6.243
+resize-only	phase.lowering	ms	12	72.896	86.773	140.122
+resize-place	total	ms	12	4.179	4.288	10.518
+resize-place	alloc	mb	12	1.110	1.124	1.126
+resize-place	phase.layout	ms	12	0.208	0.222	0.651
+resize-place	phase.lowering	ms	12	0.518	0.543	1.332
+resize-cached	total	ms	12	0.065	0.069	0.177
+resize-cached	alloc	mb	12	0.191	0.191	0.191
+train-once	total	ms	12	117.803	189.857	261.095
+train-once	alloc	mb	12	306.550	306.550	306.550
+train-once	phase.mapping	ms	12	6.232	8.084	14.961
+train-once	phase.stat	ms	12	1.879	3.766	50.800
+train-once	phase.scale_training	ms	12	0.035	0.077	0.170
+train-once	phase.resolve	ms	12	63.687	120.789	166.500
+train-once	phase.layout	ms	12	0.047	0.092	1.138
+train-once	phase.lowering	ms	12	13.673	19.254	33.633
+pick-compile	total	ms	12	27.963	64.937	141.407
+pick-compile	alloc	mb	12	100.480	100.486	105.481
+pick-hits	total	ms	12	2.801	6.187	17.362
+pick-hits	per_operation	us	12	14.005	30.935	86.810
+pick-hits	alloc	mb	12	5.432	6.057	6.078
+pick-nearest	total	ms	12	4.423	6.334	14.453
+pick-nearest	per_operation	us	12	22.112	31.668	72.262
+pick-nearest	alloc	mb	12	8.541	8.541	8.541
+pick-select	total	ms	12	379.750	429.057	451.552
+pick-select	per_operation	us	12	37975.045	42905.695	45155.179
+pick-select	alloc	mb	12	859.130	859.130	859.130
+facet-grid-30	panels	count	1	30	30	30
+facet-grid-30	source_rows	count	1	24000	24000	24000
+facet-grid-30	retained_rows	count	1	0	0	0
+facet-grid-30-rich	retained_rows	count	1	48000	48000	48000
+facet-grid-sparse	panels	count	1	30	30	30
+facet-grid-sparse	occupied_panels	count	1	15	15	15
+facet-grid-sparse	source_rows	count	1	12000	12000	12000
+pick-compile	targets	count	1	20000	20000	20000
+pick-compile	marks	count	1	20000	20000	20000
+pick-hits	queries	count	1	200	200	200
+pick-compile	groups	count	1	20	20	20

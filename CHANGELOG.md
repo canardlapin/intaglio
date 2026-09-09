@@ -12,6 +12,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The compile pipeline splits at the data/device seam.** `PlotCompiler.train`
+  runs the data-dependent phases — mapping, statistics, scale training, row
+  resolution, layer geometry, and guide specification — once, and returns a
+  reusable `TrainedPlotData`; `PlotCompiler.place` adds the device-dependent
+  remainder (layout solve and lowering) for one `RenderContext`; `resolve` is
+  exactly their composition, and `TrainPlaceSuite` asserts scene equality. A
+  pure resize therefore re-runs no statistical work: five placements of an
+  unchanged 30-panel trellis cost ~4 ms against ~800 ms for five full
+  recompiles on the receipt hardware.
+
+- **Opt-in, caller-owned memoization of compiles.** `PlotCompileCache.bounded()`
+  retains trained data by plot-and-options reference identity and placements by
+  context value, with explicit LRU capacities and a `PlotCacheProfile` that
+  reports hits, misses, and evictions. Pass it to `PlotCompiler.resolve`,
+  `train`, `place`, or `PlotProgram.resolve`; `PlotCompileCache.Disabled` is
+  the default everywhere and is exactly the uncached path. Errors are never
+  cached, and nothing is cached behind your back.
+
+- **A non-gating measured-time receipt.** `performance/timings/v1.tsv` records
+  elapsed time, allocation, and per-phase medians for interactive-rate
+  workloads — faceted trellises, resize sweeps, dense picking — on named
+  hardware, produced by a timing harness in the performance module and
+  summarized in `docs/limits.md`. Wall-clock time remains outside CI gates.
+
 - **Per-grob titles, descriptions, classes, and data attributes.**
   `Grob.annotated(child, meta)` attaches a `GrobMeta` — an optional `title`, an
   optional `description`, an optional `CssClass`, and an insertion-ordered
@@ -71,6 +95,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and 3.9.0, on JDK 17 and 21, for the JVM and for Scala.js.
 
 ### Changed
+
+- **Shared-scale facets compile in one resolution pass.** With
+  `FacetScales.Shared` (the default), each panel's rows are now resolved once
+  against the globally trained plans instead of once globally plus once per
+  panel, and per-panel position training, range scans, and guide specification
+  are computed once and shared. A 30-panel grid compiles ~1.9× faster and a
+  half-empty grid ~2.2× faster, proportional to its occupied cells; rendered
+  output is unchanged, verified panel by panel against the general path, which
+  free-scale facets still use.
+
+- **Picking is spatially indexed.** `Picking.compile` builds a uniform grid
+  over target bounds, so `hits` and `nearest` queries track local density
+  instead of total mark count (~24 µs against ~6 ms per query on 20,000
+  marks), with results identical to the former exhaustive scan.
 
 - **The default Scala version is now the LTS line, 3.3.8** (from 3.4.2), and
   `crossScalaVersions` adds the current feature release, 3.9.0, as a CI court.

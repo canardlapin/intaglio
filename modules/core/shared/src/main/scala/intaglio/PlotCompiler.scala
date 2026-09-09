@@ -153,6 +153,50 @@ object TrainedDroppedRow:
       type Row = Row0
       val value: DroppedRow[Row] = row
 
+/** The data-side stage of a compiled plot: statistics, trained scales, resolved rows, layer
+  * geometry, and guide specifications — everything that depends only on the data, mappings, theme,
+  * and provenance policy, and nothing that depends on the device.
+  *
+  * Produced by [[PlotCompiler.train]] and consumed by [[PlotCompiler.place]], which adds the
+  * device-dependent remainder (layout solve, panel decoration, guide and label lowering) for one
+  * [[RenderContext]]. `PlotCompiler.resolve(plot, context, options)` is exactly the composition of
+  * the two, so placing one trained value at several contexts — a resize — yields scenes identical
+  * to full recompiles while doing no statistical work, no scale training, and no row resolution.
+  *
+  * The internals are deliberately opaque: inspect the result of placement ([[TrainedPlot]]), not
+  * this intermediate.
+  */
+final class TrainedPlotData private[intaglio] (
+    private[intaglio] val coord: Coord,
+    private[intaglio] val labels: PlotLabels,
+    private[intaglio] val baseOptions: PlotCompilerOptions,
+    private[intaglio] val stage: TrainedStage
+):
+  private[intaglio] def hasFacet: Boolean =
+    stage match
+      case _: TrainedStage.Faceted => true
+      case _: TrainedStage.Single  => false
+
+/** Data-side payload behind [[TrainedPlotData]]: one shape for standalone panels, one for facets.
+  */
+private[intaglio] enum TrainedStage:
+  case Single(
+      layers: Vector[TrainedLayer],
+      registry: PlotScaleRegistry,
+      specs: Vector[GuideSpec],
+      ranges: Option[(Interval, Interval)],
+      semantics: PlotSemantics
+  )
+  case Faceted(
+      facetLayout: FacetLayout,
+      facetScales: FacetScales,
+      panels: Vector[FacetCompiler.PanelResolution],
+      nonPositionGuides: Vector[GuideSpec],
+      globalRanges: (Interval, Interval),
+      registry: PlotScaleRegistry,
+      semantics: PlotSemantics
+  )
+
 /** A compiled plot. Layers are packed existentially because an independent layer may carry a row
   * type of its own, so the plot as a whole has no single row type to name. Per-layer diagnostics
   * stay typed at each layer's own row via [[TrainedLayer.droppedRows]].
@@ -375,11 +419,83 @@ object PlotCompiler:
       plot: Plot[Row],
       options: PlotCompilerOptions = PlotCompilerOptions.default
   ): Either[GraphicsError, TrainedPlot] =
+    resolveBeforeRetention(plot, options).map(_.retainRequestedInspection)
+
+  /** Run only the data-dependent phases — mapping, statistics, scale training, row resolution,
+    * coordinate transforms, layer geometry, and guide specification — and return the reusable
+    * intermediate. Pair with [[place]] to add the device-dependent remainder; a pure resize then
+    * calls `place` alone. `train` assumes the result will be placed, so a layout policy is implied
+    * when the options carry none.
+    */
+  def train[Row](
+      plot: Plot[Row],
+      options: PlotCompilerOptions = PlotCompilerOptions.lean
+  ): Either[GraphicsError, TrainedPlotData] =
+    val prepared =
+      if options.layout.isEmpty && options.frame.isEmpty && options.policy.isEmpty then
+        options.copy(policy = Some(options.theme.layout))
+      else options
+    trainStage(plot, effectiveOptions(plot, prepared), options)
+
+  /** Add the device-dependent phases — layout solve, panel decoration, guide and label lowering —
+    * to a trained plot for one [[RenderContext]]. Placing the same value at the same context twice
+    * yields identical scenes; placing at a new context repeats none of the data-side work.
+    */
+  def place(
+      trained: TrainedPlotData,
+      context: RenderContext
+  ): Either[GraphicsError, TrainedPlot] =
+    val effective = effectiveOptionsFor(
+      trained.labels.isEmpty,
+      trained.hasFacet,
+      trained.baseOptions.copy(renderContext = Some(context))
+    )
+    placeStage(trained, effective).map(_.retainRequestedInspection)
+
+  /** Test oracle: identical to [[train]] but forces the general facet path even when both position
+    * dimensions share scales, so the shared-scale fast path can be verified panel by panel.
+    */
+  private[intaglio] def trainFacetedExhaustive[Row](
+      plot: Plot[Row],
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, TrainedPlotData] =
+    val prepared =
+      if options.layout.isEmpty && options.frame.isEmpty && options.policy.isEmpty then
+        options.copy(policy = Some(options.theme.layout))
+      else options
+    val resolvedOptions = effectiveOptions(plot, prepared)
+    plot.facet match
+      case Some(facet) => FacetCompiler.trainExhaustive(plot, facet, resolvedOptions, options)
+      case None        => trainSingle(plot, resolvedOptions, options)
+
+  /** Optional compilation consumers may extract portable metadata before source rows are released.
+    * Geometry still follows the requested policy, including lean point batching.
+    */
+  private[intaglio] def resolveBeforeRetention[Row](
+      plot: Plot[Row],
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, TrainedPlot] =
     val resolvedOptions = effectiveOptions(plot, options)
-    val resolved = plot.facet match
-      case Some(facet) => FacetCompiler.resolve(plot, facet, resolvedOptions)
-      case None        => resolveSingle(plot, resolvedOptions)
-    resolved.map(_.retainRequestedInspection)
+    trainStage(plot, resolvedOptions, options).flatMap(placeStage(_, resolvedOptions))
+
+  private def trainStage[Row](
+      plot: Plot[Row],
+      resolvedOptions: PlotCompilerOptions,
+      baseOptions: PlotCompilerOptions
+  ): Either[GraphicsError, TrainedPlotData] =
+    plot.facet match
+      case Some(facet) => FacetCompiler.train(plot, facet, resolvedOptions, baseOptions)
+      case None        => trainSingle(plot, resolvedOptions, baseOptions)
+
+  private def placeStage(
+      trained: TrainedPlotData,
+      resolvedOptions: PlotCompilerOptions
+  ): Either[GraphicsError, TrainedPlot] =
+    trained.stage match
+      case single: TrainedStage.Single =>
+        placeSingle(trained, single, resolvedOptions)
+      case faceted: TrainedStage.Faceted =>
+        FacetCompiler.place(trained, faceted, resolvedOptions)
 
   def resolve[Row](
       plot: Plot[Row],
@@ -394,15 +510,65 @@ object PlotCompiler:
   ): Either[GraphicsError, TrainedPlot] =
     resolve(plot, options.copy(renderContext = Some(context)))
 
+  /** [[train]] through a caller-owned [[PlotCompileCache]]: an unchanged plot compiled with
+    * unchanged options returns the retained trained value without redoing any data-side work. Keys
+    * are the references passed here; a miss computes and stores, an error stores nothing.
+    */
+  def train[Row](
+      plot: Plot[Row],
+      options: PlotCompilerOptions,
+      cache: PlotCompileCache
+  ): Either[GraphicsError, TrainedPlotData] =
+    cache match
+      case PlotCompileCache.Disabled         => train(plot, options)
+      case bounded: PlotCompileCache.Bounded =>
+        bounded.trainedFor(plot, options)(train(plot, options))
+
+  /** [[place]] through a caller-owned [[PlotCompileCache]]: the same trained value placed at a
+    * value-equal [[RenderContext]] returns the retained placement.
+    */
+  def place(
+      trained: TrainedPlotData,
+      context: RenderContext,
+      cache: PlotCompileCache
+  ): Either[GraphicsError, TrainedPlot] =
+    cache match
+      case PlotCompileCache.Disabled         => place(trained, context)
+      case bounded: PlotCompileCache.Bounded =>
+        bounded.placedFor(trained, context)(place(trained, context))
+
+  /** [[resolve]] through a caller-owned [[PlotCompileCache]], routed through [[train]] and
+    * [[place]] so that an unchanged plot memoizes its data-side work across contexts and an
+    * unchanged (plot, context) pair memoizes the placement too. Scenes are identical to an uncached
+    * [[resolve]] (the `train`/`place` composition contract; see `TrainPlaceSuite`).
+    */
+  def resolve[Row](
+      plot: Plot[Row],
+      context: RenderContext,
+      options: PlotCompilerOptions,
+      cache: PlotCompileCache
+  ): Either[GraphicsError, TrainedPlot] =
+    cache match
+      case PlotCompileCache.Disabled         => resolve(plot, context, options)
+      case bounded: PlotCompileCache.Bounded =>
+        train(plot, options, bounded).flatMap(place(_, context, bounded))
+
   private[intaglio] def effectiveOptions[Row](
       plot: Plot[Row],
+      options: PlotCompilerOptions
+  ): PlotCompilerOptions =
+    effectiveOptionsFor(plot.labels.isEmpty, plot.facet.nonEmpty, options)
+
+  private[intaglio] def effectiveOptionsFor(
+      labelsEmpty: Boolean,
+      hasFacet: Boolean,
       options: PlotCompilerOptions
   ): PlotCompilerOptions =
     val themeNeedsLayout =
       options.theme.panel.background.nonEmpty || options.theme.panel.grid.nonEmpty
     val effectiveOptions =
       if (
-          !plot.labels.isEmpty || themeNeedsLayout || plot.facet.nonEmpty || options.guides.requiresLayout || options.renderContext.nonEmpty
+          !labelsEmpty || themeNeedsLayout || hasFacet || options.guides.requiresLayout || options.renderContext.nonEmpty
         )
         && options.layout.isEmpty && options.frame.isEmpty && options.policy.isEmpty
       then options.copy(policy = Some(options.theme.layout))
@@ -417,57 +583,102 @@ object PlotCompiler:
         else effectiveOptions.policy.map(_ => layoutPolicy)
     )
 
-  private def resolveSingle[Row](
+  private def trainSingle[Row](
       plot: Plot[Row],
+      resolvedOptions: PlotCompilerOptions,
+      baseOptions: PlotCompilerOptions
+  ): Either[GraphicsError, TrainedPlotData] =
+    for
+      plans <- PhaseClock.timed(PhaseClock.Phase.Mapping)(MappingPhase.plan(plot))
+      statPlans <- PhaseClock.timed(PhaseClock.Phase.Stat)(StatPhase.transform(plans))
+      scales <- PhaseClock.timed(PhaseClock.Phase.ScaleTraining)(
+        ScalePhase.train(statPlans, resolvedOptions.theme)
+      )
+      logicalLayers <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
+        resolveLayers(
+          scales.plans,
+          resolvedOptions.theme,
+          resolvedOptions.provenance
+        )
+      )
+      logicalRanges <- LayoutPhase.panelRangesFor(resolvedOptions, logicalLayers)
+      specs <- PhaseClock.timed(PhaseClock.Phase.Layout)(
+        GuidePhase.specs(
+          resolvedOptions.guides,
+          plot.coord,
+          scales.registry,
+          logicalRanges,
+          relativeLegend = resolvedOptions.policy.nonEmpty,
+          labels = plot.labels
+        )
+      )
+      coordinates <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
+        CoordPhase.transform(
+          plot.coord,
+          logicalLayers,
+          logicalRanges,
+          scales.registry
+        )
+      )
+      semantics <- PlotSemantics.build(
+        plot.accessibility,
+        plot.labels,
+        coordinates.layers,
+        scales.registry
+      )
+    yield TrainedPlotData(
+      plot.coord,
+      plot.labels,
+      baseOptions,
+      TrainedStage.Single(
+        coordinates.layers,
+        scales.registry,
+        specs,
+        coordinates.ranges,
+        semantics
+      )
+    )
+
+  private def placeSingle(
+      trained: TrainedPlotData,
+      single: TrainedStage.Single,
       resolvedOptions: PlotCompilerOptions
   ): Either[GraphicsError, TrainedPlot] =
     val layoutPolicy = resolvedOptions.policy.getOrElse(resolvedOptions.theme.layoutPolicy)
     for
-      plans <- MappingPhase.plan(plot)
-      statPlans <- StatPhase.transform(plans)
-      scales <- ScalePhase.train(statPlans, resolvedOptions.theme)
-      logicalLayers <- resolveLayers(
-        scales.plans,
-        resolvedOptions.theme,
-        resolvedOptions.provenance
+      resolution <- PhaseClock.timed(PhaseClock.Phase.Layout)(
+        LayoutPhase.assemble(
+          trained.coord,
+          resolvedOptions,
+          single.ranges,
+          single.specs,
+          trained.labels
+        )
       )
-      logicalRanges <- LayoutPhase.panelRangesFor(resolvedOptions, logicalLayers)
-      specs <- GuidePhase.specs(
-        resolvedOptions.guides,
-        plot.coord,
-        scales.registry,
-        logicalRanges,
-        relativeLegend = resolvedOptions.policy.nonEmpty,
-        labels = plot.labels
+      panelGrobs <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
+        PanelPhase.lower(resolution.layout, single.specs, resolvedOptions.theme.panel)
       )
-      coordinates <- CoordPhase.transform(
-        plot.coord,
-        logicalLayers,
-        logicalRanges,
-        scales.registry
+      guides <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
+        GuidePhase.lower(
+          resolution.layout,
+          resolution.frames,
+          single.specs,
+          layoutPolicy,
+          resolvedOptions.theme
+        )
       )
-      layers = coordinates.layers
-      ranges = coordinates.ranges
-      resolution <- LayoutPhase.assemble(plot.coord, resolvedOptions, ranges, specs, plot.labels)
-      panelGrobs <- PanelPhase.lower(resolution.layout, specs, resolvedOptions.theme.panel)
-      guides <- GuidePhase.lower(
-        resolution.layout,
-        resolution.frames,
-        specs,
-        layoutPolicy,
-        resolvedOptions.theme
+      labelGrobs <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
+        PlotLabelPhase.lower(trained.labels, resolution.frames, resolvedOptions.theme.plotText)
       )
-      labels <- PlotLabelPhase.lower(plot.labels, resolution.frames, resolvedOptions.theme.plotText)
-      semantics <- PlotSemantics.build(plot.accessibility, plot.labels, layers, scales.registry)
     yield TrainedPlot(
-      layers,
+      single.layers,
       resolution.layout,
       guides,
-      scales.registry,
+      single.registry,
       panelGrobs,
-      labels,
+      labelGrobs,
       Vector.empty[ResolvedFacetPanel],
-      semantics
+      single.semantics
     )
 
   private[intaglio] def resolveLayers(
@@ -509,15 +720,17 @@ object PlotCompiler:
       val inspection =
         LayerInspection.capture(plan.source.data, plan.frame, droppedRows, provenance)
       PositionPhase.adjust(plan.layer, rows).flatMap { adjusted =>
-        GeomPhase
-          .lower(
-            plan.layerIndex,
-            plan.layer,
-            plan.layer.stat.contract.lowering,
-            adjusted,
-            annotation,
-            theme,
-            batchPointMarks = provenance != ProvenancePolicy.Full
+        PhaseClock
+          .timed(PhaseClock.Phase.Lowering)(
+            GeomPhase.lower(
+              plan.layerIndex,
+              plan.layer,
+              plan.layer.stat.contract.lowering,
+              adjusted,
+              annotation,
+              theme,
+              batchPointMarks = provenance != ProvenancePolicy.Full
+            )
           )
           .map { grobs =>
             TrainedLayer(
