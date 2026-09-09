@@ -208,12 +208,20 @@ These are enforced at construction or at a render boundary, and each produces a 
 | Raster dimensions | the PNG-encoded size must fit in an `Int` | `RasterDimensions` | `GraphicsError.InvalidRasterDimensions` |
 | Discrete palette capacity | the palette's own length | `DiscretePalette.validateDomain` | `GraphicsError.DiscretePaletteOverflow` under `PaletteOverflowPolicy.Reject` |
 | Dash pattern segments | **32**, at least one above zero | `DashPattern` | `GraphicsError.InvalidDashPattern` |
+| Font weight | **100** to **900** | `FontWeight` | `GraphicsError.InvalidFontWeight` |
+| PDF font faces | one per (family, weight) | `PdfFontCatalog` | `PdfRenderError.DuplicateFontFace`, `MissingFontWeight` |
 
 The raster limit is a formula rather than a fixed pixel count. `RasterDimensions` computes
 `scanlineBytes = pixels * 4 + height`, adds five bytes per 65,535-byte stored deflate block plus a
 constant, and rejects anything whose encoded size would exceed `Int.MaxValue`. The block framing
 comes from the PNG encoder, so the constructor rejects exactly the images the encoder could not
 produce.
+
+The PDF limit is the sharpest of these. Every other backend can approximate a weight it does not
+have — AWT and JavaFX fall back to the nearest face, a browser synthesizes one. PDF embeds font
+programs, and PDFBox will not synthesize a bold face for an embedded subset, so a document that
+draws at a weight no registered face carries is a `MissingFontWeight` rather than a document that
+silently reads as regular. Register the faces you use.
 
 The dash limit has a reason beyond tidiness: `java.awt.BasicStroke` throws on an all-zero dash
 array, so a pattern that three backends would draw and Java2D would reject is refused at

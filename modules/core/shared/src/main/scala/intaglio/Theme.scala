@@ -85,7 +85,13 @@ final case class Theme(
       legendFontPt = pointFont(legend.text),
       legendFontFamily = legend.text.fontFamily,
       legendTitleFontPt = pointFont(legend.title),
-      legendTitleFontFamily = legend.title.fontFamily
+      legendTitleFontFamily = legend.title.fontFamily,
+      axisFontWeight = axis.text.fontWeight,
+      axisTitleFontWeight = axis.title.fontWeight,
+      plotTitleFontWeight = plotText.title.fontWeight,
+      plotSubtitleFontWeight = plotText.subtitle.fontWeight,
+      legendFontWeight = legend.text.fontWeight,
+      legendTitleFontWeight = legend.title.fontWeight
     )
 
   private def requirePointFont(label: String, gp: GraphicParams): Unit =

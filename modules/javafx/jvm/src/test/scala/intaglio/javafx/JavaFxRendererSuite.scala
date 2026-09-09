@@ -63,8 +63,8 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   override def setLineDashes(pattern: Vector[Double]): Unit =
     calls += "setLineDashes"
     lastDashes = pattern
-  override def setFont(family: Option[String], sizePx: Double): Unit =
-    calls += "setFont"
+  override def setFont(family: Option[String], sizePx: Double, weight: Option[FontWeight]): Unit =
+    calls += weight.fold("setFont")(value => s"setFont:${value.value}")
     lastFont = (family, sizePx)
   override def setTextAlign(horizontal: HJust): Unit =
     calls += "setTextAlign"

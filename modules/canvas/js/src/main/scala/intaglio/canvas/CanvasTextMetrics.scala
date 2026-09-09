@@ -54,7 +54,8 @@ final class CanvasTextMetrics(
     context.save()
     try
       val sizePx = style.fontSizePt * pixelsPerPoint
-      context.font = s"${sizePx}px ${cssFamily(resolvedFamily(style.fontFamily))}"
+      context.font =
+        CanvasFont.shorthand(style.fontWeight, sizePx, cssFamily(resolvedFamily(style.fontFamily)))
       context.measureText(text)
     finally context.restore()
 

@@ -38,7 +38,7 @@ final class Java2DTextMetrics private (
     FontRegistry(requested => Some(resolvedFamily(requested)))
 
   private def font(style: TextStyle): Font =
-    new Font(resolvedFamily(style.fontFamily), Font.PLAIN, 1).deriveFont(style.fontSizePt.toFloat)
+    Java2DFontResolver.derive(resolvedFamily(style.fontFamily), style.fontSizePt, style.fontWeight)
 
   private def normalize(value: String): String =
     value.toLowerCase(Locale.ROOT)

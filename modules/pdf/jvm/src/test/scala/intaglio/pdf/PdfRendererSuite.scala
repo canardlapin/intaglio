@@ -34,8 +34,22 @@ class PdfRendererSuite extends munit.FunSuite:
 
   private final case class PdfSnapshot(bytes: Vector[Byte], trace: PdfRenderTrace)
 
+  /** The bold face of the conformance family.
+    *
+    * It is the same font program as the regular one, which is what a test fixture can honestly
+    * supply: PDF's contract is that the backend selects the face registered for a weight, not that
+    * the glyphs of that file are heavier. A real document supplies a real bold file here.
+    */
+  private lazy val conformanceSansBold: PdfFont =
+    PdfFont
+      .fromBytes("Conformance Sans", bundledFontBytes(), FontWeight.Bold)
+      .fold(error => fail(error.message), identity)
+
   private object PdfHarness extends RendererHarness[PdfSnapshot]:
-    private lazy val catalog = PdfFontCatalog.single(conformanceSans)
+    private lazy val catalog =
+      PdfFontCatalog
+        .from(conformanceSans, conformanceSansBold)
+        .fold(error => fail(error.message), identity)
     private lazy val context = RendererConformance.targetContext(catalog.fontRegistry)
 
     override def render(scene: Scene): Either[String, PdfSnapshot] =
@@ -357,10 +371,19 @@ class PdfRendererSuite extends munit.FunSuite:
     val copied = PdfRenderer.render(RenderPlan(text, context), copiedCatalog)
     assert(copied.isRight, copied.left.map(_.message))
 
+    // A face is a family at a weight, so two faces collide only when both match. Registering the
+    // same family at a second weight is how a document gets a bold face at all.
     val second = PdfFont.fromBytes(" example ", Array[Byte](1)).toOption.get
     assertEquals(
       PdfFontCatalog.from(first, second).left.toOption,
-      Some(PdfRenderError.DuplicateFontFamily("example"))
+      Some(PdfRenderError.DuplicateFontFace("example", FontWeight.Regular.value))
+    )
+
+    val bold = PdfFont.fromBytes("Example", Array[Byte](1), FontWeight.Bold).toOption.get
+    assert(PdfFontCatalog.from(first, bold).isRight)
+    assertEquals(
+      PdfFontCatalog.from(first, bold, bold).left.toOption,
+      Some(PdfRenderError.DuplicateFontFace("Example", FontWeight.Bold.value))
     )
     assertEquals(
       PdfFont.fromBytes("  ", Array[Byte](1)).left.toOption,

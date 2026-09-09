@@ -110,7 +110,7 @@ class SceneConformanceSuite extends munit.FunSuite:
                 name
               ) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
             case _ => false
-        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
+        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha, fontWeight) =>
           primitive match
             case DevicePrimitive.TextRun(
                   _,
@@ -126,7 +126,8 @@ class SceneConformanceSuite extends munit.FunSuite:
                 ) =>
               primitiveName
                 .contains(name) && gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black) == color &&
-              actualFontSize == fontSizePx && actualFontFamily == fontFamily && gp.alpha == alpha
+              actualFontSize == fontSizePx && actualFontFamily == fontFamily && gp.alpha == alpha &&
+              gp.fontWeight == fontWeight
             case _ => false
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           primitive match

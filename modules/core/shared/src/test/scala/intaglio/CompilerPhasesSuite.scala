@@ -68,6 +68,7 @@ class CompilerPhasesSuite extends munit.FunSuite:
         fontSize = Length.pointsUnsafe(17.0)
       )
       .withPatternFill(compilerPattern)
+      .withFontWeight(FontWeight.Bold)
 
   private def resolvePointLayer(mapping: AesSpec[Obs]): TrainedLayer =
     val plot =
@@ -362,6 +363,12 @@ class CompilerPhasesSuite extends munit.FunSuite:
     assertEquals(alphaOnly.fill, nonDefaultGraphicParams.fill)
     assertEquals(alphaOnly.fillPattern, nonDefaultGraphicParams.fillPattern)
     assertEqualsDouble(alphaOnly.alpha, 0.25, 1e-12)
+
+    // A channel with no aesthetic survives every mapping. `fontWeight` is the newest one and is
+    // named here so the guard is not only structural.
+    assertEquals(colorOnly.fontWeight, nonDefaultGraphicParams.fontWeight)
+    assertEquals(fillOnly.fontWeight, nonDefaultGraphicParams.fontWeight)
+    assertEquals(alphaOnly.fontWeight, nonDefaultGraphicParams.fontWeight)
 
     val expectedUnmappedFields = (
       nonDefaultGraphicParams.lineWidth,

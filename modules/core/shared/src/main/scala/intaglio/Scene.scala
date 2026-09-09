@@ -413,8 +413,38 @@ final case class GraphicParams private (
     fontFamily: Option[String] = None,
     fontSize: Length = Length.pointsUnsafe(12.0),
     fillPattern: Option[PatternPaint] = None,
-    lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel
+    lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel,
+    fontWeight: Option[FontWeight] = None
 ):
+  /** Retains the stroke-unit-era constructor descriptor while adding a typographic weight. */
+  private[intaglio] def this(
+      stroke: Option[Rgba],
+      fill: Option[Rgba],
+      lineWidth: Double,
+      lineType: LineType,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      alpha: Double,
+      fontFamily: Option[String],
+      fontSize: Length,
+      fillPattern: Option[PatternPaint],
+      lineWidthUnit: StrokeUnit
+  ) =
+    this(
+      stroke,
+      fill,
+      lineWidth,
+      lineType,
+      lineCap,
+      lineJoin,
+      alpha,
+      fontFamily,
+      fontSize,
+      fillPattern,
+      lineWidthUnit,
+      None
+    )
+
   /** Retains the pre-pattern JVM constructor descriptor for compiled callers; Scala callers still
     * enter through the checked companion constructors.
     */
@@ -509,6 +539,16 @@ final case class GraphicParams private (
         )
       mappedWidth.fold(styled)(styled.withStrokeWidth)
 
+  /** Set the typographic weight. `copy` is private, so this is how a theme or a caller reaches the
+    * channel without going back through `checked`.
+    */
+  def withFontWeight(weight: FontWeight): GraphicParams =
+    copy(fontWeight = Some(weight))
+
+  /** Draw at whatever weight the face is, which is what an unset weight means. */
+  def withoutFontWeight: GraphicParams =
+    copy(fontWeight = None)
+
   /** Replace the solid fill channel with a validated pattern paint. */
   def withPatternFill(pattern: PatternPaint): GraphicParams =
     copy(fill = None, fillPattern = Some(pattern))
@@ -528,7 +568,8 @@ object GraphicParams:
       alpha: Double = 1.0,
       fontFamily: Option[String] = None,
       fontSize: Length = Length.pointsUnsafe(12.0),
-      lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel
+      lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel,
+      fontWeight: Option[FontWeight] = None
   ): Either[GraphicsError, GraphicParams] =
     if !lineWidth.isFinite || lineWidth < 0.0 then Left(GraphicsError.InvalidLineWidth(lineWidth))
     else if !alpha.isFinite || alpha < 0.0 || alpha > 1.0 then
@@ -546,7 +587,8 @@ object GraphicParams:
           fontFamily,
           fontSize,
           None,
-          lineWidthUnit
+          lineWidthUnit,
+          fontWeight
         )
       )
 
@@ -560,7 +602,8 @@ object GraphicParams:
       alpha: Double = 1.0,
       fontFamily: Option[String] = None,
       fontSize: Length = Length.pointsUnsafe(12.0),
-      lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel
+      lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel,
+      fontWeight: Option[FontWeight] = None
   ): GraphicParams =
     checked(
       stroke,
@@ -572,7 +615,8 @@ object GraphicParams:
       alpha,
       fontFamily,
       fontSize,
-      lineWidthUnit
+      lineWidthUnit,
+      fontWeight
     ).orThrow
 
 final case class Viewport private (

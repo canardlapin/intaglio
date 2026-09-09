@@ -8,6 +8,44 @@ given release preserves, and what moving the baseline requires — is
 
 ## Unreleased
 
+### PDF font catalogs index a face, not a family
+
+`PdfFont.fromBytes` gained a trailing `weight: FontWeight = FontWeight.Regular`, and
+`PdfFontCatalog` now indexes `(family, weight)`. A catalog that never mentions weight behaves
+exactly as before, so most callers need no edit.
+
+Two changes are visible. Registering the same family twice is now legal when the weights differ —
+that is how a document gets a bold face — and `PdfRenderError.DuplicateFontFamily` has been removed
+because it can no longer be produced. Matching on it no longer compiles:
+
+```
+Not found: DuplicateFontFamily
+```
+
+Use `DuplicateFontFace(family, weight)`, which is raised when two registered faces share both. A
+text run asking for a weight no registered face carries is `MissingFontWeight(family, weight)`
+rather than a silent fallback to the regular face.
+
+### `GraphicParams`, `TextStyle` and `LayoutPolicy` gained typographic weight
+
+All three are `final case class`es, so their `apply`, `copy` and `unapply` descriptors changed.
+Every field is trailing and defaulted, so named-argument calls are unaffected; a positional call
+that filled every field no longer compiles.
+
+`GraphicParams`'s constructor is private and its `copy` is not accessible, so callers enter through
+`GraphicParams.checked`/`.unsafe` and are unaffected. Set the channel with `withFontWeight`:
+
+```scala
+GraphicParams.unsafe(fill = Some(Rgba.Black)).withFontWeight(FontWeight.Bold)
+```
+
+`RenderRequirement.TextStyle` also gained a trailing `fontWeight`. A backend harness that
+destructures it positionally with five bindings no longer compiles:
+
+```
+Wrong number of argument patterns for intaglio.RenderRequirement.TextStyle; expected: (GraphicsName, Rgba, Double, Option[String], Double, Option[FontWeight])
+```
+
 ### `LineType` gained a parameterised case, moving `values` and `valueOf`
 
 `LineType` is no longer a simple enum: `Custom(pattern: DashPattern)` joins

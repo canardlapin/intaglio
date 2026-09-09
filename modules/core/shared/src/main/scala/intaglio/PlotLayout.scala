@@ -10,9 +10,14 @@ trait TextMetrics:
   def widthPt(text: String, fontSizePt: Double): Double
   def heightPt(fontSizePt: Double): Double
 
-  /** Family-aware entry points used by layout. Existing deterministic or synthetic providers can
+  /** Style-aware entry points used by layout. Existing deterministic or synthetic providers can
     * implement only the size-based contract; platform providers override these methods to honor the
-    * requested family.
+    * requested family and weight.
+    *
+    * A provider that ignores weight measures a regular face for text a backend will draw bold, and
+    * bold is wider. That is a layout error rather than a cosmetic one, so a provider that cannot
+    * measure weight should say so where it is documented rather than quietly return the regular
+    * advance.
     */
   def widthPt(text: String, style: TextStyle): Double =
     widthPt(text, style.fontSizePt)
@@ -20,7 +25,11 @@ trait TextMetrics:
   def heightPt(style: TextStyle): Double =
     heightPt(style.fontSizePt)
 
-final case class TextStyle(fontFamily: Option[String], fontSizePt: Double):
+final case class TextStyle(
+    fontFamily: Option[String],
+    fontSizePt: Double,
+    fontWeight: Option[FontWeight] = None
+):
   require(fontSizePt > 0.0 && fontSizePt.isFinite, "`fontSizePt` must be finite and > 0")
 
 object TextMetrics:
@@ -69,7 +78,13 @@ final case class LayoutPolicy(
     plotSubtitleFontFamily: Option[String] = None,
     legendFontFamily: Option[String] = None,
     legendTitleFontPt: Double = 10.0,
-    legendTitleFontFamily: Option[String] = None
+    legendTitleFontFamily: Option[String] = None,
+    axisFontWeight: Option[FontWeight] = None,
+    axisTitleFontWeight: Option[FontWeight] = None,
+    plotTitleFontWeight: Option[FontWeight] = None,
+    plotSubtitleFontWeight: Option[FontWeight] = None,
+    legendFontWeight: Option[FontWeight] = None,
+    legendTitleFontWeight: Option[FontWeight] = None
 ):
   require(outerMarginPt >= 0.0 && outerMarginPt.isFinite, "`outerMarginPt` must be finite and >= 0")
   require(tickLengthPt >= 0.0 && tickLengthPt.isFinite, "`tickLengthPt` must be finite and >= 0")
@@ -140,12 +155,16 @@ final case class LayoutPolicy(
   require(panelGapPt >= 0.0 && panelGapPt.isFinite, "`panelGapPt` must be finite and >= 0")
   require(facetStripPt > 0.0 && facetStripPt.isFinite, "`facetStripPt` must be finite and > 0")
 
-  def axisTextStyle: TextStyle = TextStyle(axisFontFamily, axisFontPt)
-  def axisTitleTextStyle: TextStyle = TextStyle(axisTitleFontFamily, axisTitleFontPt)
-  def plotTitleTextStyle: TextStyle = TextStyle(plotTitleFontFamily, plotTitleFontPt)
-  def plotSubtitleTextStyle: TextStyle = TextStyle(plotSubtitleFontFamily, plotSubtitleFontPt)
-  def legendTextStyle: TextStyle = TextStyle(legendFontFamily, legendFontPt)
-  def legendTitleTextStyle: TextStyle = TextStyle(legendTitleFontFamily, legendTitleFontPt)
+  def axisTextStyle: TextStyle = TextStyle(axisFontFamily, axisFontPt, axisFontWeight)
+  def axisTitleTextStyle: TextStyle =
+    TextStyle(axisTitleFontFamily, axisTitleFontPt, axisTitleFontWeight)
+  def plotTitleTextStyle: TextStyle =
+    TextStyle(plotTitleFontFamily, plotTitleFontPt, plotTitleFontWeight)
+  def plotSubtitleTextStyle: TextStyle =
+    TextStyle(plotSubtitleFontFamily, plotSubtitleFontPt, plotSubtitleFontWeight)
+  def legendTextStyle: TextStyle = TextStyle(legendFontFamily, legendFontPt, legendFontWeight)
+  def legendTitleTextStyle: TextStyle =
+    TextStyle(legendTitleFontFamily, legendTitleFontPt, legendTitleFontWeight)
 
 /** Stable names for solver-allocated regions. */
 object PlotRegion:

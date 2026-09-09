@@ -40,7 +40,8 @@ enum RenderRequirement:
       color: Rgba,
       fontSizePx: Double,
       fontFamily: Option[String],
-      alpha: Double
+      alpha: Double,
+      fontWeight: Option[FontWeight] = None
   )
   case Image(
       name: GraphicsName,
@@ -61,8 +62,8 @@ enum RenderRequirement:
         s"pattern fill '${name.value}' with recipe=${paint.recipe}, ink=${paint.ink}, background=${paint.background}, alpha=$alpha"
       case Text(name, horizontal, vertical, rotated) =>
         s"text '${name.value}' with anchor=($horizontal,$vertical) and rotated=$rotated"
-      case TextStyle(name, color, fontSizePx, fontFamily, alpha) =>
-        s"text style '${name.value}' with color=$color, fontSizePx=$fontSizePx, fontFamily=$fontFamily, alpha=$alpha"
+      case TextStyle(name, color, fontSizePx, fontFamily, alpha, fontWeight) =>
+        s"text style '${name.value}' with color=$color, fontSizePx=$fontSizePx, fontFamily=$fontFamily, alpha=$alpha, fontWeight=${fontWeight.map(_.value)}"
       case Image(name, dimensions, interpolation, alpha) =>
         s"image '${name.value}' with ${dimensions.width}x${dimensions.height} pixels, interpolation=$interpolation, alpha=$alpha"
 
@@ -159,6 +160,7 @@ object RendererConformance:
       point <- pointCase
       line <- lineCase
       customDash <- customDashCase
+      boldText <- boldTextCase
       shapes <- shapeCase
       annotated <- annotatedCase
       steps <- stepLineCase
@@ -204,6 +206,7 @@ object RendererConformance:
       point,
       line,
       customDash,
+      boldText,
       shapes,
       annotated,
       steps,
@@ -355,6 +358,50 @@ object RendererConformance:
               LineCap.Butt,
               LineJoin.Miter,
               1.0
+            )
+          )
+        )
+      }
+
+  /** Text at a weight the face is not drawn at by default.
+    *
+    * Weight is the first typographic channel beyond family and size, and it is the first one that
+    * changes glyph advance — a backend that draws it without measuring it mis-sizes every region
+    * the layout solver reserved. This case exists so no backend can accept the channel and quietly
+    * discard it.
+    */
+  def boldTextCase: Either[GraphicsError, ConformanceCase] =
+    val name = GraphicsName.unsafe("conformance-bold-text")
+    val color = Rgba.unsafe(30, 30, 30)
+    Grob
+      .text(
+        "Bold",
+        Point.npcUnsafe(0.5, 0.5),
+        gp = GraphicParams
+          .unsafe(
+            stroke = None,
+            fill = Some(color),
+            fontFamily = Some("Conformance Sans"),
+            fontSize = Length.pointsUnsafe(9.0)
+          )
+          .withFontWeight(FontWeight.Bold),
+        name = Some(name)
+      )
+      .map { grob =>
+        ConformanceCase(
+          GraphicsName.unsafe("bold-text"),
+          ConformanceGroup.Primitive,
+          Scene(Vector(grob)),
+          Vector(name),
+          Vector(
+            RenderRequirement.Primitive(name, RenderPrimitiveKind.Text),
+            RenderRequirement.TextStyle(
+              name,
+              color,
+              fontSizePx = 12.0,
+              fontFamily = Some("Conformance Sans"),
+              alpha = 1.0,
+              fontWeight = Some(FontWeight.Bold)
             )
           )
         )

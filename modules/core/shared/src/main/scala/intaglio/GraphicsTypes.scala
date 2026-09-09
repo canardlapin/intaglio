@@ -226,6 +226,46 @@ enum LineType:
       case Dotted          => Some(DashPattern.Dotted)
       case Custom(pattern) => Some(pattern)
 
+/** Stroke weight of a typeface, on the conventional 100-to-900 scale where 400 is regular and 700
+  * is bold.
+  *
+  * Checked rather than a bare `Int` because the scale is bounded on every backend that can honour
+  * it — CSS and SVG accept 100 to 900, `javafx.scene.text.FontWeight.findByWeight` clamps to it,
+  * and Java2D's `TextAttribute.WEIGHT` is that scale divided by 400. A value outside it has no
+  * meaning to render.
+  *
+  * Intermediate values are allowed, not only multiples of 100: a variable font can honour 550, and
+  * a backend that cannot will round to the nearest face it has.
+  */
+opaque type FontWeight = Int
+
+object FontWeight:
+  val Minimum: Int = 100
+  val Maximum: Int = 900
+
+  /** The weight an unstyled face draws at. */
+  val Regular: FontWeight = 400
+
+  /** The weight `font-weight: bold` names. */
+  val Bold: FontWeight = 700
+
+  def apply(value: Int): Either[GraphicsError, FontWeight] =
+    if value < Minimum || value > Maximum then Left(GraphicsError.InvalidFontWeight(value))
+    else Right(value)
+
+  def unsafe(value: Int): FontWeight =
+    apply(value).orThrow
+
+  extension (weight: FontWeight)
+    /** The 100-to-900 value, for a backend that speaks that scale directly. */
+    def value: Int = weight
+
+    /** The Java2D `TextAttribute.WEIGHT` scale, where regular is 1.0. */
+    def java2dWeight: Float = weight.toFloat / 400.0f
+
+    /** Whether a backend with only two faces should choose its bold one. */
+    def isBold: Boolean = weight >= 600
+
 enum LineCap:
   case Butt
   case Round
