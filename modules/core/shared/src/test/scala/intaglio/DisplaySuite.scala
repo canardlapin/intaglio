@@ -85,9 +85,15 @@ class DisplaySuite extends munit.FunSuite:
     val band = DisplayThreshold.transparentBand(-0.5, 0.5).toOption.get
 
     for v <- probes do
-      assertEquals(open.hides(v), band.hides(v), s"TwoSided(inner, None) must agree with TransparentBand at $v")
+      assertEquals(
+        open.hides(v),
+        band.hides(v),
+        s"TwoSided(inner, None) must agree with TransparentBand at $v"
+      )
       assertEquals(bounded.hides(v), inner.contains(v) || v < -1.5 || v > 1.5, s"bounded.hides($v)")
-    assert(!bounded.hides(-0.5) && !bounded.hides(0.5) && !bounded.hides(-1.5) && !bounded.hides(1.5))
+    assert(
+      !bounded.hides(-0.5) && !bounded.hides(0.5) && !bounded.hides(-1.5) && !bounded.hides(1.5)
+    )
 
   test("two-sided magnitude thresholds are symmetric"):
     val threshold = DisplayThreshold.twoSidedMagnitude(0.5, Some(1.5)).toOption.get
@@ -103,7 +109,7 @@ class DisplaySuite extends munit.FunSuite:
     for bad <- Vector(Double.NaN, Double.PositiveInfinity, Double.NegativeInfinity) do
       DisplayThreshold.below(bad).left.toOption match
         case Some(DisplayError.InvalidThresholdCutoff(c)) => assert(c.isNaN || c == bad)
-        case other                                        => fail(s"expected invalid cutoff, found $other")
+        case other => fail(s"expected invalid cutoff, found $other")
       assert(DisplayThreshold.above(bad).isLeft)
     val inner = ThresholdBand.unsafe(-1.0, 1.0)
     assertEquals(
@@ -129,7 +135,8 @@ class DisplaySuite extends munit.FunSuite:
     val invalid = Rgba32.unsafe(9, 9, 9, 0)
     for mode <- modes do assert(!mode.hides(Double.NaN), s"$mode must not claim to hide NaN")
     for mode <- modes; v <- Vector(Double.NaN, Double.PositiveInfinity, Double.NegativeInfinity) do
-      val colorizer = ScalarColorizer(DisplayWindow.unsafe(-1.0, 1.0), invalid = invalid, threshold = mode)
+      val colorizer =
+        ScalarColorizer(DisplayWindow.unsafe(-1.0, 1.0), invalid = invalid, threshold = mode)
       assertEquals(colorizer.color(v), invalid, s"$mode must render $v as invalid")
       assertEquals(colorizer.color(v).alpha, 0)
 
@@ -137,7 +144,8 @@ class DisplaySuite extends munit.FunSuite:
     val base = ScalarColorizer(DisplayWindow.unsafe(-1.0, 1.0))
     val positive = base.withThreshold(DisplayThreshold.below(0.25).toOption.get).get
     val negative = base.withThreshold(DisplayThreshold.above(-0.25).toOption.get).get
-    val bounded = base.withThreshold(DisplayThreshold.twoSidedMagnitude(0.25, Some(0.75)).toOption.get).get
+    val bounded =
+      base.withThreshold(DisplayThreshold.twoSidedMagnitude(0.25, Some(0.75)).toOption.get).get
 
     assertEquals(positive.color(0.5).alpha, 255)
     assertEquals(positive.color(0.25).alpha, 255)

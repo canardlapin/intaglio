@@ -59,24 +59,21 @@ object ThresholdBand:
 
 /** Which finite values a scalar colorizer renders transparent.
   *
-  * `hides` is meaningful only for finite values: every mode answers `false`
-  * for NaN (all comparisons are strict and NaN compares false), and
-  * [[ScalarColorizer]] routes every non-finite value to its `invalid` pixel
-  * before consulting the threshold. Cutoffs and band
-  * endpoints are always visible (comparisons are strict), so `Below(c)` and
-  * `Above(c)` partition the finite line into two sets that overlap exactly at
-  * `c`.
+  * `hides` is meaningful only for finite values: every mode answers `false` for NaN (all
+  * comparisons are strict and NaN compares false), and [[ScalarColorizer]] routes every non-finite
+  * value to its `invalid` pixel before consulting the threshold. Cutoffs and band endpoints are
+  * always visible (comparisons are strict), so `Below(c)` and `Above(c)` partition the finite line
+  * into two sets that overlap exactly at `c`.
   *
   *   - `Disabled`: nothing hidden.
   *   - `TransparentBand(band)`: hides the strict interior of `band`.
-  *   - `Below(cutoff)`: hides `value < cutoff`, i.e. shows a positive-going
-  *     threshold `value >= cutoff`.
-  *   - `Above(cutoff)`: hides `value > cutoff`, i.e. shows a negative-going
-  *     threshold `value <= cutoff`.
-  *   - `TwoSided(inner, outer)`: hides the strict interior of `inner` and, when
-  *     `outer` is given, everything strictly outside `outer`; the product's
-  *     "minimum magnitude / maximum magnitude" control. `TwoSided(band, None)`
-  *     hides exactly what `TransparentBand(band)` hides.
+  *   - `Below(cutoff)`: hides `value < cutoff`, i.e. shows a positive-going threshold
+  *     `value >= cutoff`.
+  *   - `Above(cutoff)`: hides `value > cutoff`, i.e. shows a negative-going threshold
+  *     `value <= cutoff`.
+  *   - `TwoSided(inner, outer)`: hides the strict interior of `inner` and, when `outer` is given,
+  *     everything strictly outside `outer`; the product's "minimum magnitude / maximum magnitude"
+  *     control. `TwoSided(band, None)` hides exactly what `TransparentBand(band)` hides.
   */
 enum DisplayThreshold:
   case Disabled
@@ -87,10 +84,10 @@ enum DisplayThreshold:
 
   def hides(value: Double): Boolean =
     this match
-      case Disabled              => false
-      case TransparentBand(band) => band.contains(value)
-      case Below(cutoff)         => value < cutoff
-      case Above(cutoff)         => value > cutoff
+      case Disabled               => false
+      case TransparentBand(band)  => band.contains(value)
+      case Below(cutoff)          => value < cutoff
+      case Above(cutoff)          => value > cutoff
       case TwoSided(inner, outer) =>
         inner.contains(value) || outer.exists(band => value < band.lower || value > band.upper)
 
@@ -106,22 +103,28 @@ object DisplayThreshold:
   def above(cutoff: Double): Either[DisplayError, DisplayThreshold] =
     finiteCutoff(cutoff).map(DisplayThreshold.Above.apply)
 
-  /** Hide the strict interior of `inner` and, when `outer` is given, everything
-    * strictly outside `outer`. `outer` must contain `inner` (endpoints may
-    * coincide), otherwise nothing could ever be shown on that side.
+  /** Hide the strict interior of `inner` and, when `outer` is given, everything strictly outside
+    * `outer`. `outer` must contain `inner` (endpoints may coincide), otherwise nothing could ever
+    * be shown on that side.
     */
-  def twoSided(inner: ThresholdBand, outer: Option[ThresholdBand]): Either[DisplayError, DisplayThreshold] =
+  def twoSided(
+      inner: ThresholdBand,
+      outer: Option[ThresholdBand]
+  ): Either[DisplayError, DisplayThreshold] =
     outer match
       case Some(band) if band.lower > inner.lower || band.upper < inner.upper =>
         Left(DisplayError.InvalidThresholdNesting(inner, band))
       case _ =>
         Right(DisplayThreshold.TwoSided(inner, outer))
 
-  /** Symmetric two-sided threshold on magnitude: hide `|value| < minMagnitude`
-    * and, when `maxMagnitude` is given, `|value| > maxMagnitude`. Requires
-    * `0 < minMagnitude` and `minMagnitude <= maxMagnitude`, both finite.
+  /** Symmetric two-sided threshold on magnitude: hide `|value| < minMagnitude` and, when
+    * `maxMagnitude` is given, `|value| > maxMagnitude`. Requires `0 < minMagnitude` and
+    * `minMagnitude <= maxMagnitude`, both finite.
     */
-  def twoSidedMagnitude(minMagnitude: Double, maxMagnitude: Option[Double] = None): Either[DisplayError, DisplayThreshold] =
+  def twoSidedMagnitude(
+      minMagnitude: Double,
+      maxMagnitude: Option[Double] = None
+  ): Either[DisplayError, DisplayThreshold] =
     for
       inner <- ThresholdBand.make(-minMagnitude, minMagnitude)
       outer <- maxMagnitude match
