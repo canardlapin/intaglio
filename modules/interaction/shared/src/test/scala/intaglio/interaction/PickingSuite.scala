@@ -422,3 +422,43 @@ class PickingSuite extends munit.FunSuite:
         clues(rule.toString)
       )
   }
+
+  test("a bold text target is measured at the weight it is drawn at") {
+    // A weight-blind measurement returns the regular advance, so a bold run's hit box would be
+    // narrower than the glyphs a reader is clicking on. This provider's width depends on weight,
+    // as any real one does.
+    val metrics = new TextMetrics:
+      override def widthPt(text: String, fontSizePt: Double): Double =
+        text.length.toDouble * fontSizePt
+
+      override def heightPt(fontSizePt: Double): Double = fontSizePt
+
+      override def widthPt(text: String, style: TextStyle): Double =
+        val factor = style.fontWeight.fold(1.0)(weight => weight.value / 400.0)
+        text.length.toDouble * style.fontSizePt * factor
+
+    val weighted = RenderContext.unsafe(width = 200, height = 200, textMetrics = metrics)
+
+    def rightEdgeHit(params: GraphicParams, x: Double): Boolean =
+      val text = DevicePrimitive.TextRun(
+        "label",
+        10.0,
+        10.0,
+        HJust.Left,
+        VJust.Top,
+        0.0,
+        10.0,
+        None,
+        params,
+        Some(GraphicsName.unsafe("picked"))
+      )
+      hit(compile(Vector(route(single, text)), renderContext = weighted), x, 12.0)
+
+    // Five glyphs at ten pixels is fifty wide regular, and seven-quarters of that bold. A point
+    // inside the bold box but outside the regular one separates the two.
+    // Five glyphs at ten pixels spans x 10 to 60 regular; bold is seven-quarters of that, to 95.
+    // A point between the two right edges is inside the bold box and outside the regular one.
+    assert(rightEdgeHit(fill, 40.0))
+    assert(!rightEdgeHit(fill, 75.0))
+    assert(rightEdgeHit(fill.withFontWeight(FontWeight.Bold), 75.0))
+  }

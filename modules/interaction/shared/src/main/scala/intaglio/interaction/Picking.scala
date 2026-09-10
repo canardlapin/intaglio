@@ -532,7 +532,10 @@ object Picking:
         else
           try
             val pixelsPerPoint = context.pixelsPerInch / 72.0
-            val style = TextStyle(family, fontSize / pixelsPerPoint)
+            // The weight has to travel with the family and size: bold is wider, so a hit box
+            // measured at the regular advance would be narrower than the glyphs a reader is
+            // clicking on.
+            val style = TextStyle(family, fontSize / pixelsPerPoint, gp.fontWeight)
             val width = context.textMetrics.widthPt(label, style) * pixelsPerPoint
             val height = context.textMetrics.heightPt(style) * pixelsPerPoint
             if !numbers(width, height) || width < 0 || height <= 0 then
