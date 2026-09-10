@@ -97,6 +97,10 @@ lazy val commonSettings = Seq(
   tastyMiMaConfig ~= { previous =>
     import java.util.Arrays.asList
     import tastymima.intf.{ProblemKind, ProblemMatcher}
+    // tastyquery cannot read an `Aux` type member that refers to its enclosing type parameter:
+    // `InvalidProgramStructureException: Unexpected local ref TypeRef(NoPrefix, symbol[Aux>Row])`.
+    // That is a limitation of the tool, not a shape this code should change to suit it, and
+    // sbt-tasty-mima 1.4.0 is the latest published version.
     previous.withMoreProblemFilters(
       asList(
         ProblemMatcher.make(ProblemKind.InternalError, "intaglio.PackedStatPlan.Aux"),
@@ -286,44 +290,17 @@ lazy val java2d =
       name := "intaglio-java2d",
       description := "Java2D renderer for Intaglio scenes (JVM).",
       libraryDependencies += "org.apache.pdfbox" % "pdfbox" % "3.0.8" % Test,
-      tastyMiMaConfig ~= { previous =>
-        import java.util.Arrays.asList
-        import tastymima.intf.{ProblemKind, ProblemMatcher}
-        previous.withMoreProblemFilters(
-          asList(
-            ProblemMatcher.make(
-              ProblemKind.InternalError,
-              "intaglio.java2d.Java2DRenderingHints.configure"
-            ),
-            ProblemMatcher.make(ProblemKind.InternalError, "intaglio.java2d.Java2DColor.awt"),
-            // Qualified-private members that touch AWT types read as internal errors here, as the
-            // neighbours above already do. `derive` is the single font rule the renderer and the
-            // metrics provider share.
-            ProblemMatcher.make(
-              ProblemKind.InternalError,
-              "intaglio.java2d.Java2DFontResolver.derive"
-            ),
-            ProblemMatcher.make(ProblemKind.InternalError, "intaglio.java2d.Java2DRenderer.render"),
-            ProblemMatcher.make(ProblemKind.InternalError, "intaglio.java2d.Java2DRenderer.draw"),
-            ProblemMatcher.make(
-              ProblemKind.InternalError,
-              "intaglio.java2d.Java2DRenderer.drawProfile"
-            ),
-            ProblemMatcher.make(
-              ProblemKind.InternalError,
-              "intaglio.java2d.Java2DRenderer.renderImage"
-            ),
-            ProblemMatcher.make(
-              ProblemKind.InternalError,
-              "intaglio.java2d.Java2DFontResolver.resolve"
-            ),
-            ProblemMatcher.make(
-              ProblemKind.InternalError,
-              "intaglio.java2d.Java2DFontResolver.fixed"
-            )
-          )
-        )
-      }
+      // tastyquery is given `modules/java.base` and nothing else of the JDK, so every signature
+      // mentioning an AWT type resolved to nothing. Nine members of this renderer's public surface
+      // were reported as internal errors and filtered, which meant the TASTy court never actually
+      // compared them. `java.awt` lives in `java.desktop` on JDK 9+; supplying that module lets the
+      // court check them, and the nine filters are gone.
+      tastyMiMaCurrentClasspath ~= { case (classpath, classes) =>
+        (classpath :+ JdkModules.desktop, classes)
+      },
+      tastyMiMaPreviousClasspaths ~= (_.map { case (module, classpath, classes) =>
+        (module, classpath :+ JdkModules.desktop, classes)
+      }),
     )
 
 lazy val java2dJVM = java2d.jvm
@@ -364,7 +341,12 @@ lazy val javafx =
         import tastymima.intf.{ProblemKind, ProblemMatcher}
         previous.withMoreProblemFilters(
           asList(
-            ProblemMatcher.make(
+                        // tastyquery reports `MemberNotFoundException: Member javafx not found in PackageRef()`
+            // even though the OpenJFX jar carrying `GraphicsContext` is on the classpath it is given.
+            // The `java.desktop` fix that cleared the Java2D errors does not apply: these are ordinary
+            // modular jars, not a JDK module. Dropping the class-less OpenJFX stub jar was tried and
+            // changed nothing.
+ProblemMatcher.make(
               ProblemKind.InternalError,
               "intaglio.javafx.JavaFxCanvasContext.<init>"
             )
