@@ -42,6 +42,135 @@ class CanvasRendererSuite extends munit.FunSuite:
     assert(left.commands(2).isInstanceOf[CanvasCommand.Rectangle])
   }
 
+  test("one heterogeneous point-batch command matches per-mark Canvas calls") {
+    val points = Vector(
+      Point.npcUnsafe(0.2, 0.25),
+      Point.npcUnsafe(0.4, 0.5),
+      Point.npcUnsafe(0.6, 0.75),
+      Point.npcUnsafe(0.8, 0.5),
+      Point.npcUnsafe(0.5, 0.15)
+    )
+    val sizes = Vector(3.0, 4.0, 5.0, 6.0, 7.0).map(ExtentExpr.pointsUnsafe)
+    val shapes = PointShape.values.toVector
+    val params = Vector(
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(120, 20, 30)),
+        fill = Some(Rgba.unsafe(240, 180, 80)),
+        lineWidth = 1.25
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(20, 110, 50)),
+        fill = Some(Rgba.unsafe(100, 220, 160)),
+        lineWidth = 1.5
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(40, 70, 160)),
+        fill = Some(Rgba.unsafe(130, 160, 240)),
+        lineWidth = 1.75
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(90, 40, 130)),
+        fill = None,
+        lineWidth = 2.0,
+        lineType = LineType.Dashed
+      ),
+      GraphicParams.unsafe(
+        stroke = Some(Rgba.unsafe(30, 120, 120)),
+        fill = Some(Rgba.unsafe(200, 240, 240)),
+        lineWidth = 1.0
+      )
+    )
+    val batch = Grob.pointBatchUnsafe(
+      points,
+      BatchColumn.Values(sizes),
+      BatchColumn.Values(shapes),
+      BatchColumn.Values(params)
+    )
+    val legacy = points.indices
+      .map(index =>
+        Grob
+          .points(
+            Vector(points(index)),
+            sizes(index),
+            shapes(index),
+            params(index)
+          )
+          .fold(error => fail(error.message), identity)
+      )
+      .toVector
+    val options = CanvasOptions.unsafe(width = 160, height = 100)
+    val batchProgram = CanvasRenderer
+      .compile(Scene(Vector(batch)), options)
+      .fold(error => fail(error.message), identity)
+    val legacyProgram = CanvasRenderer
+      .compile(Scene(legacy), options)
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(batchProgram.commands.length, 1)
+    batchProgram.commands.head match
+      case CanvasCommand.PointBatch(actualPoints, radii, actualShapes, paints, _) =>
+        assertEquals(actualPoints.length, points.length)
+        assertEquals(radii.valueCount, Some(points.length))
+        assertEquals((0 until points.length).map(actualShapes.valueAt).toVector, shapes)
+        assertEquals(
+          (0 until points.length).map(index => paints.valueAt(index).lineWidth).toVector,
+          params.map(_.lineWidth)
+        )
+      case other => fail(s"expected one Canvas point batch, found $other")
+
+    def recordingContext(calls: ArrayBuffer[String]): CanvasRenderingContext2D =
+      def noArgs(label: String): js.Function0[Unit] =
+        () =>
+          calls += label
+          ()
+      js.Dynamic
+        .literal(
+          save = noArgs("save"),
+          restore = noArgs("restore"),
+          beginPath = noArgs("beginPath"),
+          closePath = noArgs("closePath"),
+          fill = noArgs("fill"),
+          stroke = noArgs("stroke"),
+          moveTo = ((_: Double, _: Double) => calls += "moveTo"): js.Function2[
+            Double,
+            Double,
+            Unit
+          ],
+          lineTo = ((_: Double, _: Double) => calls += "lineTo"): js.Function2[
+            Double,
+            Double,
+            Unit
+          ],
+          rect = ((_: Double, _: Double, _: Double, _: Double) => calls += "rect"): js.Function4[
+            Double,
+            Double,
+            Double,
+            Double,
+            Unit
+          ],
+          arc = (
+              (_: Double, _: Double, _: Double, _: Double, _: Double, _: Boolean) => calls += "arc"
+          ): js.Function6[Double, Double, Double, Double, Double, Boolean, Unit],
+          setLineDash = ((_: js.Array[Double]) => calls += "dash"): js.Function1[
+            js.Array[Double],
+            Unit
+          ],
+          strokeStyle = "",
+          fillStyle = "",
+          globalAlpha = 1.0,
+          lineWidth = 1.0,
+          lineCap = "",
+          lineJoin = ""
+        )
+        .asInstanceOf[CanvasRenderingContext2D]
+
+    val batchCalls = ArrayBuffer.empty[String]
+    val legacyCalls = ArrayBuffer.empty[String]
+    CanvasRenderer.draw(batchProgram, recordingContext(batchCalls))
+    CanvasRenderer.draw(legacyProgram, recordingContext(legacyCalls))
+    assertEquals(batchCalls.toVector, legacyCalls.toVector)
+  }
+
   test("draw interprets the deterministic program against a Canvas 2D context") {
     val calls = ArrayBuffer.empty[String]
     def noArgs(label: String): js.Function0[Unit] =
@@ -59,12 +188,27 @@ class CanvasRendererSuite extends munit.FunSuite:
         clip = noArgs("clip"),
         moveTo = ((_: Double, _: Double) => calls += "moveTo"): js.Function2[Double, Double, Unit],
         lineTo = ((_: Double, _: Double) => calls += "lineTo"): js.Function2[Double, Double, Unit],
-        rect = ((_: Double, _: Double, _: Double, _: Double) => calls += "rect"): js.Function4[Double, Double, Double, Double, Unit],
-        arc = ((_: Double, _: Double, _: Double, _: Double, _: Double, _: Boolean) => calls += "arc"): js.Function6[Double, Double, Double, Double, Double, Boolean, Unit],
-        translate = ((_: Double, _: Double) => calls += "translate"): js.Function2[Double, Double, Unit],
+        rect = ((_: Double, _: Double, _: Double, _: Double) => calls += "rect"): js.Function4[
+          Double,
+          Double,
+          Double,
+          Double,
+          Unit
+        ],
+        arc = (
+            (_: Double, _: Double, _: Double, _: Double, _: Double, _: Boolean) => calls += "arc"
+        ): js.Function6[Double, Double, Double, Double, Double, Boolean, Unit],
+        translate =
+          ((_: Double, _: Double) => calls += "translate"): js.Function2[Double, Double, Unit],
         rotate = ((_: Double) => calls += "rotate"): js.Function1[Double, Unit],
-        setLineDash = ((_: js.Array[Double]) => calls += "dash"): js.Function1[js.Array[Double], Unit],
-        fillText = ((_: String, _: Double, _: Double) => calls += "fillText"): js.Function3[String, Double, Double, Unit],
+        setLineDash =
+          ((_: js.Array[Double]) => calls += "dash"): js.Function1[js.Array[Double], Unit],
+        fillText = ((_: String, _: Double, _: Double) => calls += "fillText"): js.Function3[
+          String,
+          Double,
+          Double,
+          Unit
+        ],
         strokeStyle = "",
         fillStyle = "",
         globalAlpha = 1.0,
@@ -94,9 +238,160 @@ class CanvasRendererSuite extends munit.FunSuite:
 
     CanvasRenderer.draw(program, context)
 
-    assertEquals(calls.toVector, Vector("save", "beginPath", "moveTo", "lineTo", "dash", "stroke", "restore"))
+    assertEquals(
+      calls.toVector,
+      Vector("save", "beginPath", "moveTo", "lineTo", "dash", "stroke", "restore")
+    )
     assertEquals(context.lineCap, "round")
     assertEquals(context.lineJoin, "bevel")
+  }
+
+  test("pattern resources are reused across every fill-bearing primitive") {
+    var tileCreates = 0
+    given CanvasRasterFactory with
+      def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource =
+        tileCreates += 1
+        js.Dynamic.literal().asInstanceOf[CanvasImageSource]
+
+    var patternCreates = 0
+    var transforms = 0
+    var fills = 0
+    val patternResource = js.Dynamic
+      .literal(
+        setTransform = ((_: js.Any) => transforms += 1): js.Function1[js.Any, Unit]
+      )
+      .asInstanceOf[CanvasPattern]
+    val context = js.Dynamic
+      .literal(
+        save = (() => ()): js.Function0[Unit],
+        restore = (() => ()): js.Function0[Unit],
+        beginPath = (() => ()): js.Function0[Unit],
+        closePath = (() => ()): js.Function0[Unit],
+        fill = (() => fills += 1): js.Function0[Unit],
+        stroke = (() => ()): js.Function0[Unit],
+        moveTo = ((_: Double, _: Double) => ()): js.Function2[Double, Double, Unit],
+        lineTo = ((_: Double, _: Double) => ()): js.Function2[Double, Double, Unit],
+        rect = ((_: Double, _: Double, _: Double, _: Double) => ()): js.Function4[
+          Double,
+          Double,
+          Double,
+          Double,
+          Unit
+        ],
+        arc = (
+            (_: Double, _: Double, _: Double, _: Double, _: Double, _: Boolean) => ()
+        ): js.Function6[Double, Double, Double, Double, Double, Boolean, Unit],
+        setLineDash = ((_: js.Array[Double]) => ()): js.Function1[js.Array[Double], Unit],
+        createPattern = (
+            (_: CanvasImageSource, repetition: String) =>
+              patternCreates += 1
+              assertEquals(repetition, "repeat")
+              patternResource
+        ): js.Function2[CanvasImageSource, String, CanvasPattern],
+        strokeStyle = "",
+        fillStyle = "",
+        globalAlpha = 1.0,
+        lineWidth = 1.0,
+        lineCap = "",
+        lineJoin = ""
+      )
+      .asInstanceOf[CanvasRenderingContext2D]
+    val recipe =
+      PatternRecipe.crossHatch(30.0, 10.5, 1.5).fold(error => fail(error.message), identity)
+    val pattern = PatternPaint(recipe, Rgba.Black, Some(Rgba.White))
+    val params = GraphicParams.unsafe(stroke = None, alpha = 0.8).withPatternFill(pattern)
+    val grobs = Vector(
+      Grob.rectUnsafe(Point.npcUnsafe(0.15, 0.25), Size.npcUnsafe(0.2, 0.3), gp = params),
+      Grob.circleUnsafe(Point.npcUnsafe(0.4, 0.25), ExtentExpr.npcUnsafe(0.1), gp = params),
+      Grob.polygonUnsafe(
+        Vector(Point.npcUnsafe(0.55, 0.1), Point.npcUnsafe(0.75, 0.1), Point.npcUnsafe(0.65, 0.4)),
+        gp = params
+      ),
+      Grob.compoundPolygonUnsafe(
+        Vector(
+          Vector(Point.npcUnsafe(0.1, 0.6), Point.npcUnsafe(0.9, 0.6), Point.npcUnsafe(0.5, 0.9))
+        ),
+        gp = params
+      )
+    )
+    val program = CanvasRenderer
+      .compile(Scene(grobs), CanvasOptions.unsafe(width = 100, height = 80))
+      .fold(error => fail(error.message), identity)
+
+    val profile =
+      CanvasRenderer.drawChecked(program, context).fold(error => fail(error.message), identity)
+
+    assertEquals(profile, CanvasDrawProfile(0, 0, 0, 0L, 4, 3, 1))
+    assertEquals(tileCreates, 1)
+    assertEquals(patternCreates, 1)
+    assertEquals(transforms, 1)
+    assertEquals(fills, 4)
+    val paints = program.commands.collect {
+      case CanvasCommand.Disc(_, _, _, paint, _)            => paint
+      case CanvasCommand.Polyline(_, true, paint, _)        => paint
+      case CanvasCommand.CompoundPolygon(_, paint, _)       => paint
+      case CanvasCommand.Rectangle(_, _, _, _, _, paint, _) => paint
+    }
+    assertEquals(paints.length, 4)
+    assert(paints.forall(_.fillPattern.contains(pattern)))
+    assert(paints.forall(_.opacity == 0.8))
+  }
+
+  test("native Canvas pattern failure remains typed") {
+    given CanvasRasterFactory with
+      def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource =
+        js.Dynamic.literal().asInstanceOf[CanvasImageSource]
+
+    val context = js.Dynamic
+      .literal(
+        save = (() => ()): js.Function0[Unit],
+        restore = (() => ()): js.Function0[Unit],
+        beginPath = (() => ()): js.Function0[Unit],
+        rect = ((_: Double, _: Double, _: Double, _: Double) => ()): js.Function4[
+          Double,
+          Double,
+          Double,
+          Double,
+          Unit
+        ],
+        createPattern = (
+            (_: CanvasImageSource, _: String) => null.asInstanceOf[CanvasPattern]
+        ): js.Function2[CanvasImageSource, String, CanvasPattern],
+        fillStyle = "",
+        globalAlpha = 1.0
+      )
+      .asInstanceOf[CanvasRenderingContext2D]
+    val recipe = PatternRecipe.stipple(8.0, 2.0).fold(error => fail(error.message), identity)
+    val rect = Grob.rectUnsafe(
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(0.5, 0.5),
+      gp = GraphicParams.unsafe(stroke = None).withPatternFill(PatternPaint(recipe, Rgba.Black))
+    )
+    val program =
+      CanvasRenderer.compile(Scene(Vector(rect))).fold(error => fail(error.message), identity)
+
+    assertEquals(
+      CanvasRenderer.drawChecked(program, context).left.toOption,
+      Some(CanvasRenderError.PatternResourceFailure("createPattern returned null"))
+    )
+  }
+
+  test("oversized raster patterns fail at the typed compile boundary") {
+    val recipe = PatternRecipe
+      .parallelRules(RuleOrientation.Vertical, PatternTile.MaxAxisPixels.toDouble + 1.0, 1.0)
+      .fold(error => fail(error.message), identity)
+    val rect = Grob.rectUnsafe(
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(0.5, 0.5),
+      gp = GraphicParams.unsafe(stroke = None).withPatternFill(PatternPaint(recipe, Rgba.Black))
+    )
+
+    assert(CanvasRenderer.compile(Scene(Vector(rect))).left.toOption.exists {
+      case CanvasRenderError
+            .Graphics(GraphicsError.InvalidPatternParameter("raster", "spacing", _, _)) =>
+        true
+      case _ => false
+    })
   }
 
   test("invalid canvas dimensions return typed errors") {
@@ -114,14 +409,17 @@ class CanvasRendererSuite extends munit.FunSuite:
     val offscreenContext = js.Dynamic
       .literal(
         createImageData = ((_: Int, _: Int) => imageData): js.Function2[Int, Int, CanvasImageData],
-        putImageData = ((_: CanvasImageData, _: Double, _: Double) => uploaded = true): js.Function3[CanvasImageData, Double, Double, Unit]
+        putImageData = (
+            (_: CanvasImageData, _: Double, _: Double) => uploaded = true
+        ): js.Function3[CanvasImageData, Double, Double, Unit]
       )
       .asInstanceOf[CanvasRenderingContext2D]
     val offscreen = js.Dynamic
       .literal(
         width = 0,
         height = 0,
-        getContext = ((_: String) => offscreenContext): js.Function1[String, CanvasRenderingContext2D]
+        getContext =
+          ((_: String) => offscreenContext): js.Function1[String, CanvasRenderingContext2D]
       )
       .asInstanceOf[CanvasElement]
     val document = js.Dynamic
@@ -134,8 +432,10 @@ class CanvasRendererSuite extends munit.FunSuite:
         canvas = rootCanvas,
         save = (() => ()): js.Function0[Unit],
         restore = (() => ()): js.Function0[Unit],
-        drawImage = ((_: CanvasImageSource, x: Double, y: Double, width: Double, height: Double) =>
-          drawn = Vector(x, y, width, height)): js.Function5[CanvasImageSource, Double, Double, Double, Double, Unit],
+        drawImage = (
+            (_: CanvasImageSource, x: Double, y: Double, width: Double, height: Double) =>
+              drawn = Vector(x, y, width, height)
+        ): js.Function5[CanvasImageSource, Double, Double, Double, Double, Unit],
         globalAlpha = 1.0,
         imageSmoothingEnabled = true
       )
@@ -150,7 +450,10 @@ class CanvasRendererSuite extends munit.FunSuite:
     assert(uploaded)
     assertEquals(offscreen.width, 2)
     assertEquals(offscreen.height, 2)
-    assertEquals((0 until 8).map(idx => bytes(idx).toInt).toVector, Vector(220, 30, 30, 255, 30, 200, 60, 160))
+    assertEquals(
+      (0 until 8).map(idx => bytes(idx).toInt).toVector,
+      Vector(220, 30, 30, 255, 30, 200, 60, 160)
+    )
     assertEquals(drawn, Vector(25.0, 20.0, 50.0, 40.0))
     assertEquals(context.globalAlpha, 0.8)
     assertEquals(context.imageSmoothingEnabled, false)
@@ -196,7 +499,9 @@ class CanvasRendererSuite extends munit.FunSuite:
       .literal(
         save = (() => ()): js.Function0[Unit],
         restore = (() => ()): js.Function0[Unit],
-        drawImage = ((_: CanvasImageSource, _: Double, _: Double, _: Double, _: Double) => ()): js.Function5[CanvasImageSource, Double, Double, Double, Double, Unit],
+        drawImage = (
+            (_: CanvasImageSource, _: Double, _: Double, _: Double, _: Double) => ()
+        ): js.Function5[CanvasImageSource, Double, Double, Double, Double, Unit],
         globalAlpha = 1.0,
         imageSmoothingEnabled = true
       )
@@ -221,4 +526,56 @@ class CanvasRendererSuite extends munit.FunSuite:
     assertEquals(creates, 1)
     assertEquals(cache.size, 1)
     assert(CanvasRasterCache.make(-1).isLeft)
+  }
+
+  test("pre-pattern Canvas case-class apply and copy descriptors remain callable") {
+    val legacyPaintApply: (
+        Option[CanvasColor],
+        Option[CanvasColor],
+        Double,
+        CanvasLineDash,
+        LineCap,
+        LineJoin,
+        Double
+    ) => CanvasPaint = CanvasPaint.apply
+    val paint = legacyPaintApply(
+      None,
+      Some(CanvasColor.fromRgba(Rgba.Black)),
+      2.0,
+      CanvasLineDash.Solid,
+      LineCap.Round,
+      LineJoin.Bevel,
+      0.75
+    )
+    val legacyPaintCopy: (
+        Option[CanvasColor],
+        Option[CanvasColor],
+        Double,
+        CanvasLineDash,
+        LineCap,
+        LineJoin,
+        Double
+    ) => CanvasPaint = paint.copy
+    assertEquals(
+      legacyPaintCopy(
+        None,
+        paint.fill,
+        3.0,
+        paint.dash,
+        paint.lineCap,
+        paint.lineJoin,
+        0.5
+      ).fillPattern,
+      None
+    )
+
+    val legacyProfileApply: (Int, Int, Int, Long) => CanvasDrawProfile =
+      CanvasDrawProfile.apply
+    val profile = legacyProfileApply(4, 3, 1, 96L)
+    val legacyProfileCopy: (Int, Int, Int, Long) => CanvasDrawProfile = profile.copy
+    assertEquals(legacyProfileCopy(5, 4, 1, 128L), CanvasDrawProfile(5, 4, 1, 128L, 0, 0, 0))
+    assertEquals(
+      (profile.patternRequests, profile.patternCacheHits, profile.patternCacheMisses),
+      (0, 0, 0)
+    )
   }

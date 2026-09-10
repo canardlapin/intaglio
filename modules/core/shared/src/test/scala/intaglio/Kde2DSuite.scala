@@ -10,7 +10,10 @@ class Kde2DSuite extends munit.FunSuite:
     val xDomain = Interval.unsafe(-2.0, 2.0)
     val yDomain = Interval.unsafe(-3.0, 3.0)
     val config = Kde2DConfig.fixedUnsafe(0.5, 0.75, 5, 5, Some(xDomain), Some(yDomain))
-    val field = FieldStat.kde2D[Observation](_.x, _.y, config).compute(rows).fold(error => fail(error.message), identity)
+    val field = FieldStat
+      .kde2D[Observation](_.x, _.y, config)
+      .compute(rows)
+      .fold(error => fail(error.message), identity)
 
     var yIndex = 0
     while yIndex < field.height do
@@ -78,14 +81,21 @@ class Kde2DSuite extends munit.FunSuite:
       Observation(4.0, 2.0)
     )
     val config = Kde2DConfig.automatic(8, 7).fold(error => fail(error.message), identity)
-    val field = FieldStat.kde2D[Observation](_.x, _.y, config).compute(rows).fold(error => fail(error.message), identity)
+    val field = FieldStat
+      .kde2D[Observation](_.x, _.y, config)
+      .compute(rows)
+      .fold(error => fail(error.message), identity)
 
     assertEquals(field.samples.length, 56)
     assert(field.samples.forall(value => value.isFinite && value >= 0.0))
     assert(Kde2DConfig.fixed(0.0, 1.0).isLeft)
     assert(Kde2DConfig.automatic(xPoints = 1).isLeft)
     assertEquals(
-      FieldStat.kde2D[Observation](_.x, _.y, config).compute(Vector(Observation(0.0, 0.0))).left.toOption,
+      FieldStat
+        .kde2D[Observation](_.x, _.y, config)
+        .compute(Vector(Observation(0.0, 0.0)))
+        .left
+        .toOption,
       Some(GraphicsError.InsufficientStatData("kde2d", 2, 1))
     )
   }

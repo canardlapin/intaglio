@@ -2,13 +2,22 @@ package intaglio
 
 enum GraphicsError extends IntaglioError:
   case BlankName(kind: String)
+  case InvalidSemanticId(value: String)
+  case DuplicateSemanticId(value: String)
   case InvalidInterval(lower: Double, upper: Double)
   case EmptyContinuousRange
   case InvalidTransformDomain(name: String, lower: Double, upper: Double)
   case TransformOutsideDomain(name: String, value: Double)
+  case TransformEvaluationFailed(
+      name: String,
+      operation: String,
+      exceptionType: String,
+      detail: String
+  )
   case InvalidLength(value: Double)
   case InvalidExtent(description: String)
   case InvalidColorChannel(channel: String, value: Int)
+  case NonFiniteColorComponent(component: String, value: Double)
   case InvalidRasterDimensions(width: Int, height: Int)
   case RasterPixelCountMismatch(expected: Int, actual: Int)
   case RasterPixelOutsideBounds(x: Int, y: Int, width: Int, height: Int)
@@ -18,21 +27,46 @@ enum GraphicsError extends IntaglioError:
   case NonFiniteScalarFieldValue(index: Int, value: Double)
   case ScalarFieldIndexOutsideBounds(x: Int, y: Int, width: Int, height: Int)
   case InvalidContourLevels(expectation: String, actual: String)
+  case InvalidDashPattern(expectation: String, actual: String)
+  case InvalidFontWeight(value: Int)
   case InvalidContourPoint(x: Double, y: Double)
   case ContourGridTooSmall(width: Int, height: Int)
   case InvalidContourTopology(detail: String)
   case InvalidAlpha(value: Double)
   case InvalidLineWidth(value: Double)
+  case InvalidPatternParameter(
+      recipe: String,
+      parameter: String,
+      value: Double,
+      expectation: String
+  )
   case InvalidRotation(value: Double)
   case InvalidBreakCount(value: Int)
   case InvalidBreakWidth(value: Double)
+  case NonFiniteBreak(generator: String, value: Double)
+  case BreakGenerationDidNotProgress(generator: String, previous: Double, next: Double)
+  case BreakOutputLimitExceeded(generator: String, attempted: Int, maximum: Int)
+  case BreakIterationLimitExceeded(generator: String, maximum: Int)
+  case BreakGenerationFailed(generator: String, exceptionType: String, detail: String)
   case InvalidBand(center: Double, width: Double)
   case InvalidBandPadding(value: Double)
   case EmptyPalette
+  case DiscretePaletteOverflow(scale: String, levels: Int, capacity: Int)
+  case DegenerateDivergingPalette(part: String)
   case DuplicateLevel(level: String)
   case EmptyGeometry(kind: String)
   case InvalidGeometrySize(kind: String, minimum: Int, actual: Int)
+  case BatchColumnLengthMismatch(column: String, marks: Int, values: Int)
   case MissingAesthetic(geom: String, aesthetic: String)
+  case InvalidGeomAestheticContract(detail: String)
+  case UnsupportedGeomAesthetic(geom: String, aesthetic: String)
+  case VaryingGroupAesthetic(
+      geom: String,
+      aesthetic: String,
+      group: String,
+      firstRow: Int,
+      conflictingRow: Int
+  )
   case DuplicateScale(aesthetic: String)
   case ConflictingPlotScales(
       aesthetic: String,
@@ -41,40 +75,102 @@ enum GraphicsError extends IntaglioError:
       conflictingLayer: Int,
       conflictingScale: String
   )
+  case MappingEvaluationFailed(
+      stage: String,
+      layerIndex: Option[Int],
+      aesthetic: String,
+      rowIndex: Int,
+      contract: MappingContract,
+      failure: MappingFailure
+  )
   case UnsupportedGeom(geom: String)
   case InvalidStatGeom(stat: String, geom: String)
   case StatAestheticConflict(stat: String, aesthetic: String)
   case UnsupportedStatAesthetic(stat: String, aesthetic: String)
+  case UnsupportedStatStrategy(stat: String, strategy: String)
   case InvalidStatParameter(stat: String, parameter: String, value: String)
-  case InvalidPositionParameter(position: String, parameter: String, value: Double, expectation: String)
+  case InvalidStatResult(stat: String, detail: String)
+  case StatRejected(stat: String, detail: String)
+  case InvalidPositionParameter(
+      position: String,
+      parameter: String,
+      value: Double,
+      expectation: String
+  )
   case InvalidPositionGeom(position: String, geom: String)
+  case InvalidAnnotationCoordinate(kind: String, value: Double)
+  case InvalidAnnotationGeom(kind: String, geom: String)
+  case ReferenceLineRequiresAnnotation(geom: String)
+  case AnnotationRequiresContinuousScale(kind: String, aesthetic: String, scale: String)
+  case AnnotationScaleMappingFailed(
+      kind: String,
+      aesthetic: String,
+      value: Double,
+      detail: String
+  )
   case NonFiniteStatInput(stat: String, aesthetic: String, value: Double)
   case InsufficientStatData(stat: String, minimum: Int, actual: Int)
   case StatInputOutsideBins(value: Double, lower: Double, upper: Double)
-  case StatInputOutsideGrid(stat: String, aesthetic: String, value: Double, lower: Double, upper: Double)
+  case StatInputOutsideGrid(
+      stat: String,
+      aesthetic: String,
+      value: Double,
+      lower: Double,
+      upper: Double
+  )
   case InvalidCoordinateRatio(value: Double)
+  case InvalidCoordinateTranslation(x: Double, y: Double)
+  case EmptyCoordinateZoom
+  case CoordinateZoomScaleMismatch(axis: String, window: String, scale: String)
+  case CoordinateZoomMappingFailed(axis: String, bound: String, value: String, detail: String)
   case DegenerateFixedAspect(xWidth: Double, yWidth: Double)
   case InvalidFacetColumns(value: Int)
   case EmptyFacet
+  case FacetCellNotIndexed(rowLabel: Option[String], columnLabel: Option[String])
   case FacetRequiresSolver
   case FacetFixedCoordinates
   case MissingLayout(feature: String)
   case InvalidLayoutCoordinate(kind: String, value: Double)
+  case InvalidCalendarDate(year: Int, month: Int, day: Int)
+  case InvalidUtcDateTime(
+      date: String,
+      hour: Int,
+      minute: Int,
+      second: Int,
+      millisecond: Int
+  )
+  case InvalidTemporalText(kind: String, value: String)
+  case InvalidTemporalDomain(kind: String, lower: String, upper: String)
+  case TemporalValueOutOfRange(kind: String, value: String, detail: String)
+  case InvalidTemporalBreakStep(value: Int)
+  case UnsupportedTemporalBreakUnit(kind: String, unit: String)
+  case InvalidTemporalCoordinate(scale: String, value: Double)
+  case InvalidCompositionGrid(plotCount: Int, columns: Int)
+  case InvalidCompositionGap(axis: String, value: Double)
+  case InvalidCompositionPanel(index: Int, detail: String)
+  case InvalidInsetBounds(x: Double, y: Double, width: Double, height: Double)
   case InvalidDeviceSize(width: Double, height: Double)
   case InvalidDeviceResolution(pixelsPerInch: Double)
   case InvalidDeviceValue(field: String, value: Double)
   case UnresolvableLength(description: String)
   case LayoutOverflow(region: String)
+  case LayoutMeasurementFailed(exceptionType: String, detail: String)
   case InvalidRangeExpansion(multiplicative: Double, additive: Double, zeroWidth: Double)
   case MixedPositionScaling(aesthetic: String)
   case InvalidAxisCoordinate(kind: String, value: Double)
   case AxisTickOutsideRange(value: Double, lower: Double, upper: Double)
   case AxisLabelCountMismatch(values: Int, labels: Int)
+  case InvalidCssClass(value: String, expectation: String)
+  case InvalidDataKey(value: String, expectation: String)
 
   def message: String =
     this match
       case BlankName(kind) =>
         s"$kind name must not be blank"
+      case InvalidSemanticId(value) =>
+        s"semantic ID must start with an ASCII letter or underscore and contain only letters, digits, underscores, hyphens, or periods: '$value'"
+      case DuplicateSemanticId(value) =>
+        s"semantic ID must be unique within a plot: '$value'"
       case InvalidInterval(lower, upper) =>
         s"invalid interval [$lower, $upper]"
       case EmptyContinuousRange =>
@@ -83,12 +179,16 @@ enum GraphicsError extends IntaglioError:
         s"transform '$name' has invalid domain [$lower, $upper]"
       case TransformOutsideDomain(name, value) =>
         s"value $value is outside transform '$name' domain"
+      case TransformEvaluationFailed(name, operation, exceptionType, detail) =>
+        s"transform '$name' $operation evaluation failed: $exceptionType: $detail"
       case InvalidLength(value) =>
         s"length value must be finite: $value"
       case InvalidExtent(description) =>
         s"extent must be provably non-negative: $description"
       case InvalidColorChannel(channel, value) =>
         s"color channel '$channel' must be in [0, 255]: $value"
+      case NonFiniteColorComponent(component, value) =>
+        s"color component '$component' must be finite: $value"
       case InvalidRasterDimensions(width, height) =>
         s"raster dimensions must be positive with a representable pixel count: ${width}x$height"
       case RasterPixelCountMismatch(expected, actual) =>
@@ -107,6 +207,10 @@ enum GraphicsError extends IntaglioError:
         s"scalar field index ($x, $y) is outside ${width}x$height"
       case InvalidContourLevels(expectation, actual) =>
         s"contour levels require $expectation: $actual"
+      case InvalidDashPattern(expectation, actual) =>
+        s"dash pattern requires $expectation: found $actual"
+      case InvalidFontWeight(value) =>
+        s"font weight must be in [${FontWeight.Minimum}, ${FontWeight.Maximum}]: $value"
       case InvalidContourPoint(x, y) =>
         s"contour point coordinates must be finite: ($x, $y)"
       case ContourGridTooSmall(width, height) =>
@@ -117,30 +221,63 @@ enum GraphicsError extends IntaglioError:
         s"alpha must be finite and in [0, 1]: $value"
       case InvalidLineWidth(value) =>
         s"line width must be finite and >= 0: $value"
+      case InvalidPatternParameter(recipe, parameter, value, expectation) =>
+        s"$recipe pattern requires $parameter to be $expectation: $value"
       case InvalidRotation(value) =>
         s"rotation angle must be finite: $value"
       case InvalidBreakCount(value) =>
         s"break count must be >= 1: $value"
       case InvalidBreakWidth(value) =>
         s"break width must be finite and > 0: $value"
+      case NonFiniteBreak(generator, value) =>
+        s"break generator '$generator' produced a non-finite value: $value"
+      case BreakGenerationDidNotProgress(generator, previous, next) =>
+        s"break generator '$generator' did not make floating-point progress: $previous -> $next"
+      case BreakOutputLimitExceeded(generator, attempted, maximum) =>
+        s"break generator '$generator' attempted $attempted values; maximum is $maximum"
+      case BreakIterationLimitExceeded(generator, maximum) =>
+        s"break generator '$generator' exceeded its deterministic iteration limit of $maximum"
+      case BreakGenerationFailed(generator, exceptionType, detail) =>
+        s"break generator '$generator' failed: $exceptionType: $detail"
       case InvalidBand(center, width) =>
         s"band center must be finite and width must be finite and > 0: ($center, $width)"
       case InvalidBandPadding(value) =>
         s"band padding must be finite and in [0, 1): $value"
       case EmptyPalette =>
         "palette must contain at least one value"
+      case DiscretePaletteOverflow(scale, levels, capacity) =>
+        s"discrete scale '$scale' has $levels levels but its palette capacity is $capacity; select an explicit cycling policy to reuse values"
+      case DegenerateDivergingPalette(part) =>
+        s"diverging palette uses the same color for $part; the sign of a value would not be readable"
       case DuplicateLevel(level) =>
         s"duplicate discrete level '$level'"
       case EmptyGeometry(kind) =>
         s"$kind geometry requires at least one element"
       case InvalidGeometrySize(kind, minimum, actual) =>
         s"$kind geometry requires at least $minimum elements: found $actual"
+      case BatchColumnLengthMismatch(column, marks, values) =>
+        s"batch column '$column' requires either one constant or exactly $marks values: found $values"
       case MissingAesthetic(geom, aesthetic) =>
         s"geom '$geom' requires aesthetic '$aesthetic'"
+      case InvalidGeomAestheticContract(detail) =>
+        s"invalid geom aesthetic contract: $detail"
+      case UnsupportedGeomAesthetic(geom, aesthetic) =>
+        s"geom '$geom' does not support aesthetic '$aesthetic'"
+      case VaryingGroupAesthetic(geom, aesthetic, group, firstRow, conflictingRow) =>
+        s"geom '$geom' requires aesthetic '$aesthetic' to be constant within group '$group', but rows $firstRow and $conflictingRow differ"
       case DuplicateScale(aesthetic) =>
         s"duplicate scale for aesthetic '$aesthetic'"
-      case ConflictingPlotScales(aesthetic, firstLayer, firstScale, conflictingLayer, conflictingScale) =>
+      case ConflictingPlotScales(
+            aesthetic,
+            firstLayer,
+            firstScale,
+            conflictingLayer,
+            conflictingScale
+          ) =>
         s"aesthetic '$aesthetic' uses different plot scales in layers $firstLayer ('$firstScale') and $conflictingLayer ('$conflictingScale'); bind one scale at plot level or reuse the same scale declaration"
+      case MappingEvaluationFailed(stage, layerIndex, aesthetic, rowIndex, contract, failure) =>
+        val layer = layerIndex.fold("")(index => s" in layer $index")
+        s"$stage mapping '$aesthetic'$layer failed at row $rowIndex under the ${contract.label} contract: ${failure.message}"
       case UnsupportedGeom(geom) =>
         s"unsupported geom '$geom'"
       case InvalidStatGeom(stat, geom) =>
@@ -149,12 +286,28 @@ enum GraphicsError extends IntaglioError:
         s"stat '$stat' computes aesthetic '$aesthetic'; do not map it from input rows"
       case UnsupportedStatAesthetic(stat, aesthetic) =>
         s"stat '$stat' does not yet aggregate input aesthetic '$aesthetic'"
+      case UnsupportedStatStrategy(stat, strategy) =>
+        s"stat '$stat' does not have an implementation for strategy '$strategy' in this build"
       case InvalidStatParameter(stat, parameter, value) =>
         s"stat '$stat' requires a valid $parameter: $value"
+      case InvalidStatResult(stat, detail) =>
+        s"stat '$stat' returned an invalid result: $detail"
+      case StatRejected(stat, detail) =>
+        s"stat '$stat' rejected its input: $detail"
       case InvalidPositionParameter(position, parameter, value, expectation) =>
         s"position '$position' requires $parameter to be $expectation: $value"
       case InvalidPositionGeom(position, geom) =>
         s"position '$position' cannot adjust geom '$geom'"
+      case InvalidAnnotationCoordinate(kind, value) =>
+        s"$kind reference-line coordinate must be finite: $value"
+      case InvalidAnnotationGeom(kind, geom) =>
+        s"$kind reference-line state cannot be attached to geom '$geom'"
+      case ReferenceLineRequiresAnnotation(geom) =>
+        s"geom '$geom' requires O(1) reference-line state; use Layer.hline or Layer.vline"
+      case AnnotationRequiresContinuousScale(kind, aesthetic, scale) =>
+        s"$kind reference line cannot train $aesthetic scale '$scale' because it is not a built-in continuous position scale; use AnnotationScalePolicy.Overlay for panel-native coordinates"
+      case AnnotationScaleMappingFailed(kind, aesthetic, value, detail) =>
+        s"$kind reference line at $value could not map through $aesthetic scale: $detail"
       case NonFiniteStatInput(stat, aesthetic, value) =>
         s"stat '$stat' requires finite '$aesthetic' values: $value"
       case InsufficientStatData(stat, minimum, actual) =>
@@ -165,12 +318,22 @@ enum GraphicsError extends IntaglioError:
         s"stat '$stat' value $value for '$aesthetic' is outside fixed domain [$lower, $upper]"
       case InvalidCoordinateRatio(value) =>
         s"coordinate ratio must be finite and > 0: $value"
+      case InvalidCoordinateTranslation(x, y) =>
+        s"coordinate translation must be finite: ($x, $y)"
+      case EmptyCoordinateZoom =>
+        "coordinate zoom requires at least one x or y window"
+      case CoordinateZoomScaleMismatch(axis, window, scale) =>
+        s"$axis coordinate zoom window '$window' is incompatible with scale '$scale'"
+      case CoordinateZoomMappingFailed(axis, bound, value, detail) =>
+        s"$axis coordinate zoom $bound bound '$value' could not be mapped: $detail"
       case DegenerateFixedAspect(xWidth, yWidth) =>
         s"fixed coordinates require non-degenerate expanded ranges: x width $xWidth, y width $yWidth"
       case InvalidFacetColumns(value) =>
         s"facet column count must be >= 1: $value"
       case EmptyFacet =>
         "facet specification produced no panels"
+      case FacetCellNotIndexed(rowLabel, columnLabel) =>
+        s"facet row resolved to a cell absent from the indexed layout: row=$rowLabel, column=$columnLabel"
       case FacetRequiresSolver =>
         "facets require a layout policy; explicit single-panel layouts and frames are not facet grids"
       case FacetFixedCoordinates =>
@@ -179,6 +342,30 @@ enum GraphicsError extends IntaglioError:
         s"$feature requires a panel layout"
       case InvalidLayoutCoordinate(kind, value) =>
         s"layout $kind coordinate must be finite: $value"
+      case InvalidCalendarDate(year, month, day) =>
+        s"calendar date must be a valid proleptic-Gregorian day in years -9999 through 9999: ($year, $month, $day)"
+      case InvalidUtcDateTime(date, hour, minute, second, millisecond) =>
+        s"UTC date-time fields are invalid for $date: ($hour, $minute, $second, $millisecond)"
+      case InvalidTemporalText(kind, value) =>
+        s"$kind text is not in Intaglio's exact ISO format: '$value'"
+      case InvalidTemporalDomain(kind, lower, upper) =>
+        s"$kind domain lower bound must be <= upper bound: [$lower, $upper]"
+      case TemporalValueOutOfRange(kind, value, detail) =>
+        s"$kind value '$value' is outside the portable temporal domain: $detail"
+      case InvalidTemporalBreakStep(value) =>
+        s"temporal break step must be >= 1: $value"
+      case UnsupportedTemporalBreakUnit(kind, unit) =>
+        s"$kind scales do not support $unit breaks"
+      case InvalidTemporalCoordinate(scale, value) =>
+        s"temporal scale '$scale' inverse coordinate must be finite and in [0, 1]: $value"
+      case InvalidCompositionGrid(plotCount, columns) =>
+        s"plot composition requires at least one plot and between 1 and $plotCount columns: found $columns columns for $plotCount plots"
+      case InvalidCompositionGap(axis, value) =>
+        s"plot composition $axis gap must be finite and >= 0 points: $value"
+      case InvalidCompositionPanel(index, detail) =>
+        s"plot composition item $index has an unusable panel frame: $detail"
+      case InvalidInsetBounds(x, y, width, height) =>
+        s"inset bounds must be finite, positive, and contained in [0, 1] npc: ($x, $y, $width, $height)"
       case InvalidDeviceSize(width, height) =>
         s"device size must be finite and positive: ${width}x$height"
       case InvalidDeviceResolution(pixelsPerInch) =>
@@ -189,6 +376,8 @@ enum GraphicsError extends IntaglioError:
         s"length cannot be resolved to device pixels: $description"
       case LayoutOverflow(region) =>
         s"plot layout leaves no room for the $region"
+      case LayoutMeasurementFailed(exceptionType, detail) =>
+        s"plot layout text measurement failed: $exceptionType: $detail"
       case InvalidRangeExpansion(multiplicative, additive, zeroWidth) =>
         s"range expansion must be finite with multiplicative/additive >= 0 and zeroWidth > 0: ($multiplicative, $additive, $zeroWidth)"
       case MixedPositionScaling(aesthetic) =>
@@ -199,8 +388,16 @@ enum GraphicsError extends IntaglioError:
         s"axis tick $value is outside range [$lower, $upper]"
       case AxisLabelCountMismatch(values, labels) =>
         s"axis labeler returned $labels labels for $values tick values"
+      case InvalidCssClass(value, expectation) =>
+        s"CSS class '$value' must be $expectation"
+      case InvalidDataKey(value, expectation) =>
+        s"data attribute key '$value' must be $expectation"
 
 object GraphicsError:
+  private[intaglio] def throwableDetails(error: Throwable): (String, String) =
+    val detail = Option(error.getMessage).filter(_.nonEmpty).getOrElse("no message")
+    error.getClass.getName -> detail
+
   extension [A](either: Either[GraphicsError, A])
     def orThrow: A =
       either match

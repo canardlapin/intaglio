@@ -3,6 +3,7 @@ package intaglio
 /** Behavioral family a conformance case exercises. */
 enum ConformanceGroup:
   case Primitive
+  case PatternFill
   case Layout
   case Guide
   case CompiledPlot
@@ -15,9 +16,9 @@ enum RenderPrimitiveKind:
   case Text
   case Image
 
-/** Backend-neutral facts that must be observable in renderer output. Unlike a
-  * marker-only smoke check, these requirements pin primitive choice, styles,
-  * text placement, and group effects without prescribing an output format.
+/** Backend-neutral facts that must be observable in renderer output. Unlike a marker-only smoke
+  * check, these requirements pin primitive choice, styles, text placement, and group effects
+  * without prescribing an output format.
   */
 enum RenderRequirement:
   case Primitive(name: GraphicsName, kind: RenderPrimitiveKind)
@@ -32,7 +33,16 @@ enum RenderRequirement:
       lineJoin: LineJoin,
       alpha: Double
   )
+  case PatternFill(name: GraphicsName, paint: PatternPaint, alpha: Double)
   case Text(name: GraphicsName, horizontal: HJust, vertical: VJust, rotated: Boolean)
+  case TextStyle(
+      name: GraphicsName,
+      color: Rgba,
+      fontSizePx: Double,
+      fontFamily: Option[String],
+      alpha: Double,
+      fontWeight: Option[FontWeight] = None
+  )
   case Image(
       name: GraphicsName,
       dimensions: RasterDimensions,
@@ -48,13 +58,17 @@ enum RenderRequirement:
         s"group '${name.value}' with clipped=$clipped and rotated=$rotated"
       case Style(name, _, _, lineWidth, lineType, lineCap, lineJoin, alpha) =>
         s"style '${name.value}' with lineWidth=$lineWidth, lineType=$lineType, lineCap=$lineCap, lineJoin=$lineJoin, alpha=$alpha"
+      case PatternFill(name, paint, alpha) =>
+        s"pattern fill '${name.value}' with recipe=${paint.recipe}, ink=${paint.ink}, background=${paint.background}, alpha=$alpha"
       case Text(name, horizontal, vertical, rotated) =>
         s"text '${name.value}' with anchor=($horizontal,$vertical) and rotated=$rotated"
+      case TextStyle(name, color, fontSizePx, fontFamily, alpha, fontWeight) =>
+        s"text style '${name.value}' with color=$color, fontSizePx=$fontSizePx, fontFamily=$fontFamily, alpha=$alpha, fontWeight=${fontWeight.map(_.value)}"
       case Image(name, dimensions, interpolation, alpha) =>
         s"image '${name.value}' with ${dimensions.width}x${dimensions.height} pixels, interpolation=$interpolation, alpha=$alpha"
 
-/** One renderer conformance case: a scene, the family it exercises, and the
-  * named grobs whose markers must survive into backend output.
+/** One renderer conformance case: a scene, the family it exercises, and the named grobs whose
+  * markers must survive into backend output.
   */
 final case class ConformanceCase(
     name: GraphicsName,
@@ -64,8 +78,10 @@ final case class ConformanceCase(
     requirements: Vector[RenderRequirement] = Vector.empty
 )
 
-/** Adapter a backend implements to run the conformance contract. `Out` must
-  * have value equality (used for the determinism check).
+/** Adapter a backend implements to run the conformance contract. `render` must use
+  * [[RendererConformance.targetContext]] (or its published dimensions and density) because some
+  * requirements observe resolved physical units. `Out` must have value equality for the determinism
+  * check.
   */
 trait RendererHarness[Out]:
   def render(scene: Scene): Either[String, Out]
@@ -73,22 +89,38 @@ trait RendererHarness[Out]:
   def satisfies(out: Out, requirement: RenderRequirement): Boolean =
     false
 
-  /** Backend-specific well-formedness check on the rendered output; return a
-    * problem description to fail the case.
+  /** Backend-specific well-formedness check on the rendered output; return a problem description to
+    * fail the case.
     */
   def validate(out: Out): Option[String] =
     None
 
 /** The renderer conformance contract: canonical scenes grouped by
-  * primitive/layout/guide/compiled-plot behavior, plus a portable checker
-  * that any backend runs without encoding plot semantics.
+  * primitive/layout/guide/compiled-plot behavior, plus a portable checker that any backend runs
+  * without encoding plot semantics.
   */
 object RendererConformance:
   final case class Violation(caseName: String, group: ConformanceGroup, problem: String)
 
-  /** Run every conformance case through a backend harness. An empty result
-    * means the backend renders each case successfully, deterministically,
-    * with every marker present and its own validation passing.
+  /** Canonical target for target-bound requirements such as point stroke widths and font sizes. */
+  val targetWidth: Int = 240
+  val targetHeight: Int = 160
+  val targetPixelsPerInch: Double = 96.0
+
+  val targetDevice: DeviceContext =
+    DeviceContext.unsafe(targetWidth.toDouble, targetHeight.toDouble, targetPixelsPerInch)
+
+  def targetContext(fontRegistry: FontRegistry = FontRegistry.passthrough): RenderContext =
+    RenderContext.unsafe(
+      targetWidth,
+      targetHeight,
+      pixelsPerInch = targetPixelsPerInch,
+      fontRegistry = fontRegistry
+    )
+
+  /** Run every conformance case through a backend harness. An empty result means the backend
+    * renders each case successfully, deterministically, with every marker present and its own
+    * validation passing.
     */
   def check[Out](harness: RendererHarness[Out]): Either[GraphicsError, Vector[Violation]] =
     cases.map { all =>
@@ -112,12 +144,14 @@ object RendererConformance:
             val determinism =
               if first == second then Vector.empty
               else Vector(violation("rendering is not deterministic"))
-            val markers = conformanceCase.markers.filterNot(harness.containsMarker(first, _)).map { missing =>
-              violation(s"missing marker '${missing.value}'")
-            }
-            val requirements = conformanceCase.requirements.filterNot(harness.satisfies(first, _)).map { missing =>
-              violation(s"missing semantic requirement: ${missing.description}")
-            }
+            val markers =
+              conformanceCase.markers.filterNot(harness.containsMarker(first, _)).map { missing =>
+                violation(s"missing marker '${missing.value}'")
+              }
+            val requirements =
+              conformanceCase.requirements.filterNot(harness.satisfies(first, _)).map { missing =>
+                violation(s"missing semantic requirement: ${missing.description}")
+              }
             val validation = harness.validate(first).map(violation).toVector
             determinism ++ markers ++ requirements ++ validation
 
@@ -125,8 +159,14 @@ object RendererConformance:
     for
       point <- pointCase
       line <- lineCase
+      customDash <- customDashCase
+      boldText <- boldTextCase
       shapes <- shapeCase
+      annotated <- annotatedCase
+      steps <- stepLineCase
       rectAndCircle <- rectCircleCase
+      roundedRect <- roundedRectCase
+      patternFills <- patternFillCase
       text <- textCase
       image <- imageCase
       clipped <- clippedViewportCase
@@ -165,8 +205,14 @@ object RendererConformance:
     yield Vector(
       point,
       line,
+      customDash,
+      boldText,
       shapes,
+      annotated,
+      steps,
       rectAndCircle,
+      roundedRect,
+      patternFills,
       text,
       image,
       clipped,
@@ -224,7 +270,8 @@ object RendererConformance:
           Scene(Vector(grob)),
           Vector(GraphicsName.unsafe("conformance-point")),
           Vector(
-            RenderRequirement.Primitive(GraphicsName.unsafe("conformance-point"), RenderPrimitiveKind.Disc)
+            RenderRequirement
+              .Primitive(GraphicsName.unsafe("conformance-point"), RenderPrimitiveKind.Disc)
           )
         )
       }
@@ -237,13 +284,14 @@ object RendererConformance:
           Point.npcUnsafe(0.5, 0.75),
           Point.npcUnsafe(0.9, 0.25)
         ),
-        gp = GraphicParams.unsafe(
-          stroke = Some(Rgba.unsafe(25, 75, 125)),
-          lineWidth = 1.5,
-          lineType = LineType.Dashed,
-          lineCap = LineCap.Round,
-          lineJoin = LineJoin.Bevel
-        ),
+        gp = GraphicParams
+          .unsafe(
+            stroke = Some(Rgba.unsafe(25, 75, 125)),
+            lineType = LineType.Dashed,
+            lineCap = LineCap.Round,
+            lineJoin = LineJoin.Bevel
+          )
+          .withStrokeWidth(StrokeWidth.pointsUnsafe(1.5)),
         name = Some(GraphicsName.unsafe("conformance-line"))
       )
       .map { grob =>
@@ -253,16 +301,107 @@ object RendererConformance:
           Scene(Vector(grob)),
           Vector(GraphicsName.unsafe("conformance-line")),
           Vector(
-            RenderRequirement.Primitive(GraphicsName.unsafe("conformance-line"), RenderPrimitiveKind.Polyline),
+            RenderRequirement
+              .Primitive(GraphicsName.unsafe("conformance-line"), RenderPrimitiveKind.Polyline),
             RenderRequirement.Style(
               GraphicsName.unsafe("conformance-line"),
               Some(Rgba.unsafe(25, 75, 125)),
               None,
-              1.5,
+              2.0,
               LineType.Dashed,
               LineCap.Round,
               LineJoin.Bevel,
               1.0
+            )
+          )
+        )
+      }
+
+  /** A dash rhythm that is neither of the two named ones.
+    *
+    * Every backend widens a dash to a sequence internally, and before `LineType.Custom` existed
+    * each of them only ever received the same two sequences. This case is the proof that the
+    * widening is real: a five-segment rhythm no named line type can express has to survive to the
+    * device.
+    */
+  def customDashCase: Either[GraphicsError, ConformanceCase] =
+    val rhythm = LineType.Custom(DashPattern.unsafe(8.0, 2.0, 1.0, 2.0, 1.0))
+    Grob
+      .lines(
+        Vector(
+          Point.npcUnsafe(0.1, 0.35),
+          Point.npcUnsafe(0.9, 0.65)
+        ),
+        gp = GraphicParams
+          .unsafe(stroke = Some(Rgba.unsafe(90, 40, 140)), lineType = rhythm)
+          .withStrokeWidth(StrokeWidth.pointsUnsafe(1.5)),
+        name = Some(GraphicsName.unsafe("conformance-custom-dash"))
+      )
+      .map { grob =>
+        ConformanceCase(
+          GraphicsName.unsafe("custom-dash"),
+          ConformanceGroup.Primitive,
+          Scene(Vector(grob)),
+          Vector(GraphicsName.unsafe("conformance-custom-dash")),
+          Vector(
+            RenderRequirement
+              .Primitive(
+                GraphicsName.unsafe("conformance-custom-dash"),
+                RenderPrimitiveKind.Polyline
+              ),
+            RenderRequirement.Style(
+              GraphicsName.unsafe("conformance-custom-dash"),
+              Some(Rgba.unsafe(90, 40, 140)),
+              None,
+              2.0,
+              rhythm,
+              LineCap.Butt,
+              LineJoin.Miter,
+              1.0
+            )
+          )
+        )
+      }
+
+  /** Text at a weight the face is not drawn at by default.
+    *
+    * Weight is the first typographic channel beyond family and size, and it is the first one that
+    * changes glyph advance — a backend that draws it without measuring it mis-sizes every region
+    * the layout solver reserved. This case exists so no backend can accept the channel and quietly
+    * discard it.
+    */
+  def boldTextCase: Either[GraphicsError, ConformanceCase] =
+    val name = GraphicsName.unsafe("conformance-bold-text")
+    val color = Rgba.unsafe(30, 30, 30)
+    Grob
+      .text(
+        "Bold",
+        Point.npcUnsafe(0.5, 0.5),
+        gp = GraphicParams
+          .unsafe(
+            stroke = None,
+            fill = Some(color),
+            fontFamily = Some("Conformance Sans"),
+            fontSize = Length.pointsUnsafe(9.0)
+          )
+          .withFontWeight(FontWeight.Bold),
+        name = Some(name)
+      )
+      .map { grob =>
+        ConformanceCase(
+          GraphicsName.unsafe("bold-text"),
+          ConformanceGroup.Primitive,
+          Scene(Vector(grob)),
+          Vector(name),
+          Vector(
+            RenderRequirement.Primitive(name, RenderPrimitiveKind.Text),
+            RenderRequirement.TextStyle(
+              name,
+              color,
+              fontSizePx = 12.0,
+              fontFamily = Some("Conformance Sans"),
+              alpha = 1.0,
+              fontWeight = Some(FontWeight.Bold)
             )
           )
         )
@@ -288,14 +427,161 @@ object RendererConformance:
         shape = PointShape.Cross,
         name = Some(GraphicsName.unsafe("conformance-cross"))
       )
+      diamond <- Grob.points(
+        Vector(Point.npcUnsafe(0.5, 0.25)),
+        size = ExtentExpr.pointsUnsafe(6.0),
+        shape = PointShape.Diamond,
+        name = Some(GraphicsName.unsafe("conformance-diamond"))
+      )
     yield ConformanceCase(
       GraphicsName.unsafe("shapes"),
       ConformanceGroup.Primitive,
-      Scene(Vector(square, triangle, cross)),
+      Scene(Vector(square, triangle, cross, diamond)),
       Vector(
         GraphicsName.unsafe("conformance-square"),
         GraphicsName.unsafe("conformance-triangle"),
-        GraphicsName.unsafe("conformance-cross")
+        GraphicsName.unsafe("conformance-cross"),
+        GraphicsName.unsafe("conformance-diamond")
+      ),
+      Vector(
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("conformance-square"),
+          RenderPrimitiveKind.Rectangle
+        ),
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("conformance-triangle"),
+          RenderPrimitiveKind.Polygon
+        ),
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("conformance-cross"),
+          RenderPrimitiveKind.Polyline
+        ),
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("conformance-diamond"),
+          RenderPrimitiveKind.Polygon
+        )
+      )
+    )
+
+  /** A named disc wrapped in [[Grob.Annotated]]. Every backend must accept the wrapper, keep the
+    * child's marker and primitive, and leave its style untouched; only the SVG backend can show the
+    * metadata, so this case pins acceptance and transparency, not emission.
+    */
+  def annotatedCase: Either[GraphicsError, ConformanceCase] =
+    for
+      disc <- Grob.points(
+        Vector(Point.npcUnsafe(0.5, 0.5)),
+        size = ExtentExpr.pointsUnsafe(5.0),
+        gp = GraphicParams.unsafe(
+          stroke = Some(Rgba.unsafe(30, 60, 90)),
+          fill = Some(Rgba.unsafe(200, 220, 240)),
+          alpha = 0.9
+        ),
+        name = Some(GraphicsName.unsafe("conformance-annotated"))
+      )
+      cssClass <- CssClass("mark decode-filled")
+      kind <- DataKey("kind")
+    yield
+      val meta = GrobMeta(
+        title = Some("Recall unit 7 & \"friends\" <b>"),
+        description = Some("Mass 0.5 ]]> end"),
+        cssClass = Some(cssClass),
+        data = Vector(kind -> "anchor")
+      )
+      ConformanceCase(
+        GraphicsName.unsafe("annotated"),
+        ConformanceGroup.Primitive,
+        Scene(Vector(Grob.annotated(disc, meta))),
+        Vector(GraphicsName.unsafe("conformance-annotated")),
+        Vector(
+          RenderRequirement.Primitive(
+            GraphicsName.unsafe("conformance-annotated"),
+            RenderPrimitiveKind.Disc
+          ),
+          RenderRequirement.Style(
+            GraphicsName.unsafe("conformance-annotated"),
+            Some(Rgba.unsafe(30, 60, 90)),
+            Some(Rgba.unsafe(200, 220, 240)),
+            1.0,
+            LineType.Solid,
+            LineCap.Butt,
+            LineJoin.Miter,
+            0.9
+          )
+        )
+      )
+
+  /** A step-after and a step-before track over the same three points, so a backend proves it draws
+    * the expanded corners rather than the three given vertices. Both lower to open polylines.
+    */
+  def stepLineCase: Either[GraphicsError, ConformanceCase] =
+    val after = GraphicsName.unsafe("conformance-step-after")
+    val before = GraphicsName.unsafe("conformance-step-before")
+    val points =
+      Vector(
+        Point.npcUnsafe(0.15, 0.2),
+        Point.npcUnsafe(0.5, 0.6),
+        Point.npcUnsafe(0.85, 0.4)
+      )
+    for
+      stepAfter <- Grob.lines(
+        points,
+        interpolation = LineInterpolation.StepAfter,
+        gp = GraphicParams.unsafe(stroke = Some(Rgba.unsafe(20, 90, 60))),
+        name = Some(after)
+      )
+      stepBefore <- Grob.lines(
+        points,
+        interpolation = LineInterpolation.StepBefore,
+        gp =
+          GraphicParams.unsafe(stroke = Some(Rgba.unsafe(150, 60, 20)), lineType = LineType.Dotted),
+        name = Some(before)
+      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("step-lines"),
+      ConformanceGroup.Primitive,
+      Scene(Vector(stepAfter, stepBefore)),
+      Vector(after, before),
+      Vector(
+        RenderRequirement.Primitive(after, RenderPrimitiveKind.Polyline),
+        RenderRequirement.Primitive(before, RenderPrimitiveKind.Polyline)
+      )
+    )
+
+  /** A rounded rectangle beside one whose requested radius exceeds half its shorter side, so a
+    * backend proves it draws the clamped corner and keeps the sharp bounding box.
+    */
+  def roundedRectCase: Either[GraphicsError, ConformanceCase] =
+    val rounded = GraphicsName.unsafe("conformance-rounded-rect")
+    val clamped = GraphicsName.unsafe("conformance-clamped-rect")
+    for
+      radius <- ExtentExpr.points(4.0)
+      oversized <- ExtentExpr.points(90.0)
+      bar <- Grob.rect(
+        Point.npcUnsafe(0.3, 0.5),
+        Size.npcUnsafe(0.3, 0.2),
+        cornerRadius = radius,
+        gp = GraphicParams.unsafe(
+          fill = Some(Rgba.unsafe(40, 110, 160)),
+          stroke = Some(Rgba.unsafe(10, 30, 50))
+        ),
+        name = Some(rounded)
+      )
+      pill <- Grob.rect(
+        Point.npcUnsafe(0.75, 0.5),
+        Size.npcUnsafe(0.2, 0.12),
+        cornerRadius = oversized,
+        gp = GraphicParams.unsafe(fill = Some(Rgba.unsafe(200, 170, 90))),
+        name = Some(clamped)
+      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("rounded-rect"),
+      ConformanceGroup.Primitive,
+      Scene(Vector(bar, pill)),
+      Vector(rounded, clamped),
+      Vector(
+        RenderRequirement.Primitive(rounded, RenderPrimitiveKind.Rectangle),
+        RenderRequirement.Primitive(clamped, RenderPrimitiveKind.Rectangle)
       )
     )
 
@@ -321,29 +607,150 @@ object RendererConformance:
       Vector(GraphicsName.unsafe("conformance-rect"), GraphicsName.unsafe("conformance-circle"))
     )
 
+  def patternFillCase: Either[GraphicsError, ConformanceCase] =
+    val angledName = GraphicsName.unsafe("conformance-pattern-angled")
+    val crossedName = GraphicsName.unsafe("conformance-pattern-crossed")
+    val rulesName = GraphicsName.unsafe("conformance-pattern-rules")
+    val stippleName = GraphicsName.unsafe("conformance-pattern-stipple")
+    val solidName = GraphicsName.unsafe("conformance-pattern-solid-control")
+    val groupName = GraphicsName.unsafe("conformance-pattern-transform")
+    for
+      angledRecipe <- PatternRecipe.angledHatch(30.0, 12.0, 1.5)
+      crossedRecipe <- PatternRecipe.crossHatch(45.0, 12.0, 1.5)
+      rulesRecipe <- PatternRecipe.parallelRules(RuleOrientation.Horizontal, 12.0, 2.0)
+      stippleRecipe <- PatternRecipe.stipple(12.0, 2.5)
+      angledPaint = PatternPaint(angledRecipe, Rgba.unsafe(25, 35, 45, 0.8), Some(Rgba.White))
+      crossedPaint = PatternPaint(
+        crossedRecipe,
+        Rgba.unsafe(55, 65, 75),
+        Some(Rgba.unsafe(230, 235, 240, 0.6))
+      )
+      rulesPaint = PatternPaint(rulesRecipe, Rgba.unsafe(85, 95, 105, 0.7))
+      stipplePaint = PatternPaint(stippleRecipe, Rgba.unsafe(115, 125, 135), Some(Rgba.White))
+      angled <- Grob.rect(
+        Point.npcUnsafe(0.2, 0.25),
+        Size.npcUnsafe(0.25, 0.3),
+        gp = GraphicParams.unsafe(stroke = None, alpha = 0.85).withPatternFill(angledPaint),
+        name = Some(angledName)
+      )
+      crossed <- Grob.circle(
+        Point.npcUnsafe(0.45, 0.25),
+        ExtentExpr.npcUnsafe(0.12),
+        gp = GraphicParams.unsafe(stroke = None, alpha = 0.75).withPatternFill(crossedPaint),
+        name = Some(crossedName)
+      )
+      rules <- Grob.polygon(
+        Vector(
+          Point.npcUnsafe(0.6, 0.1),
+          Point.npcUnsafe(0.85, 0.1),
+          Point.npcUnsafe(0.725, 0.4)
+        ),
+        gp = GraphicParams.unsafe(stroke = None, alpha = 0.65).withPatternFill(rulesPaint),
+        name = Some(rulesName)
+      )
+      stipple <- Grob.compoundPolygon(
+        Vector(
+          Vector(
+            Point.npcUnsafe(0.2, 0.55),
+            Point.npcUnsafe(0.8, 0.55),
+            Point.npcUnsafe(0.8, 0.9),
+            Point.npcUnsafe(0.2, 0.9)
+          ),
+          Vector(
+            Point.npcUnsafe(0.4, 0.65),
+            Point.npcUnsafe(0.6, 0.65),
+            Point.npcUnsafe(0.6, 0.8),
+            Point.npcUnsafe(0.4, 0.8)
+          )
+        ),
+        gp = GraphicParams.unsafe(stroke = None, alpha = 0.55).withPatternFill(stipplePaint),
+        name = Some(stippleName)
+      )
+      solid <- Grob.rect(
+        Point.npcUnsafe(0.88, 0.78),
+        Size.npcUnsafe(0.12, 0.16),
+        gp = GraphicParams
+          .unsafe(stroke = None, fill = Some(Rgba.unsafe(145, 155, 165)), alpha = 0.45),
+        name = Some(solidName)
+      )
+      viewport = Viewport.unsafe(
+        origin = Point.npcUnsafe(0.0, 0.0),
+        size = Size.npcUnsafe(1.0, 1.0),
+        clip = Clip.On,
+        angleDegrees = 7.5
+      )
+      group = Grob.group(
+        Vector(angled, crossed, rules, stipple, solid),
+        viewport = Some(viewport),
+        name = Some(groupName)
+      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("pattern-fills"),
+      ConformanceGroup.PatternFill,
+      Scene(Vector(group)),
+      Vector(groupName, angledName, crossedName, rulesName, stippleName, solidName),
+      Vector(
+        RenderRequirement.Group(groupName, clipped = true, rotated = true),
+        RenderRequirement.Primitive(angledName, RenderPrimitiveKind.Rectangle),
+        RenderRequirement.PatternFill(angledName, angledPaint, 0.85),
+        RenderRequirement.Primitive(crossedName, RenderPrimitiveKind.Disc),
+        RenderRequirement.PatternFill(crossedName, crossedPaint, 0.75),
+        RenderRequirement.Primitive(rulesName, RenderPrimitiveKind.Polygon),
+        RenderRequirement.PatternFill(rulesName, rulesPaint, 0.65),
+        RenderRequirement.Primitive(stippleName, RenderPrimitiveKind.Polygon),
+        RenderRequirement.PatternFill(stippleName, stipplePaint, 0.55),
+        RenderRequirement.Primitive(solidName, RenderPrimitiveKind.Rectangle),
+        RenderRequirement.Style(
+          solidName,
+          stroke = None,
+          fill = Some(Rgba.unsafe(145, 155, 165)),
+          lineWidth = 1.0,
+          lineType = LineType.Solid,
+          lineCap = LineCap.Butt,
+          lineJoin = LineJoin.Miter,
+          alpha = 0.45
+        )
+      )
+    )
+
   def textCase: Either[GraphicsError, ConformanceCase] =
+    val name = GraphicsName.unsafe("conformance-text")
+    val color = Rgba.unsafe(20, 40, 80, 0.8)
     Grob
       .text(
         "A&B <label>",
         Point.npcUnsafe(0.5, 0.75),
         anchor = Anchor(HJust.Left, VJust.Top),
         rotationDegrees = 30.0,
-        gp = GraphicParams.unsafe(stroke = None, fill = Some(Rgba.Black), fontSize = Length.pointsUnsafe(9.0)),
-        name = Some(GraphicsName.unsafe("conformance-text"))
+        gp = GraphicParams.unsafe(
+          stroke = None,
+          fill = Some(color),
+          alpha = 0.65,
+          fontFamily = Some("Conformance Sans"),
+          fontSize = Length.pointsUnsafe(9.0)
+        ),
+        name = Some(name)
       )
       .map { grob =>
         ConformanceCase(
           GraphicsName.unsafe("text"),
           ConformanceGroup.Primitive,
           Scene(Vector(grob)),
-          Vector(GraphicsName.unsafe("conformance-text")),
+          Vector(name),
           Vector(
-            RenderRequirement.Primitive(GraphicsName.unsafe("conformance-text"), RenderPrimitiveKind.Text),
+            RenderRequirement.Primitive(name, RenderPrimitiveKind.Text),
             RenderRequirement.Text(
-              GraphicsName.unsafe("conformance-text"),
+              name,
               HJust.Left,
               VJust.Top,
               rotated = true
+            ),
+            RenderRequirement.TextStyle(
+              name,
+              color,
+              fontSizePx = 12.0,
+              fontFamily = Some("Conformance Sans"),
+              alpha = 0.65
             )
           )
         )
@@ -406,7 +813,8 @@ object RendererConformance:
           Scene(Vector(grob)),
           Vector(GraphicsName.unsafe("conformance-clip")),
           Vector(
-            RenderRequirement.Group(GraphicsName.unsafe("conformance-clip"), clipped = true, rotated = false)
+            RenderRequirement
+              .Group(GraphicsName.unsafe("conformance-clip"), clipped = true, rotated = false)
           )
         )
       }
@@ -431,7 +839,8 @@ object RendererConformance:
           Scene(Vector(grob)),
           Vector(GraphicsName.unsafe("conformance-rotation")),
           Vector(
-            RenderRequirement.Group(GraphicsName.unsafe("conformance-rotation"), clipped = false, rotated = true)
+            RenderRequirement
+              .Group(GraphicsName.unsafe("conformance-rotation"), clipped = false, rotated = true)
           )
         )
       }
@@ -580,7 +989,11 @@ object RendererConformance:
             Rgba.unsafe(165, 155, 70),
             Rgba.unsafe(240, 210, 40)
           ),
-          ticks = Vector(AxisTick.unsafe(0.0, "1"), AxisTick.unsafe(0.5, "10"), AxisTick.unsafe(1.0, "100")),
+          ticks = Vector(
+            AxisTick.unsafe(0.0, "1"),
+            AxisTick.unsafe(0.5, "10"),
+            AxisTick.unsafe(1.0, "100")
+          ),
           name = Some(name)
         ),
         layout
@@ -613,7 +1026,7 @@ object RendererConformance:
       Observation(2.0, 3.0, "A")
     )
 
-  private def conditionScale: Either[GraphicsError, DiscreteScale[Rgba]] =
+  private def conditionScale: Either[GraphicsError, DiscreteScale[String, Rgba]] =
     DiscreteDomain.ordered(Vector("A", "B")).flatMap { domain =>
       DiscreteScale(
         "condition",
@@ -630,7 +1043,11 @@ object RendererConformance:
       plot <- Plot(observations)
         .withScale(ScaleBinding[Observation, Double, Double](Aesthetic.X, _.x, xScale))
         .flatMap(_.withScale(ScaleBinding[Observation, Double, Double](Aesthetic.Y, _.y, yScale)))
-        .flatMap(_.withScale(ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale)))
+        .flatMap(
+          _.withScale(
+            ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale)
+          )
+        )
         .flatMap(_.addLayer(Layer.point[Observation](_.x, _.y)))
       scene <- PlotCompiler.compile(
         plot,
@@ -705,7 +1122,12 @@ object RendererConformance:
       ConformanceGroup.CompiledPlot,
       scene,
       Vector(GraphicsName.unsafe("plot-panel"), GraphicsName.unsafe("geom-tile-0")),
-      Vector(RenderRequirement.Primitive(GraphicsName.unsafe("geom-tile-0"), RenderPrimitiveKind.Rectangle))
+      Vector(
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("geom-tile-0"),
+          RenderPrimitiveKind.Rectangle
+        )
+      )
     )
 
   def solvedPlotCase: Either[GraphicsError, ConformanceCase] =
@@ -720,7 +1142,9 @@ object RendererConformance:
             y = Some("Signal")
           )
         )
-        .withScale(ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale))
+        .withScale(
+          ScaleBinding[Observation, String, Rgba](Aesthetic.Color, _.condition, colorScale)
+        )
         .flatMap(_.addLayer(Layer.point[Observation](_.x, _.y)))
       scene <- PlotCompiler.compile(
         plot,
@@ -746,8 +1170,14 @@ object RendererConformance:
       Vector(
         RenderRequirement.Text(PlotRegion.Title, HJust.Left, VJust.Center, rotated = false),
         RenderRequirement.Text(PlotRegion.Subtitle, HJust.Left, VJust.Center, rotated = false),
-        RenderRequirement.Text(GraphicsName.unsafe("x-axis-title"), HJust.Center, VJust.Center, rotated = false),
-        RenderRequirement.Text(GraphicsName.unsafe("y-axis-title"), HJust.Center, VJust.Center, rotated = true)
+        RenderRequirement
+          .Text(GraphicsName.unsafe("x-axis-title"), HJust.Center, VJust.Center, rotated = false),
+        RenderRequirement.Text(
+          GraphicsName.unsafe("y-axis-title"),
+          HJust.Center,
+          VJust.Center,
+          rotated = true
+        )
       )
     )
 
@@ -969,7 +1399,8 @@ object RendererConformance:
       TilePoint(1.0, 1.0, 1),
       TilePoint(2.0, 1.0, 0)
     )
-    val fills = Vector(Rgba.unsafe(225, 235, 245), Rgba.unsafe(125, 170, 210), Rgba.unsafe(45, 95, 145))
+    val fills =
+      Vector(Rgba.unsafe(225, 235, 245), Rgba.unsafe(125, 170, 210), Rgba.unsafe(45, 95, 145))
     val mapping = AesSpec.empty[TilePoint].withFill(row => fills(row.level))
     Plot(samples)
       .withLabels(PlotLabels(title = Some("tiles"), x = Some("x"), y = Some("y")))
@@ -1006,20 +1437,24 @@ object RendererConformance:
         .axisTitles("x", "y")
         .theme(Theme.minimal)
         .scene
-    yield
-      ConformanceCase(
-        GraphicsName.unsafe("comparison-heatmap"),
-        ConformanceGroup.CompiledPlot,
-        scene,
-        Vector(
-          GraphicsName.unsafe("plot-panel"),
-          GraphicsName.unsafe("x-axis"),
-          GraphicsName.unsafe("y-axis"),
+    yield ConformanceCase(
+      GraphicsName.unsafe("comparison-heatmap"),
+      ConformanceGroup.CompiledPlot,
+      scene,
+      Vector(
+        GraphicsName.unsafe("plot-panel"),
+        GraphicsName.unsafe("x-axis"),
+        GraphicsName.unsafe("y-axis"),
+        GraphicsName.unsafe("geom-tile-0"),
+        GraphicsName.unsafe("value-colorbar")
+      ),
+      Vector(
+        RenderRequirement.Primitive(
           GraphicsName.unsafe("geom-tile-0"),
-          GraphicsName.unsafe("value-colorbar")
-        ),
-        Vector(RenderRequirement.Primitive(GraphicsName.unsafe("geom-tile-0"), RenderPrimitiveKind.Rectangle))
+          RenderPrimitiveKind.Rectangle
+        )
       )
+    )
 
   def bin2DComparisonCase: Either[GraphicsError, ConformanceCase] =
     final case class Sample(x: Double, y: Double)
@@ -1045,18 +1480,22 @@ object RendererConformance:
         .axisTitles("x", "y")
         .theme(Theme.minimal)
         .scene
-    yield
-      ConformanceCase(
-        GraphicsName.unsafe("comparison-bin2d"),
-        ConformanceGroup.CompiledPlot,
-        scene,
-        Vector(
-          GraphicsName.unsafe("plot-panel"),
+    yield ConformanceCase(
+      GraphicsName.unsafe("comparison-bin2d"),
+      ConformanceGroup.CompiledPlot,
+      scene,
+      Vector(
+        GraphicsName.unsafe("plot-panel"),
+        GraphicsName.unsafe("geom-tile-0"),
+        GraphicsName.unsafe("count-colorbar")
+      ),
+      Vector(
+        RenderRequirement.Primitive(
           GraphicsName.unsafe("geom-tile-0"),
-          GraphicsName.unsafe("count-colorbar")
-        ),
-        Vector(RenderRequirement.Primitive(GraphicsName.unsafe("geom-tile-0"), RenderPrimitiveKind.Rectangle))
+          RenderPrimitiveKind.Rectangle
+        )
       )
+    )
 
   def kde2DComparisonCase: Either[GraphicsError, ConformanceCase] =
     final case class Sample(x: Double, y: Double)
@@ -1080,18 +1519,22 @@ object RendererConformance:
         .axisTitles("x", "y")
         .theme(Theme.minimal)
         .scene
-    yield
-      ConformanceCase(
-        GraphicsName.unsafe("comparison-kde2d"),
-        ConformanceGroup.CompiledPlot,
-        scene,
-        Vector(
-          GraphicsName.unsafe("plot-panel"),
+    yield ConformanceCase(
+      GraphicsName.unsafe("comparison-kde2d"),
+      ConformanceGroup.CompiledPlot,
+      scene,
+      Vector(
+        GraphicsName.unsafe("plot-panel"),
+        GraphicsName.unsafe("geom-tile-0"),
+        GraphicsName.unsafe("density-colorbar")
+      ),
+      Vector(
+        RenderRequirement.Primitive(
           GraphicsName.unsafe("geom-tile-0"),
-          GraphicsName.unsafe("density-colorbar")
-        ),
-        Vector(RenderRequirement.Primitive(GraphicsName.unsafe("geom-tile-0"), RenderPrimitiveKind.Rectangle))
+          RenderPrimitiveKind.Rectangle
+        )
       )
+    )
 
   def contourComparisonCase: Either[GraphicsError, ConformanceCase] =
     final case class Sample(x: Double, y: Double)
@@ -1119,18 +1562,17 @@ object RendererConformance:
         .axisTitles("x", "y")
         .theme(Theme.minimal)
         .scene
-    yield
-      ConformanceCase(
-        GraphicsName.unsafe("comparison-contour"),
-        ConformanceGroup.CompiledPlot,
-        scene,
-        Vector(
-          GraphicsName.unsafe("plot-panel"),
-          GraphicsName.unsafe("x-axis"),
-          GraphicsName.unsafe("y-axis")
-        ),
-        Vector.empty
-      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("comparison-contour"),
+      ConformanceGroup.CompiledPlot,
+      scene,
+      Vector(
+        GraphicsName.unsafe("plot-panel"),
+        GraphicsName.unsafe("x-axis"),
+        GraphicsName.unsafe("y-axis")
+      ),
+      Vector.empty
+    )
 
   def filledContourComparisonCase: Either[GraphicsError, ConformanceCase] =
     final case class Sample(x: Double, y: Double)
@@ -1156,18 +1598,22 @@ object RendererConformance:
         .axisTitles("x", "y")
         .theme(Theme.minimal)
         .scene
-    yield
-      ConformanceCase(
-        GraphicsName.unsafe("comparison-filled-contour"),
-        ConformanceGroup.CompiledPlot,
-        scene,
-        Vector(
-          GraphicsName.unsafe("plot-panel"),
+    yield ConformanceCase(
+      GraphicsName.unsafe("comparison-filled-contour"),
+      ConformanceGroup.CompiledPlot,
+      scene,
+      Vector(
+        GraphicsName.unsafe("plot-panel"),
+        GraphicsName.unsafe("geom-polygon-0"),
+        GraphicsName.unsafe("density-colorbar")
+      ),
+      Vector(
+        RenderRequirement.Primitive(
           GraphicsName.unsafe("geom-polygon-0"),
-          GraphicsName.unsafe("density-colorbar")
-        ),
-        Vector(RenderRequirement.Primitive(GraphicsName.unsafe("geom-polygon-0"), RenderPrimitiveKind.Polygon))
+          RenderPrimitiveKind.Polygon
+        )
       )
+    )
 
   private def compiledComparisonCase[Row](
       name: String,
@@ -1238,10 +1684,14 @@ object RendererConformance:
             GraphicsName.unsafe("y-axis-0-0")
           ),
           Vector(
-            RenderRequirement.Group(GraphicsName.unsafe("panel-0-0"), clipped = true, rotated = false),
-            RenderRequirement.Group(GraphicsName.unsafe("panel-0-1"), clipped = true, rotated = false),
-            RenderRequirement.Text(GraphicsName.unsafe("strip-0-0"), HJust.Center, VJust.Center, rotated = false),
-            RenderRequirement.Text(GraphicsName.unsafe("strip-0-1"), HJust.Center, VJust.Center, rotated = false)
+            RenderRequirement
+              .Group(GraphicsName.unsafe("panel-0-0"), clipped = true, rotated = false),
+            RenderRequirement
+              .Group(GraphicsName.unsafe("panel-0-1"), clipped = true, rotated = false),
+            RenderRequirement
+              .Text(GraphicsName.unsafe("strip-0-0"), HJust.Center, VJust.Center, rotated = false),
+            RenderRequirement
+              .Text(GraphicsName.unsafe("strip-0-1"), HJust.Center, VJust.Center, rotated = false)
           )
         )
       }
@@ -1421,7 +1871,9 @@ object RendererConformance:
         position = Position.jitterUnsafe(2026L, width = Some(0.22), height = Some(0.12))
       )
       plot <- Plot(points)
-        .withLabels(PlotLabels(title = Some("position-jitter"), x = Some("category"), y = Some("value")))
+        .withLabels(
+          PlotLabels(title = Some("position-jitter"), x = Some("category"), y = Some("value"))
+        )
         .addLayer(layer)
       scene <- PlotCompiler.compile(
         plot,
@@ -1446,7 +1898,8 @@ object RendererConformance:
     final case class Sample(x: Double, y: Double)
     val samples = Vector.tabulate(5)(idx => Sample(idx.toDouble, idx.toDouble))
     val bins = HistogramBins.breaksUnsafe(Vector(0.0, 2.0, 4.0))
-    val density = DensityConfig.fixedUnsafe(1.0, points = 16, domain = Some(Interval.unsafe(0.0, 4.0)))
+    val density =
+      DensityConfig.fixedUnsafe(1.0, points = 16, domain = Some(Interval.unsafe(0.0, 4.0)))
     for
       histogram <- Plot(samples).addLayer(Layer.histogram[Sample](_.x, bins = bins))
       summarized <- histogram.addLayer(Layer.summary[Sample](_.x, _.y))
@@ -1467,10 +1920,16 @@ object RendererConformance:
         GraphicsName.unsafe("stat-density-line")
       ),
       Vector(
-        RenderRequirement.Primitive(GraphicsName.unsafe("stat-bin-bar-0"), RenderPrimitiveKind.Rectangle),
-        RenderRequirement.Primitive(GraphicsName.unsafe("stat-summary-interval-0"), RenderPrimitiveKind.Polyline),
-        RenderRequirement.Primitive(GraphicsName.unsafe("stat-summary-mean-0"), RenderPrimitiveKind.Disc),
-        RenderRequirement.Primitive(GraphicsName.unsafe("stat-density-line"), RenderPrimitiveKind.Polyline)
+        RenderRequirement
+          .Primitive(GraphicsName.unsafe("stat-bin-bar-0"), RenderPrimitiveKind.Rectangle),
+        RenderRequirement
+          .Primitive(GraphicsName.unsafe("stat-summary-interval-0"), RenderPrimitiveKind.Polyline),
+        RenderRequirement
+          .Primitive(GraphicsName.unsafe("stat-summary-mean-0"), RenderPrimitiveKind.Disc),
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("stat-density-line"),
+          RenderPrimitiveKind.Polyline
+        )
       )
     )
 
@@ -1490,7 +1949,10 @@ object RendererConformance:
       scene,
       Vector(GraphicsName.unsafe("plot-panel"), GraphicsName.unsafe("stat-bin-bar-0")),
       Vector(
-        RenderRequirement.Primitive(GraphicsName.unsafe("stat-bin-bar-0"), RenderPrimitiveKind.Rectangle)
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("stat-bin-bar-0"),
+          RenderPrimitiveKind.Rectangle
+        )
       )
     )
 
@@ -1499,7 +1961,9 @@ object RendererConformance:
     val data = Vector(Bounds(0.1, 0.4, 0.2, 0.6), Bounds(0.55, 0.85, 0.35, 0.8))
     val fill = Some(GraphicParams.unsafe(fill = Some(Rgba.unsafe(75, 130, 185))))
     for
-      rects <- Plot(data).addLayer(Layer.rect[Bounds](_.xMin, _.xMax, _.yMin, _.yMax, params = fill))
+      rects <- Plot(data).addLayer(
+        Layer.rect[Bounds](_.xMin, _.xMax, _.yMin, _.yMax, params = fill)
+      )
       plot <- rects.addLayer(
         Layer.tile[Bounds](
           row => (row.xMin + row.xMax) / 2.0,
@@ -1516,13 +1980,24 @@ object RendererConformance:
       scene,
       Vector(GraphicsName.unsafe("geom-rect-0"), GraphicsName.unsafe("geom-tile-0")),
       Vector(
-        RenderRequirement.Primitive(GraphicsName.unsafe("geom-rect-0"), RenderPrimitiveKind.Rectangle),
-        RenderRequirement.Primitive(GraphicsName.unsafe("geom-tile-0"), RenderPrimitiveKind.Rectangle)
+        RenderRequirement
+          .Primitive(GraphicsName.unsafe("geom-rect-0"), RenderPrimitiveKind.Rectangle),
+        RenderRequirement.Primitive(
+          GraphicsName.unsafe("geom-tile-0"),
+          RenderPrimitiveKind.Rectangle
+        )
       )
     )
 
   def segmentGeomsCase: Either[GraphicsError, ConformanceCase] =
-    final case class SegmentDatum(x: Double, y: Double, xEnd: Double, yEnd: Double, lower: Double, upper: Double)
+    final case class SegmentDatum(
+        x: Double,
+        y: Double,
+        xEnd: Double,
+        yEnd: Double,
+        lower: Double,
+        upper: Double
+    )
     val data = Vector(
       SegmentDatum(0.1, 0.2, 0.4, 0.6, 0.1, 0.5),
       SegmentDatum(0.6, 0.4, 0.9, 0.8, 0.3, 0.9)
@@ -1544,16 +2019,20 @@ object RendererConformance:
         GraphicsName.unsafe("geom-vline")
       ),
       Vector(
-        RenderRequirement.Primitive(GraphicsName.unsafe("geom-segment-0"), RenderPrimitiveKind.Polyline),
-        RenderRequirement.Primitive(GraphicsName.unsafe("geom-errorbar-0"), RenderPrimitiveKind.Polyline),
-        RenderRequirement.Primitive(GraphicsName.unsafe("geom-hline"), RenderPrimitiveKind.Polyline),
+        RenderRequirement
+          .Primitive(GraphicsName.unsafe("geom-segment-0"), RenderPrimitiveKind.Polyline),
+        RenderRequirement
+          .Primitive(GraphicsName.unsafe("geom-errorbar-0"), RenderPrimitiveKind.Polyline),
+        RenderRequirement
+          .Primitive(GraphicsName.unsafe("geom-hline"), RenderPrimitiveKind.Polyline),
         RenderRequirement.Primitive(GraphicsName.unsafe("geom-vline"), RenderPrimitiveKind.Polyline)
       )
     )
 
   def bandGeomsCase: Either[GraphicsError, ConformanceCase] =
     final case class Band(x: Double, y: Double, lower: Double, upper: Double)
-    val data = Vector(Band(0.1, 0.3, 0.2, 0.4), Band(0.5, 0.7, 0.5, 0.85), Band(0.9, 0.5, 0.3, 0.65))
+    val data =
+      Vector(Band(0.1, 0.3, 0.2, 0.4), Band(0.5, 0.7, 0.5, 0.85), Band(0.9, 0.5, 0.3, 0.65))
     val ribbonStyle = Some(GraphicParams.unsafe(fill = Some(Rgba.unsafe(80, 145, 205, 0.6))))
     val areaStyle = Some(GraphicParams.unsafe(fill = Some(Rgba.unsafe(215, 135, 65, 0.45))))
     for
@@ -1566,7 +2045,8 @@ object RendererConformance:
       scene,
       Vector(GraphicsName.unsafe("geom-ribbon-0"), GraphicsName.unsafe("geom-area-0")),
       Vector(
-        RenderRequirement.Primitive(GraphicsName.unsafe("geom-ribbon-0"), RenderPrimitiveKind.Polygon),
+        RenderRequirement
+          .Primitive(GraphicsName.unsafe("geom-ribbon-0"), RenderPrimitiveKind.Polygon),
         RenderRequirement.Primitive(GraphicsName.unsafe("geom-area-0"), RenderPrimitiveKind.Polygon)
       )
     )

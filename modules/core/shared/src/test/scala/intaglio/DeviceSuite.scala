@@ -9,8 +9,14 @@ class DeviceSuite extends munit.FunSuite:
     LengthResolver(device, DeviceFrame.root(device))
 
   test("device context rejects invalid sizes and resolutions") {
-    assertEquals(DeviceContext(0.0, 100.0).left.toOption, Some(GraphicsError.InvalidDeviceSize(0.0, 100.0)))
-    assertEquals(DeviceContext(100.0, -1.0).left.toOption, Some(GraphicsError.InvalidDeviceSize(100.0, -1.0)))
+    assertEquals(
+      DeviceContext(0.0, 100.0).left.toOption,
+      Some(GraphicsError.InvalidDeviceSize(0.0, 100.0))
+    )
+    assertEquals(
+      DeviceContext(100.0, -1.0).left.toOption,
+      Some(GraphicsError.InvalidDeviceSize(100.0, -1.0))
+    )
     assertEquals(
       DeviceContext(100.0, 100.0, pixelsPerInch = 0.0).left.toOption,
       Some(GraphicsError.InvalidDeviceResolution(0.0))
@@ -90,23 +96,102 @@ class DeviceSuite extends munit.FunSuite:
   }
 
   test("degenerate native scales resolve extents to zero and locations to midpoints") {
-    val frame = DeviceFrame(0.0, 0.0, 100.0, 100.0, Interval.unsafe(3.0, 3.0), Interval.unsafe(0.0, 1.0), YDirection.Up)
+    val frame = DeviceFrame(
+      0.0,
+      0.0,
+      100.0,
+      100.0,
+      Interval.unsafe(3.0, 3.0),
+      Interval.unsafe(0.0, 1.0),
+      YDirection.Up
+    )
     val r = LengthResolver(device, frame)
     assertEqualsDouble(r.width(LengthExpr.nativeUnsafe(1.0)).toOption.get, 0.0, tol)
     assertEqualsDouble(r.x(LengthExpr.nativeUnsafe(3.0)).toOption.get, 50.0, tol)
   }
 
-  test("line units and relative font sizes are unresolvable") {
-    val r = rootResolver
-    assert(r.x(LengthExpr(Length.unsafe(1.0, LengthUnit.Line))).left.toOption.exists {
-      case GraphicsError.UnresolvableLength(_) => true
-      case _                                   => false
-    })
+  test("line units resolve from contextual line height while npc font sizes remain invalid") {
+    val r = LengthResolver(device, DeviceFrame.root(device), lineHeightPt = 18.0)
+    assertEqualsDouble(r.x(LengthExpr.linesUnsafe(1.0)).toOption.get, 24.0, tol)
+    assertEqualsDouble(r.width(ExtentExpr.linesUnsafe(1.5)).toOption.get, 36.0, tol)
+    assertEqualsDouble(r.fontSize(Length.linesUnsafe(0.5)).toOption.get, 12.0, tol)
     assert(r.fontSize(Length.unsafe(0.5, LengthUnit.Npc)).left.toOption.exists {
       case GraphicsError.UnresolvableLength(_) => true
       case _                                   => false
     })
     assertEqualsDouble(r.fontSize(Length.pointsUnsafe(12.0)).toOption.get, 16.0, tol)
+  }
+
+  test("device lowering distinguishes literal-pixel and physical-point stroke widths") {
+    val points = Vector(Point.npcUnsafe(0.1, 0.25), Point.npcUnsafe(0.9, 0.25))
+    val pixelLine = Grob
+      .lines(
+        points,
+        gp = GraphicParams.unsafe(lineWidth = 2.0),
+        name = Some(GraphicsName.unsafe("pixel-stroke"))
+      )
+      .fold(error => fail(error.message), identity)
+    val pointLine = Grob
+      .lines(
+        points,
+        gp = GraphicParams
+          .unsafe(lineWidth = 2.0)
+          .withStrokeWidth(StrokeWidth.pointsUnsafe(2.0)),
+        name = Some(GraphicsName.unsafe("point-stroke"))
+      )
+      .fold(error => fail(error.message), identity)
+    val context = RenderContext.unsafe(200, 100, pixelsPerInch = 144.0)
+    val scene = DeviceScene
+      .fromScene(Scene(Vector(pixelLine, pointLine)), context)
+      .fold(error => fail(error.message), identity)
+    val widths = scene.elements.collect {
+      case DeviceElement.Mark(DevicePrimitive.Polyline(_, _, gp, name)) =>
+        (name.map(_.value), gp.lineWidth, gp.lineWidthUnit)
+    }
+
+    assertEquals(
+      widths,
+      Vector(
+        (Some("pixel-stroke"), 2.0, StrokeUnit.DevicePixel),
+        (Some("point-stroke"), 4.0, StrokeUnit.DevicePixel)
+      )
+    )
+  }
+
+  test("DeviceScene receives the render context's line height for extents and fonts") {
+    val circle = Grob.circleUnsafe(
+      Point.npcUnsafe(0.25, 0.5),
+      ExtentExpr.linesUnsafe(1.0),
+      name = Some(GraphicsName.unsafe("line-radius"))
+    )
+    val text = Grob.textUnsafe(
+      "line font",
+      Point.npcUnsafe(0.75, 0.5),
+      gp = GraphicParams.unsafe(fontSize = Length.linesUnsafe(0.5)),
+      name = Some(GraphicsName.unsafe("line-font"))
+    )
+    val context = RenderContext.unsafe(
+      200,
+      100,
+      pixelsPerInch = 144.0,
+      lineHeightPt = 18.0
+    )
+    val scene = DeviceScene
+      .fromScene(Scene(Vector(circle, text)), context)
+      .fold(error => fail(error.message), identity)
+
+    val radius = scene.elements.collectFirst {
+      case DeviceElement.Mark(DevicePrimitive.Disc(_, _, value, _, name))
+          if name.exists(_.value == "line-radius") =>
+        value
+    }
+    val fontSize = scene.elements.collectFirst {
+      case DeviceElement.Mark(DevicePrimitive.TextRun(_, _, _, _, _, _, value, _, _, name))
+          if name.exists(_.value == "line-font") =>
+        value
+    }
+    assertEquals(radius, Some(36.0))
+    assertEquals(fontSize, Some(18.0))
   }
 
   test("child frames resolve with lower-left origins in y-up parents") {
@@ -156,7 +241,14 @@ class DeviceSuite extends munit.FunSuite:
     val scene = DeviceScene.fromScene(Scene(Vector(grob)), device).toOption.get
 
     scene.elements match
-      case Vector(DeviceElement.Group(name, Some(clip), None, Vector(DeviceElement.Mark(polyline: DevicePrimitive.Polyline)))) =>
+      case Vector(
+            DeviceElement.Group(
+              name,
+              Some(clip),
+              None,
+              Vector(DeviceElement.Mark(polyline: DevicePrimitive.Polyline))
+            )
+          ) =>
         assertEquals(name.map(_.value), Some("native-line"))
         assertEqualsDouble(clip.x, 20.0, tol)
         assertEqualsDouble(clip.y, 40.0, tol)
@@ -167,7 +259,10 @@ class DeviceSuite extends munit.FunSuite:
         assertEqualsDouble(polyline.points(0).y, 80.0, tol)
         assertEqualsDouble(polyline.points(1).x, 120.0, tol)
         assertEqualsDouble(polyline.points(1).y, 40.0, tol)
-        assert(polyline.points(0).y > polyline.points(1).y, "larger data y must render higher (smaller device y)")
+        assert(
+          polyline.points(0).y > polyline.points(1).y,
+          "larger data y must render higher (smaller device y)"
+        )
       case other =>
         fail(s"unexpected device elements: $other")
   }
@@ -182,7 +277,8 @@ class DeviceSuite extends munit.FunSuite:
       )
       .toOption
       .get
-    val square = DeviceScene.fromScene(Scene(Vector(grob)), DeviceContext.unsafe(100.0, 100.0)).toOption.get
+    val square =
+      DeviceScene.fromScene(Scene(Vector(grob)), DeviceContext.unsafe(100.0, 100.0)).toOption.get
 
     square.elements match
       case Vector(DeviceElement.Mark(rect: DevicePrimitive.RectShape)) =>
@@ -190,6 +286,38 @@ class DeviceSuite extends munit.FunSuite:
         assertEqualsDouble(rect.y, 42.0, tol)
         assertEqualsDouble(rect.width, 16.0, tol)
         assertEqualsDouble(rect.height, 16.0, tol)
+      case other =>
+        fail(s"unexpected device elements: $other")
+  }
+
+  test("diamond points lower to an equal-area closed polyline on the axes") {
+    val grob = Grob
+      .points(
+        Vector(Point.npcUnsafe(0.5, 0.5)),
+        size = ExtentExpr.pointsUnsafe(6.0),
+        shape = PointShape.Diamond,
+        name = Some(GraphicsName.unsafe("diamond"))
+      )
+      .toOption
+      .get
+    val scene =
+      DeviceScene.fromScene(Scene(Vector(grob)), DeviceContext.unsafe(100.0, 100.0)).toOption.get
+    // 6 pt at 96 ppi is an 8 px radius; the half-diagonal is 8 * sqrt(pi / 2).
+    val half = 8.0 * math.sqrt(math.Pi / 2.0)
+
+    scene.elements match
+      case Vector(DeviceElement.Mark(DevicePrimitive.Polyline(points, true, _, name))) =>
+        assertEquals(name.map(_.value), Some("diamond"))
+        assertEquals(points.length, 4)
+        assertEqualsDouble(points(0).x, 50.0, tol)
+        assertEqualsDouble(points(0).y, 50.0 - half, tol)
+        assertEqualsDouble(points(1).x, 50.0 + half, tol)
+        assertEqualsDouble(points(1).y, 50.0, tol)
+        assertEqualsDouble(points(2).x, 50.0, tol)
+        assertEqualsDouble(points(2).y, 50.0 + half, tol)
+        assertEqualsDouble(points(3).x, 50.0 - half, tol)
+        assertEqualsDouble(points(3).y, 50.0, tol)
+        assertEqualsDouble(2.0 * half * half, math.Pi * 64.0, tol)
       case other =>
         fail(s"unexpected device elements: $other")
   }
@@ -234,7 +362,9 @@ class DeviceSuite extends munit.FunSuite:
         .get
       val outer = Grob.group(Vector(inner), viewport = Some(parent))
       DeviceScene.fromScene(Scene(Vector(outer)), device).toOption.get.elements match
-        case Vector(DeviceElement.Group(_, _, _, Vector(DeviceElement.Group(_, _, Some(rotation), _)))) =>
+        case Vector(
+              DeviceElement.Group(_, _, _, Vector(DeviceElement.Group(_, _, Some(rotation), _)))
+            ) =>
           rotation.degrees
         case other =>
           fail(s"unexpected device elements: $other")

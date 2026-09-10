@@ -1,6 +1,39 @@
 package intaglio
 
+import scala.compiletime.testing.typeCheckErrors
+
 class StatSuite extends munit.FunSuite:
+
+  test("built-in stats execute through the public batch, context, result, and policy contract") {
+    val count = Stat.Count[String](identity, order = CountOrder.Lexicographic)
+    val result = count
+      .compute(
+        StatBatch(Vector("b", "a", "b"), AesSpec.empty[String]),
+        StatContext(layerIndex = 2, geom = Geom.Bar, scope = StatScope.Plot)
+      )
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(result.rows.map(_.level), Vector("a", "b"))
+    assertEquals(result.rows.map(_.count), Vector(1, 2))
+    assertEquals(count.contract.inputPreservation, StatInputPreservation.AggregateMembers)
+    assertEquals(count.contract.grouping, StatGroupingPolicy.DiscreteKeys)
+    assertEquals(count.contract.summarization, StatSummarizationPolicy.Frequency)
+    assertEquals(count.contract.rejection, StatRejectionPolicy.FailBatch)
+    assertEquals(count.contract.mapping, StatMappingPolicy.Replace)
+    assertEquals(count.contract.geometry, StatGeometryPolicy.Require(Geom.Bar))
+    assertEquals(count.contract.lowering, StatLowering.Geom)
+
+    assertEquals(Stat.Identity.contract.inputPreservation, StatInputPreservation.OneToOne)
+    assertEquals(Stat.Bin[Double](identity).contract.grouping, StatGroupingPolicy.HistogramBins)
+    assertEquals(
+      Stat.Summary[(Double, Double)](_._1, _._2).contract.summarization,
+      StatSummarizationPolicy.MeanInterval
+    )
+    assertEquals(
+      Stat.Density[Double](identity).contract.inputPreservation,
+      StatInputPreservation.WholeBatch
+    )
+  }
 
   test("stat count matches R table and ggplot2 stat_count parity fixture") {
     val plot =
@@ -9,7 +42,11 @@ class StatSuite extends munit.FunSuite:
         .fold(error => fail(error.message), identity)
     val mapped = MappingPhase.plan(plot).fold(error => fail(error.message), identity)
     val stat = StatPhase.transform(mapped).fold(error => fail(error.message), identity).head.frame
+    val counted = stat.rows.collect { case output: StatRow.Counted[?] => output }
 
+    assertEquals(counted.length, stat.rows.length)
+    assertEquals(counted.map(_.level), StatCountParityFixture.levels)
+    assertEquals(counted.map(_.count), StatCountParityFixture.counts.map(_.toInt))
     assertEquals(stat.rows.flatMap(_.category), StatCountParityFixture.levels)
     assertEquals(
       stat.rows.flatMap(_.computed.get(ComputedAesthetic.Count)),
@@ -23,7 +60,26 @@ class StatSuite extends munit.FunSuite:
       stat.computedAesthetics,
       Set[ComputedAesthetic[?]](ComputedAesthetic.Count, ComputedAesthetic.Proportion)
     )
+    assertEquals(
+      StatFrame(stat.rows, Set.empty).computedAesthetics,
+      Set[ComputedAesthetic[?]](ComputedAesthetic.Count, ComputedAesthetic.Proportion)
+    )
     assertEquals(stat.rows.map(_.members.length), Vector(7, 10, 3, 10, 1, 1))
+  }
+
+  test("typed stat mappings cannot receive the wrong output variant") {
+    val errors = typeCheckErrors("""
+      import intaglio.*
+      val stat = Stat.Count[String](identity)
+      val result = stat.compute(
+        StatBatch(Vector("a", "b"), AesSpec.empty[String]),
+        StatContext(0, Geom.Bar, StatScope.Plot)
+      ).toOption.get
+      val y = result.mapping.get(Aesthetic.Y).get
+      y.map(StatRow.Identity("not-a-count-output"))
+    """)
+
+    assert(errors.nonEmpty)
   }
 
   test("computed count output trains x scale, derives labels, and lowers bars") {
@@ -58,9 +114,11 @@ class StatSuite extends munit.FunSuite:
     assertEquals(trained.layout.map(_.xScale), Some(Interval.unsafe(-0.45, 5.45)))
     assertEquals(trained.layout.map(_.yScale), Some(Interval.unsafe(0.0, 10.0)))
 
-    val xAxis = trained.guides.collectFirst {
-      case ResolvedGuide(axis: GuideSpec.Axis, _) if axis.side == AxisSide.Bottom => axis
-    }.getOrElse(fail("missing count x axis"))
+    val xAxis = trained.guides
+      .collectFirst {
+        case ResolvedGuide(axis: GuideSpec.Axis, _) if axis.side == AxisSide.Bottom => axis
+      }
+      .getOrElse(fail("missing count x axis"))
     assertEquals(xAxis.ticks.toVector.flatten.map(_.label), StatCountParityFixture.levels)
     assertEquals(xAxis.ticks.toVector.flatten.map(_.value), Vector(0.0, 1.0, 2.0, 3.0, 4.0, 5.0))
   }

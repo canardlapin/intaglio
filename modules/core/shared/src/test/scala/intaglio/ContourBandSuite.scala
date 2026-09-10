@@ -30,12 +30,54 @@ class ContourBandSuite extends munit.FunSuite:
     assertEqualsDouble(area, 4.0, 1e-12)
   }
 
+  test("planar band mass is conserved across grid sizes and translated domains") {
+    Vector(3, 5, 9, 17).foreach { sampleCount =>
+      Vector(0.0, 1.0e6).foreach { offset =>
+        val axis =
+          RegularGridAxis.vertexCenteredUnsafe(offset - 1.0, offset + 1.0, sampleCount)
+        val field = ScalarField2D
+          .tabulate(axis, axis)((x, y) => (x - offset) + (y - offset))
+          .toOption
+          .get
+        val bands = ContourBandSet
+          .extract(field, ContourBreaks.atUnsafe(Vector(-2.0, -1.0, 0.0, 1.0, 2.0)))
+          .fold(error => fail(error.message), identity)
+        val area = bands.bands.flatMap(_.fragments).map(_.area).sum
+
+        assertEqualsDouble(area, 4.0, 1e-10, s"samples=$sampleCount offset=$offset")
+        assert(
+          bands.bands.flatMap(_.regions).forall(_.outer.winding == RingWinding.CounterClockwise)
+        )
+        assert(
+          bands.bands.flatMap(_.regions).flatMap(_.holes).forall(_.winding == RingWinding.Clockwise)
+        )
+      }
+    }
+  }
+
+  test("ring area and winding are stable at large coordinate offsets") {
+    val offset = 1.0e12
+    val points = Vector(
+      FieldPoint.unsafe(offset, offset),
+      FieldPoint.unsafe(offset + 3.0, offset),
+      FieldPoint.unsafe(offset + 3.0, offset + 2.0),
+      FieldPoint.unsafe(offset, offset + 2.0),
+      FieldPoint.unsafe(offset, offset)
+    )
+    val ring = ContourRing.fromClosed(points).fold(error => fail(error.message), identity)
+
+    assertEquals(ring.signedArea, 6.0)
+    assertEquals(ring.winding, RingWinding.CounterClockwise)
+  }
+
   test("band topology is deterministic under translation") {
     val axis = RegularGridAxis.vertexCenteredUnsafe(-1.5, 1.5, 25)
     val shiftedAxis = RegularGridAxis.vertexCenteredUnsafe(8.5, 11.5, 25)
     val source = ScalarField2D.tabulate(axis, axis)((x, y) => x * x + y * y).toOption.get
     val shifted = ScalarField2D
-      .tabulate(shiftedAxis, shiftedAxis)((x, y) => (x - 10.0) * (x - 10.0) + (y - 10.0) * (y - 10.0))
+      .tabulate(shiftedAxis, shiftedAxis)((x, y) =>
+        (x - 10.0) * (x - 10.0) + (y - 10.0) * (y - 10.0)
+      )
       .toOption
       .get
     val breaks = ContourBreaks.atUnsafe(Vector(0.25, 1.0))
@@ -53,15 +95,17 @@ class ContourBandSuite extends munit.FunSuite:
   test("filled bands lower through capability-gated generic polygons") {
     val axis = RegularGridAxis.vertexCenteredUnsafe(-2.0, 2.0, 81)
     val field = ScalarField2D.tabulate(axis, axis)((x, y) => x * x + y * y).toOption.get
-    val bands = ContourBandSet.extract(field, ContourBreaks.atUnsafe(Vector(0.25, 1.0))).toOption.get
-    val trained = plot(bands).geomFilledContour().resolve.fold(error => fail(error.message), identity)
+    val bands =
+      ContourBandSet.extract(field, ContourBreaks.atUnsafe(Vector(0.25, 1.0))).toOption.get
+    val trained =
+      plot(bands).geomFilledContour().resolve.fold(error => fail(error.message), identity)
 
     assertEquals(trained.layers.map(_.geom), Vector(Geom.Polygon))
     assert(trained.layers.head.grobs.nonEmpty)
     assert(trained.layers.head.grobs.forall(_.isInstanceOf[Grob.CompoundPolygon]))
     assert(trained.layers.head.grobs.exists {
       case Grob.CompoundPolygon(rings, _, _, _) => rings.length > 1
-      case _                                     => false
+      case _                                    => false
     })
     assert(trained.guides.exists(_.grob.name.exists(_.value == "level-colorbar")))
   }

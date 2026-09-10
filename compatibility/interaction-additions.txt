@@ -1,0 +1,9 @@
+# Reviewed additive API surface relative to this exact bootstrap baseline.
+# Used only by forward MiMa. Backward problems and TASTy problems are not filtered.
+# No wildcards: extending this list requires a new source/API review.
+#
+# Empty because the baseline was just moved to a commit that already contains every symbol the
+# previous list reviewed. An entry belongs here only while it is a live forward finding against the
+# pinned baseline; a stale one fails the build rather than being ignored.
+sha=b0a9ed8816dc6137f796afb47c6b5f0491d51475
+version=0.3.0

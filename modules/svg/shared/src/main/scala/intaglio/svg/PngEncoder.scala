@@ -2,9 +2,9 @@ package intaglio.svg
 
 import intaglio.*
 
-/** Portable deterministic PNG encoder for 8-bit RGBA rasters. The DEFLATE
-  * stream uses uncompressed stored blocks: output is larger than a tuned PNG,
-  * but byte-identical on JVM and Scala.js and requires no platform codec.
+/** Portable deterministic PNG encoder for 8-bit RGBA rasters. The DEFLATE stream uses uncompressed
+  * stored blocks: output is larger than a tuned PNG, but byte-identical on JVM and Scala.js and
+  * requires no platform codec.
   */
 private[svg] object PngEncoder:
   private val Signature =

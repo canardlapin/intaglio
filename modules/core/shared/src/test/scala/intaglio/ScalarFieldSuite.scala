@@ -32,7 +32,8 @@ class ScalarFieldSuite extends munit.FunSuite:
     val x = RegularGridAxis.vertexCenteredUnsafe(-1.0, 1.0, 3)
     val y = RegularGridAxis.vertexCenteredUnsafe(-2.0, 2.0, 3)
     val field = ScalarField2D.tabulate(x, y)(_ + _).fold(error => fail(error.message), identity)
-    val squared = field.mapValues(value => value * value).fold(error => fail(error.message), identity)
+    val squared =
+      field.mapValues(value => value * value).fold(error => fail(error.message), identity)
 
     assertEquals(field.samples, Vector(-3.0, -2.0, -1.0, -1.0, 0.0, 1.0, 1.0, 2.0, 3.0))
     assertEquals(squared.xAxis, field.xAxis)

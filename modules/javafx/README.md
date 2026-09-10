@@ -38,3 +38,11 @@ does not change the deterministic shared `TextMetrics.estimate` default.
 Shared raster images are converted once per adapter into cached ARGB
 `WritableImage` values and drawn with explicit nearest-neighbor or bilinear
 smoothing plus grob-level alpha.
+
+Pattern fills use that same shared deterministic RGBA tile as an absolute
+`ImagePattern`. A `JavaFxCanvasContext` caches one native resource per complete
+`PatternPaint`, and `JavaFxDrawProfile` exposes requests, hits, and misses. The
+pattern starts at device `(0, 0)`, follows enclosing transforms, and applies
+mark alpha once after ink/background composition. Raster pattern axes are
+bounded at 1,024 device pixels; oversized requests fail through the typed
+`JavaFxRenderError` compilation boundary rather than degrading to solid fill.

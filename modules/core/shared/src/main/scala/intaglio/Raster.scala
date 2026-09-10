@@ -1,8 +1,7 @@
 package intaglio
 
-/** Packed 8-bit RGBA pixel (`0xRRGGBBAA`). The opaque representation keeps
-  * raster storage primitive while preventing arbitrary integers from entering
-  * public image constructors.
+/** Packed 8-bit RGBA pixel (`0xRRGGBBAA`). The opaque representation keeps raster storage primitive
+  * while preventing arbitrary integers from entering public image constructors.
   */
 opaque type Rgba32 = Int
 
@@ -20,14 +19,14 @@ object Rgba32:
   def fromRgba(color: Rgba): Rgba32 =
     pack(color.red, color.green, color.blue, math.round(color.alpha * 255.0).toInt)
 
-  /** Interpret one packed `0xRRGGBBAA` word. Every 32-bit value is a valid
-    * pixel; the named conversion keeps packed-buffer boundaries explicit.
+  /** Interpret one packed `0xRRGGBBAA` word. Every 32-bit value is a valid pixel; the named
+    * conversion keeps packed-buffer boundaries explicit.
     */
   inline def fromPackedInt(value: Int): Rgba32 =
     value
 
-  /** Internal hot-path constructor. Callers must prove every channel is in
-    * `[0, 255]`; public and trust-boundary code must use `apply` or `unsafe`.
+  /** Internal hot-path constructor. Callers must prove every channel is in `[0, 255]`; public and
+    * trust-boundary code must use `apply` or `unsafe`.
     */
   private[intaglio] def packUnsafe(red: Int, green: Int, blue: Int, alpha: Int): Rgba32 =
     pack(red, green, blue, alpha)
@@ -76,9 +75,9 @@ enum RasterInterpolation:
   case Nearest
   case Smooth
 
-/** Immutable row-major raster pixels. Row zero is the visual top row, matching
-  * conventional image formats and every concrete backend. Scene placement is
-  * still resolved through the y-up graphics coordinate system.
+/** Immutable row-major raster pixels. Row zero is the visual top row, matching conventional image
+  * formats and every concrete backend. Scene placement is still resolved through the y-up graphics
+  * coordinate system.
   */
 final class RasterImage private (
     val dimensions: RasterDimensions,
@@ -131,8 +130,8 @@ final class RasterImage private (
 object RasterImage:
   /** Wrap a freshly allocated packed buffer without copying it.
     *
-    * The caller transfers exclusive ownership of `pixels` to the returned
-    * image and must never read or mutate the array afterward.
+    * The caller transfers exclusive ownership of `pixels` to the returned image and must never read
+    * or mutate the array afterward.
     */
   def unsafeFromOwnedPackedArray(
       dimensions: RasterDimensions,
@@ -141,8 +140,8 @@ object RasterImage:
     require(pixels.length == dimensions.pixelCount, "raster pixel count must match dimensions")
     new RasterImage(dimensions, pixels)
 
-  /** Build directly into primitive packed storage without an intermediate
-    * collection. The callback is evaluated in row-major visual order.
+  /** Build directly into primitive packed storage without an intermediate collection. The callback
+    * is evaluated in row-major visual order.
     */
   def tabulate(
       dimensions: RasterDimensions

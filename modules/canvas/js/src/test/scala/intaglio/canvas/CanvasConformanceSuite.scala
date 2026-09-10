@@ -5,7 +5,11 @@ import intaglio.*
 class CanvasConformanceSuite extends munit.FunSuite:
 
   private object CanvasHarness extends RendererHarness[CanvasProgram]:
-    private val options = CanvasOptions.unsafe(width = 240, height = 160)
+    private val options = CanvasOptions.unsafe(
+      width = RendererConformance.targetWidth,
+      height = RendererConformance.targetHeight,
+      pixelsPerInch = RendererConformance.targetPixelsPerInch
+    )
 
     override def render(scene: Scene): Either[String, CanvasProgram] =
       CanvasRenderer.compile(scene, options).left.map(_.message)
@@ -16,10 +20,21 @@ class CanvasConformanceSuite extends munit.FunSuite:
     override def satisfies(out: CanvasProgram, requirement: RenderRequirement): Boolean =
       requirement match
         case RenderRequirement.Primitive(name, kind) =>
-          out.commands.exists(command => commandName(command).contains(name) && primitiveKind(command).contains(kind))
+          out.commands.exists(command =>
+            commandName(command).contains(name) && primitiveKind(command).contains(kind)
+          )
         case RenderRequirement.Group(name, clipped, rotated) =>
           groupEffects(out.commands, name).contains((clipped, rotated))
-        case RenderRequirement.Style(name, stroke, fill, lineWidth, lineType, lineCap, lineJoin, alpha) =>
+        case RenderRequirement.Style(
+              name,
+              stroke,
+              fill,
+              lineWidth,
+              lineType,
+              lineCap,
+              lineJoin,
+              alpha
+            ) =>
           out.commands.exists { command =>
             commandName(command).contains(name) && commandPaint(command).exists { paint =>
               paint.stroke == stroke.map(CanvasColor.fromRgba) &&
@@ -31,17 +46,54 @@ class CanvasConformanceSuite extends munit.FunSuite:
               paint.opacity == alpha
             }
           }
+        case RenderRequirement.PatternFill(name, pattern, alpha) =>
+          out.commands.exists { command =>
+            commandName(command).contains(name) &&
+            commandPaint(command).exists(paint =>
+              paint.fillPattern.contains(pattern) && paint.opacity == alpha
+            )
+          }
         case RenderRequirement.Text(name, horizontal, vertical, rotated) =>
           out.commands.exists {
             case CanvasCommand.Text(_, _, _, h, v, rotation, _, _, _, commandName) =>
-              commandName.contains(name) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
+              commandName.contains(
+                name
+              ) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
+            case _ => false
+          }
+        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha, fontWeight) =>
+          out.commands.exists {
+            case CanvasCommand.Text(
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  actualFontSize,
+                  actualFontFamily,
+                  paint,
+                  commandName
+                ) =>
+              commandName.contains(name) && paint.fill.contains(CanvasColor.fromRgba(color)) &&
+              actualFontSize == fontSizePx && actualFontFamily == fontFamily &&
+              paint.opacity == alpha && paint.fontWeight == fontWeight
             case _ => false
           }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           out.commands.exists {
-            case CanvasCommand.Image(image, _, _, _, _, actualInterpolation, actualAlpha, commandName) =>
+            case CanvasCommand.Image(
+                  image,
+                  _,
+                  _,
+                  _,
+                  _,
+                  actualInterpolation,
+                  actualAlpha,
+                  commandName
+                ) =>
               commandName.contains(name) && image.dimensions == dimensions &&
-                actualInterpolation == interpolation && actualAlpha == alpha
+              actualInterpolation == interpolation && actualAlpha == alpha
             case _ => false
           }
 
@@ -54,7 +106,8 @@ class CanvasConformanceSuite extends munit.FunSuite:
   }
 
   test("combined viewport effects rotate before installing the clip") {
-    val scene = RendererConformance.clippedRotatedViewportCase.fold(e => fail(e.message), identity).scene
+    val scene =
+      RendererConformance.clippedRotatedViewportCase.fold(e => fail(e.message), identity).scene
     val program = CanvasRenderer
       .compile(scene, CanvasOptions.unsafe(width = 240, height = 160))
       .fold(e => fail(e.message), identity)
@@ -73,35 +126,47 @@ class CanvasConformanceSuite extends munit.FunSuite:
 
   private def commandName(command: CanvasCommand): Option[GraphicsName] =
     command match
-      case CanvasCommand.Save(name)                         => name
-      case CanvasCommand.Restore(name)                      => name
-      case CanvasCommand.Disc(_, _, _, _, name)             => name
-      case CanvasCommand.Polyline(_, _, _, name)             => name
-      case CanvasCommand.CompoundPolygon(_, _, name)         => name
-      case CanvasCommand.Rectangle(_, _, _, _, _, name)      => name
-      case CanvasCommand.Text(_, _, _, _, _, _, _, _, _, name) => name
-      case CanvasCommand.Image(_, _, _, _, _, _, _, name)       => name
+      case CanvasCommand.Save(name)                                           => name
+      case CanvasCommand.Restore(name)                                        => name
+      case CanvasCommand.Disc(_, _, _, _, name)                               => name
+      case CanvasCommand.PointBatch(_, _, _, _, name)                         => name
+      case CanvasCommand.Polyline(_, _, _, name)                              => name
+      case CanvasCommand.CompoundPolygon(_, _, name)                          => name
+      case CanvasCommand.Rectangle(_, _, _, _, _, _, name)                    => name
+      case CanvasCommand.Text(_, _, _, _, _, _, _, _, _, name)                => name
+      case CanvasCommand.Image(_, _, _, _, _, _, _, name)                     => name
       case CanvasCommand.Rotate(_, _, _) | CanvasCommand.ClipRect(_, _, _, _) => None
 
   private def primitiveKind(command: CanvasCommand): Option[RenderPrimitiveKind] =
     command match
-      case CanvasCommand.Disc(_, _, _, _, _) => Some(RenderPrimitiveKind.Disc)
+      case CanvasCommand.Disc(_, _, _, _, _)            => Some(RenderPrimitiveKind.Disc)
+      case CanvasCommand.PointBatch(_, _, shapes, _, _) =>
+        Some(pointShapeKind(shapes.valueAt(0)))
       case CanvasCommand.Polyline(_, closed, _, _) =>
         Some(if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline)
-      case CanvasCommand.CompoundPolygon(_, _, _) => Some(RenderPrimitiveKind.Polygon)
-      case CanvasCommand.Rectangle(_, _, _, _, _, _) => Some(RenderPrimitiveKind.Rectangle)
+      case CanvasCommand.CompoundPolygon(_, _, _)           => Some(RenderPrimitiveKind.Polygon)
+      case CanvasCommand.Rectangle(_, _, _, _, _, _, _)     => Some(RenderPrimitiveKind.Rectangle)
       case CanvasCommand.Text(_, _, _, _, _, _, _, _, _, _) => Some(RenderPrimitiveKind.Text)
-      case CanvasCommand.Image(_, _, _, _, _, _, _, _) => Some(RenderPrimitiveKind.Image)
-      case _ => None
+      case CanvasCommand.Image(_, _, _, _, _, _, _, _)      => Some(RenderPrimitiveKind.Image)
+      case _                                                => None
 
   private def commandPaint(command: CanvasCommand): Option[CanvasPaint] =
     command match
-      case CanvasCommand.Disc(_, _, _, paint, _)          => Some(paint)
-      case CanvasCommand.Polyline(_, _, paint, _)         => Some(paint)
-      case CanvasCommand.CompoundPolygon(_, paint, _)     => Some(paint)
-      case CanvasCommand.Rectangle(_, _, _, _, paint, _)  => Some(paint)
+      case CanvasCommand.Disc(_, _, _, paint, _)                => Some(paint)
+      case CanvasCommand.PointBatch(_, _, _, paints, _)         => Some(paints.valueAt(0))
+      case CanvasCommand.Polyline(_, _, paint, _)               => Some(paint)
+      case CanvasCommand.CompoundPolygon(_, paint, _)           => Some(paint)
+      case CanvasCommand.Rectangle(_, _, _, _, _, paint, _)     => Some(paint)
       case CanvasCommand.Text(_, _, _, _, _, _, _, _, paint, _) => Some(paint)
-      case _ => None
+      case _                                                    => None
+
+  private def pointShapeKind(shape: PointShape): RenderPrimitiveKind =
+    shape match
+      case PointShape.Circle   => RenderPrimitiveKind.Disc
+      case PointShape.Square   => RenderPrimitiveKind.Rectangle
+      case PointShape.Triangle => RenderPrimitiveKind.Polygon
+      case PointShape.Cross    => RenderPrimitiveKind.Polyline
+      case PointShape.Diamond  => RenderPrimitiveKind.Polygon
 
   private def groupEffects(
       commands: Vector[CanvasCommand],
@@ -117,4 +182,9 @@ class CanvasConformanceSuite extends munit.FunSuite:
         case CanvasCommand.Rotate(_, _, _) | CanvasCommand.ClipRect(_, _, _, _) => true
         case _                                                                  => false
       }
-      Some((effects.exists(_.isInstanceOf[CanvasCommand.ClipRect]), effects.exists(_.isInstanceOf[CanvasCommand.Rotate])))
+      Some(
+        (
+          effects.exists(_.isInstanceOf[CanvasCommand.ClipRect]),
+          effects.exists(_.isInstanceOf[CanvasCommand.Rotate])
+        )
+      )

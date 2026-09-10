@@ -1,5 +1,7 @@
 package intaglio
 
+import scala.util.control.NonFatal
+
 final case class Interval private (lower: Double, upper: Double):
   require(lower.isFinite, "`lower` must be finite")
   require(upper.isFinite, "`upper` must be finite")
@@ -90,7 +92,11 @@ final case class TransformDomain private (lower: DomainBound, upper: DomainBound
 
 object TransformDomain:
   val all: TransformDomain =
-    unsafe("all", DomainBound.Open(Double.NegativeInfinity), DomainBound.Open(Double.PositiveInfinity))
+    unsafe(
+      "all",
+      DomainBound.Open(Double.NegativeInfinity),
+      DomainBound.Open(Double.PositiveInfinity)
+    )
 
   def apply(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
     closed(name, lower, upper)
@@ -98,17 +104,30 @@ object TransformDomain:
   def closed(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
     apply(name, DomainBound.Closed(lower), DomainBound.Closed(upper))
 
-  def openClosed(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
+  def openClosed(
+      name: String,
+      lower: Double,
+      upper: Double
+  ): Either[GraphicsError, TransformDomain] =
     apply(name, DomainBound.Open(lower), DomainBound.Closed(upper))
 
-  def closedOpen(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
+  def closedOpen(
+      name: String,
+      lower: Double,
+      upper: Double
+  ): Either[GraphicsError, TransformDomain] =
     apply(name, DomainBound.Closed(lower), DomainBound.Open(upper))
 
   def open(name: String, lower: Double, upper: Double): Either[GraphicsError, TransformDomain] =
     apply(name, DomainBound.Open(lower), DomainBound.Open(upper))
 
-  def apply(name: String, lower: DomainBound, upper: DomainBound): Either[GraphicsError, TransformDomain] =
-    if !lower.value.isNaN && !upper.value.isNaN && lower.value < upper.value then Right(new TransformDomain(lower, upper))
+  def apply(
+      name: String,
+      lower: DomainBound,
+      upper: DomainBound
+  ): Either[GraphicsError, TransformDomain] =
+    if !lower.value.isNaN && !upper.value.isNaN && lower.value < upper.value then
+      Right(new TransformDomain(lower, upper))
     else Left(GraphicsError.InvalidTransformDomain(name, lower.value, upper.value))
 
   def unsafe(name: String, lower: Double, upper: Double): TransformDomain =
@@ -120,16 +139,56 @@ object TransformDomain:
 trait Breaks:
   def apply(range: Interval): Vector[Double]
 
+  /** Checked generation for compiler and library code. The legacy `apply` method remains the
+    * explicit throwing convenience boundary; built-in generators implement both methods from the
+    * same bounded computation. Custom generators receive output validation by default.
+    */
+  def generate(range: Interval): Either[GraphicsError, Vector[Double]] =
+    try Breaks.validateOutput("custom", apply(range))
+    catch
+      case NonFatal(error) =>
+        val (exceptionType, detail) = GraphicsError.throwableDetails(error)
+        Left(GraphicsError.BreakGenerationFailed("custom", exceptionType, detail))
+
 object Breaks:
+  /** No built-in break generator can emit more values than this. */
+  val MaximumOutputSize: Int = 10000
+
+  private val MaximumScaleIterations = 1024
+
+  private abstract class CheckedBreaks(val generator: String) extends Breaks:
+    protected def runChecked(range: Interval): Either[GraphicsError, Vector[Double]]
+
+    final override def apply(range: Interval): Vector[Double] =
+      runChecked(range).orThrow
+
+    final override def generate(range: Interval): Either[GraphicsError, Vector[Double]] =
+      runChecked(range)
+
+  private def checked(
+      generator: String
+  )(run: Interval => Either[GraphicsError, Vector[Double]]): Breaks =
+    new CheckedBreaks(generator):
+      override protected def runChecked(
+          range: Interval
+      ): Either[GraphicsError, Vector[Double]] =
+        run(range)
+
   def count(n: Int): Either[GraphicsError, Breaks] =
     if n < 1 then Left(GraphicsError.InvalidBreakCount(n))
+    else if n > MaximumOutputSize then
+      Left(GraphicsError.BreakOutputLimitExceeded("count", n, MaximumOutputSize))
     else
-      Right(new Breaks:
-        override def apply(range: Interval): Vector[Double] =
-          if n == 1 then Vector((range.lower + range.upper) / 2.0)
-          else
-            val step = range.width / (n - 1).toDouble
-            Vector.tabulate(n)(i => range.lower + step * i)
+      Right(
+        checked("count") { range =>
+          val values =
+            if n == 1 then Vector(midpoint(range))
+            else
+              Vector.tabulate(n) { index =>
+                interpolate(range, index.toDouble / (n - 1).toDouble)
+              }
+          validateOutput("count", values)
+        }
       )
 
   def countUnsafe(n: Int): Breaks =
@@ -137,24 +196,30 @@ object Breaks:
 
   /** Deterministic 1/2/5-style breaks with an approximate target count.
     *
-    * The grid is anchored at zero and chosen without logarithms so the same
-    * interval produces byte-identical labels on the JVM and Scala.js. Use
-    * [[count]] when the number of breaks must be exact.
+    * The grid is anchored at zero and chosen without logarithms so the same interval produces
+    * byte-identical labels on the JVM and Scala.js. For a nondegenerate interval with fewer than
+    * two grid points, its exact endpoints provide a readable scale without moving data or emitting
+    * out-of-range ticks. An explicit target of one still returns the midpoint. Use [[count]] when
+    * the number of breaks must be exact.
     */
   def pretty(targetCount: Int = 5): Either[GraphicsError, Breaks] =
     if targetCount < 1 then Left(GraphicsError.InvalidBreakCount(targetCount))
+    else if targetCount > MaximumOutputSize then
+      Left(GraphicsError.BreakOutputLimitExceeded("pretty", targetCount, MaximumOutputSize))
     else
-      Right(new Breaks:
-        override def apply(range: Interval): Vector[Double] =
-          if range.lower == range.upper then Vector(range.lower)
-          else if targetCount == 1 then Vector(midpoint(range))
+      Right(
+        checked("pretty") { range =>
+          if range.lower == range.upper then Right(Vector(range.lower))
+          else if targetCount == 1 then Right(Vector(midpoint(range)))
           else
             val rawStep = targetStep(range, targetCount)
-            if !rawStep.isFinite || rawStep <= 0.0 then boundaryFallback(range)
+            if !rawStep.isFinite || rawStep <= 0.0 then Right(boundaryFallback(range))
             else
-              val step = niceStep(rawStep)
-              if !step.isFinite || step <= 0.0 then boundaryFallback(range)
-              else prettyGrid(range, step, targetCount)
+              niceStep(rawStep).flatMap { step =>
+                if !step.isFinite || step <= 0.0 then Right(boundaryFallback(range))
+                else prettyGrid(range, step, targetCount)
+              }
+        }
       )
 
   def prettyUnsafe(targetCount: Int = 5): Breaks =
@@ -163,26 +228,70 @@ object Breaks:
   def width(width: Double, offset: Double = 0.0): Either[GraphicsError, Breaks] =
     if !width.isFinite || width <= 0.0 then Left(GraphicsError.InvalidBreakWidth(width))
     else
-      Right(new Breaks:
-        override def apply(range: Interval): Vector[Double] =
+      Right(
+        checked("width") { range =>
           val first = math.ceil((range.lower - offset) / width) * width + offset
-          val buf = Vector.newBuilder[Double]
-          var x = first
-          while x <= range.upper + width * 1e-12 do
-            buf += x
-            x += width
-          buf.result()
+          if !first.isFinite then Left(GraphicsError.NonFiniteBreak("width", first))
+          else
+            val tolerance = math.abs(width) * 1e-12
+            val expandedUpper = range.upper + tolerance
+            val upperLimit = if expandedUpper.isFinite then expandedUpper else range.upper
+            val out = Vector.newBuilder[Double]
+            var candidate = normalizeZero(first)
+            var emitted = 0
+            var iterations = 0
+            var done = false
+            var error: Option[GraphicsError] = None
+            while !done && error.isEmpty do
+              if iterations > MaximumOutputSize then
+                error = Some(
+                  GraphicsError.BreakIterationLimitExceeded(
+                    "width",
+                    MaximumOutputSize + 1
+                  )
+                )
+              else if !candidate.isFinite then
+                error = Some(GraphicsError.NonFiniteBreak("width", candidate))
+              else if candidate > upperLimit then done = true
+              else if emitted >= MaximumOutputSize then
+                error = Some(
+                  GraphicsError.BreakOutputLimitExceeded(
+                    "width",
+                    emitted + 1,
+                    MaximumOutputSize
+                  )
+                )
+              else
+                if range.contains(candidate) then
+                  out += candidate
+                  emitted += 1
+                if candidate >= range.upper then done = true
+                else
+                  val next = normalizeZero(candidate + width)
+                  if !next.isFinite then error = Some(GraphicsError.NonFiniteBreak("width", next))
+                  else if next <= candidate then
+                    error = Some(
+                      GraphicsError.BreakGenerationDidNotProgress("width", candidate, next)
+                    )
+                  else candidate = next
+              iterations += 1
+            error match
+              case Some(value) => Left(value)
+              case None        => Right(out.result())
+        }
       )
 
   val log10: Breaks =
-    new Breaks:
-      override def apply(range: Interval): Vector[Double] =
+    checked("log10") { range =>
+      val values =
         if range.upper <= 0.0 then Vector.empty
         else
           val lo = math.ceil(math.log10(math.max(range.lower, Double.MinPositiveValue))).toInt
           val hi = math.floor(math.log10(range.upper)).toInt
           if hi < lo then Vector.empty
           else Vector.tabulate(hi - lo + 1)(i => math.pow(10.0, lo + i))
+      validateOutput("log10", values)
+    }
 
   val default: Breaks =
     prettyUnsafe()
@@ -202,18 +311,42 @@ object Breaks:
     if width.isFinite then width / targetCount.toDouble
     else range.upper / targetCount.toDouble - range.lower / targetCount.toDouble
 
-  /** Nearest 1/2/5 power-of-ten step using D3-style geometric thresholds.
-    * Repeated IEEE scaling avoids platform-specific `log10` edge behavior.
+  /** Nearest 1/2/5 power-of-ten step using D3-style geometric thresholds. Repeated IEEE scaling
+    * avoids platform-specific `log10` edge behavior.
     */
-  private def niceStep(rawStep: Double): Double =
+  private def niceStep(rawStep: Double): Either[GraphicsError, Double] =
     var fraction = rawStep
     var power = 1.0
-    while fraction >= 10.0 && power.isFinite do
-      fraction /= 10.0
-      power *= 10.0
-    while fraction < 1.0 && power > 0.0 do
-      fraction *= 10.0
-      power /= 10.0
+    var iterations = 0
+    while fraction >= 10.0 && power.isFinite && iterations < MaximumScaleIterations do
+      val nextFraction = fraction / 10.0
+      val nextPower = power * 10.0
+      if nextFraction == fraction then
+        return Left(
+          GraphicsError.BreakGenerationDidNotProgress("pretty-step", fraction, nextFraction)
+        )
+      fraction = nextFraction
+      power = nextPower
+      iterations += 1
+    if fraction >= 10.0 && power.isFinite then
+      return Left(
+        GraphicsError.BreakIterationLimitExceeded("pretty-step", MaximumScaleIterations)
+      )
+
+    while fraction < 1.0 && power > 0.0 && iterations < MaximumScaleIterations do
+      val nextFraction = fraction * 10.0
+      val nextPower = power / 10.0
+      if nextFraction == fraction then
+        return Left(
+          GraphicsError.BreakGenerationDidNotProgress("pretty-step", fraction, nextFraction)
+        )
+      fraction = nextFraction
+      power = nextPower
+      iterations += 1
+    if fraction < 1.0 && power > 0.0 then
+      return Left(
+        GraphicsError.BreakIterationLimitExceeded("pretty-step", MaximumScaleIterations)
+      )
 
     val factor =
       if fraction >= Sqrt50 then 10.0
@@ -221,30 +354,65 @@ object Breaks:
       else if fraction >= Sqrt2 then 2.0
       else 1.0
     val candidate = factor * power
-    if candidate.isFinite && candidate > 0.0 then candidate
-    else if power.isFinite && power > 0.0 then power
-    else rawStep
+    if candidate.isFinite && candidate > 0.0 then Right(candidate)
+    else if power.isFinite && power > 0.0 then Right(power)
+    else Right(rawStep)
 
-  private def prettyGrid(range: Interval, step: Double, targetCount: Int): Vector[Double] =
+  private def prettyGrid(
+      range: Interval,
+      step: Double,
+      targetCount: Int
+  ): Either[GraphicsError, Vector[Double]] =
     val firstIndex = math.ceil(range.lower / step)
     val first = firstIndex * step
-    val out = Vector.newBuilder[Double]
-    val maxTicks = targetCount.toLong * 4L + 16L
-    var offset = 0L
-    var previous = Double.NegativeInfinity
-    var candidate = gridValue(firstIndex, first, offset, step)
-    var continue = candidate.isFinite && candidate <= range.upper && offset < maxTicks
-    while continue do
-      if range.contains(candidate) && candidate > previous then
-        out += candidate
-        previous = candidate
-      offset += 1L
-      val next = gridValue(firstIndex, first, offset, step)
-      continue = next.isFinite && next > candidate && next <= range.upper && offset < maxTicks
-      candidate = next
+    if !firstIndex.isFinite then Left(GraphicsError.NonFiniteBreak("pretty", firstIndex))
+    else if !first.isFinite then Left(GraphicsError.NonFiniteBreak("pretty", first))
+    else
+      val out = Vector.newBuilder[Double]
+      val targetBound = targetCount.toLong * 4L + 16L
+      val maxTicks = math.min(targetBound, MaximumOutputSize.toLong).toInt
+      var offset = 0L
+      var emitted = 0
+      var iterations = 0
+      var previous = Double.NegativeInfinity
+      var candidate = gridValue(firstIndex, first, offset, step)
+      var done = false
+      var error: Option[GraphicsError] = None
+      while !done && error.isEmpty do
+        if iterations > maxTicks then
+          error = Some(GraphicsError.BreakIterationLimitExceeded("pretty", maxTicks + 1))
+        else if !candidate.isFinite then
+          error = Some(GraphicsError.NonFiniteBreak("pretty", candidate))
+        else if candidate > range.upper then done = true
+        else if emitted >= maxTicks then
+          error = Some(
+            GraphicsError.BreakOutputLimitExceeded("pretty", emitted + 1, maxTicks)
+          )
+        else if candidate <= previous then
+          error = Some(
+            GraphicsError.BreakGenerationDidNotProgress("pretty", previous, candidate)
+          )
+        else
+          if range.contains(candidate) then
+            out += candidate
+            emitted += 1
+          previous = candidate
+          if candidate >= range.upper then done = true
+          else
+            offset += 1L
+            val next = gridValue(firstIndex, first, offset, step)
+            if next <= candidate then
+              error = Some(
+                GraphicsError.BreakGenerationDidNotProgress("pretty", candidate, next)
+              )
+            else candidate = next
+        iterations += 1
 
-    val result = out.result()
-    if result.nonEmpty then result else Vector(midpoint(range))
+      error match
+        case Some(value) => Left(value)
+        case None        =>
+          val result = out.result()
+          if result.size >= 2 then Right(result) else Right(boundaryFallback(range))
 
   private def boundaryFallback(range: Interval): Vector[Double] =
     if range.lower == range.upper then Vector(range.lower)
@@ -252,6 +420,34 @@ object Breaks:
 
   private def normalizeZero(value: Double): Double =
     if value == 0.0 then 0.0 else value
+
+  private def interpolate(range: Interval, fraction: Double): Double =
+    val width = range.width
+    if width.isFinite then range.lower + width * fraction
+    else range.lower * (1.0 - fraction) + range.upper * fraction
+
+  private[intaglio] def validateOutput(
+      generator: String,
+      values: Vector[Double]
+  ): Either[GraphicsError, Vector[Double]] =
+    if values.length > MaximumOutputSize then
+      Left(
+        GraphicsError.BreakOutputLimitExceeded(generator, values.length, MaximumOutputSize)
+      )
+    else
+      var index = 0
+      var previous = Double.NegativeInfinity
+      var error: Option[GraphicsError] = None
+      while index < values.length && error.isEmpty do
+        val value = values(index)
+        if !value.isFinite then error = Some(GraphicsError.NonFiniteBreak(generator, value))
+        else if index > 0 && value <= previous then
+          error = Some(GraphicsError.BreakGenerationDidNotProgress(generator, previous, value))
+        else previous = value
+        index += 1
+      error match
+        case Some(value) => Left(value)
+        case None        => Right(values)
 
   private def gridValue(firstIndex: Double, first: Double, offset: Long, step: Double): Double =
     val offsetDouble = offset.toDouble
@@ -265,11 +461,10 @@ trait Labeler:
   def apply(values: Vector[Double]): Vector[String]
 
 object Labeler:
-  /** Deterministic, platform-independent number labels. `Double.toString`
-    * switches to exponent notation at different magnitudes on the JVM and
-    * Scala.js, so non-integral values are formatted manually: fixed notation
-    * with up to six significant digits for ordinary magnitudes, an explicit
-    * `<mantissa>e<exponent>` form for extreme ones.
+  /** Deterministic, platform-independent number labels. `Double.toString` switches to exponent
+    * notation at different magnitudes on the JVM and Scala.js, so non-integral values are formatted
+    * manually: fixed notation with up to six significant digits for ordinary magnitudes, an
+    * explicit `<mantissa>e<exponent>` form for extreme ones.
     */
   val default: Labeler =
     values => values.map(formatValue)
@@ -289,8 +484,8 @@ object Labeler:
           val mantissa = magnitude / math.pow(10.0, exponent.toDouble)
           s"$sign${fixed(mantissa, decimals = 4)}e$exponent"
 
-  /** Largest e with 10^e <= magnitude, via repeated scaling (identical IEEE
-    * arithmetic on JVM and JS, unlike `math.log10`).
+  /** Largest e with 10^e <= magnitude, via repeated scaling (identical IEEE arithmetic on JVM and
+    * JS, unlike `math.log10`).
     */
   private def decimalExponent(magnitude: Double): Int =
     var exponent = 0
@@ -329,18 +524,34 @@ final case class Transform private (
 ):
   def transform(value: Double): Either[GraphicsError, Double] =
     if !domain.contains(value) then Left(GraphicsError.TransformOutsideDomain(name.value, value))
-    else
-      val out = forward(value)
-      if out.isFinite then Right(out)
-      else Left(GraphicsError.TransformOutsideDomain(name.value, value))
+    else evaluate("forward", value, forward)
 
   def inverse(value: Double): Either[GraphicsError, Double] =
-    val out = backward(value)
-    if out.isFinite then Right(out)
-    else Left(GraphicsError.TransformOutsideDomain(name.value, value))
+    evaluate("inverse", value, backward)
 
   def roundTrips(value: Double, tolerance: Double): Boolean =
     transform(value).flatMap(inverse).exists(restored => math.abs(restored - value) <= tolerance)
+
+  private def evaluate(
+      operation: String,
+      value: Double,
+      callback: Double => Double
+  ): Either[GraphicsError, Double] =
+    try
+      val out = callback(value)
+      if out.isFinite then Right(out)
+      else Left(GraphicsError.TransformOutsideDomain(name.value, value))
+    catch
+      case NonFatal(error) =>
+        val (exceptionType, detail) = GraphicsError.throwableDetails(error)
+        Left(
+          GraphicsError.TransformEvaluationFailed(
+            name.value,
+            operation,
+            exceptionType,
+            detail
+          )
+        )
 
 object Transform:
   def apply(
@@ -364,7 +575,11 @@ object Transform:
       "log10",
       value => math.log10(value),
       value => math.pow(10.0, value),
-      TransformDomain.unsafe("log10", DomainBound.Open(0.0), DomainBound.Open(Double.PositiveInfinity)),
+      TransformDomain.unsafe(
+        "log10",
+        DomainBound.Open(0.0),
+        DomainBound.Open(Double.PositiveInfinity)
+      ),
       breaks = Breaks.log10
     ).orThrow
 
@@ -421,13 +636,14 @@ object Band:
 
 enum ScaleKind:
   case Continuous
+  case Temporal
   case Discrete
   case Band
   case Generic
 
-/** Whether a scale learns from every layer that uses it or keeps its declared
-  * domain unchanged. Plot-wide training is the ordinary grammar-of-graphics
-  * behavior; fixed domains are an explicit limits contract.
+/** Whether a scale learns from every layer that uses it or keeps its declared domain unchanged.
+  * Plot-wide training is the ordinary grammar-of-graphics behavior; fixed domains are an explicit
+  * limits contract.
   */
 enum ScaleTraining:
   case PlotWide
@@ -435,6 +651,12 @@ enum ScaleTraining:
 
 enum ScaleDomain:
   case Continuous(raw: Interval, transformed: Interval)
+  case Temporal(
+      kind: TemporalKind,
+      encoded: Interval,
+      lowerLabel: String,
+      upperLabel: String
+  )
   case Discrete(levels: Vector[String], ordered: Boolean)
   case Band(levels: Vector[String], ordered: Boolean, padding: BandPadding)
   case Unspecified
@@ -446,16 +668,121 @@ final case class ScaleDescriptor(
     training: ScaleTraining = ScaleTraining.PlotWide
 )
 
-/** Erased, closed observations let a heterogeneous plot-scale registry train
-  * each binding without erasing the input type of `Scale[In, Out]` itself.
+/** Stable identity and display semantics for one category type. The category itself remains `A`;
+  * callers explicitly choose the identity used for lookup and the label used by guides.
+  */
+trait CategoryIdentity[A]:
+  type Identity
+
+  def identity(value: A): Identity
+  def label(value: A): String
+  def ordering: Ordering[Identity]
+
+  private[intaglio] final def erasedIdentity(value: A): Any =
+    identity(value)
+
+  private[intaglio] final def compare(left: A, right: A): Int =
+    ordering.compare(identity(left), identity(right))
+
+object CategoryIdentity:
+  type Aux[A, Identity0] = CategoryIdentity[A] { type Identity = Identity0 }
+
+  def by[A, Identity0](
+      stableIdentity: A => Identity0,
+      displayLabel: A => String
+  )(using identityOrdering: Ordering[Identity0]): Aux[A, Identity0] =
+    new CategoryIdentity[A]:
+      type Identity = Identity0
+
+      def identity(value: A): Identity =
+        stableIdentity(value)
+
+      def label(value: A): String =
+        displayLabel(value)
+
+      val ordering: Ordering[Identity] =
+        identityOrdering
+
+  val strings: Aux[String, String] =
+    by(identity, identity)
+
+  given CategoryIdentity[String] =
+    strings
+
+/** Erased category identity used by structural grouping without reducing the typed value to its
+  * label. Equality requires the same [[CategoryIdentity]] instance and the same stable key.
+  */
+final class CategoryToken private[intaglio] (
+    private val owner: AnyRef,
+    private val key: Any,
+    val label: String
+):
+  override def equals(other: Any): Boolean =
+    other match
+      case that: CategoryToken => (owner eq that.owner) && key == that.key
+      case _                   => false
+
+  override def hashCode(): Int =
+    31 * owner.hashCode() + key.hashCode()
+
+  override def toString: String =
+    label
+
+object CategoryToken:
+  private[intaglio] def apply[A](value: A, categories: CategoryIdentity[A]): CategoryToken =
+    new CategoryToken(
+      categories.asInstanceOf[AnyRef],
+      categories.erasedIdentity(value),
+      categories.label(value)
+    )
+
+private[intaglio] sealed trait CategoryObservation:
+  type Value
+  def value: Value
+  def categories: CategoryIdentity[Value]
+
+  final def valueFor[A](expected: CategoryIdentity[A]): Option[A] =
+    Option.when(categories.asInstanceOf[AnyRef] eq expected.asInstanceOf[AnyRef])(
+      value.asInstanceOf[A]
+    )
+
+  final def token: CategoryToken =
+    CategoryToken(value, categories)
+
+private[intaglio] object CategoryObservation:
+  def apply[A](category: A, identity: CategoryIdentity[A]): CategoryObservation =
+    new CategoryObservation:
+      type Value = A
+      val value: Value = category
+      val categories: CategoryIdentity[Value] = identity
+
+/** Erased, closed observations let a heterogeneous plot-scale registry train each binding without
+  * erasing the input type of `Scale[In, Out]` itself. Categorical recovery is localized to an
+  * identity-guarded package.
   */
 private[intaglio] enum ScaleObservation:
   case Continuous(value: Double)
-  case Discrete(value: String)
+  case Discrete(value: CategoryObservation)
+
+private[intaglio] object ScaleObservation:
+  def discrete[A](value: A, categories: CategoryIdentity[A]): ScaleObservation =
+    ScaleObservation.Discrete(CategoryObservation(value, categories))
+
+  def discreteValues[A](
+      observations: IterableOnce[ScaleObservation],
+      categories: CategoryIdentity[A]
+  ): Vector[A] =
+    observations.iterator
+      .collect { case ScaleObservation.Discrete(value) => value }
+      .flatMap(
+        _.valueFor(categories)
+      )
+      .toVector
 
 enum ScaleMapFailure:
   case TransformDomain(transform: String, value: Double)
   case OutOfDomain(scale: String, value: String)
+  case PaletteOverflow(scale: String, levels: Int, capacity: Int)
 
 trait Palette[+A]:
   def apply(value: Double): A
@@ -467,6 +794,13 @@ object Palette:
   val numeric: Palette[Double] =
     value => value
 
+  /** Two-point interpolation of the stored sRGB channel bytes.
+    *
+    * This is the literal byte ramp, kept because some callers want exactly that. It is not the
+    * right default for a magnitude ramp between hue-distant endpoints, where the mid-ramp chroma
+    * collapses towards grey; use [[oklabGradient]] for those, and [[DivergingPalette]] for signed
+    * data that needs a neutral at zero.
+    */
   def gradient(from: Rgba, to: Rgba): Palette[Rgba] =
     value =>
       val t = math.max(0.0, math.min(1.0, value))
@@ -479,24 +813,131 @@ object Palette:
         from.alpha + (to.alpha - from.alpha) * t
       )
 
+  /** Two-point interpolation through [[Oklab]], keeping chroma and a roughly even perceptual step
+    * along the ramp. Alpha is interpolated linearly, outside the mixing space.
+    */
+  def oklabGradient(from: Rgba, to: Rgba): Palette[Rgba] =
+    val start = Oklab.fromRgba(from)
+    val end = Oklab.fromRgba(to)
+    value =>
+      val t = Oklab.clampUnit(value)
+      val blended = Oklab.toRgba(Oklab.mix(start, end, t))
+      Rgba.unsafe(
+        blended.red,
+        blended.green,
+        blended.blue,
+        Oklab.clampUnit(Oklab.lerp(from.alpha, to.alpha, t))
+      )
+
+enum PaletteOverflowPolicy:
+  case Reject
+  case Cycle
+
 trait DiscretePalette[+A]:
   def apply(index: Int, count: Int): A
 
+  /** Finite palettes publish their capacity; procedural palettes remain unbounded. */
+  def capacity: Option[Int] =
+    None
+
+  def overflowPolicy: PaletteOverflowPolicy =
+    PaletteOverflowPolicy.Reject
+
+  final def validateDomain(
+      scale: String,
+      levelCount: Int
+  ): Either[GraphicsError, Unit] =
+    (capacity, overflowPolicy) match
+      case (Some(maximum), PaletteOverflowPolicy.Reject) if levelCount > maximum =>
+        Left(GraphicsError.DiscretePaletteOverflow(scale, levelCount, maximum))
+      case _ => Right(())
+
+  private[intaglio] final def mapValue(
+      scale: String,
+      index: Int,
+      levelCount: Int
+  ): Either[ScaleMapFailure, A] =
+    (capacity, overflowPolicy) match
+      case (Some(maximum), PaletteOverflowPolicy.Reject) if levelCount > maximum =>
+        Left(ScaleMapFailure.PaletteOverflow(scale, levelCount, maximum))
+      case _ => Right(apply(index, levelCount))
+
 object DiscretePalette:
-  def values[A](values: Vector[A]): Either[GraphicsError, DiscretePalette[A]] =
+  def values[A](
+      values: Vector[A],
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
+  ): Either[GraphicsError, DiscretePalette[A]] =
     if values.isEmpty then Left(GraphicsError.EmptyPalette)
     else
       Right(new DiscretePalette[A]:
-        override def apply(index: Int, count: Int): A =
-          values(index % values.length)
-      )
+        override val capacity: Option[Int] =
+          Some(values.length)
 
-  def valuesUnsafe[A](values: Vector[A]): DiscretePalette[A] =
-    DiscretePalette.values(values).orThrow
+        override val overflowPolicy: PaletteOverflowPolicy =
+          overflow
+
+        override def apply(index: Int, count: Int): A =
+          overflow match
+            case PaletteOverflowPolicy.Reject =>
+              if index >= 0 && index < values.length then values(index)
+              else
+                Left[GraphicsError, A](
+                  GraphicsError.DiscretePaletteOverflow("unvalidated", count, values.length)
+                ).orThrow
+            case PaletteOverflowPolicy.Cycle =>
+              values(index % values.length))
+
+  def valuesUnsafe[A](
+      values: Vector[A],
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
+  ): DiscretePalette[A] =
+    DiscretePalette.values(values, overflow).orThrow
 
   /** Stable zero-based positions for discrete axes and other ordinal output. */
   val indices: DiscretePalette[Double] =
     (index, _) => index.toDouble
+
+  /** The eight-colour qualitative palette of Okabe and Ito (2008), reordered so that every prefix
+    * is the best set of that size rather than an arbitrary slice of eight.
+    *
+    * `DiscretePalette` assigns by index, so a plot with four series takes the first four colours.
+    * Publishing the colours in their original order would mean a four-series plot inherits
+    * whichever four happened to be listed first. This order is the one that maximises the smallest
+    * pairwise separation at each prefix length, taken as the worst of normal vision, protanopia,
+    * deuteranopia, and tritanopia, subject to two constraints: black leads, because a first series
+    * is conventionally black; and every colour before the sixth holds `L* <= 80`, so a thin series
+    * stroke keeps lightness contrast against a light panel. Yellow is the sixth for that reason and
+    * no other.
+    *
+    * Measured floors — the smallest CIE76 separation between any two of the first `n`, taken as the
+    * worst of the four observers:
+    *
+    *   - `n = 2`: 79.2, `n = 3`: 66.1, `n = 4`: 23.5, `n = 5`: 19.4
+    *   - `n = 6`: 17.0, `n = 7`: 11.2, `n = 8`: 10.9
+    *
+    * The name is the source rather than a promise. Every prefix clears
+    * [[ColorSeparation.SeriesFloor]] under every observer modelled, but the seventh and eighth
+    * clear it by a tenth of a unit rather than by a margin: past about six series the answer is
+    * faceting or direct labelling, not more colours. For comparison the default theme palette,
+    * which this does not replace, falls to 5.6 from three series on. `DiscretePaletteEvidenceSuite`
+    * pins the whole table and proves by exhaustive search over all 40 320 orderings that none
+    * admissible under those constraints does better.
+    */
+  val okabeItoColors: Vector[Rgba] =
+    Vector(
+      Rgba.unsafe(0, 0, 0),
+      Rgba.unsafe(230, 159, 0),
+      Rgba.unsafe(86, 180, 233),
+      Rgba.unsafe(0, 114, 178),
+      Rgba.unsafe(213, 94, 0),
+      Rgba.unsafe(240, 228, 66),
+      Rgba.unsafe(204, 121, 167),
+      Rgba.unsafe(0, 158, 115)
+    )
+
+  /** [[okabeItoColors]] as a finite palette that refuses a ninth level rather than cycling. */
+  val okabeIto: DiscretePalette[Rgba] =
+    valuesUnsafe(okabeItoColors)
 
 final case class ContinuousScale[A] private (
     name: GraphicsName,
@@ -562,9 +1003,9 @@ final case class ContinuousScale[A] private (
   def mapValues(values: IterableOnce[Double]): Vector[Option[A]] =
     values.iterator.map(mapValue).toVector
 
-  /** Sample the palette at equal-width transformed-domain bin centers.
-    * Sampling is deliberately expressed only with integer indexing and IEEE
-    * arithmetic so a guide receives the same colors on the JVM and Scala.js.
+  /** Sample the palette at equal-width transformed-domain bin centers. Sampling is deliberately
+    * expressed only with integer indexing and IEEE arithmetic so a guide receives the same colors
+    * on the JVM and Scala.js.
     */
   def paletteSamples(count: Int): Either[GraphicsError, Vector[A]] =
     if count < 1 then Left(GraphicsError.InvalidBreakCount(count))
@@ -575,8 +1016,12 @@ final case class ContinuousScale[A] private (
         }
       )
 
+  def breaksResult: Either[GraphicsError, Vector[Double]] =
+    transform.breaks.generate(domain).map(_.filter(domain.contains))
+
+  /** Explicit throwing convenience for callers that have already validated the break policy. */
   def breaks: Vector[Double] =
-    transform.breaks(domain).filter(domain.contains)
+    breaksResult.orThrow
 
   def labels: Vector[String] =
     transform.labeler(breaks)
@@ -593,8 +1038,16 @@ object ContinuousScale:
     val domains = trainDomains(values, transform)
     for
       scaleName <- GraphicsName(name, "continuous scale")
-      (domain, transformedDomain) <- domains
-    yield ContinuousScale(scaleName, domain, transformedDomain, transform, palette, oob, training)
+      trained <- domains
+    yield ContinuousScale(
+      scaleName,
+      trained._1,
+      trained._2,
+      transform,
+      palette,
+      oob,
+      training
+    )
 
   def fixed[A](
       name: String,
@@ -604,6 +1057,27 @@ object ContinuousScale:
       oob: OobPolicy = OobPolicy.Censor
   ): Either[GraphicsError, ContinuousScale[A]] =
     train(name, limits, palette, transform, oob, ScaleTraining.Fixed)
+
+  /** A colour scale over `[-limit, +limit]` whose palette neutral falls exactly on zero.
+    *
+    * This is the scene counterpart of [[DivergingColorizer]], and it exists for the same reason: a
+    * diverging palette wired to a plot-wide scale puts its neutral at the *data* midpoint, which
+    * for signed data is almost never the value the neutral means. The domain is symmetric and the
+    * training is [[ScaleTraining.Fixed]], so a later plot-wide pass cannot widen one side and slide
+    * the neutral off zero. The caller names the limit; the library owns the midpoint.
+    *
+    * `oob` follows the file's default. `Censor` drops a value outside the limit — and drops `NaN`
+    * before it reaches the palette. `Squish` clamps to the endpoint, which is what
+    * [[DivergingColorizer]] does, at the cost of passing `NaN` through to the palette's `neutral`.
+    */
+  def diverging(
+      name: String,
+      limit: Double,
+      palette: DivergingPalette = DivergingPalette.BlueRust,
+      oob: OobPolicy = OobPolicy.Censor
+  ): Either[GraphicsError, ContinuousScale[Rgba]] =
+    if !limit.isFinite || limit <= 0.0 then Left(GraphicsError.InvalidInterval(-limit, limit))
+    else fixed(name, Vector(-limit, limit), palette.unitPalette, Transform.identity, oob)
 
   private def trainDomains(
       values: IterableOnce[Double],
@@ -634,186 +1108,257 @@ object ContinuousScale:
       Right((Interval.unsafe(rawLo, rawHi), Interval.unsafe(transformedLo, transformedHi)))
     else Left(GraphicsError.EmptyContinuousRange)
 
-final case class DiscreteDomain private (levels: Vector[String], ordered: Boolean):
-  require(levels.distinct.length == levels.length, "`levels` must be distinct")
+final case class DiscreteDomain[A] private (
+    levels: Vector[A],
+    ordered: Boolean,
+    categories: CategoryIdentity[A]
+):
+  private val indexByIdentity: Map[Any, Int] =
+    levels.iterator.zipWithIndex.map { case (level, index) =>
+      categories.erasedIdentity(level) -> index
+    }.toMap
 
-  def contains(value: String): Boolean =
-    levels.contains(value)
+  require(indexByIdentity.size == levels.size, "category identities must be distinct")
 
-  def train(values: IterableOnce[String]): Either[GraphicsError, DiscreteDomain] =
-    val additions = values.iterator.filterNot(levels.contains).toVector.distinct
-    if ordered then DiscreteDomain.ordered(levels ++ additions)
-    else DiscreteDomain.unordered(levels ++ additions)
+  def labels: Vector[String] =
+    levels.map(categories.label)
+
+  def label(value: A): String =
+    categories.label(value)
+
+  def indexOf(value: A): Option[Int] =
+    indexByIdentity.get(categories.erasedIdentity(value))
+
+  def contains(value: A): Boolean =
+    indexOf(value).nonEmpty
+
+  def train(values: IterableOnce[A]): Either[GraphicsError, DiscreteDomain[A]] =
+    val seen = scala.collection.mutable.HashSet.from(indexByIdentity.keys)
+    val additions = values.iterator.filter { value =>
+      seen.add(categories.erasedIdentity(value))
+    }.toVector
+    DiscreteDomain.build(levels ++ additions, ordered, categories)
+
+  private[intaglio] def replace(values: Vector[A]): Either[GraphicsError, DiscreteDomain[A]] =
+    val seen = scala.collection.mutable.HashSet.empty[Any]
+    val distinct = values.filter(value => seen.add(categories.erasedIdentity(value)))
+    DiscreteDomain.build(distinct, ordered, categories)
 
 object DiscreteDomain:
-  val empty: DiscreteDomain =
-    DiscreteDomain(Vector.empty, ordered = true)
+  val empty: DiscreteDomain[String] =
+    new DiscreteDomain(Vector.empty, ordered = true, CategoryIdentity.strings)
 
-  def ordered(levels: Vector[String]): Either[GraphicsError, DiscreteDomain] =
-    firstDuplicate(levels) match
-      case Some(level) => Left(GraphicsError.DuplicateLevel(level))
-      case None        => Right(DiscreteDomain(levels, ordered = true))
+  def emptyFor[A](using categories: CategoryIdentity[A]): DiscreteDomain[A] =
+    new DiscreteDomain(Vector.empty, ordered = true, categories)
 
-  def unordered(levels: Vector[String]): Either[GraphicsError, DiscreteDomain] =
-    firstDuplicate(levels) match
-      case Some(level) => Left(GraphicsError.DuplicateLevel(level))
-      case None        => Right(DiscreteDomain(levels.sorted, ordered = false))
+  def ordered[A](levels: Vector[A])(using
+      categories: CategoryIdentity[A]
+  ): Either[GraphicsError, DiscreteDomain[A]] =
+    build(levels, ordered = true, categories)
 
-  private def firstDuplicate(levels: Vector[String]): Option[String] =
-    val seen = scala.collection.mutable.HashSet.empty[String]
-    levels.find(level => !seen.add(level))
+  def unordered[A](levels: Vector[A])(using
+      categories: CategoryIdentity[A]
+  ): Either[GraphicsError, DiscreteDomain[A]] =
+    build(levels, ordered = false, categories)
 
-final case class DiscreteScale[A] private (
+  private def build[A](
+      levels: Vector[A],
+      ordered: Boolean,
+      categories: CategoryIdentity[A]
+  ): Either[GraphicsError, DiscreteDomain[A]] =
+    firstDuplicate(levels, categories) match
+      case Some(level) => Left(GraphicsError.DuplicateLevel(categories.label(level)))
+      case None        =>
+        val resolved = if ordered then levels else levels.sortWith(categories.compare(_, _) < 0)
+        Right(new DiscreteDomain(resolved, ordered, categories))
+
+  private def firstDuplicate[A](
+      levels: Vector[A],
+      categories: CategoryIdentity[A]
+  ): Option[A] =
+    val seen = scala.collection.mutable.HashSet.empty[Any]
+    levels.find(level => !seen.add(categories.erasedIdentity(level)))
+
+final case class DiscreteScale[Category, A] private (
     name: GraphicsName,
-    domain: DiscreteDomain,
+    domain: DiscreteDomain[Category],
     palette: DiscretePalette[A],
     training: ScaleTraining
-) extends Scale[String, A]:
+) extends Scale[Category, A]:
   override def descriptor: ScaleDescriptor =
     ScaleDescriptor(
       name,
       ScaleKind.Discrete,
-      ScaleDomain.Discrete(domain.levels, domain.ordered),
+      ScaleDomain.Discrete(domain.labels, domain.ordered),
       training
     )
 
-  private[intaglio] override def observation(value: String): Option[ScaleObservation] =
-    Some(ScaleObservation.Discrete(value))
+  private[intaglio] override def observation(value: Category): Option[ScaleObservation] =
+    Some(ScaleObservation.discrete(value, domain.categories))
 
   private[intaglio] override def trainPlotWide(
       observations: IterableOnce[ScaleObservation]
-  ): Either[GraphicsError, Scale[String, A]] =
+  ): Either[GraphicsError, Scale[Category, A]] =
     training match
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
         domain
-          .train(observations.iterator.collect { case ScaleObservation.Discrete(value) => value })
-          .map(DiscreteScale(name, _, palette, training))
+          .train(ScaleObservation.discreteValues(observations, domain.categories))
+          .flatMap(DiscreteScale.validated(name, _, palette, training))
 
   private[intaglio] override def trainFacet(
       observations: IterableOnce[ScaleObservation]
-  ): Either[GraphicsError, Scale[String, A]] =
+  ): Either[GraphicsError, Scale[Category, A]] =
     training match
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
-        val levels = observations.iterator.collect { case ScaleObservation.Discrete(value) => value }.toVector.distinct
-        val trained =
-          if domain.ordered then DiscreteDomain.ordered(levels)
-          else DiscreteDomain.unordered(levels)
-        trained.map(DiscreteScale(name, _, palette, training))
+        domain
+          .replace(ScaleObservation.discreteValues(observations, domain.categories))
+          .flatMap(DiscreteScale.validated(name, _, palette, training))
 
-  override def mapValue(value: String): Option[A] =
+  override def mapValue(value: Category): Option[A] =
     mapValueResult(value).toOption
 
-  override def mapValueResult(value: String): Either[ScaleMapFailure, A] =
-    val idx = domain.levels.indexOf(value)
-    if idx < 0 then Left(ScaleMapFailure.OutOfDomain(name.value, value))
-    else Right(palette(idx, domain.levels.length))
+  override def mapValueResult(value: Category): Either[ScaleMapFailure, A] =
+    domain.indexOf(value) match
+      case None        => Left(ScaleMapFailure.OutOfDomain(name.value, domain.label(value)))
+      case Some(index) => palette.mapValue(name.value, index, domain.levels.length)
 
-  def mapLevels(values: IterableOnce[String]): Vector[Option[A]] =
+  def mapLevels(values: IterableOnce[Category]): Vector[Option[A]] =
     values.iterator.map(mapValue).toVector
 
 object DiscreteScale:
-  def apply[A](
+  def apply[Category, A](
       name: String,
-      domain: DiscreteDomain,
+      domain: DiscreteDomain[Category],
       palette: DiscretePalette[A],
       training: ScaleTraining = ScaleTraining.PlotWide
-  ): Either[GraphicsError, DiscreteScale[A]] =
-    GraphicsName(name, "discrete scale").map(DiscreteScale(_, domain, palette, training))
+  ): Either[GraphicsError, DiscreteScale[Category, A]] =
+    GraphicsName(name, "discrete scale").flatMap(validated(_, domain, palette, training))
 
-  def fixed[A](
+  def fixed[Category, A](
       name: String,
-      domain: DiscreteDomain,
+      domain: DiscreteDomain[Category],
       palette: DiscretePalette[A]
-  ): Either[GraphicsError, DiscreteScale[A]] =
+  ): Either[GraphicsError, DiscreteScale[Category, A]] =
     apply(name, domain, palette, ScaleTraining.Fixed)
 
-/** Scala-native categorical position scale. Levels retain their declared
-  * order, centers are zero-based unit steps, and width is carried explicitly
-  * as a [[Band]] rather than inferred later from a plotting convention.
+  private def validated[Category, A](
+      name: GraphicsName,
+      domain: DiscreteDomain[Category],
+      palette: DiscretePalette[A],
+      training: ScaleTraining
+  ): Either[GraphicsError, DiscreteScale[Category, A]] =
+    palette
+      .validateDomain(name.value, domain.levels.length)
+      .map(_ => new DiscreteScale(name, domain, palette, training))
+
+/** Scala-native categorical position scale. Levels retain their declared order, centers are
+  * zero-based unit steps, and width is carried explicitly as a [[Band]] rather than inferred later
+  * from a plotting convention.
   */
-final case class BandScale private (
+final case class BandScale[A] private (
     name: GraphicsName,
-    domain: DiscreteDomain,
+    domain: DiscreteDomain[A],
     padding: BandPadding,
     training: ScaleTraining
-) extends Scale[String, Double]:
+) extends Scale[A, Double]:
   override def descriptor: ScaleDescriptor =
     ScaleDescriptor(
       name,
       ScaleKind.Band,
-      ScaleDomain.Band(domain.levels, domain.ordered, padding),
+      ScaleDomain.Band(domain.labels, domain.ordered, padding),
       training
     )
 
-  private[intaglio] override def observation(value: String): Option[ScaleObservation] =
-    Some(ScaleObservation.Discrete(value))
+  private[intaglio] override def observation(value: A): Option[ScaleObservation] =
+    Some(ScaleObservation.discrete(value, domain.categories))
 
   private[intaglio] override def trainPlotWide(
       observations: IterableOnce[ScaleObservation]
-  ): Either[GraphicsError, Scale[String, Double]] =
+  ): Either[GraphicsError, Scale[A, Double]] =
     training match
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
         domain
-          .train(observations.iterator.collect { case ScaleObservation.Discrete(value) => value })
+          .train(ScaleObservation.discreteValues(observations, domain.categories))
           .map(BandScale(name, _, padding, training))
 
   private[intaglio] override def trainFacet(
       observations: IterableOnce[ScaleObservation]
-  ): Either[GraphicsError, Scale[String, Double]] =
+  ): Either[GraphicsError, Scale[A, Double]] =
     training match
       case ScaleTraining.Fixed =>
         Right(this)
       case ScaleTraining.PlotWide =>
-        val levels = observations.iterator.collect { case ScaleObservation.Discrete(value) => value }.toVector.distinct
-        val trained =
-          if domain.ordered then DiscreteDomain.ordered(levels)
-          else DiscreteDomain.unordered(levels)
-        trained.map(BandScale(name, _, padding, training))
+        domain
+          .replace(ScaleObservation.discreteValues(observations, domain.categories))
+          .map(BandScale(name, _, padding, training))
 
-  override def mapValue(value: String): Option[Double] =
+  override def mapValue(value: A): Option[Double] =
     band(value).map(_.center)
 
-  override def mapValueResult(value: String): Either[ScaleMapFailure, Double] =
-    band(value).map(_.center).toRight(ScaleMapFailure.OutOfDomain(name.value, value))
+  override def mapValueResult(value: A): Either[ScaleMapFailure, Double] =
+    band(value).map(_.center).toRight(ScaleMapFailure.OutOfDomain(name.value, domain.label(value)))
 
-  private[intaglio] override def mappedBand(value: String): Option[Band] =
+  private[intaglio] override def mappedBand(value: A): Option[Band] =
     band(value)
 
-  def band(value: String): Option[Band] =
-    val index = domain.levels.indexOf(value)
-    Option.when(index >= 0)(Band.unsafe(index.toDouble, 1.0 - padding.toDouble))
+  def band(value: A): Option[Band] =
+    domain.indexOf(value).map(index => Band.unsafe(index.toDouble, 1.0 - padding.toDouble))
 
-  def bands: Vector[(String, Band)] =
+  def bands: Vector[(A, Band)] =
     domain.levels.zipWithIndex.map { case (level, index) =>
       level -> Band.unsafe(index.toDouble, 1.0 - padding.toDouble)
     }
 
-  def mapLevels(values: IterableOnce[String]): Vector[Option[Double]] =
+  def mapLevels(values: IterableOnce[A]): Vector[Option[Double]] =
     values.iterator.map(mapValue).toVector
 
 object BandScale:
-  def apply(
+  def apply[A](
       name: String,
-      domain: DiscreteDomain,
+      domain: DiscreteDomain[A],
       padding: BandPadding = BandPadding.default,
       training: ScaleTraining = ScaleTraining.PlotWide
-  ): Either[GraphicsError, BandScale] =
+  ): Either[GraphicsError, BandScale[A]] =
     GraphicsName(name, "band scale").map(BandScale(_, domain, padding, training))
 
-  def fixed(
+  def fixed[A](
       name: String,
-      domain: DiscreteDomain,
+      domain: DiscreteDomain[A],
       padding: BandPadding = BandPadding.default
-  ): Either[GraphicsError, BandScale] =
+  ): Either[GraphicsError, BandScale[A]] =
     apply(name, domain, padding, ScaleTraining.Fixed)
 
-trait Scale[-In, +Out]:
+/** A typed scale declaration carried by an aesthetic mapping. A declaration is either an untrained
+  * [[ScaleSpec]] or an already prepared [[Scale]]. The compiler trains declarations and installs
+  * concrete scales before row mapping.
+  */
+trait ScaleValue[-In, +Out]:
+  def name: GraphicsName
+  def descriptor: ScaleDescriptor
+
+  private[intaglio] def mapDeclaredValue(value: In): Option[Out]
+
+  private[intaglio] def mapDeclaredValueResult(value: In): Either[ScaleMapFailure, Out]
+
+  private[intaglio] def observation(value: In): Option[ScaleObservation] =
+    None
+
+  private[intaglio] def mappedBand(value: In): Option[Band] =
+    None
+
+  private[intaglio] def trainDeclaration(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[In, Out]]
+
+trait Scale[-In, +Out] extends ScaleValue[In, Out]:
   def name: GraphicsName
   def mapValue(value: In): Option[Out]
   def descriptor: ScaleDescriptor =
@@ -822,10 +1367,10 @@ trait Scale[-In, +Out]:
   def mapValueResult(value: In): Either[ScaleMapFailure, Out] =
     mapValue(value).toRight(ScaleMapFailure.OutOfDomain(name.value, value.toString))
 
-  private[intaglio] def observation(value: In): Option[ScaleObservation] =
+  private[intaglio] override def observation(value: In): Option[ScaleObservation] =
     None
 
-  private[intaglio] def mappedBand(value: In): Option[Band] =
+  private[intaglio] override def mappedBand(value: In): Option[Band] =
     None
 
   private[intaglio] def trainPlotWide(
@@ -838,13 +1383,268 @@ trait Scale[-In, +Out]:
   ): Either[GraphicsError, Scale[In, Out]] =
     trainPlotWide(observations)
 
+  private[intaglio] final override def mapDeclaredValue(value: In): Option[Out] =
+    mapValue(value)
+
+  private[intaglio] final override def mapDeclaredValueResult(
+      value: In
+  ): Either[ScaleMapFailure, Out] =
+    mapValueResult(value)
+
+  private[intaglio] def resolveTheme(theme: Theme): Either[GraphicsError, Scale[In, Out]] =
+    Right(this)
+
+  private[intaglio] final override def trainDeclaration(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[In, Out]] =
+    resolveTheme(theme).flatMap { resolved =>
+      if facetLocal then resolved.trainFacet(observations)
+      else resolved.trainPlotWide(observations)
+    }
+
+/** An untrained scale declaration. Specs contain configuration only: constructing one never
+  * inspects rows or invents a provisional domain. Its descriptor therefore has an unspecified
+  * domain until the compiler replaces it with a concrete [[Scale]].
+  */
+trait ScaleSpec[In, Out] extends ScaleValue[In, Out]:
+  def kind: ScaleKind
+
+  final override def descriptor: ScaleDescriptor =
+    ScaleDescriptor(name, kind, ScaleDomain.Unspecified, ScaleTraining.PlotWide)
+
+  private[intaglio] final override def mapDeclaredValue(value: In): Option[Out] =
+    None
+
+  private[intaglio] final override def mapDeclaredValueResult(
+      value: In
+  ): Either[ScaleMapFailure, Out] =
+    Left(ScaleMapFailure.OutOfDomain(name.value, "untrained scale declaration"))
+
+  private[intaglio] def trainSpec(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[In, Out]]
+
+  private[intaglio] final override def trainDeclaration(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[In, Out]] =
+    trainSpec(observations, theme, facetLocal)
+
+enum ScalePaletteSource:
+  case Explicit
+  case ThemeDefault
+
+final class ContinuousScaleSpec[A] private (
+    val name: GraphicsName,
+    val transform: Transform,
+    val oob: OobPolicy,
+    val paletteSource: ScalePaletteSource,
+    palette: Theme => Palette[A]
+) extends ScaleSpec[Double, A]:
+  override val kind: ScaleKind =
+    ScaleKind.Continuous
+
+  private[intaglio] override def observation(value: Double): Option[ScaleObservation] =
+    Some(ScaleObservation.Continuous(value))
+
+  private[intaglio] override def trainSpec(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[Double, A]] =
+    ContinuousScale.train(
+      name.value,
+      observations.collect { case ScaleObservation.Continuous(value) => value },
+      palette(theme),
+      transform,
+      oob,
+      ScaleTraining.PlotWide
+    )
+
+object ContinuousScaleSpec:
+  def apply[A](
+      name: String,
+      palette: Palette[A],
+      transform: Transform = Transform.identity,
+      oob: OobPolicy = OobPolicy.Censor
+  ): Either[GraphicsError, ContinuousScaleSpec[A]] =
+    GraphicsName(name, "continuous scale spec").map { scaleName =>
+      new ContinuousScaleSpec(
+        scaleName,
+        transform,
+        oob,
+        ScalePaletteSource.Explicit,
+        _ => palette
+      )
+    }
+
+  def numeric(
+      name: String,
+      transform: Transform = Transform.identity,
+      oob: OobPolicy = OobPolicy.Censor
+  ): Either[GraphicsError, ContinuousScaleSpec[Double]] =
+    apply(name, Palette.numeric, transform, oob)
+
+  def themeRgba(
+      name: String,
+      transform: Transform = Transform.identity,
+      oob: OobPolicy = OobPolicy.Censor
+  ): Either[GraphicsError, ContinuousScaleSpec[Rgba]] =
+    GraphicsName(name, "continuous scale spec").map { scaleName =>
+      new ContinuousScaleSpec(
+        scaleName,
+        transform,
+        oob,
+        ScalePaletteSource.ThemeDefault,
+        _.palettes.continuousPalette
+      )
+    }
+
+final class DiscreteScaleSpec[Category, A] private (
+    val name: GraphicsName,
+    val declaredDomain: DiscreteDomain[Category],
+    val paletteSource: ScalePaletteSource,
+    palette: Theme => Either[GraphicsError, DiscretePalette[A]]
+) extends ScaleSpec[Category, A]:
+  override val kind: ScaleKind =
+    ScaleKind.Discrete
+
+  def declaredLevels: Vector[Category] =
+    declaredDomain.levels
+
+  private[intaglio] override def observation(value: Category): Option[ScaleObservation] =
+    Some(ScaleObservation.discrete(value, declaredDomain.categories))
+
+  private[intaglio] override def trainSpec(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[Category, A]] =
+    for
+      domain <- declaredDomain.train(
+        ScaleObservation.discreteValues(observations, declaredDomain.categories)
+      )
+      resolvedPalette <- palette(theme)
+      scale <- DiscreteScale(name.value, domain, resolvedPalette, ScaleTraining.PlotWide)
+    yield scale
+
+object DiscreteScaleSpec:
+  def apply[Category, A](
+      name: String,
+      declaredLevels: Vector[Category],
+      palette: DiscretePalette[A]
+  )(using CategoryIdentity[Category]): Either[GraphicsError, DiscreteScaleSpec[Category, A]] =
+    for
+      scaleName <- GraphicsName(name, "discrete scale spec")
+      domain <- DiscreteDomain.ordered(declaredLevels)
+    yield new DiscreteScaleSpec(
+      scaleName,
+      domain,
+      ScalePaletteSource.Explicit,
+      _ => Right(palette)
+    )
+
+  def themeRgba(
+      name: String,
+      declaredLevels: Vector[String] = Vector.empty,
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
+  ): Either[GraphicsError, DiscreteScaleSpec[String, Rgba]] =
+    for
+      scaleName <- GraphicsName(name, "discrete scale spec")
+      domain <- DiscreteDomain.ordered(declaredLevels)
+    yield new DiscreteScaleSpec(
+      scaleName,
+      domain,
+      ScalePaletteSource.ThemeDefault,
+      theme => DiscretePalette.values(theme.palettes.discrete, overflow)
+    )
+
+final class BandScaleSpec[A] private (
+    val name: GraphicsName,
+    val declaredDomain: DiscreteDomain[A],
+    val padding: BandPadding
+) extends ScaleSpec[A, Double]:
+  override val kind: ScaleKind =
+    ScaleKind.Band
+
+  def declaredLevels: Vector[A] =
+    declaredDomain.levels
+
+  private[intaglio] override def observation(value: A): Option[ScaleObservation] =
+    Some(ScaleObservation.discrete(value, declaredDomain.categories))
+
+  private[intaglio] override def mappedBand(value: A): Option[Band] =
+    None
+
+  private[intaglio] override def trainSpec(
+      observations: Vector[ScaleObservation],
+      theme: Theme,
+      facetLocal: Boolean
+  ): Either[GraphicsError, Scale[A, Double]] =
+    declaredDomain
+      .train(ScaleObservation.discreteValues(observations, declaredDomain.categories))
+      .flatMap(BandScale(name.value, _, padding, ScaleTraining.PlotWide))
+
+object BandScaleSpec:
+  def apply[A](
+      name: String,
+      declaredLevels: Vector[A],
+      padding: BandPadding
+  )(using CategoryIdentity[A]): Either[GraphicsError, BandScaleSpec[A]] =
+    for
+      scaleName <- GraphicsName(name, "band scale spec")
+      domain <- DiscreteDomain.ordered(declaredLevels)
+    yield new BandScaleSpec(scaleName, domain, padding)
+
+  def apply[A](
+      name: String,
+      declaredLevels: Vector[A]
+  )(using CategoryIdentity[A]): Either[GraphicsError, BandScaleSpec[A]] =
+    apply(name, declaredLevels, BandPadding.default)
+
+  def apply(
+      name: String,
+      padding: BandPadding = BandPadding.default
+  ): Either[GraphicsError, BandScaleSpec[String]] =
+    apply(name, Vector.empty[String], padding)
+
 final case class ScaleBinding[Row, In, Out](
     aesthetic: Aesthetic[Out],
     value: Row => In,
-    scale: Scale[In, Out]
+    scale: ScaleValue[In, Out]
 ):
+  /** Convenience evaluation outside compilation. Like `RowMapping.apply`, this method may throw;
+    * `PlotCompiler` uses the checked mapping boundary instead.
+    */
   def map(row: Row): Option[Out] =
-    scale.mapValue(value(row))
+    scale.mapDeclaredValue(value(row))
 
   def toAesValue: AesValue[Row, Out] =
     AesValue.scaled(value, scale)
+
+object ScaleBinding:
+  def total[Row, In, Out](
+      aesthetic: Aesthetic[Out],
+      value: Row => In,
+      scale: ScaleValue[In, Out]
+  ): ScaleBinding[Row, In, Out] =
+    ScaleBinding(aesthetic, RowMapping.total(value), scale)
+
+  def checked[Row, In, Out](
+      aesthetic: Aesthetic[Out],
+      value: Row => Either[MappingFailure, In],
+      scale: ScaleValue[In, Out]
+  ): ScaleBinding[Row, In, Out] =
+    ScaleBinding(aesthetic, RowMapping.checked(value), scale)
+
+  def throwing[Row, In, Out](
+      aesthetic: Aesthetic[Out],
+      value: Row => In,
+      scale: ScaleValue[In, Out]
+  ): ScaleBinding[Row, In, Out] =
+    ScaleBinding(aesthetic, RowMapping.throwing(value), scale)

@@ -45,8 +45,8 @@ enum StackOrder:
   case Encountered
   case Reverse
 
-/** An absent width delegates to the resolved band width, then to 0.9 for
-  * unbanded positions. This keeps scale geometry authoritative.
+/** An absent width delegates to the resolved band width, then to 0.9 for unbanded positions. This
+  * keeps scale geometry authoritative.
   */
 final case class DodgeConfig(
     width: Option[DodgeWidth] = None,
@@ -56,14 +56,17 @@ final case class DodgeConfig(
 object DodgeConfig:
   val default: DodgeConfig = DodgeConfig()
 
-  def fixed(width: Double, preserve: DodgePreserve = DodgePreserve.Total): Either[GraphicsError, DodgeConfig] =
+  def fixed(
+      width: Double,
+      preserve: DodgePreserve = DodgePreserve.Total
+  ): Either[GraphicsError, DodgeConfig] =
     DodgeWidth(width).map(value => DodgeConfig(Some(value), preserve))
 
   def fixedUnsafe(width: Double, preserve: DodgePreserve = DodgePreserve.Total): DodgeConfig =
     fixed(width, preserve).orThrow
 
-/** An absent amount follows ggplot2's useful resolution * 0.4 convention.
-  * The generator itself is deliberately Intaglio-owned and platform-stable.
+/** An absent amount follows ggplot2's useful resolution * 0.4 convention. The generator itself is
+  * deliberately Intaglio-owned and platform-stable.
   */
 final case class JitterConfig(
     width: Option[JitterAmount],
@@ -89,13 +92,15 @@ object JitterConfig:
   ): JitterConfig =
     apply(seed, width, height).orThrow
 
-  private def traverse[A, B](value: Option[A])(f: A => Either[GraphicsError, B]): Either[GraphicsError, Option[B]] =
+  private def traverse[A, B](value: Option[A])(
+      f: A => Either[GraphicsError, B]
+  ): Either[GraphicsError, Option[B]] =
     value match
       case None        => Right(None)
       case Some(input) => f(input).map(Some(_))
 
-/** Pure position transformations. They are values on a layer and are applied
-  * by one compiler phase after statistics and before geom lowering.
+/** Pure position transformations. They are values on a layer and are applied by one compiler phase
+  * after statistics and before geom lowering.
   */
 enum Position:
   case Identity

@@ -29,6 +29,118 @@ Consumers should export plot specifications or scenes into this module;
 platform renderers should consume `DeviceScene` values at a boundary. The
 artifact matrix and design commitments are in the [root README](../../README.md).
 
+## Render contexts
+
+Use `RenderContext` when plot layout must match a concrete output target. It
+binds device-pixel width and height, pixel density, text metrics, and immutable
+font-family resolution before `PlotCompiler` allocates any panel, axis, guide,
+or title region. It also records the contextual line height and device scale.
+Compilation returns a `RenderPlan`, which carries the same context through
+device lowering and into the backend:
+
+```scala
+val context = RenderContext.unsafe(
+  width = 1280,
+  height = 960,
+  pixelsPerInch = 192.0,
+  lineHeightPt = 14.0,
+  deviceScale = 2.0,
+  textMetrics = platformMetrics,
+  fontRegistry = FontRegistry {
+    case Some(requested) => installedFamilyFor(requested)
+    case None            => Some("Platform Sans")
+  }
+)
+
+val plan = program.flatMap(_.renderPlan(context))
+val svg = plan.flatMap(SvgRenderer.render)
+```
+
+`RenderContext(…)` is the checked constructor. The convenience `unsafe`
+constructor throws on non-positive dimensions or density. A `FontRegistry`
+must be deterministic for the lifetime of a context: its result is used both
+by family-aware `TextMetrics` during layout and by `DeviceScene` during text
+lowering. Recompile when the target changes; targets with the same physical
+size but proportionally scaled pixels and DPI preserve physical typography and
+spacing.
+
+`Length.lines`, `LengthExpr.lines`, and `ExtentExpr.lines` are the public
+checked constructors for line units. One line resolves to
+`RenderContext.lineHeightPt` at the target DPI; line-valued font sizes use the
+same conversion. NPC and native font sizes remain invalid because they do not
+describe physical typography.
+
+Legacy `GraphicParams.unsafe(lineWidth = 1.0)` continues to mean one literal
+device pixel. Use a typed value when the stroke is physical:
+
+```scala
+val hairline = GraphicParams.unsafe(lineWidth = 1.0)
+val onePoint = GraphicParams.unsafe().withStrokeWidth(StrokeWidth.pointsUnsafe(1.0))
+```
+
+`DeviceScene` converts point strokes once and normalizes them to
+`StrokeUnit.DevicePixel`, so SVG, Canvas, Java2D, and JavaFX receive the same
+numeric width. Fill-pattern spacing, hatch line width, and stipple radius remain
+literal device pixels.
+
+For high-density Canvas backing stores, construct options from logical pixels
+and device-pixel ratio instead of multiplying dimensions by hand:
+
+```scala
+val options = CanvasOptions.hidpiUnsafe(
+  logicalWidth = 640,
+  logicalHeight = 480,
+  devicePixelRatio = 2.0
+)
+// width = 1280, height = 960, pixelsPerInch = 192, deviceScale = 2
+```
+
+Every backend result exposes `width`, `height`, `pixelsPerInch`,
+`deviceScale`, `logicalWidth`, and `logicalHeight` consistently. Width, height,
+and DPI are actual backing-target values. Ordinary options derive logical size
+by dividing by `deviceScale`; `CanvasOptions.hidpi` preserves the exact requested
+logical size when a fractional ratio requires integer backing-pixel rounding.
+
+The older `PlotCompiler.compile(plot)` and backend `(Scene, Options)` methods
+remain 96-DPI compatibility entry points. They create a default render context
+internally. New target-aware code should pass the `RenderPlan` directly so a
+backend cannot accidentally lower a scene with dimensions or font resolution
+different from those used for layout.
+
+## Pattern fills
+
+`PatternRecipe` is the renderer-neutral fill-pattern contract. Its checked
+constructors admit only angled hatch, cross-hatch, horizontal or vertical
+parallel rules, and stipple recipes. A `PatternPaint` pairs one recipe with an
+explicit ink color and optional solid background; it never stores SVG, CSS,
+callbacks, or backend objects.
+
+```scala
+val recipe = PatternRecipe.angledHatch(
+  angleDegrees = 45.0,
+  spacing = 8.0,
+  lineWidth = 1.25
+)
+val params = recipe.map { value =>
+  GraphicParams
+    .unsafe(stroke = Some(Rgba.Black), alpha = 0.8)
+    .withPatternFill(PatternPaint(value, Rgba.unsafe(30, 80, 120), Some(Rgba.White)))
+}
+```
+
+Pattern spacing, line width, and stipple radius are device pixels. Hatch angles
+are clockwise degrees from a vertical rule in the y-down device coordinate
+system. The repeated tile starts at `(0, 0)` in the current device coordinate
+system, does not restart at each mark's bounding box, and follows enclosing
+viewport transforms. Ink and background keep their own RGBA values; the
+`GraphicParams.alpha` value is then applied once to the composited mark.
+
+Ordinary `GraphicParams.unsafe(fill = Some(color))` and `checked` calls retain
+their existing signatures and behavior. `withPatternFill` replaces that solid
+fill channel, while `withSolidFill` explicitly switches back. Patterns affect
+only primitives that already have a fill channel: discs, closed polygons,
+compound polygons, and rectangles. Text, images, and open lines are unchanged.
+
 ## Plotting DSL
 
 The ordinary entry point is a small immutable Scala DSL. Position mappings
@@ -83,6 +195,169 @@ trained <- ggplot_build(p)
 The Scala examples above are compiled as JVM and Scala.js tests in
 `PlotDslSuite`; this is executable syntax, not documentation-only sugar.
 
+Statistical layers retain their typed output rows in `StatFrame`. Count, bin,
+summary, and density results are distinct `StatRow` subtypes, so fields required
+by a statistic are total Scala values:
+
+```scala
+val bins = histogram.orThrow.layers.head.statFrame.rows.collect {
+  case row: StatRow.Binned[?] =>
+    (row.count, row.binLower, row.binUpper, row.binWidth, row.binMidpoint)
+}
+```
+
+`StatRow.Counted`, `Binned`, `Summarized`, and `Density` expose their own
+required fields directly. The compiler maps and lowers those fields from the
+typed subtype; a mismatched output variant is a checked mapping rejection, not
+a missing value replaced by zero. `row.computed` and
+`frame.computedAesthetics` remain generic inspection views derived from typed
+rows (with declared keys retained for an empty frame), rather than storage used
+to drive compilation.
+
+`Stat` is an open public transform contract. Its single compiler entry point is
+polymorphic in the current input subtype:
+
+```scala
+def compute[Input <: Row](
+  batch: StatBatch[Input],
+  context: StatContext
+): Either[StatError, StatResult[Input]]
+```
+
+`StatBatch` supplies stable indexed inputs and the effective input mapping;
+`StatContext` distinguishes plot-level from concrete `FacetCell` execution.
+`StatResult` is an existential package: an extension's exact `StatRow` subtype
+stays attached to its exact `AesSpec`, so output mappings can be total functions
+over required fields. The compiler validates that output mapping against the
+selected geom, but has no registry or match statement for stat implementations.
+External stats normally select `StatLowering.Geom` and map their result to an
+ordinary geom.
+
+Every implementation also publishes a `StatContract` with explicit
+`inputPreservation`, `grouping`, `summarization`, `rejection`, input-`mapping`,
+`geometry`, and `lowering` policies. Built-in identity, count, bin, summary, and
+density stats execute through this same interface. Expected accessor and
+precondition failures are `StatError` values; the compiler adds layer
+provenance when translating them to `GraphicsError`. The shared
+`external.stat.OpenStatSuite` is an executable consumer-package example that
+defines a new stat and output row without package-private access.
+
+`Geom` and `Coord` are open public lowering contracts too. An ecosystem geom
+publishes a checked `GeomAestheticContract` and implements one method over a
+`GeomBatch` of typed `ResolvedRow` values:
+
+```scala
+case object CrossGeom extends Geom:
+  val label = "cross"
+  val contract = GeomAestheticContract.checked(
+    Vector(RequiredAesthetic.X, RequiredAesthetic.Y),
+    Vector(Aesthetic.Color, Aesthetic.Alpha, Aesthetic.Size)
+  ).orThrow
+
+  def lower[Row](batch: GeomBatch[Row]) =
+    // construct portable Grob values from batch.rows
+    Right(Vector.empty)
+```
+
+The compiler validates the declared mapping, supplies `GeomContext`, and calls
+that method directly; there is no built-in-geom registry or fallback cast.
+Coordinates similarly implement `transform(CoordInput)` and return a
+`CoordResult`, while also declaring guide placement, optional panel aspect,
+clipping, and facet compatibility. `CoordinateTransform.identity`,
+`transpose`, and checked `translate` are reusable logical-output transforms.
+Built-in Cartesian, flipped, and fixed coordinates use the same methods. The
+shared `external.geometry.OpenGeometrySuite` is an executable consumer-package
+court for both extension points.
+
+Ecosystem code can define a typed aesthetic without registering a string or
+editing core. The key has reference identity, so retain and reuse the same
+value for insertion and lookup:
+
+```scala
+val Confidence = Aesthetic.unsafe[Double]("confidence")
+
+val mapping = AesSpec.empty[Observation]
+  .updated(Confidence, AesValue.total(_ => 0.95))
+
+val confidence: Option[AesValue[Observation, Double]] =
+  mapping.get(Confidence)
+```
+
+`AestheticMap` is the immutable heterogeneous storage behind `AesSpec`. Core
+keys remain in their stable declaration order and extension keys follow in
+insertion order. Generic position encodings also carry the DSL prerequisite:
+
+```scala
+val x = ContinuousScaleSpec.numeric("time").orThrow
+val y = ContinuousScaleSpec.numeric("signal").orThrow
+
+val points = plot(rows)
+  .encode(Aesthetic.X, _.time, x)
+  .encode(Aesthetic.Y, _.signal, y)
+  .geomPoint()
+```
+
+Categorical scales retain the caller's category type instead of requiring a
+`String` projection. Define its stable lookup identity and display label once:
+
+```scala
+enum Arm(val code: Int):
+  case Control extends Arm(10)
+  case Treatment extends Arm(20)
+
+given CategoryIdentity[Arm] =
+  CategoryIdentity.by(
+    _.code,
+    {
+      case Arm.Control   => "control arm"
+      case Arm.Treatment => "treatment arm"
+    }
+  )
+
+val domain: DiscreteDomain[Arm] =
+  DiscreteDomain.ordered(Vector(Arm.Control, Arm.Treatment)).orThrow
+val scale: DiscreteScale[Arm, Rgba] =
+  DiscreteScale("arm", domain, palette).orThrow
+val positions: BandScale[Arm] =
+  BandScale("arm-position", domain).orThrow
+```
+
+`DiscreteDomain[A]` keeps its ordered `Vector[A]` and an immutable stable-key
+index. `DiscreteScale[A, Out]`, `BandScale[A]`, and their specs accept `A`
+directly. Guides and descriptors use the explicit label function; lookup,
+grouping, and palette selection use the explicit identity, so equal labels do
+not collapse distinct factors or enum cases. `String` has a built-in identity
+for source-level convenience. `external.category.TypedCategorySuite` is the
+JVM/Scala.js consumer court.
+
+Application and scientific model types can remain independent of Intaglio.
+Define a `PlotRecipe` beside the model to convert it to an immutable,
+renderer-neutral `PlotSpec`:
+
+```scala
+final case class TimeSeries(samples: Vector[Observation])
+
+given PlotRecipe.Aux[TimeSeries, Observation] =
+  PlotRecipe.checked { series =>
+    plot(series.samples)
+      .aes(_.time, _.signal)
+      .geomLine()
+      .build
+      .map(PlotSpec.fromProgram)
+  }
+
+val spec: Either[GraphicsError, PlotSpec[Observation]] =
+  TimeSeries(rows).toPlotSpec
+```
+
+`PlotRecipe` is a Scala typeclass with an associated row type, not a base class,
+implicit conversion, or mutable plugin registry. Normal lexical `given`
+resolution selects the recipe; a missing or ambiguous recipe fails at compile
+time. Conversion and compilation are pure over immutable inputs, so resolving
+the same recipe result is deterministic. The shared
+`external.recipe.PlotRecipeSuite` defines two unrelated consumer-package models
+and runs their recipes on both JVM and Scala.js.
+
 Layers may also own a different row type. Independent layers supply their own
 data and mapping, and must state what happens if the plot is faceted:
 
@@ -106,6 +381,32 @@ val mixed = plot(rows)
 The compiler retains each layer's hidden `Row` member through statistics,
 dropped-row provenance, and `TrainedLayer` inspection while training shared
 scale declarations over observations from every layer.
+
+Horizontal and vertical reference lines are a separate O(1) annotation path,
+not constant mappings repeated over the plot rows:
+
+```scala
+val annotated = plot(rows)
+  .aes(_.time, _.signal)
+  .geomPoint()
+  .hline(2.5) // Train + Repeat are the explicit defaults
+  .vline(
+    0.5,
+    scale = AnnotationScalePolicy.Overlay,
+    facets = AnnotationFacetPolicy.Exclude
+  )
+  .resolve
+```
+
+`Train` treats the coordinate as data-space input: it expands an unscaled
+range or contributes to an existing continuous position scale and is then
+mapped through that trained scale. `Overlay` leaves training unchanged and
+uses a panel-native coordinate. `Repeat` emits the annotation in every facet;
+`Exclude` omits it from faceted panels. Reference layers retain no data or row
+accessors, expose their resolved state through `TrainedLayer.annotation`, and
+render even when the base data is empty. The legacy `data` argument on
+`Layer.hline` and `Layer.vline` is accepted for source compatibility but is
+ignored rather than retained.
 
 ## Core laws
 
@@ -133,6 +434,14 @@ scale declarations over observations from every layer.
 - Continuous scales retain both raw data domains and transformed domains:
   palette mapping uses transformed coordinates, while breaks and labels remain
   in the raw data domain.
+- `ScaleSpec` is the row-free declaration algebra used by the plotting DSL.
+  Constructing a spec never evaluates a row or invents a provisional domain;
+  its domain is `ScaleDomain.Unspecified` until compilation. The compiler
+  collects observations from every contributing layer at the plot or facet
+  scope, trains the declaration once, and installs that same concrete `Scale`
+  in every layer mapping. `ContinuousScale.fixed`, `DiscreteScale.fixed`, and
+  `BandScale.fixed` remain the distinct public contract for known domains that
+  must not expand.
 - Scale training is plot-global: every layer bound to an aesthetic contributes
   observations to one shared scale before rows are mapped. Reusing one scale
   declaration across layers therefore gives one coordinate or palette
@@ -149,9 +458,22 @@ scale declarations over observations from every layer.
   an approximate target count. Use `Breaks.count` when an exact number of
   equally spaced breaks is part of the caller's contract.
 - Aesthetic mappings are row-aware typed values: direct, constant, and scaled
-  mappings share one `AesValue` algebra. `AesSpec` is the single canonical
-  storage model: its precise fields are the public API, while typed lookup and
-  declaration-order iteration use the same value through `Aesthetic[A]`.
+  mappings share one `AesValue` algebra. A `RowMapping` can declare one of three
+  contracts: `total` promises a value for every row, `checked` returns a typed
+  `MappingFailure`, and `throwing` explicitly admits non-fatal exceptions.
+  Existing `Row => A` lambdas remain source-compatible and are treated as
+  throwing mappings. Because `RowMapping` is itself a `Row => A`, the same
+  constructors work in `aes`, layer, stat, facet, and scale-binding APIs. The
+  compiler catches non-fatal failures: direct aesthetic failures become
+  `DroppedRow` diagnostics carrying aesthetic and row index, while failures
+  needed for scale training, statistics, or facet partitioning become
+  `GraphicsError.MappingEvaluationFailed`. Calling `RowMapping.apply`,
+  `AesValue.map`, or `ScaleBinding.map` directly is the explicit convenience
+  boundary that may throw; `PlotCompiler.resolve` and `compile` do not leak
+  mapping exceptions. `AesSpec` is the single canonical mapping model: its
+  built-in accessors and open typed lookup are views over one `AestheticMap`.
+  The map packages each `Aesthetic[A]` key with its `AesValue[Row, A]`; exact
+  key identity is the only boundary at which a hidden value type is recovered.
   `AesEnv` is only a source-compatible alias, not a normalized copy.
   Continuous scales consume `Double`, discrete scales consume `String`, and
   the aesthetic they bind to determines the rendered value type.
@@ -195,6 +517,20 @@ scale declarations over observations from every layer.
   `geom_line()`, which sorts by x; callers that want sorted lines must sort
   their rows explicitly, and any future sorted-line geom will be a distinct
   typed API rather than a silent change to `Geom.Line`.
+- Grouping is an inspectable compiler decision. An explicit `group` mapping is
+  authoritative; otherwise discrete color, fill, alpha, and size bindings form
+  a structural composite `GroupKey` from their raw pre-palette categories in
+  stable aesthetic order. `TrainedLayer.grouping` and each resolved row expose
+  that decision and key, so a palette that maps two categories to the same
+  visual value cannot accidentally merge lines, polygons, dodged marks, or
+  stacks.
+- Every built-in geom publishes a `GeomAestheticContract` containing its
+  required, optional, and group-constant aesthetics. A bound aesthetic outside
+  that contract fails before row evaluation instead of being silently ignored.
+  Lines require resolved color and alpha to stay constant within a group;
+  ribbons, areas, and polygons additionally require constant fill. A violation
+  is a typed `VaryingGroupAesthetic` compiler error, never a first-row style
+  reduction.
 - Filled contours clip each regular-grid triangle against checked
   `ContourBreaks`, cancel internal edges, stitch oriented rings, and assign
   clockwise holes to the smallest containing counter-clockwise outer ring.
@@ -212,9 +548,13 @@ scale declarations over observations from every layer.
   text grobs for every backend.
 - Themes are values, not ambient state or a selector cascade. Compilation
   resolves one `Theme` into complete leaf `GraphicParams`; explicit layer and
-  guide styles win locally. The layout solver measures the same themed font
-  families and point sizes later emitted as text, while panel backgrounds and
-  tick-aligned grids are ordinary renderer-neutral grobs beneath the data.
+  guide styles win locally. Omitted DSL palettes and layout policies are
+  resolved from that final theme during scale training and layout assembly, so
+  moving `.theme(...)` before or after scale, label, or geom declarations does
+  not change the plot. Explicit palettes, panel layouts, frames, and layout
+  policies remain authoritative. The layout solver measures the same themed
+  font families and point sizes later emitted as text, while panel backgrounds
+  and tick-aligned grids are ordinary renderer-neutral grobs beneath the data.
   `TextMetrics.estimate` remains the deterministic portable default. Callers
   may explicitly inject `Java2DTextMetrics` or `CanvasTextMetrics` through
   `LayoutPolicy.metrics` when layouts should reflect a fixed platform font
@@ -244,7 +584,11 @@ Guides read that same registry, so marks, axes, and legends cannot disagree.
 Faceted plots repeat mapping and statistics per panel before the scale phase,
 then either train one union scale or fresh panel position scales according to
 `FacetScales`; the remaining row, geom, coordinate, and guide phases stay the
-same renderer-neutral machinery.
+same renderer-neutral machinery. A free position dimension receives a local
+axis on every panel; only dimensions explicitly shared by `FacetScales`
+suppress inner axes. Inter-panel gaps and representative outer strips are
+measured with the active `LayoutPolicy.metrics`, so independently trained tick
+labels remain legible under the target text metrics.
 Guides follow a `GuidePolicy`:
 `Derived` produces routine axes from trained scales (transform-aware breaks
 positioned in mapped space) and legends from discrete color/fill palettes,

@@ -7,8 +7,8 @@ import java.nio.file.{Files, Path, Paths}
 import javax.imageio.ImageIO
 import intaglio.*
 
-/** Renders canonical compiled plots beside ggplot2 reference images produced
-  * by `tools/r-parity/render_graphics_position_reference.R`.
+/** Renders canonical compiled plots beside ggplot2 reference images produced by
+  * `tools/r-parity/render_graphics_position_reference.R`.
   */
 object PositionVisualQa:
   private final case class Example(name: String, scalaCase: Either[GraphicsError, ConformanceCase])
@@ -49,11 +49,15 @@ object PositionVisualQa:
     )
     Files.writeString(
       root.resolve("manifest.tsv"),
-      examples.map(example => s"${example.name}\tintaglio/${example.name}.png\tggplot2/${example.name}.png").mkString(
-        "case\tintaglio\tggplot2\n",
-        "\n",
-        "\n"
-      ),
+      examples
+        .map(example =>
+          s"${example.name}\tintaglio/${example.name}.png\tggplot2/${example.name}.png"
+        )
+        .mkString(
+          "case\tintaglio\tggplot2\n",
+          "\n",
+          "\n"
+        ),
       StandardCharsets.UTF_8
     )
     println(s"wrote plotting visual QA to $root")
@@ -69,13 +73,15 @@ object PositionVisualQa:
     ImageIO.write(image, "png", path.toFile)
 
   private def comparisonHtml(names: Vector[String]): String =
-    val rows = names.map { name =>
-      s"""      <section>
+    val rows = names
+      .map { name =>
+        s"""      <section>
          |        <h2>$name</h2>
          |        <figure><figcaption>Intaglio</figcaption><img src="intaglio/$name.png" alt="Intaglio $name"></figure>
          |        <figure><figcaption>ggplot2</figcaption><img src="ggplot2/$name.png" alt="ggplot2 $name"></figure>
          |      </section>""".stripMargin
-    }.mkString("\n")
+      }
+      .mkString("\n")
     s"""<!doctype html>
        |<html lang="en">
        |  <head>

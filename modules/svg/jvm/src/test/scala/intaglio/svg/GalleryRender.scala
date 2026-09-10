@@ -5,9 +5,8 @@ import intaglio.*
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}
 
-/** Reproducible visual gallery runner. It lives in test sources so it cannot
-  * become part of the shipped SVG API. Render with
-  * `svgJVM / Test / runMain intaglio.svg.GalleryRender <out-dir>`.
+/** Reproducible visual gallery runner. It lives in test sources so it cannot become part of the
+  * shipped SVG API. Render with `svgJVM / Test / runMain intaglio.svg.GalleryRender <out-dir>`.
   */
 object GalleryRender:
   private final case class GalleryItem(
@@ -44,7 +43,11 @@ object GalleryRender:
     }
 
     Files.writeString(outDir.resolve("manifest.tsv"), manifest.result(), StandardCharsets.UTF_8)
-    Files.writeString(outDir.resolve("index.html"), galleryHtml(cards.result()), StandardCharsets.UTF_8)
+    Files.writeString(
+      outDir.resolve("index.html"),
+      galleryHtml(cards.result()),
+      StandardCharsets.UTF_8
+    )
     println(s"wrote ${items.length} SVGs, manifest.tsv, and index.html to $outDir")
 
   private def conformanceItems(): Either[GraphicsError, Vector[GalleryItem]] =

@@ -1,6 +1,31 @@
 package intaglio
 
 class ScaleSuite extends munit.FunSuite:
+  test("scale specs are row-free inferred declarations distinct from fixed scales") {
+    val inferred = ContinuousScaleSpec
+      .numeric("x")
+      .fold(error => fail(error.message), identity)
+    val themed = ContinuousScaleSpec
+      .themeRgba("fill")
+      .fold(error => fail(error.message), identity)
+    val discrete = DiscreteScaleSpec
+      .themeRgba("condition", Vector("control"))
+      .fold(error => fail(error.message), identity)
+    val fixed = ContinuousScale
+      .fixed("x", Vector(0.0, 10.0), Palette.numeric)
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(inferred.descriptor.domain, ScaleDomain.Unspecified)
+    assertEquals(inferred.descriptor.training, ScaleTraining.PlotWide)
+    assertEquals(themed.paletteSource, ScalePaletteSource.ThemeDefault)
+    assertEquals(discrete.declaredLevels, Vector("control"))
+    assertEquals(discrete.descriptor.domain, ScaleDomain.Unspecified)
+    assertEquals(fixed.descriptor.training, ScaleTraining.Fixed)
+    assertEquals(
+      fixed.descriptor.domain,
+      ScaleDomain.Continuous(Interval.unsafe(0.0, 10.0), Interval.unsafe(0.0, 10.0))
+    )
+  }
 
   test("continuous ranges train as an associative union over finite values") {
     val left =
@@ -39,8 +64,14 @@ class ScaleSuite extends munit.FunSuite:
     assertEquals(scale.breaks, Vector(1.0, 10.0, 100.0))
     assertEquals(scale.breaks.flatMap(scale.mapValue), Vector(0.0, 0.5, 1.0))
     assertEquals(scale.descriptor.kind, ScaleKind.Continuous)
-    assertEquals(scale.descriptor.domain, ScaleDomain.Continuous(Interval.unsafe(1.0, 100.0), Interval.unsafe(0.0, 2.0)))
-    assertEquals(scale.mapValueResult(0.0).left.toOption, Some(ScaleMapFailure.TransformDomain("log10", 0.0)))
+    assertEquals(
+      scale.descriptor.domain,
+      ScaleDomain.Continuous(Interval.unsafe(1.0, 100.0), Interval.unsafe(0.0, 2.0))
+    )
+    assertEquals(
+      scale.mapValueResult(0.0).left.toOption,
+      Some(ScaleMapFailure.TransformDomain("log10", 0.0))
+    )
   }
 
   test("continuous palette sampling is deterministic at equal-width bin centers") {
@@ -118,29 +149,97 @@ class ScaleSuite extends munit.FunSuite:
     assertEquals(trained.levels, Vector("low", "mid", "high"))
   }
 
-  test("discrete scale maps levels with a total palette over trained domain") {
+  test("discrete domain order and immutable identity index agree with one lookup per value") {
+    final case class Category(id: Int)
+    var identityCalls = 0
+    given CategoryIdentity[Category] = CategoryIdentity.by(
+      value =>
+        identityCalls += 1
+        value.id
+      ,
+      _.id.toString
+    )
+    val levels = Vector.tabulate(512)(Category.apply)
+    val domain = DiscreteDomain.ordered(levels).fold(error => fail(error.message), identity)
+
+    identityCalls = 0
+    assertEquals(domain.indexOf(Category(400)), Some(400))
+    assertEquals(identityCalls, 1)
+    assertEquals(
+      domain.levels.zipWithIndex.map { case (level, expected) =>
+        domain.indexOf(level) -> expected
+      },
+      domain.levels.indices.map(index => Some(index) -> index).toVector
+    )
+    assertEquals(domain.indexOf(Category(999)), None)
+  }
+
+  test("finite discrete palettes reject over-capacity domains by default") {
     val domain = DiscreteDomain.ordered(Vector("A", "B", "C")).toOption.get
     val palette = DiscretePalette.valuesUnsafe(Vector(Rgba.Black, Rgba.White))
+
+    assertEquals(
+      DiscreteScale("condition", domain, palette).left.toOption,
+      Some(GraphicsError.DiscretePaletteOverflow("condition", 3, 2))
+    )
+
+    val initiallyValid = DiscreteScale(
+      "condition",
+      DiscreteDomain.ordered(Vector("A", "B")).toOption.get,
+      palette
+    ).toOption.get
+    assertEquals(
+      initiallyValid
+        .trainPlotWide(Vector(ScaleObservation.discrete("C", CategoryIdentity.strings)))
+        .left
+        .toOption,
+      Some(GraphicsError.DiscretePaletteOverflow("condition", 3, 2))
+    )
+  }
+
+  test("discrete scale cycles finite palettes only under the explicit overflow policy") {
+    val domain = DiscreteDomain.ordered(Vector("A", "B", "C")).toOption.get
+    val palette = DiscretePalette.valuesUnsafe(
+      Vector(Rgba.Black, Rgba.White),
+      PaletteOverflowPolicy.Cycle
+    )
     val scale = DiscreteScale("condition", domain, palette).toOption.get
 
-    assertEquals(scale.mapLevels(Vector("A", "B", "C", "D")), Vector(Some(Rgba.Black), Some(Rgba.White), Some(Rgba.Black), None))
+    assertEquals(
+      scale.mapLevels(Vector("A", "B", "C", "D")),
+      Vector(Some(Rgba.Black), Some(Rgba.White), Some(Rgba.Black), None)
+    )
     assertEquals(scale.descriptor.kind, ScaleKind.Discrete)
-    assertEquals(scale.descriptor.domain, ScaleDomain.Discrete(Vector("A", "B", "C"), ordered = true))
-    assertEquals(scale.mapValueResult("D").left.toOption, Some(ScaleMapFailure.OutOfDomain("condition", "D")))
+    assertEquals(
+      scale.descriptor.domain,
+      ScaleDomain.Discrete(Vector("A", "B", "C"), ordered = true)
+    )
+    assertEquals(
+      scale.mapValueResult("D").left.toOption,
+      Some(ScaleMapFailure.OutOfDomain("condition", "D"))
+    )
   }
 
   test("band scales expose checked categorical intervals as domain values") {
     val padding = BandPadding(0.2).fold(e => fail(e.message), identity)
-    val domain = DiscreteDomain.ordered(Vector("control", "task", "other")).fold(e => fail(e.message), identity)
+    val domain = DiscreteDomain
+      .ordered(Vector("control", "task", "other"))
+      .fold(e => fail(e.message), identity)
     val scale = BandScale("condition", domain, padding).fold(e => fail(e.message), identity)
 
-    assertEquals(scale.mapLevels(Vector("control", "task", "other", "missing")), Vector(Some(0.0), Some(1.0), Some(2.0), None))
+    assertEquals(
+      scale.mapLevels(Vector("control", "task", "other", "missing")),
+      Vector(Some(0.0), Some(1.0), Some(2.0), None)
+    )
     assertEquals(scale.band("control"), Some(Band.unsafe(0.0, 0.8)))
     assertEquals(scale.band("task").map(_.lower), Some(0.6))
     assertEquals(scale.band("task").map(_.upper), Some(1.4))
     assertEquals(scale.descriptor.kind, ScaleKind.Band)
     assertEquals(scale.descriptor.domain, ScaleDomain.Band(domain.levels, ordered = true, padding))
-    assertEquals(scale.mapValueResult("missing").left.toOption, Some(ScaleMapFailure.OutOfDomain("condition", "missing")))
+    assertEquals(
+      scale.mapValueResult("missing").left.toOption,
+      Some(ScaleMapFailure.OutOfDomain("condition", "missing"))
+    )
   }
 
   test("band construction rejects invalid padding, centers, and widths") {
@@ -149,7 +248,10 @@ class ScaleSuite extends munit.FunSuite:
     BandPadding(Double.NaN).left.toOption match
       case Some(GraphicsError.InvalidBandPadding(value)) => assert(value.isNaN)
       case result => fail(s"expected InvalidBandPadding(NaN), obtained $result")
-    assertEquals(Band(Double.PositiveInfinity, 0.8).left.toOption, Some(GraphicsError.InvalidBand(Double.PositiveInfinity, 0.8)))
+    assertEquals(
+      Band(Double.PositiveInfinity, 0.8).left.toOption,
+      Some(GraphicsError.InvalidBand(Double.PositiveInfinity, 0.8))
+    )
     assertEquals(Band(0.0, 0.0).left.toOption, Some(GraphicsError.InvalidBand(0.0, 0.0)))
   }
 
@@ -158,6 +260,72 @@ class ScaleSuite extends munit.FunSuite:
 
     assertEquals(breaks(Interval.unsafe(1.0, 6.0)), Vector(2.0, 4.0, 6.0))
     assertEquals(Breaks.countUnsafe(3)(Interval.unsafe(0.0, 10.0)), Vector(0.0, 5.0, 10.0))
+  }
+
+  test("checked break generation rejects sub-ULP non-progress on every iterative path") {
+    val range = Interval.unsafe(1.0e16, 1.0e16 + 4.0)
+
+    val failures = Vector(
+      Breaks.countUnsafe(5).generate(range),
+      Breaks.prettyUnsafe().generate(range),
+      Breaks.width(0.5).flatMap(_.generate(range))
+    )
+
+    failures.foreach { result =>
+      assert(result.left.toOption.exists {
+        case GraphicsError.BreakGenerationDidNotProgress(_, previous, next) =>
+          previous == next && previous >= range.lower
+        case _ => false
+      })
+    }
+  }
+
+  test("every break policy has a deterministic output cap and typed overflow") {
+    assertEquals(
+      Breaks.count(Breaks.MaximumOutputSize + 1).left.toOption,
+      Some(
+        GraphicsError.BreakOutputLimitExceeded(
+          "count",
+          Breaks.MaximumOutputSize + 1,
+          Breaks.MaximumOutputSize
+        )
+      )
+    )
+    assertEquals(
+      Breaks.pretty(Breaks.MaximumOutputSize + 1).left.toOption,
+      Some(
+        GraphicsError.BreakOutputLimitExceeded(
+          "pretty",
+          Breaks.MaximumOutputSize + 1,
+          Breaks.MaximumOutputSize
+        )
+      )
+    )
+
+    val tooManyFixedWidth = Breaks
+      .width(1.0)
+      .flatMap(_.generate(Interval.unsafe(0.0, Breaks.MaximumOutputSize.toDouble)))
+    assertEquals(
+      tooManyFixedWidth.left.toOption,
+      Some(
+        GraphicsError.BreakOutputLimitExceeded(
+          "width",
+          Breaks.MaximumOutputSize + 1,
+          Breaks.MaximumOutputSize
+        )
+      )
+    )
+  }
+
+  test("custom break policies receive finite, ordered, and bounded output validation") {
+    val duplicate = new Breaks:
+      override def apply(range: Interval): Vector[Double] =
+        Vector(range.lower, range.lower)
+
+    assertEquals(
+      duplicate.generate(Interval.unsafe(2.0, 3.0)).left.toOption,
+      Some(GraphicsError.BreakGenerationDidNotProgress("custom", 2.0, 2.0))
+    )
   }
 
   test("default pretty breaks use readable 1/2/5 steps for ordinary ranges") {

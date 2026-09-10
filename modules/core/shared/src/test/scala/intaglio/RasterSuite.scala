@@ -25,7 +25,10 @@ class RasterSuite extends munit.FunSuite:
     assertEquals(pixel.alpha, 78)
     assertEquals(pixel.toPackedInt, 0x0c22384e)
     assertEquals(Rgba32.fromPackedInt(pixel.toPackedInt), pixel)
-    assertEquals(Rgba32(red = -1, green = 0, blue = 0).left.toOption, Some(GraphicsError.InvalidColorChannel("red", -1)))
+    assertEquals(
+      Rgba32(red = -1, green = 0, blue = 0).left.toOption,
+      Some(GraphicsError.InvalidColorChannel("red", -1))
+    )
   }
 
   test("unsafe packed-array construction is an explicit zero-copy ownership transfer") {

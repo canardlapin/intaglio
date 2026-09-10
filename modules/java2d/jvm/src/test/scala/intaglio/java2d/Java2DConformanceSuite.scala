@@ -5,7 +5,11 @@ import intaglio.*
 class Java2DConformanceSuite extends munit.FunSuite:
 
   private object Java2DHarness extends RendererHarness[Java2DProgram]:
-    private val options = Java2DOptions.unsafe(width = 240, height = 160)
+    private val options = Java2DOptions.unsafe(
+      width = RendererConformance.targetWidth,
+      height = RendererConformance.targetHeight,
+      pixelsPerInch = RendererConformance.targetPixelsPerInch
+    )
 
     override def render(scene: Scene): Either[String, Java2DProgram] =
       Java2DRenderer.compile(scene, options).left.map(_.message)
@@ -16,10 +20,21 @@ class Java2DConformanceSuite extends munit.FunSuite:
     override def satisfies(out: Java2DProgram, requirement: RenderRequirement): Boolean =
       requirement match
         case RenderRequirement.Primitive(name, kind) =>
-          out.commands.exists(command => commandName(command).contains(name) && primitiveKind(command).contains(kind))
+          out.commands.exists(command =>
+            commandName(command).contains(name) && primitiveKind(command).contains(kind)
+          )
         case RenderRequirement.Group(name, clipped, rotated) =>
           groupEffects(out.commands, name).contains((clipped, rotated))
-        case RenderRequirement.Style(name, stroke, fill, lineWidth, lineType, lineCap, lineJoin, alpha) =>
+        case RenderRequirement.Style(
+              name,
+              stroke,
+              fill,
+              lineWidth,
+              lineType,
+              lineCap,
+              lineJoin,
+              alpha
+            ) =>
           out.commands.exists { command =>
             commandName(command).contains(name) && commandPaint(command).exists { paint =>
               paint.stroke == stroke.map(Java2DColor.fromRgba) &&
@@ -31,17 +46,54 @@ class Java2DConformanceSuite extends munit.FunSuite:
               paint.opacity == alpha
             }
           }
+        case RenderRequirement.PatternFill(name, pattern, alpha) =>
+          out.commands.exists { command =>
+            commandName(command).contains(name) &&
+            commandPaint(command).exists(paint =>
+              paint.fillPattern.contains(pattern) && paint.opacity == alpha
+            )
+          }
         case RenderRequirement.Text(name, horizontal, vertical, rotated) =>
           out.commands.exists {
             case Java2DCommand.Text(_, _, _, h, v, rotation, _, _, _, commandName) =>
-              commandName.contains(name) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
+              commandName.contains(
+                name
+              ) && h == horizontal && v == vertical && (rotation != 0.0) == rotated
+            case _ => false
+          }
+        case RenderRequirement.TextStyle(name, color, fontSizePx, fontFamily, alpha, fontWeight) =>
+          out.commands.exists {
+            case Java2DCommand.Text(
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  actualFontSize,
+                  actualFontFamily,
+                  paint,
+                  commandName
+                ) =>
+              commandName.contains(name) && paint.fill.contains(Java2DColor.fromRgba(color)) &&
+              actualFontSize == fontSizePx && actualFontFamily == fontFamily &&
+              paint.opacity == alpha && paint.fontWeight == fontWeight
             case _ => false
           }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           out.commands.exists {
-            case Java2DCommand.Image(image, _, _, _, _, actualInterpolation, actualAlpha, commandName) =>
+            case Java2DCommand.Image(
+                  image,
+                  _,
+                  _,
+                  _,
+                  _,
+                  actualInterpolation,
+                  actualAlpha,
+                  commandName
+                ) =>
               commandName.contains(name) && image.dimensions == dimensions &&
-                actualInterpolation == interpolation && actualAlpha == alpha
+              actualInterpolation == interpolation && actualAlpha == alpha
             case _ => false
           }
 
@@ -54,7 +106,8 @@ class Java2DConformanceSuite extends munit.FunSuite:
   }
 
   test("combined viewport effects rotate before installing the clip") {
-    val scene = RendererConformance.clippedRotatedViewportCase.fold(e => fail(e.message), identity).scene
+    val scene =
+      RendererConformance.clippedRotatedViewportCase.fold(e => fail(e.message), identity).scene
     val program = Java2DRenderer
       .compile(scene, Java2DOptions.unsafe(width = 240, height = 160))
       .fold(e => fail(e.message), identity)
@@ -73,35 +126,47 @@ class Java2DConformanceSuite extends munit.FunSuite:
 
   private def commandName(command: Java2DCommand): Option[GraphicsName] =
     command match
-      case Java2DCommand.Save(name)                            => name
-      case Java2DCommand.Restore(name)                         => name
-      case Java2DCommand.Disc(_, _, _, _, name)                => name
-      case Java2DCommand.Polyline(_, _, _, name)               => name
-      case Java2DCommand.CompoundPolygon(_, _, name)           => name
-      case Java2DCommand.Rectangle(_, _, _, _, _, name)        => name
-      case Java2DCommand.Text(_, _, _, _, _, _, _, _, _, name) => name
-      case Java2DCommand.Image(_, _, _, _, _, _, _, name)       => name
+      case Java2DCommand.Save(name)                                           => name
+      case Java2DCommand.Restore(name)                                        => name
+      case Java2DCommand.Disc(_, _, _, _, name)                               => name
+      case Java2DCommand.PointBatch(_, _, _, _, name)                         => name
+      case Java2DCommand.Polyline(_, _, _, name)                              => name
+      case Java2DCommand.CompoundPolygon(_, _, name)                          => name
+      case Java2DCommand.Rectangle(_, _, _, _, _, _, name)                    => name
+      case Java2DCommand.Text(_, _, _, _, _, _, _, _, _, name)                => name
+      case Java2DCommand.Image(_, _, _, _, _, _, _, name)                     => name
       case Java2DCommand.Rotate(_, _, _) | Java2DCommand.ClipRect(_, _, _, _) => None
 
   private def primitiveKind(command: Java2DCommand): Option[RenderPrimitiveKind] =
     command match
-      case Java2DCommand.Disc(_, _, _, _, _) => Some(RenderPrimitiveKind.Disc)
+      case Java2DCommand.Disc(_, _, _, _, _)            => Some(RenderPrimitiveKind.Disc)
+      case Java2DCommand.PointBatch(_, _, shapes, _, _) =>
+        Some(pointShapeKind(shapes.valueAt(0)))
       case Java2DCommand.Polyline(_, closed, _, _) =>
         Some(if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline)
-      case Java2DCommand.CompoundPolygon(_, _, _) => Some(RenderPrimitiveKind.Polygon)
-      case Java2DCommand.Rectangle(_, _, _, _, _, _) => Some(RenderPrimitiveKind.Rectangle)
+      case Java2DCommand.CompoundPolygon(_, _, _)           => Some(RenderPrimitiveKind.Polygon)
+      case Java2DCommand.Rectangle(_, _, _, _, _, _, _)     => Some(RenderPrimitiveKind.Rectangle)
       case Java2DCommand.Text(_, _, _, _, _, _, _, _, _, _) => Some(RenderPrimitiveKind.Text)
-      case Java2DCommand.Image(_, _, _, _, _, _, _, _) => Some(RenderPrimitiveKind.Image)
-      case _ => None
+      case Java2DCommand.Image(_, _, _, _, _, _, _, _)      => Some(RenderPrimitiveKind.Image)
+      case _                                                => None
 
   private def commandPaint(command: Java2DCommand): Option[Java2DPaint] =
     command match
-      case Java2DCommand.Disc(_, _, _, paint, _)             => Some(paint)
-      case Java2DCommand.Polyline(_, _, paint, _)            => Some(paint)
-      case Java2DCommand.CompoundPolygon(_, paint, _)        => Some(paint)
-      case Java2DCommand.Rectangle(_, _, _, _, paint, _)     => Some(paint)
+      case Java2DCommand.Disc(_, _, _, paint, _)                => Some(paint)
+      case Java2DCommand.PointBatch(_, _, _, paints, _)         => Some(paints.valueAt(0))
+      case Java2DCommand.Polyline(_, _, paint, _)               => Some(paint)
+      case Java2DCommand.CompoundPolygon(_, paint, _)           => Some(paint)
+      case Java2DCommand.Rectangle(_, _, _, _, _, paint, _)     => Some(paint)
       case Java2DCommand.Text(_, _, _, _, _, _, _, _, paint, _) => Some(paint)
-      case _ => None
+      case _                                                    => None
+
+  private def pointShapeKind(shape: PointShape): RenderPrimitiveKind =
+    shape match
+      case PointShape.Circle   => RenderPrimitiveKind.Disc
+      case PointShape.Square   => RenderPrimitiveKind.Rectangle
+      case PointShape.Triangle => RenderPrimitiveKind.Polygon
+      case PointShape.Cross    => RenderPrimitiveKind.Polyline
+      case PointShape.Diamond  => RenderPrimitiveKind.Polygon
 
   private def groupEffects(
       commands: Vector[Java2DCommand],
@@ -117,4 +182,9 @@ class Java2DConformanceSuite extends munit.FunSuite:
         case Java2DCommand.Rotate(_, _, _) | Java2DCommand.ClipRect(_, _, _, _) => true
         case _                                                                  => false
       }
-      Some((effects.exists(_.isInstanceOf[Java2DCommand.ClipRect]), effects.exists(_.isInstanceOf[Java2DCommand.Rotate])))
+      Some(
+        (
+          effects.exists(_.isInstanceOf[Java2DCommand.ClipRect]),
+          effects.exists(_.isInstanceOf[Java2DCommand.Rotate])
+        )
+      )

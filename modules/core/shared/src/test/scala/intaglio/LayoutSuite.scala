@@ -75,7 +75,10 @@ class LayoutSuite extends munit.FunSuite:
       ticks.segments(1),
       (
         Point.nativeUnsafe(5.0, -1.0),
-        Point(LengthExpr.nativeUnsafe(5.0), LengthExpr.nativeUnsafe(-1.0) - ExtentExpr.nativeUnsafe(0.2))
+        Point(
+          LengthExpr.nativeUnsafe(5.0),
+          LengthExpr.nativeUnsafe(-1.0) - ExtentExpr.nativeUnsafe(0.2)
+        )
       )
     )
   }
@@ -143,7 +146,10 @@ class LayoutSuite extends munit.FunSuite:
         entries = Vector.empty
       )
 
-    assertEquals(GuideSpec.lower(guide, layout).left.toOption, Some(GraphicsError.EmptyGeometry("legend")))
+    assertEquals(
+      GuideSpec.lower(guide, layout).left.toOption,
+      Some(GraphicsError.EmptyGeometry("legend"))
+    )
   }
 
   test("colorbar guides lower sampled colors, transform ticks, labels, and title") {
@@ -166,16 +172,31 @@ class LayoutSuite extends munit.FunSuite:
       .fold(e => fail(e.message), identity)
     val group = guide.grob.asInstanceOf[Grob.Group]
     val swatches = group.children.collect { case rect: Grob.Rect => rect }
-    val ticks = group.children.collectFirst { case segments: Grob.Segments => segments }
+    val ticks = group.children
+      .collectFirst { case segments: Grob.Segments => segments }
       .getOrElse(fail("missing colorbar ticks"))
-    val labels = group.children.collect { case text: Grob.Text if text.name.exists(_.value.contains("-label-")) => text }
-    val title = group.children.collectFirst {
-      case text: Grob.Text if text.name.exists(_.value == "activation-colorbar-title") => text
-    }.getOrElse(fail("missing colorbar title"))
+    val labels = group.children.collect {
+      case text: Grob.Text if text.name.exists(_.value.contains("-label-")) => text
+    }
+    val title = group.children
+      .collectFirst {
+        case text: Grob.Text if text.name.exists(_.value == "activation-colorbar-title") => text
+      }
+      .getOrElse(fail("missing colorbar title"))
 
     assertEquals(group.name, Some(name))
-    assertEquals(swatches.map(_.gp.fill), Vector(Some(Rgba.Black), Some(Rgba.unsafe(128, 128, 128)), Some(Rgba.White)))
-    assertEquals(swatches.map(_.name.map(_.value)), Vector(Some("activation-colorbar-swatch-0"), Some("activation-colorbar-swatch-1"), Some("activation-colorbar-swatch-2")))
+    assertEquals(
+      swatches.map(_.gp.fill),
+      Vector(Some(Rgba.Black), Some(Rgba.unsafe(128, 128, 128)), Some(Rgba.White))
+    )
+    assertEquals(
+      swatches.map(_.name.map(_.value)),
+      Vector(
+        Some("activation-colorbar-swatch-0"),
+        Some("activation-colorbar-swatch-1"),
+        Some("activation-colorbar-swatch-2")
+      )
+    )
     assertEquals(ticks.segments.length, 3)
     assertEquals(labels.map(_.label), Vector("1", "10", "100"))
     assertEquals(title.label, "activation")
@@ -184,7 +205,10 @@ class LayoutSuite extends munit.FunSuite:
   test("empty colorbars fail before backend rendering") {
     val guide = GuideSpec.Colorbar(None, Vector.empty, Vector.empty)
 
-    assertEquals(GuideSpec.lower(guide, layout).left.toOption, Some(GraphicsError.EmptyGeometry("colorbar")))
+    assertEquals(
+      GuideSpec.lower(guide, layout).left.toOption,
+      Some(GraphicsError.EmptyGeometry("colorbar"))
+    )
   }
 
   test("default axis offsets follow point policy across device sizes") {
@@ -196,19 +220,28 @@ class LayoutSuite extends munit.FunSuite:
     val policy = LayoutPolicy(tickLengthPt = 6.0, tickLabelGapPt = 3.0)
 
     def offsets(device: DeviceContext): (Double, Double) =
-      val guide = GuideSpec.lower(spec, layout, policy = policy).fold(e => fail(e.message), identity)
-      val scene = DeviceScene.fromScene(Scene(Vector(guide.grob)), device).fold(e => fail(e.message), identity)
+      val guide =
+        GuideSpec.lower(spec, layout, policy = policy).fold(e => fail(e.message), identity)
+      val scene = DeviceScene
+        .fromScene(Scene(Vector(guide.grob)), device)
+        .fold(e => fail(e.message), identity)
       val marks = scene.elements match
         case Vector(DeviceElement.Group(_, _, _, children)) =>
           children.collect { case DeviceElement.Mark(mark) => mark }
         case other =>
           fail(s"unexpected axis device scene: $other")
-      val tick = marks.collectFirst {
-        case line: DevicePrimitive.Polyline if line.name.exists(_.value == "policy-axis-ticks") => line
-      }.getOrElse(fail("missing policy-axis tick"))
-      val label = marks.collectFirst {
-        case text: DevicePrimitive.TextRun if text.name.exists(_.value == "policy-axis-label") => text
-      }.getOrElse(fail("missing policy-axis label"))
+      val tick = marks
+        .collectFirst {
+          case line: DevicePrimitive.Polyline if line.name.exists(_.value == "policy-axis-ticks") =>
+            line
+        }
+        .getOrElse(fail("missing policy-axis tick"))
+      val label = marks
+        .collectFirst {
+          case text: DevicePrimitive.TextRun if text.name.exists(_.value == "policy-axis-label") =>
+            text
+        }
+        .getOrElse(fail("missing policy-axis label"))
       val baselineY = tick.points.head.y
       (math.abs(tick.points.last.y - baselineY), math.abs(label.y - baselineY))
 
@@ -248,23 +281,42 @@ class LayoutSuite extends munit.FunSuite:
         children.collect { case DeviceElement.Mark(mark) => mark }
       case other =>
         fail(s"unexpected legend device scene: $other")
-    val title = marks.collectFirst {
-      case text: DevicePrimitive.TextRun if text.name.exists(_.value == "absolute-legend-title") => text
-    }.getOrElse(fail("missing legend title"))
-    val firstKey = marks.collectFirst {
-      case disc: DevicePrimitive.Disc if disc.name.exists(_.value == "absolute-legend-entry-0-key") => disc
-    }.getOrElse(fail("missing first legend key"))
-    val secondKey = marks.collectFirst {
-      case disc: DevicePrimitive.Disc if disc.name.exists(_.value == "absolute-legend-entry-1-key") => disc
-    }.getOrElse(fail("missing second legend key"))
-    val firstLabel = marks.collectFirst {
-      case text: DevicePrimitive.TextRun if text.name.exists(_.value == "absolute-legend-entry-0-label") => text
-    }.getOrElse(fail("missing first legend label"))
+    val title = marks
+      .collectFirst {
+        case text: DevicePrimitive.TextRun
+            if text.name.exists(_.value == "absolute-legend-title") =>
+          text
+      }
+      .getOrElse(fail("missing legend title"))
+    val firstKey = marks
+      .collectFirst {
+        case disc: DevicePrimitive.Disc
+            if disc.name.exists(_.value == "absolute-legend-entry-0-key") =>
+          disc
+      }
+      .getOrElse(fail("missing first legend key"))
+    val secondKey = marks
+      .collectFirst {
+        case disc: DevicePrimitive.Disc
+            if disc.name.exists(_.value == "absolute-legend-entry-1-key") =>
+          disc
+      }
+      .getOrElse(fail("missing second legend key"))
+    val firstLabel = marks
+      .collectFirst {
+        case text: DevicePrimitive.TextRun
+            if text.name.exists(_.value == "absolute-legend-entry-0-label") =>
+          text
+      }
+      .getOrElse(fail("missing first legend label"))
     val pxPerPt = 96.0 / 72.0
 
     assertEqualsDouble(firstLabel.x - firstKey.centerX, 10.0 * pxPerPt, 1e-9)
     assertEqualsDouble(firstLabel.x - firstKey.centerX - firstKey.radius, 5.0 * pxPerPt, 1e-9)
     assertEqualsDouble(firstKey.centerY - title.y, 20.0 * pxPerPt, 1e-9)
-    assert((firstKey.centerY - firstKey.radius) > (title.y + title.fontSizePx), "title must clear the first key")
+    assert(
+      (firstKey.centerY - firstKey.radius) > (title.y + title.fontSizePx),
+      "title must clear the first key"
+    )
     assertEqualsDouble(secondKey.centerY - firstKey.centerY, 20.0 * pxPerPt, 1e-9)
   }

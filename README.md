@@ -6,8 +6,8 @@ Scala.js.
 In intaglio printmaking an image is incised into a plate; the plate is inked
 and pressed, and every impression it yields is identical. That is this
 library's architecture. One renderer-neutral `Scene` is the plate, and SVG,
-Canvas, Java2D, and JavaFX are impressions of it — held to a shared conformance
-contract that proves they agree.
+Canvas, Java2D, JavaFX, and PDF are impressions of it — held to a shared
+conformance contract that proves they agree.
 
 ```scala
 libraryDependencies += "io.github.canardlapin" %%% "intaglio-core" % "0.1.0"
@@ -52,18 +52,50 @@ val logScaled =
   yield scene
 ```
 
+Start with the [documentation index](docs/README.md): a task-oriented tutorial,
+the gallery with each plate's source beside its rendered SVG, guides for every
+backend and output route, the architecture decision records, and the guides for
+authoring your own scale, stat, geom, coord, recipe, or backend. Every example
+in them is compiled against these modules by `tools/check-docs.sh`, so a guide
+cannot claim an API that does not exist.
+
 ## Artifacts
 
 | Artifact | JVM | Scala.js | Depends on |
 |---|:---:|:---:|---|
 | `intaglio-core` | yes | yes | nothing |
+| `intaglio-interaction` | yes | yes | core |
+| `intaglio-laws` | yes | yes | core |
 | `intaglio-svg` | yes | yes | core |
 | `intaglio-canvas` | no | yes | core |
 | `intaglio-java2d` | yes | no | core |
+| `intaglio-pdf` | yes | no | core; Apache PDFBox |
 | `intaglio-javafx` | yes | no | core; OpenJFX is `Provided` |
 
 The backends are separately selectable, so a portable consumer never acquires a
 platform renderer or toolkit transitively. A boundary test enforces this.
+
+The new [interaction module](modules/interaction/README.md) provides portable
+selection state and typed events in the source tree. Browser widgets and picking
+remain in development; it is not yet an interactive rendering backend.
+
+Extension authors can add the framework-neutral law artifact in test scope:
+
+```scala
+libraryDependencies +=
+  "io.github.canardlapin" %%% "intaglio-laws" % "0.1.0" % Test
+```
+
+`ScaleLaws`, `StatLaws`, `GeomLaws`, `CoordLaws`, `PlotRecipeLaws`,
+`AestheticLaws`, and `BackendLaws` exercise the public ecosystem seams. Each
+returns structured `LawFailure` values, so it works with MUnit, ScalaTest,
+Weaver, or a project-specific runner without making one of them transitive.
+Complete examples live in [`modules/laws`](modules/laws/README.md).
+
+For print output, `intaglio-pdf` writes PDF directly: page dimensions come from
+the render context's pixel size and resolution, supplied fonts are embedded and
+subset, vector marks and fill patterns remain vector, and only explicit raster
+grobs become image payloads. See the [PDF renderer guide](modules/pdf/README.md).
 
 ## What the core owns
 
@@ -71,7 +103,8 @@ platform renderer or toolkit transitively. A boundary test enforces this.
   with a typed DSL where position mappings change the builder's type — so
   `geomPoint` and `geomLine` are not callable until both `x` and `y` exist.
 - Scale transforms with explicit open/closed domains, trained ranges,
-  out-of-bounds policies, palettes, breaks, labels, and discrete domains.
+  out-of-bounds policies, palettes, breaks, labels, discrete domains, and
+  cross-platform date/time domains.
 - Immutable scene trees with units, viewports, graphical parameters, and grob
   primitives.
 - A device-resolution layer (`DeviceContext`, `DeviceScene`) flattening scenes
@@ -109,8 +142,20 @@ carries one typed error channel instead of a union of unrelated types.
 
 ```sh
 sbt compileAll   # every module, both platforms
-sbt testAll      # 511 tests
+sbt testAll      # every module, both platforms
 sbt coreJVM/test svgJS/test   # or one at a time
+```
+
+Supported versions are the Scala 3 LTS and the current feature release, on
+JDK 17 and 21, for the JVM and Scala.js. The published artifact is built with
+the LTS: TASTy is forward- but not backward-compatible, so an LTS build can be
+read by any later 3.x consumer.
+
+```sh
+sbt "++3.9.0" testAll            # the feature-release court
+tools/check-docs.sh              # compile every documented example, re-render the gallery, check links
+tools/check-compatibility.sh     # the compatibility gate against the exact baseline
+tools/release-rehearsal.sh       # rehearse a release on a clean clone, publishing nothing
 ```
 
 Render the visual gallery:
@@ -125,11 +170,21 @@ Render the paired Intaglio/Java2D and ggplot2 visual QA gallery:
 tools/render_position_adjustment_qa.sh
 ```
 
+Render the post-gallery feature court for temporal zoom, typed styles, common summaries, and
+composition (ggplot2 plus patchwork where appropriate):
+
+```sh
+tools/render_feature_visual_qa.sh
+```
+
 ## Status
 
-`0.1.0-SNAPSHOT`, unpublished. The core and all four backends are green on both
-platforms. The library began inside a neuroimaging system and was extracted once
-it outgrew it; neuroimaging is one consumer, not the design center.
+Unpublished. The core and all five backends are green on their supported
+platforms and on both Scala lines. `build.sbt` sets no `version`: sbt-dynver
+derives it from the git state, so a `v*` tag is the only thing that names a
+release. See [docs/releasing.md](docs/releasing.md),
+[CHANGELOG.md](CHANGELOG.md), [MIGRATION.md](MIGRATION.md),
+[CONTRIBUTING.md](CONTRIBUTING.md), and [SECURITY.md](SECURITY.md).
 
 ## License
 

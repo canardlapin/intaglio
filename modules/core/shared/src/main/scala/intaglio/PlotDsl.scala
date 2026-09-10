@@ -1,15 +1,26 @@
 package intaglio
 
 import scala.annotation.implicitNotFound
+import scala.annotation.targetName
 
-/** Position mapping states carried by [[PlotBuilder]]. They make geom
-  * prerequisites visible to the Scala compiler without exposing compiler
-  * phases or requiring a macro-based syntax layer.
+/** Select the final compiler theme's palette when a plotting DSL scale omits an explicit palette.
+  * The marker keeps omission distinct from an explicitly supplied empty palette.
+  */
+object ThemePalette:
+  case object Default
+
+/** Position mapping states carried by [[PlotBuilder]]. They make geom prerequisites visible to the
+  * Scala compiler without exposing compiler phases or requiring a macro-based syntax layer.
   */
 sealed trait PlotPosition[Row]
 
 object PlotPosition:
   final case class Empty[Row]() extends PlotPosition[Row]
+
+  /** Position keys supplied through generic `encode` rather than raw numeric `aes` accessors. */
+  final case class EncodedX[Row]() extends PlotPosition[Row]
+  final case class EncodedY[Row]() extends PlotPosition[Row]
+  final case class EncodedXY[Row]() extends PlotPosition[Row]
 
   sealed trait WithX[Row] extends PlotPosition[Row]:
     def x: Row => Double
@@ -37,11 +48,87 @@ object HasXY:
   given xy[Row]: HasXY[Row, PlotPosition.XY[Row]] with
     def apply(position: PlotPosition.XY[Row]): PlotPosition.XY[Row] = position
 
+/** Proof that both position aesthetics are mapped, whether by raw numeric `aes` accessors or by
+  * typed scale encodings. Operations that need raw values before scale training continue to require
+  * [[HasXY]].
+  */
+@implicitNotFound(
+  "This plotting operation requires x and y mappings. Call .aes(x, y) or encode both position aesthetics first."
+)
+sealed trait HasMappedXY[Row, Position <: PlotPosition[Row]]
+
+object HasMappedXY:
+  given raw[Row]: HasMappedXY[Row, PlotPosition.XY[Row]] with {}
+  given encoded[Row]: HasMappedXY[Row, PlotPosition.EncodedXY[Row]] with {}
+
+  private[intaglio] def fromRawEvidence[Row, Position <: PlotPosition[Row]](
+      evidence: HasXY[Row, Position]
+  ): HasMappedXY[Row, Position] =
+    new HasMappedXY[Row, Position] {}
+
+sealed trait EncodesX[Row, Position <: PlotPosition[Row]]:
+  type Out <: PlotPosition[Row]
+  def apply(position: Position): Out
+
+object EncodesX:
+  given empty[Row]: EncodesX[Row, PlotPosition.Empty[Row]] with
+    type Out = PlotPosition.EncodedX[Row]
+    def apply(position: PlotPosition.Empty[Row]): Out = PlotPosition.EncodedX()
+
+  given rawX[Row]: EncodesX[Row, PlotPosition.X[Row]] with
+    type Out = PlotPosition.EncodedX[Row]
+    def apply(position: PlotPosition.X[Row]): Out = PlotPosition.EncodedX()
+
+  given rawXY[Row]: EncodesX[Row, PlotPosition.XY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.XY[Row]): Out = PlotPosition.EncodedXY()
+
+  given encodedX[Row]: EncodesX[Row, PlotPosition.EncodedX[Row]] with
+    type Out = PlotPosition.EncodedX[Row]
+    def apply(position: PlotPosition.EncodedX[Row]): Out = position
+
+  given encodedY[Row]: EncodesX[Row, PlotPosition.EncodedY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.EncodedY[Row]): Out = PlotPosition.EncodedXY()
+
+  given encodedXY[Row]: EncodesX[Row, PlotPosition.EncodedXY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.EncodedXY[Row]): Out = position
+
+sealed trait EncodesY[Row, Position <: PlotPosition[Row]]:
+  type Out <: PlotPosition[Row]
+  def apply(position: Position): Out
+
+object EncodesY:
+  given empty[Row]: EncodesY[Row, PlotPosition.Empty[Row]] with
+    type Out = PlotPosition.EncodedY[Row]
+    def apply(position: PlotPosition.Empty[Row]): Out = PlotPosition.EncodedY()
+
+  given rawX[Row]: EncodesY[Row, PlotPosition.X[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.X[Row]): Out = PlotPosition.EncodedXY()
+
+  given rawXY[Row]: EncodesY[Row, PlotPosition.XY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.XY[Row]): Out = PlotPosition.EncodedXY()
+
+  given encodedX[Row]: EncodesY[Row, PlotPosition.EncodedX[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.EncodedX[Row]): Out = PlotPosition.EncodedXY()
+
+  given encodedY[Row]: EncodesY[Row, PlotPosition.EncodedY[Row]] with
+    type Out = PlotPosition.EncodedY[Row]
+    def apply(position: PlotPosition.EncodedY[Row]): Out = position
+
+  given encodedXY[Row]: EncodesY[Row, PlotPosition.EncodedXY[Row]] with
+    type Out = PlotPosition.EncodedXY[Row]
+    def apply(position: PlotPosition.EncodedXY[Row]): Out = position
+
 /** An executable, inspectable plotting value.
   *
-  * The public DSL stops here: callers can inspect or further compose the
-  * renderer-neutral [[Plot]], resolve it to a [[TrainedPlot]], or compile it
-  * to a [[Scene]]. Concrete renderers remain separate modules.
+  * The public DSL stops here: callers can inspect or further compose the renderer-neutral [[Plot]],
+  * resolve it to a [[TrainedPlot]], or compile it to a [[Scene]]. Concrete renderers remain
+  * separate modules.
   */
 final case class PlotProgram[Row] private[intaglio] (
     plot: Plot[Row],
@@ -53,12 +140,26 @@ final case class PlotProgram[Row] private[intaglio] (
   def scene: Either[GraphicsError, Scene] =
     PlotCompiler.compile(plot, compilerOptions)
 
+  def resolve(context: RenderContext): Either[GraphicsError, TrainedPlot] =
+    PlotCompiler.resolve(plot, context, compilerOptions)
+
+  /** Resolve through a caller-owned [[PlotCompileCache]]. A program is a stable (plot, options)
+    * pair, so resolving the same program repeatedly hits the cache; see [[PlotCompileCache]].
+    */
+  def resolve(
+      context: RenderContext,
+      cache: PlotCompileCache
+  ): Either[GraphicsError, TrainedPlot] =
+    PlotCompiler.resolve(plot, context, compilerOptions, cache)
+
+  def renderPlan(context: RenderContext): Either[GraphicsError, RenderPlan] =
+    PlotCompiler.compile(plot, context, compilerOptions)
+
 /** Immutable user-facing plotting builder.
   *
-  * Every operation returns another builder. Errors from checked scales,
-  * coordinates, and layer validation accumulate in `build` as
-  * `GraphicsError`; `resolve` and `scene` retain typed compiler errors. No
-  * exception or backend value crosses the API boundary.
+  * Every operation returns another builder. Errors from checked scales, coordinates, and layer
+  * validation accumulate in `build` as `GraphicsError`; `resolve` and `scene` retain typed compiler
+  * errors. No exception or backend value crosses the API boundary.
   */
 final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     private val data: Vector[Row],
@@ -110,8 +211,8 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   def group(value: Row => String): PlotBuilder[Row, Position] =
     mapAesthetics(_.withGroup(value))
 
-  /** Identify independently closed subpaths within one polygon group. This
-    * retains holes as geometry instead of flattening them into backend tricks.
+  /** Identify independently closed subpaths within one polygon group. This retains holes as
+    * geometry instead of flattening them into backend tricks.
     */
   def subpath(value: Row => String): PlotBuilder[Row, Position] =
     mapAesthetics(_.withSubpath(value))
@@ -132,66 +233,168 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val y = ev(position).y
     bindContinuous(Aesthetic.Y, y, name, Palette.numeric, transform, oob)
 
+  def scaleXDate(
+      value: Row => CalendarDate,
+      name: String = "x",
+      breaks: TemporalBreaks = TemporalBreaks.default,
+      labeler: DateLabeler = DateLabeler.iso,
+      oob: OobPolicy = OobPolicy.Censor
+  )(using transition: EncodesX[Row, Position]): PlotBuilder[Row, transition.Out] =
+    encodeX(value, DateScaleSpec(name, breaks, labeler, oob))
+
+  def scaleYDate(
+      value: Row => CalendarDate,
+      name: String = "y",
+      breaks: TemporalBreaks = TemporalBreaks.default,
+      labeler: DateLabeler = DateLabeler.iso,
+      oob: OobPolicy = OobPolicy.Censor
+  )(using transition: EncodesY[Row, Position]): PlotBuilder[Row, transition.Out] =
+    encodeY(value, DateScaleSpec(name, breaks, labeler, oob))
+
+  def scaleXDateTime(
+      value: Row => UtcDateTime,
+      name: String = "x",
+      breaks: TemporalBreaks = TemporalBreaks.default,
+      labeler: DateTimeLabeler = DateTimeLabeler.isoUtcMilliseconds,
+      oob: OobPolicy = OobPolicy.Censor
+  )(using transition: EncodesX[Row, Position]): PlotBuilder[Row, transition.Out] =
+    encodeX(value, DateTimeScaleSpec(name, breaks, labeler, oob))
+
+  def scaleYDateTime(
+      value: Row => UtcDateTime,
+      name: String = "y",
+      breaks: TemporalBreaks = TemporalBreaks.default,
+      labeler: DateTimeLabeler = DateTimeLabeler.isoUtcMilliseconds,
+      oob: OobPolicy = OobPolicy.Censor
+  )(using transition: EncodesY[Row, Position]): PlotBuilder[Row, transition.Out] =
+    encodeY(value, DateTimeScaleSpec(name, breaks, labeler, oob))
+
   def scaleColorDiscrete(
       value: Row => String,
       levels: Vector[String] = Vector.empty,
-      colors: Vector[Rgba] = options.theme.palettes.discrete,
-      name: String = "color"
+      colors: Vector[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
+      name: String = "color",
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
   ): PlotBuilder[Row, Position] =
-    bindDiscrete(Aesthetic.Color, value, levels, colors, name)
+    colors match
+      case ThemePalette.Default =>
+        bindThemeDiscrete(Aesthetic.Color, value, levels, name, overflow)
+      case explicit: Vector[?] =>
+        bindDiscrete(
+          Aesthetic.Color,
+          value,
+          levels,
+          explicit.asInstanceOf[Vector[Rgba]],
+          name,
+          overflow
+        )
 
   def scaleFillDiscrete(
       value: Row => String,
       levels: Vector[String] = Vector.empty,
-      colors: Vector[Rgba] = options.theme.palettes.discrete,
-      name: String = "fill"
+      colors: Vector[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
+      name: String = "fill",
+      overflow: PaletteOverflowPolicy = PaletteOverflowPolicy.Reject
   ): PlotBuilder[Row, Position] =
-    bindDiscrete(Aesthetic.Fill, value, levels, colors, name)
+    colors match
+      case ThemePalette.Default =>
+        bindThemeDiscrete(Aesthetic.Fill, value, levels, name, overflow)
+      case explicit: Vector[?] =>
+        bindDiscrete(
+          Aesthetic.Fill,
+          value,
+          levels,
+          explicit.asInstanceOf[Vector[Rgba]],
+          name,
+          overflow
+        )
 
   def scaleFillContinuous(
       value: Row => Double,
-      palette: Palette[Rgba] = options.theme.palettes.continuousPalette,
+      palette: Palette[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
       name: String = "fill",
       transform: Transform = Transform.identity,
       oob: OobPolicy = OobPolicy.Censor
   ): PlotBuilder[Row, Position] =
-    bindContinuous(Aesthetic.Fill, value, name, palette, transform, oob)
+    palette match
+      case ThemePalette.Default =>
+        bindThemeContinuous(Aesthetic.Fill, value, name, transform, oob)
+      case explicit: Palette[?] =>
+        bindContinuous(
+          Aesthetic.Fill,
+          value,
+          name,
+          explicit.asInstanceOf[Palette[Rgba]],
+          transform,
+          oob
+        )
 
-  /** Bind a scale you built yourself — a log transform, a fixed domain, a
-    * bespoke palette — without dropping to the low-level `Plot` API. The
-    * builder fixes `Row`, so no `ScaleBinding` type parameters appear:
-    * `encode(Aesthetic.X, _.x, xScale)`.
+  /** Bind a row-free [[ScaleSpec]] or an already prepared [[Scale]] — a log transform, a fixed
+    * domain, a bespoke palette — without dropping to the low-level `Plot` API. The builder fixes
+    * `Row`, so no `ScaleBinding` type parameters appear: `encode(Aesthetic.X, _.x, xScale)`.
     */
   def encode[In, Out](
       aesthetic: Aesthetic[Out],
       value: Row => In,
-      scale: Scale[In, Out]
+      scale: ScaleValue[In, Out]
   ): PlotBuilder[Row, Position] =
     updateResult(result.flatMap(_.encode(aesthetic, value, scale)))
+
+  /** Position-specialized overload: generic scale encoding establishes the same compile-time x
+    * prerequisite as `aes`.
+    */
+  @targetName("encodePositionX")
+  def encode[In](
+      aesthetic: Aesthetic.X.type,
+      value: Row => In,
+      scale: ScaleValue[In, Double]
+  )(using transition: EncodesX[Row, Position]): PlotBuilder[Row, transition.Out] =
+    new PlotBuilder(
+      data,
+      transition(position),
+      result.flatMap(_.encode(aesthetic, value, scale)),
+      options
+    )
+
+  /** Position-specialized overload: generic scale encoding establishes the same compile-time y
+    * prerequisite as `aes`.
+    */
+  @targetName("encodePositionY")
+  def encode[In](
+      aesthetic: Aesthetic.Y.type,
+      value: Row => In,
+      scale: ScaleValue[In, Double]
+  )(using transition: EncodesY[Row, Position]): PlotBuilder[Row, transition.Out] =
+    new PlotBuilder(
+      data,
+      transition(position),
+      result.flatMap(_.encode(aesthetic, value, scale)),
+      options
+    )
 
   def geomPoint(
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None
-  )(using HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using HasMappedXY[Row, Position]): PlotBuilder[Row, Position] =
     addInheritedGeom(Geom.Point, data, params)
 
   def geomLine(
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None
-  )(using HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using HasMappedXY[Row, Position]): PlotBuilder[Row, Position] =
     addInheritedGeom(Geom.Line, data, params)
 
   def geomPolygon(
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None
-  )(using HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using HasMappedXY[Row, Position]): PlotBuilder[Row, Position] =
     addInheritedGeom(Geom.Polygon, data, params)
 
   def geomText(
       label: Row => String,
       data: Option[Vector[Row]] = None,
       params: Option[GraphicParams] = None
-  )(using HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using HasMappedXY[Row, Position]): PlotBuilder[Row, Position] =
     addLayer(
       Layer.fromMapping(
         Geom.Text,
@@ -223,6 +426,20 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   )(using ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
     val xy = ev(position)
     addLayer(Right(Layer.summary(xy.x, xy.y, data, interval, params)))
+
+  def geomQuantileSummary(
+      data: Option[Vector[Row]] = None,
+      params: Option[GraphicParams] = None
+  )(using ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
+    val xy = ev(position)
+    addLayer(Right(Layer.quantileSummary(xy.x, xy.y, data, params)))
+
+  def geomEcdf(
+      group: Option[Row => String] = None,
+      data: Option[Vector[Row]] = None,
+      params: Option[GraphicParams] = None
+  )(using ev: HasX[Row, Position]): PlotBuilder[Row, Position] =
+    addLayer(Right(Layer.ecdf(ev(position).x, data, group, params)))
 
   def geomArea(
       data: Option[Vector[Row]] = None,
@@ -265,12 +482,12 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val xy = ev(position)
     addLayer(Right(Layer.tile(xy.x, xy.y, width, height, data, resultMapping, params)))
 
-  /** Add a continuous-fill heatmap to a field-native plot. The equality
-    * witness makes this operation unavailable to ordinary row plots without
-    * introducing a specialized mutable builder hierarchy.
+  /** Add a continuous-fill heatmap to a field-native plot. The equality witness makes this
+    * operation unavailable to ordinary row plots without introducing a specialized mutable builder
+    * hierarchy.
     */
   def geomHeatmap(
-      palette: Palette[Rgba] = options.theme.palettes.continuousPalette,
+      palette: Palette[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
       name: String = "value",
       transform: Transform = Transform.identity,
       oob: OobPolicy = OobPolicy.Censor,
@@ -283,30 +500,46 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
         params = Some(params)
       )
 
-  /** Add already-extracted contour paths. The capability witness prevents
-    * ordinary row plots from accidentally claiming contour semantics.
+  /** Add already-extracted contour paths. The capability witness prevents ordinary row plots from
+    * accidentally claiming contour semantics.
     */
   def geomContour(
       params: Option[GraphicParams] = None
-  )(using contourRows: Row =:= ContourVertex, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
-    geomLine(params = params)
+  )(using
+      contourRows: Row =:= ContourVertex,
+      ev: HasXY[Row, Position]
+  ): PlotBuilder[Row, Position] =
+    geomLine(params = params)(using HasMappedXY.fromRawEvidence(ev))
 
-  /** Fill already-extracted contour bands. Each region is one compound
-    * polygon whose independently closed subpaths retain explicit holes.
+  /** Fill already-extracted contour bands. Each region is one compound polygon whose independently
+    * closed subpaths retain explicit holes.
     */
   def geomFilledContour(
-      palette: Palette[Rgba] = options.theme.palettes.continuousPalette,
+      palette: Palette[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
       name: String = "level",
       params: GraphicParams = GraphicParams.unsafe(stroke = None)
-  )(using bandRows: Row =:= ContourBandVertex, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
+  )(using
+      bandRows: Row =:= ContourBandVertex,
+      ev: HasXY[Row, Position]
+  ): PlotBuilder[Row, Position] =
     scaleFillContinuous(row => bandRows(row).levelMid, palette, name)
-      .geomPolygon(params = Some(params))
+      .geomPolygon(params = Some(params))(using HasMappedXY.fromRawEvidence(ev))
 
-  def hline(y: Double, params: Option[GraphicParams] = None): PlotBuilder[Row, Position] =
-    addLayer(Right(Layer.hline(y, data = Some(data), params = params)))
+  def hline(
+      y: Double,
+      params: Option[GraphicParams] = None,
+      scale: AnnotationScalePolicy = AnnotationScalePolicy.Train,
+      facets: AnnotationFacetPolicy = AnnotationFacetPolicy.Repeat
+  ): PlotBuilder[Row, Position] =
+    addLayer(Right(Layer.hline(y, params = params, scale = scale, facets = facets)))
 
-  def vline(x: Double, params: Option[GraphicParams] = None): PlotBuilder[Row, Position] =
-    addLayer(Right(Layer.vline(x, data = Some(data), params = params)))
+  def vline(
+      x: Double,
+      params: Option[GraphicParams] = None,
+      scale: AnnotationScalePolicy = AnnotationScalePolicy.Train,
+      facets: AnnotationFacetPolicy = AnnotationFacetPolicy.Repeat
+  ): PlotBuilder[Row, Position] =
+    addLayer(Right(Layer.vline(x, params = params, scale = scale, facets = facets)))
 
   def facetWrap(
       value: Row => String,
@@ -341,6 +574,20 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   def coordFixed(ratio: Double = 1.0, clip: Clip = Clip.On): PlotBuilder[Row, Position] =
     updateResult(Coord.fixed(ratio, clip).flatMap(coord => result.map(_.withCoord(coord))))
 
+  def coordZoom(
+      x: Option[Interval] = None,
+      y: Option[Interval] = None,
+      clip: Clip = Clip.On
+  ): PlotBuilder[Row, Position] =
+    updateResult(Coord.zoom(x, y, clip).flatMap(coord => result.map(_.withCoord(coord))))
+
+  def coordZoomWindows(
+      x: Option[CoordinateWindow] = None,
+      y: Option[CoordinateWindow] = None,
+      clip: Clip = Clip.On
+  ): PlotBuilder[Row, Position] =
+    updateResult(Coord.zoomWindows(x, y, clip).flatMap(coord => result.map(_.withCoord(coord))))
+
   def labels(value: PlotLabels): PlotBuilder[Row, Position] =
     updatePlot(_.withLabels(value))
 
@@ -362,8 +609,8 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   def compilerOptions(value: PlotCompilerOptions): PlotBuilder[Row, Position] =
     updateOptions(value)
 
-  /** Add a self-contained layer whose row type differs from the plot data.
-    * The required facet policy keeps future faceting behavior explicit.
+  /** Add a self-contained layer whose row type differs from the plot data. The required facet
+    * policy keeps future faceting behavior explicit.
     */
   def independentLayer[LayerRow](
       data: Vector[LayerRow],
@@ -380,6 +627,21 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
 
   def scene: Either[GraphicsError, Scene] =
     build.flatMap(_.scene)
+
+  def resolve(context: RenderContext): Either[GraphicsError, TrainedPlot] =
+    build.flatMap(_.resolve(context))
+
+  /** Resolve through a caller-owned [[PlotCompileCache]]. The built plot value is stable across
+    * calls on one builder, so repeated resolves of an unchanged builder hit the cache.
+    */
+  def resolve(
+      context: RenderContext,
+      cache: PlotCompileCache
+  ): Either[GraphicsError, TrainedPlot] =
+    build.flatMap(_.resolve(context, cache))
+
+  def renderPlan(context: RenderContext): Either[GraphicsError, RenderPlan] =
+    build.flatMap(_.renderPlan(context))
 
   private def resultMapping: AesSpec[Row] =
     result.toOption.map(_.mapping).getOrElse(AesSpec.empty)
@@ -405,8 +667,53 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val next =
       for
         current <- result
-        scale <- ContinuousScale.train(name, data.map(value), palette, transform, oob)
-        plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
+        spec <- ContinuousScaleSpec(name, palette, transform, oob)
+        plot <- current.withScale(ScaleBinding(aesthetic, value, spec))
+      yield plot
+    updateResult(next)
+
+  private def encodeX[In](
+      value: Row => In,
+      scale: Either[GraphicsError, ScaleValue[In, Double]]
+  )(using transition: EncodesX[Row, Position]): PlotBuilder[Row, transition.Out] =
+    new PlotBuilder(
+      data,
+      transition(position),
+      for
+        current <- result
+        resolved <- scale
+        plot <- current.withScale(ScaleBinding(Aesthetic.X, value, resolved))
+      yield plot,
+      options
+    )
+
+  private def encodeY[In](
+      value: Row => In,
+      scale: Either[GraphicsError, ScaleValue[In, Double]]
+  )(using transition: EncodesY[Row, Position]): PlotBuilder[Row, transition.Out] =
+    new PlotBuilder(
+      data,
+      transition(position),
+      for
+        current <- result
+        resolved <- scale
+        plot <- current.withScale(ScaleBinding(Aesthetic.Y, value, resolved))
+      yield plot,
+      options
+    )
+
+  private def bindThemeContinuous(
+      aesthetic: Aesthetic[Rgba],
+      value: Row => Double,
+      name: String,
+      transform: Transform,
+      oob: OobPolicy
+  ): PlotBuilder[Row, Position] =
+    val next =
+      for
+        current <- result
+        spec <- ContinuousScaleSpec.themeRgba(name, transform, oob)
+        plot <- current.withScale(ScaleBinding(aesthetic, value, spec))
       yield plot
     updateResult(next)
 
@@ -415,16 +722,30 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       value: Row => String,
       levels: Vector[String],
       colors: Vector[Rgba],
-      name: String
+      name: String,
+      overflow: PaletteOverflowPolicy
   ): PlotBuilder[Row, Position] =
-    val declared = if levels.nonEmpty then levels else data.map(value).distinct
     val next =
       for
         current <- result
-        domain <- DiscreteDomain.ordered(declared)
-        palette <- DiscretePalette.values(colors)
-        scale <- DiscreteScale(name, domain, palette)
-        plot <- current.withScale(ScaleBinding(aesthetic, value, scale))
+        palette <- DiscretePalette.values(colors, overflow)
+        spec <- DiscreteScaleSpec(name, levels, palette)
+        plot <- current.withScale(ScaleBinding(aesthetic, value, spec))
+      yield plot
+    updateResult(next)
+
+  private def bindThemeDiscrete(
+      aesthetic: Aesthetic[Rgba],
+      value: Row => String,
+      levels: Vector[String],
+      name: String,
+      overflow: PaletteOverflowPolicy
+  ): PlotBuilder[Row, Position] =
+    val next =
+      for
+        current <- result
+        spec <- DiscreteScaleSpec.themeRgba(name, levels, overflow)
+        plot <- current.withScale(ScaleBinding(aesthetic, value, spec))
       yield plot
     updateResult(next)
 
@@ -435,7 +756,12 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       nextPosition: Next,
       f: AesSpec[Row] => AesSpec[Row]
   ): PlotBuilder[Row, Next] =
-    new PlotBuilder(data, nextPosition, result.flatMap(current => current.withMapping(f(current.mapping))), options)
+    new PlotBuilder(
+      data,
+      nextPosition,
+      result.flatMap(current => current.withMapping(f(current.mapping))),
+      options
+    )
 
   private def updatePlot(f: Plot[Row] => Plot[Row]): PlotBuilder[Row, Position] =
     updateResult(result.map(f))
@@ -446,8 +772,8 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   private def updateOptions(next: PlotCompilerOptions): PlotBuilder[Row, Position] =
     new PlotBuilder(data, position, result, next)
 
-/** Start a renderer-neutral plot program. The default DSL policy derives axes
-  * and legends and uses the active theme's layout policy.
+/** Start a renderer-neutral plot program. The default DSL policy derives axes and legends and uses
+  * the active theme's layout policy.
   */
 def plot[Row](data: IterableOnce[Row]): PlotBuilder[Row, PlotPosition.Empty[Row]] =
   val rows = data.iterator.toVector
@@ -457,14 +783,13 @@ def plot[Row](data: IterableOnce[Row]): PlotBuilder[Row, PlotPosition.Empty[Row]
     PlotPosition.Empty(),
     Right(Plot(rows)),
     PlotCompilerOptions(
-      policy = Some(theme.layoutPolicy),
       guides = GuidePolicy.Derived(),
       theme = theme
     )
   )
 
-/** Begin a field-native plot. Coordinates and cell extents derive from the
-  * checked field instead of being repeated as loosely related columns.
+/** Begin a field-native plot. Coordinates and cell extents derive from the checked field instead of
+  * being repeated as loosely related columns.
   */
 def plot(field: ScalarField2D): PlotBuilder[ScalarCell, PlotPosition.XY[ScalarCell]] =
   plot(field.cells).aes(_.x, _.y)
@@ -475,10 +800,12 @@ def plot(contours: ContourSet): PlotBuilder[ContourVertex, PlotPosition.XY[Conto
     .aes(_.x, _.y)
     .group(_.pathId)
 
-/** Begin a plot from filled-band regions while retaining each outer/hole ring
-  * as an independently closed polygon subpath.
+/** Begin a plot from filled-band regions while retaining each outer/hole ring as an independently
+  * closed polygon subpath.
   */
-def plot(bands: ContourBandSet): PlotBuilder[ContourBandVertex, PlotPosition.XY[ContourBandVertex]] =
+def plot(
+    bands: ContourBandSet
+): PlotBuilder[ContourBandVertex, PlotPosition.XY[ContourBandVertex]] =
   plot(bands.vertices)
     .aes(_.x, _.y)
     .group(_.regionId)

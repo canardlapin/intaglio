@@ -15,7 +15,13 @@ class ScientificStatSuite extends munit.FunSuite:
         )
         .fold(error => fail(error.message), identity)
     val layer = trained.layers.head
+    val output = layer.statFrame.rows.collect { case row: StatRow.Binned[?] => row }
 
+    assertEquals(output.length, layer.statFrame.rows.length)
+    assertEquals(output.map(_.count), Vector(1, 2))
+    assertEquals(output.map(_.binLower), Vector(0.0, 1.5))
+    assertEquals(output.map(_.binUpper), Vector(1.5, 5.0))
+    assertEquals(output.map(_.binMidpoint), Vector(0.75, 3.25))
     assertEquals(
       layer.statFrame.rows.flatMap(_.computed.get(ComputedAesthetic.Count)),
       ScientificStatParityFixture.histogramCounts
@@ -44,7 +50,13 @@ class ScientificStatSuite extends munit.FunSuite:
         )
         .fold(error => fail(error.message), identity)
     val layer = trained.layers.head
+    val output = layer.statFrame.rows.collect { case row: StatRow.Summarized[?] => row }
 
+    assertEquals(output.length, layer.statFrame.rows.length)
+    assertEquals(output.map(_.position), Vector(1.0, 2.0, 3.0))
+    assertEquals(output.map(_.mean), ScientificStatParityFixture.summaryMeans)
+    assertEquals(output.map(_.lower), ScientificStatParityFixture.summaryLower)
+    assertEquals(output.map(_.upper), ScientificStatParityFixture.summaryUpper)
     assertEquals(layer.rows.map(_.x), Vector(1.0, 2.0, 3.0))
     assertEquals(layer.rows.map(_.y), ScientificStatParityFixture.summaryMeans)
     assertEquals(
@@ -72,10 +84,15 @@ class ScientificStatSuite extends munit.FunSuite:
         .flatMap(PlotCompiler.resolve(_))
         .fold(error => fail(error.message), identity)
     val layer = trained.layers.head
+    val output = layer.statFrame.rows.collect { case row: StatRow.Density[?] => row }
 
+    assertEquals(output.length, layer.statFrame.rows.length)
+    assertEquals(output.map(_.position), ScientificStatParityFixture.densityGrid)
+    assert(output.forall(_.sampleSize == ScientificStatParityFixture.densityValues.length))
     assertEquals(layer.rows.map(_.x), ScientificStatParityFixture.densityGrid)
-    layer.rows.map(_.y).zip(ScientificStatParityFixture.density).foreach { case (actual, expected) =>
-      assertEqualsDouble(actual, expected, 6e-6)
+    layer.rows.map(_.y).zip(ScientificStatParityFixture.density).foreach {
+      case (actual, expected) =>
+        assertEqualsDouble(actual, expected, 6e-6)
     }
     assertEquals(layer.grobs.length, 1)
     assert(layer.grobs.head.isInstanceOf[Grob.Lines])
@@ -135,4 +152,53 @@ class ScientificStatSuite extends munit.FunSuite:
       summary.layers.head.statFrame.rows.flatMap(_.computed.get(ComputedAesthetic.Upper)),
       Vector(2.0, 3.0, 4.0)
     )
+  }
+
+  test(
+    "regular and explicit histogram partitions bind constant-time and binary lookup strategies"
+  ) {
+    val regularSpec = HistogramBins.countUnsafe(4)
+    val regularBreaks = HistogramBins.partition(regularSpec, 0.0, 8.0)
+    val regular = HistogramBins.lookup(regularSpec, regularBreaks)
+    val widthSpec = HistogramBins.widthUnsafe(2.0)
+    val widthBreaks = HistogramBins.partition(widthSpec, -1.0, 5.0)
+    val width = HistogramBins.lookup(widthSpec, widthBreaks)
+    val explicitSpec = HistogramBins.breaksUnsafe(Vector(0.0, 0.5, 3.0, 8.0))
+    val explicitBreaks = HistogramBins.partition(explicitSpec, 0.0, 8.0)
+    val explicit = HistogramBins.lookup(explicitSpec, explicitBreaks)
+
+    assertEquals(regular.strategy, HistogramLookupStrategy.RegularArithmetic)
+    assertEquals(width.strategy, HistogramLookupStrategy.RegularArithmetic)
+    assertEquals(explicit.strategy, HistogramLookupStrategy.ExplicitBinarySearch)
+    assertEquals(
+      Vector(0.0, 2.0, 2.0000000001, 4.0, 6.0, 8.0).map(regular.index),
+      Vector(0, 0, 1, 1, 2, 3)
+    )
+    assertEquals(
+      Vector(-2.0, 0.0, 0.0000000001, 2.0, 4.0, 6.0).map(width.index),
+      Vector(0, 0, 1, 1, 2, 3)
+    )
+    assertEquals(
+      Vector(0.0, 0.5, 0.5000000001, 3.0, 3.0000000001, 8.0).map(explicit.index),
+      Vector(0, 0, 1, 1, 2, 2)
+    )
+    assertEquals(regular.index(-0.1), -1)
+    assertEquals(explicit.index(8.1), -1)
+  }
+
+  test("optimized histogram lookup preserves boundary ownership and observation conservation") {
+    val breaks = Vector(-2.0, -0.5, 0.0, 1.25, 5.0)
+    val spec = HistogramBins.breaksUnsafe(breaks)
+    val values = Vector(-2.0, -1.0, -0.5, -0.25, 0.0, 0.5, 1.25, 2.0, 5.0)
+    val resolved =
+      Plot(values)
+        .addLayer(Layer.histogram(identity, bins = spec))
+        .flatMap(PlotCompiler.resolve(_))
+        .fold(error => fail(error.message), identity)
+    val counts = resolved.layers.head.statFrame.rows.collect { case row: StatRow.Binned[?] =>
+      row.count
+    }
+
+    assertEquals(counts, Vector(3, 2, 2, 2))
+    assertEquals(counts.sum, values.length)
   }

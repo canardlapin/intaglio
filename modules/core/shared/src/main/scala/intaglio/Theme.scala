@@ -1,7 +1,7 @@
 package intaglio
 
-/** Complete leaf styles for axes. `None` in a [[GuideSpec]] means use these
-  * values; an explicit guide style remains authoritative.
+/** Complete leaf styles for axes. `None` in a [[GuideSpec]] means use these values; an explicit
+  * guide style remains authoritative.
   */
 final case class AxisTheme(
     line: GraphicParams,
@@ -20,16 +20,16 @@ final case class PlotTextTheme(
     subtitle: GraphicParams
 )
 
-/** Optional panel decoration. Absence is meaningful: the default theme adds
-  * no marks that were not requested by the plot.
+/** Optional panel decoration. Absence is meaningful: the default theme adds no marks that were not
+  * requested by the plot.
   */
 final case class PanelTheme(
     background: Option[GraphicParams] = None,
     grid: Option[GraphicParams] = None
 )
 
-/** Default palettes available to scale constructors without introducing a
-  * mutable registry or implicit ambient state.
+/** Default palettes available to scale constructors without introducing a mutable registry or
+  * implicit ambient state.
   */
 final case class ThemePalettes(
     discrete: Vector[Rgba],
@@ -44,9 +44,9 @@ final case class ThemePalettes(
   def continuousPalette: Palette[Rgba] =
     Palette.gradient(continuousLow, continuousHigh)
 
-/** Immutable plot defaults resolved once by [[PlotCompiler]]. A theme is a
-  * finite product of complete values: there is no cascade, selector language,
-  * mutable global, or backend-specific styling hook.
+/** Immutable plot defaults resolved once by [[PlotCompiler]]. A theme is a finite product of
+  * complete values: there is no cascade, selector language, mutable global, or backend-specific
+  * styling hook.
   */
 final case class Theme(
     geom: GraphicParams,
@@ -66,9 +66,8 @@ final case class Theme(
   requirePointFont("plot.title", plotText.title)
   requirePointFont("plot.subtitle", plotText.subtitle)
 
-  /** Layout measures the exact typography later emitted into guide and label
-    * grobs. Non-typographic spacing and the text-metrics capability remain
-    * configurable through `layout`.
+  /** Layout measures the exact typography later emitted into guide and label grobs. Non-typographic
+    * spacing and the text-metrics capability remain configurable through `layout`.
     */
   def layoutPolicy: LayoutPolicy =
     layoutPolicy(layout)
@@ -86,7 +85,13 @@ final case class Theme(
       legendFontPt = pointFont(legend.text),
       legendFontFamily = legend.text.fontFamily,
       legendTitleFontPt = pointFont(legend.title),
-      legendTitleFontFamily = legend.title.fontFamily
+      legendTitleFontFamily = legend.title.fontFamily,
+      axisFontWeight = axis.text.fontWeight,
+      axisTitleFontWeight = axis.title.fontWeight,
+      plotTitleFontWeight = plotText.title.fontWeight,
+      plotSubtitleFontWeight = plotText.subtitle.fontWeight,
+      legendFontWeight = legend.text.fontWeight,
+      legendTitleFontWeight = legend.title.fontWeight
     )
 
   private def requirePointFont(label: String, gp: GraphicParams): Unit =
@@ -106,16 +111,17 @@ object Theme:
       fontSize = Length.pointsUnsafe(sizePt)
     )
 
+  /** The first six of [[DiscretePalette.okabeItoColors]].
+    *
+    * Six because a theme palette that rejects a seventh level is a typed error a caller can see,
+    * where a longer one silently invites plots no reader can follow. These six rather than the
+    * first six tab10 colours, which this replaced, because tab10's orange and green fall to CIE76
+    * 5.6 under protanopia from three series on while these hold 17.0 through six.
+    * `DiscretePaletteEvidenceSuite` pins both figures.
+    */
   val defaultPalettes: ThemePalettes =
     ThemePalettes(
-      discrete = Vector(
-        Rgba.unsafe(31, 119, 180),
-        Rgba.unsafe(255, 127, 14),
-        Rgba.unsafe(44, 160, 44),
-        Rgba.unsafe(214, 39, 40),
-        Rgba.unsafe(148, 103, 189),
-        Rgba.unsafe(140, 86, 75)
-      ),
+      discrete = DiscretePalette.okabeItoColors.take(6),
       continuousLow = Rgba.unsafe(239, 243, 255),
       continuousHigh = Rgba.unsafe(8, 81, 156)
     )
@@ -137,8 +143,8 @@ object Theme:
       layout = LayoutPolicy()
     )
 
-  /** A quiet publication-oriented base: white panel, pale grid, crisp axes.
-    * Callers customize it with ordinary case-class `copy` operations.
+  /** A quiet publication-oriented base: white panel, pale grid, crisp axes. Callers customize it
+    * with ordinary case-class `copy` operations.
     */
   val minimal: Theme =
     default.copy(

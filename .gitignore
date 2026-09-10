@@ -10,3 +10,6 @@ project/project/
 *.class
 *.log
 node_modules/
+.mote/local/
+.mote/tmp/
+.worktrees/

@@ -1,7 +1,7 @@
 package intaglio
 
-/** Values created by a statistical transformation rather than read directly
-  * from an input row. The type parameter keeps each computed field honest.
+/** Values created by a statistical transformation rather than read directly from an input row. The
+  * type parameter keeps each computed field honest.
   */
 enum ComputedAesthetic[A](val label: String):
   case Count extends ComputedAesthetic[Double]("count")
@@ -9,6 +9,7 @@ enum ComputedAesthetic[A](val label: String):
   case Density extends ComputedAesthetic[Double]("density")
   case Position extends ComputedAesthetic[Double]("position")
   case Mean extends ComputedAesthetic[Double]("mean")
+  case Median extends ComputedAesthetic[Double]("median")
   case Lower extends ComputedAesthetic[Double]("lower")
   case Upper extends ComputedAesthetic[Double]("upper")
   case BinLower extends ComputedAesthetic[Double]("bin_lower")
@@ -16,8 +17,9 @@ enum ComputedAesthetic[A](val label: String):
   case BinWidth extends ComputedAesthetic[Double]("bin_width")
   case BinMidpoint extends ComputedAesthetic[Double]("bin_midpoint")
 
-/** A finite typed record of computed aesthetics. Future statistics can add
-  * fields without turning their output into a string-keyed map.
+/** A read-only compatibility view of values produced by a statistical transformation. The
+  * statistic-specific [[StatRow]] subtype owns every required field; this optional record is
+  * derived from that row for generic inspection only.
   */
 final case class ComputedValues private (
     count: Option[Double] = None,
@@ -25,6 +27,7 @@ final case class ComputedValues private (
     density: Option[Double] = None,
     position: Option[Double] = None,
     mean: Option[Double] = None,
+    median: Option[Double] = None,
     lower: Option[Double] = None,
     upper: Option[Double] = None,
     binLower: Option[Double] = None,
@@ -39,6 +42,7 @@ final case class ComputedValues private (
       case ComputedAesthetic.Density     => density
       case ComputedAesthetic.Position    => position
       case ComputedAesthetic.Mean        => mean
+      case ComputedAesthetic.Median      => median
       case ComputedAesthetic.Lower       => lower
       case ComputedAesthetic.Upper       => upper
       case ComputedAesthetic.BinLower    => binLower
@@ -46,72 +50,439 @@ final case class ComputedValues private (
       case ComputedAesthetic.BinWidth    => binWidth
       case ComputedAesthetic.BinMidpoint => binMidpoint
 
+  /** Computed keys present in this inspection view. */
+  def aesthetics: Set[ComputedAesthetic[?]] =
+    val out = Set.newBuilder[ComputedAesthetic[?]]
+    if count.nonEmpty then out += ComputedAesthetic.Count
+    if proportion.nonEmpty then out += ComputedAesthetic.Proportion
+    if density.nonEmpty then out += ComputedAesthetic.Density
+    if position.nonEmpty then out += ComputedAesthetic.Position
+    if mean.nonEmpty then out += ComputedAesthetic.Mean
+    if median.nonEmpty then out += ComputedAesthetic.Median
+    if lower.nonEmpty then out += ComputedAesthetic.Lower
+    if upper.nonEmpty then out += ComputedAesthetic.Upper
+    if binLower.nonEmpty then out += ComputedAesthetic.BinLower
+    if binUpper.nonEmpty then out += ComputedAesthetic.BinUpper
+    if binWidth.nonEmpty then out += ComputedAesthetic.BinWidth
+    if binMidpoint.nonEmpty then out += ComputedAesthetic.BinMidpoint
+    out.result()
+
 object ComputedValues:
   val empty: ComputedValues =
     ComputedValues()
 
-  private[intaglio] def counted(count: Int, total: Int): ComputedValues =
-    ComputedValues(
-      count = Some(count.toDouble),
-      proportion = Some(count.toDouble / total.toDouble)
-    )
+  private[intaglio] def from[Row](row: StatRow[Row]): ComputedValues =
+    row match
+      case _: StatRow.Identity[?] =>
+        empty
+      case output: StatRow.Counted[?] =>
+        ComputedValues(
+          count = Some(output.count.toDouble),
+          proportion = Some(output.proportion)
+        )
+      case output: StatRow.Binned[?] =>
+        ComputedValues(
+          count = Some(output.count.toDouble),
+          proportion = Some(output.proportion),
+          density = Some(output.density),
+          binLower = Some(output.binLower),
+          binUpper = Some(output.binUpper),
+          binWidth = Some(output.binWidth),
+          binMidpoint = Some(output.binMidpoint)
+        )
+      case output: StatRow.Summarized[?] =>
+        ComputedValues(
+          count = Some(output.count.toDouble),
+          position = Some(output.position),
+          mean = Some(output.mean),
+          lower = Some(output.lower),
+          upper = Some(output.upper)
+        )
+      case output: StatRow.QuantileSummary[?] =>
+        ComputedValues(
+          count = Some(output.count.toDouble),
+          position = Some(output.position),
+          median = Some(output.median),
+          lower = Some(output.lowerQuartile),
+          upper = Some(output.upperQuartile)
+        )
+      case output: StatRow.Ecdf[?] =>
+        ComputedValues(
+          count = Some(output.cumulativeCount.toDouble),
+          proportion = Some(output.proportion),
+          position = Some(output.position)
+        )
+      case output: StatRow.Density[?] =>
+        ComputedValues(
+          count = Some(output.count),
+          density = Some(output.density),
+          position = Some(output.position)
+        )
+      case _ =>
+        empty
 
-  private[intaglio] def binned(
+/** One typed output row from a statistic. `members` makes aggregation inspectable; `source` is the
+  * stable representative used by source-oriented diagnostics. Required statistic outputs are
+  * ordinary fields on the corresponding subtype, never absent entries in an optional record.
+  */
+trait StatRow[+Row]:
+  def source: Row
+  def members: Vector[Row]
+  def category: Option[String]
+  def kind: String
+
+  /** Generic inspection is deliberately derived from the typed output row. */
+  final def computed: ComputedValues =
+    ComputedValues.from(this)
+
+object StatRow:
+  /** Identity preserves one source row and has no computed fields. */
+  final case class Identity[+Row](source: Row) extends StatRow[Row]:
+    val members: Vector[Row] = Vector(source)
+    val category: Option[String] = None
+    val kind: String = "identity"
+
+  /** Required output of `stat_count`. */
+  final case class Counted[+Row](
+      source: Row,
+      members: Vector[Row],
+      level: String,
       count: Int,
-      total: Int,
+      proportion: Double
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(count == members.length, "`count` must equal `members.length`")
+    require(proportion.isFinite && proportion >= 0.0 && proportion <= 1.0)
+
+    val category: Option[String] = Some(level)
+    val kind: String = "count"
+
+  /** Required output of `stat_bin`. Width, midpoint, and density are total derived values. */
+  final case class Binned[+Row](
+      source: Row,
+      members: Vector[Row],
+      count: Int,
+      proportion: Double,
+      density: Double,
       binLower: Double,
       binUpper: Double
-  ): ComputedValues =
-    val width = binUpper - binLower
-    val frequency = count.toDouble
-    ComputedValues(
-      count = Some(frequency),
-      proportion = Some(frequency / total.toDouble),
-      density = Some(frequency / (total.toDouble * width)),
-      binLower = Some(binLower),
-      binUpper = Some(binUpper),
-      binWidth = Some(width),
-      binMidpoint = Some(binLower + width / 2.0)
-    )
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(count == members.length, "`count` must equal `members.length`")
+    require(proportion.isFinite && proportion >= 0.0 && proportion <= 1.0)
+    require(density.isFinite && density >= 0.0)
+    require(binLower.isFinite && binUpper.isFinite && binLower < binUpper)
 
-  private[intaglio] def summarized(
+    val category: Option[String] = None
+    val kind: String = "bin"
+    val binWidth: Double = binUpper - binLower
+    val binMidpoint: Double = binLower + binWidth / 2.0
+
+  /** Required output of `stat_summary`. */
+  final case class Summarized[+Row](
+      source: Row,
+      members: Vector[Row],
       position: Double,
       mean: Double,
       lower: Double,
       upper: Double,
       count: Int
-  ): ComputedValues =
-    ComputedValues(
-      count = Some(count.toDouble),
-      position = Some(position),
-      mean = Some(mean),
-      lower = Some(lower),
-      upper = Some(upper)
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(count == members.length, "`count` must equal `members.length`")
+    require(Vector(position, mean, lower, upper).forall(_.isFinite))
+    require(lower <= mean && mean <= upper, "summary bounds must contain the mean")
+
+    val category: Option[String] = None
+    val kind: String = "summary"
+
+  /** Required output of `stat_density`. `count` is the ggplot-compatible scaled density. */
+  final case class Density[+Row](
+      source: Row,
+      members: Vector[Row],
+      position: Double,
+      density: Double,
+      sampleSize: Int
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(sampleSize == members.length, "`sampleSize` must equal `members.length`")
+    require(position.isFinite)
+    require(density.isFinite && density >= 0.0)
+
+    val category: Option[String] = None
+    val kind: String = "density"
+    val count: Double = density * sampleSize.toDouble
+
+  /** Required output of the ordinary median plus interquartile-range summary composition. */
+  final case class QuantileSummary[+Row](
+      source: Row,
+      members: Vector[Row],
+      position: Double,
+      lowerQuartile: Double,
+      median: Double,
+      upperQuartile: Double,
+      count: Int
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(count == members.length, "`count` must equal `members.length`")
+    require(Vector(position, lowerQuartile, median, upperQuartile).forall(_.isFinite))
+    require(
+      lowerQuartile <= median && median <= upperQuartile,
+      "quantile bounds must contain the median"
     )
 
-  private[intaglio] def densityAt(position: Double, density: Double, count: Int): ComputedValues =
-    ComputedValues(
-      count = Some(density * count.toDouble),
-      density = Some(density),
-      position = Some(position)
+    val category: Option[String] = None
+    val kind: String = "quantile-summary"
+
+  /** One tied step of an empirical cumulative distribution. `members` are the observations tied at
+    * `position`; cumulative mass is tracked within the optional explicit group.
+    */
+  final case class Ecdf[+Row](
+      source: Row,
+      members: Vector[Row],
+      position: Double,
+      cumulativeCount: Int,
+      totalCount: Int,
+      groupLevel: Option[String]
+  ) extends StatRow[Row]:
+    require(members.nonEmpty, "`members` must be non-empty")
+    require(position.isFinite)
+    require(totalCount >= members.length, "`totalCount` must cover the tied members")
+    require(
+      cumulativeCount >= members.length && cumulativeCount <= totalCount,
+      "`cumulativeCount` must include the tied members and not exceed `totalCount`"
     )
 
-/** One output row from a statistic. `members` makes aggregation inspectable;
-  * `source` is the stable representative used by source-oriented diagnostics.
-  */
-final case class StatRow[Row] private[intaglio] (
-    source: Row,
-    members: Vector[Row],
-    category: Option[String],
-    computed: ComputedValues
-):
-  require(members.nonEmpty, "`members` must be non-empty")
+    val category: Option[String] = groupLevel
+    val kind: String = "ecdf"
+    val proportion: Double = cumulativeCount.toDouble / totalCount.toDouble
 
 /** Immutable, typed output of a statistical layer transformation. */
 final case class StatFrame[Row] private[intaglio] (
     rows: Vector[StatRow[Row]],
-    computedAesthetics: Set[ComputedAesthetic[?]]
+    private val declaredAesthetics: Set[ComputedAesthetic[?]]
+):
+  /** The declaration remains available for an empty result; otherwise keys are derived from the
+    * typed rows themselves.
+    */
+  def computedAesthetics: Set[ComputedAesthetic[?]] =
+    if rows.isEmpty then declaredAesthetics
+    else rows.iterator.flatMap(_.computed.aesthetics).toSet
+
+/** How output rows retain their source observations. Extension laws can verify this declaration
+  * against the `source` and `members` carried by each [[StatRow]].
+  */
+enum StatInputPreservation:
+  /** Exactly one output per input, with that input preserved as the sole member. */
+  case OneToOne
+
+  /** Outputs aggregate non-empty subsets and retain every contributing member. */
+  case AggregateMembers
+
+  /** Generated outputs retain the complete input batch as their members. */
+  case WholeBatch
+
+  /** An extension publishes a more specific preservation contract. */
+  case Custom(description: String)
+
+/** The grouping unit a statistic promises to use. */
+enum StatGroupingPolicy:
+  case None
+  case DiscreteKeys
+  case NumericPositions
+  case GroupedNumericPositions
+  case HistogramBins
+  case WholeBatch
+  case Custom(description: String)
+
+/** The reduction or generation performed within each grouping unit. */
+enum StatSummarizationPolicy:
+  case Identity
+  case Frequency
+  case MeanInterval
+  case Quantiles
+  case EmpiricalCdf
+  case KernelDensity
+  case Custom(description: String)
+
+/** What happens when an input accessor, value, or statistical precondition is rejected. */
+enum StatRejectionPolicy:
+  /** One rejected input fails the statistical transform for the complete layer or facet batch. */
+  case FailBatch
+
+  /** An extension publishes a different policy and implements it inside `Stat.compute`. */
+  case Custom(description: String)
+
+/** Relationship between the layer's input mapping and the statistic's output mapping. */
+enum StatMappingPolicy:
+  /** Preserve the input mapping by contramapping it over one-to-one output rows. */
+  case Preserve
+
+  /** Require an empty input mapping; the statistic owns its complete output mapping. */
+  case Replace
+
+  /** Let the statistic inspect and consume the input mapping before publishing an output mapping.
+    */
+  case Consume
+
+/** Geometry compatibility declared before a statistical transform runs. */
+enum StatGeometryPolicy:
+  case Any
+  case Require(geom: Geom)
+
+/** Existing renderer-neutral lowering path selected by a statistical result. Custom statistics
+  * normally use [[StatLowering.Geom]], mapping their typed output to an ordinary geometry.
+  */
+enum StatLowering:
+  case Geom
+  case Summary
+  case Density
+  case Ecdf
+
+/** Public, inspectable behavioral contract for a statistic. */
+final case class StatContract(
+    inputPreservation: StatInputPreservation,
+    grouping: StatGroupingPolicy,
+    summarization: StatSummarizationPolicy,
+    rejection: StatRejectionPolicy,
+    mapping: StatMappingPolicy,
+    geometry: StatGeometryPolicy,
+    lowering: StatLowering
 )
+
+/** Whether a typed statistic is running over plot-level data or one concrete facet batch. */
+enum StatScope:
+  case Plot
+  case Facet(cell: FacetCell)
+
+/** Compiler context supplied to every built-in and external statistic. */
+final case class StatContext(layerIndex: Int, geom: Geom, scope: StatScope):
+  require(layerIndex >= 0, "`layerIndex` must be non-negative")
+
+/** One source row with its stable position in the current plot or facet batch. */
+final case class StatInput[+Row](index: Int, value: Row)
+
+/** Immutable typed input to [[Stat.compute]]. The effective input mapping is retained for
+  * statistics that declare [[StatMappingPolicy.Consume]]. `evaluate` is the public safe boundary
+  * for row accessors: non-fatal mapping failures remain values with their original row index.
+  */
+final class StatBatch[Row] private (
+    val inputs: Vector[StatInput[Row]],
+    val mapping: AesSpec[Row]
+):
+  def rows: Vector[Row] =
+    inputs.map(_.value)
+
+  def size: Int =
+    inputs.length
+
+  def isEmpty: Boolean =
+    inputs.isEmpty
+
+  def evaluate[A](
+      aesthetic: String,
+      accessor: Row => A
+  ): Either[StatError, Vector[A]] =
+    val out = Vector.newBuilder[A]
+    var index = 0
+    var result: Either[StatError, Unit] = Right(())
+    while index < inputs.length && result.isRight do
+      val input = inputs(index)
+      RowMapping.evaluateFunction(accessor, input.value) match
+        case Right(value) =>
+          out += value
+        case Left((contract, failure)) =>
+          result = Left(
+            StatError.MappingEvaluationFailed(
+              aesthetic,
+              input.index,
+              contract,
+              failure
+            )
+          )
+      index += 1
+    result.map(_ => out.result())
+
+object StatBatch:
+  def apply[Row](rows: Vector[Row], mapping: AesSpec[Row]): StatBatch[Row] =
+    new StatBatch(rows.zipWithIndex.map((value, index) => StatInput(index, value)), mapping)
+
+/** Typed failures returned by an open statistic before the compiler translates layer provenance
+  * into the ordinary [[GraphicsError]] channel.
+  */
+enum StatError extends IntaglioError:
+  case MappingEvaluationFailed(
+      aesthetic: String,
+      rowIndex: Int,
+      contract: MappingContract,
+      failure: MappingFailure
+  )
+  case NonFiniteInput(aesthetic: String, value: Double)
+  case InsufficientData(minimum: Int, actual: Int)
+  case InputOutsideBins(value: Double, lower: Double, upper: Double)
+  case UnsupportedStrategy(strategy: String)
+  case Rejected(detail: String)
+
+  def message: String =
+    this match
+      case MappingEvaluationFailed(aesthetic, rowIndex, contract, failure) =>
+        s"mapping '$aesthetic' failed at row $rowIndex under the ${contract.label} contract: ${failure.message}"
+      case NonFiniteInput(aesthetic, value) =>
+        s"input '$aesthetic' must be finite: $value"
+      case InsufficientData(minimum, actual) =>
+        s"requires at least $minimum observations: found $actual"
+      case InputOutsideBins(value, lower, upper) =>
+        s"value $value is outside explicit breaks [$lower, $upper]"
+      case UnsupportedStrategy(strategy) =>
+        s"strategy '$strategy' is not implemented in this build"
+      case Rejected(detail) =>
+        detail
+
+  private[intaglio] def toGraphicsError(stat: String, layerIndex: Int): GraphicsError =
+    this match
+      case MappingEvaluationFailed(aesthetic, rowIndex, contract, failure) =>
+        GraphicsError.MappingEvaluationFailed(
+          s"stat '$stat'",
+          Some(layerIndex),
+          aesthetic,
+          rowIndex,
+          contract,
+          failure
+        )
+      case NonFiniteInput(aesthetic, value) =>
+        GraphicsError.NonFiniteStatInput(stat, aesthetic, value)
+      case InsufficientData(minimum, actual) =>
+        GraphicsError.InsufficientStatData(stat, minimum, actual)
+      case InputOutsideBins(value, lower, upper) =>
+        GraphicsError.StatInputOutsideBins(value, lower, upper)
+      case UnsupportedStrategy(strategy) =>
+        GraphicsError.UnsupportedStatStrategy(stat, strategy)
+      case Rejected(detail) =>
+        GraphicsError.StatRejected(stat, detail)
+
+/** Existential package retaining a statistic's precise output-row subtype with its mapping. */
+sealed trait StatResult[Row]:
+  type Output <: StatRow[Row]
+  def rows: Vector[Output]
+  def mapping: AesSpec[Output]
+  def emptyComputedAesthetics: Set[ComputedAesthetic[?]]
+
+  final def frame: StatFrame[Row] =
+    StatFrame(rows, emptyComputedAesthetics)
+
+object StatResult:
+  type Aux[Row, Output0 <: StatRow[Row]] = StatResult[Row] { type Output = Output0 }
+
+  def apply[Row, Output0 <: StatRow[Row]](
+      outputRows: Vector[Output0],
+      outputMapping: AesSpec[Output0],
+      emptyAesthetics: Set[ComputedAesthetic[?]] = Set.empty
+  ): Aux[Row, Output0] =
+    new StatResult[Row]:
+      type Output = Output0
+      val rows: Vector[Output] = outputRows
+      val mapping: AesSpec[Output] = outputMapping
+      val emptyComputedAesthetics: Set[ComputedAesthetic[?]] = emptyAesthetics
 
 enum CountOrder:
   /** Preserve the first occurrence of every category. */
@@ -120,16 +491,15 @@ enum CountOrder:
   /** Use platform-stable Unicode lexicographic order. */
   case Lexicographic
 
-  /** Follow declared levels, then append undeclared observed levels in first
-    * occurrence order.
+  /** Follow declared levels, then append undeclared observed levels in first occurrence order.
     */
-  case Declared(domain: DiscreteDomain)
+  case Declared(domain: DiscreteDomain[String])
 
   private[intaglio] def arrange(observed: Vector[String]): Vector[String] =
     val distinct = observed.distinct
     this match
-      case Encountered => distinct
-      case Lexicographic => distinct.sorted
+      case Encountered      => distinct
+      case Lexicographic    => distinct.sorted
       case Declared(domain) =>
         val levels = domain.levels
         levels.filter(distinct.contains) ++ distinct.filterNot(levels.contains)
@@ -165,11 +535,18 @@ object BinWidth:
 
   extension (value: BinWidth) def toDouble: Double = value
 
-/** A histogram partition chosen by count, width, or explicit break points.
-  * Construction is validated so the statistical kernel never sees an empty
-  * or incoherent partition.
+/** A histogram partition chosen by count, width, or explicit break points. Construction is
+  * validated so the statistical kernel never sees an empty or incoherent partition.
   */
 sealed trait HistogramBins
+
+private[intaglio] enum HistogramLookupStrategy:
+  case RegularArithmetic
+  case ExplicitBinarySearch
+
+private[intaglio] sealed trait HistogramBinLookup:
+  def strategy: HistogramLookupStrategy
+  def index(value: Double): Int
 
 object HistogramBins:
   private final case class ByCount(value: BinCount) extends HistogramBins
@@ -197,18 +574,28 @@ object HistogramBins:
     else if values.exists(value => !value.isFinite) then
       Left(GraphicsError.InvalidStatParameter("bin", "finite breaks", values.mkString(", ")))
     else if values.sliding(2).exists(pair => pair(0) >= pair(1)) then
-      Left(GraphicsError.InvalidStatParameter("bin", "strictly increasing breaks", values.mkString(", ")))
+      Left(
+        GraphicsError
+          .InvalidStatParameter("bin", "strictly increasing breaks", values.mkString(", "))
+      )
     else Right(AtBreaks(values))
 
   def breaksUnsafe(values: Vector[Double]): HistogramBins =
     breaks(values).orThrow
 
-  private[intaglio] def partition(spec: HistogramBins, minimum: Double, maximum: Double): Vector[Double] =
+  private[intaglio] def partition(
+      spec: HistogramBins,
+      minimum: Double,
+      maximum: Double
+  ): Vector[Double] =
     spec match
       case ByCount(value) =>
         val count = value.toInt
         if minimum == maximum then Vector(minimum - 0.5, maximum + 0.5)
-        else Vector.tabulate(count + 1)(idx => minimum + (maximum - minimum) * idx.toDouble / count.toDouble)
+        else
+          Vector.tabulate(count + 1)(idx =>
+            minimum + (maximum - minimum) * idx.toDouble / count.toDouble
+          )
       case ByWidth(value) =>
         val width = value.toDouble
         val lower = math.floor(minimum / width) * width
@@ -220,12 +607,81 @@ object HistogramBins:
   private[intaglio] def isExplicit(spec: HistogramBins): Boolean =
     spec.isInstanceOf[AtBreaks]
 
+  /** Bind a partition to its lookup algorithm once, outside the observation loop. Generated
+    * count/width partitions use constant-time arithmetic with bounded neighboring-bin correction
+    * for floating-point boundaries. Explicit breaks use a right-closed lower-bound binary search.
+    */
+  private[intaglio] def lookup(
+      spec: HistogramBins,
+      breaks: Vector[Double]
+  ): HistogramBinLookup =
+    require(breaks.length >= 2, "histogram lookup requires at least two breaks")
+    spec match
+      case _: ByCount | _: ByWidth => RegularHistogramLookup(breaks)
+      case _: AtBreaks             => ExplicitHistogramLookup(breaks)
+
+  private final class RegularHistogramLookup(breaks: Vector[Double]) extends HistogramBinLookup:
+    override val strategy: HistogramLookupStrategy =
+      HistogramLookupStrategy.RegularArithmetic
+
+    private val lower = breaks.head
+    private val upper = breaks.last
+    private val binCount = breaks.length - 1
+    private val lastBin = binCount - 1
+    private val span = upper - lower
+
+    override def index(value: Double): Int =
+      if !value.isFinite || value < lower || value > upper then -1
+      else if value <= lower then 0
+      else if value >= upper then lastBin
+      else
+        val fraction =
+          if span.isFinite then (value - lower) / span
+          else
+            val scale = math.max(math.abs(lower), math.abs(upper))
+            ((value / scale) - (lower / scale)) / ((upper / scale) - (lower / scale))
+        val estimated = math.max(0, math.min(lastBin, math.ceil(fraction * binCount).toInt - 1))
+        if owns(estimated, value) then estimated
+        else if estimated > 0 && owns(estimated - 1, value) then estimated - 1
+        else if estimated < lastBin && owns(estimated + 1, value) then estimated + 1
+        else estimated
+
+    private def owns(bin: Int, value: Double): Boolean =
+      val aboveLower = if bin == 0 then value >= breaks(0) else value > breaks(bin)
+      aboveLower && value <= breaks(bin + 1)
+
+  private final class ExplicitHistogramLookup(breaks: Vector[Double]) extends HistogramBinLookup:
+    override val strategy: HistogramLookupStrategy =
+      HistogramLookupStrategy.ExplicitBinarySearch
+
+    private val lower = breaks.head
+    private val upper = breaks.last
+
+    override def index(value: Double): Int =
+      if !value.isFinite || value < lower || value > upper then -1
+      else
+        var left = 1
+        var right = breaks.length - 1
+        while left < right do
+          val middle = left + (right - left) / 2
+          if value <= breaks(middle) then right = middle
+          else left = middle + 1
+        left - 1
+
 enum SummaryInterval:
   /** Arithmetic mean plus or minus one sample standard error. */
   case StandardError
 
   /** Arithmetic mean with the observed minimum and maximum. */
   case Range
+
+/** Kernel-density execution strategy. The portable direct kernel is available today. `Fft` is a
+  * deliberate, typed extension boundary: callers can plan for a convolution implementation without
+  * Intaglio silently adding a dependency or changing numerical behavior.
+  */
+enum KdeStrategy(val label: String):
+  case Direct extends KdeStrategy("direct")
+  case Fft extends KdeStrategy("fft")
 
 opaque type DensityBandwidth = Double
 
@@ -251,60 +707,54 @@ object DensityPoints:
 
   extension (value: DensityPoints) def toInt: Int = value
 
-/** Validated Gaussian kernel-density configuration. When bandwidth is absent,
-  * the transform uses R's `bw.nrd0` rule. An absent domain spans the observed
-  * data exactly.
+/** Validated Gaussian kernel-density configuration. When bandwidth is absent, the transform uses
+  * R's `bw.nrd0` rule. An absent domain spans the observed data exactly.
   */
 final case class DensityConfig private (
     bandwidth: Option[DensityBandwidth],
     points: DensityPoints,
-    domain: Option[Interval]
+    domain: Option[Interval],
+    strategy: KdeStrategy
 )
 
 object DensityConfig:
   val default: DensityConfig =
-    DensityConfig(None, DensityPoints.unsafe(512), None)
+    DensityConfig(None, DensityPoints.unsafe(512), None, KdeStrategy.Direct)
 
-  def automatic(points: Int = 512, domain: Option[Interval] = None): Either[GraphicsError, DensityConfig] =
-    DensityPoints(points).map(DensityConfig(None, _, domain))
+  def automatic(
+      points: Int = 512,
+      domain: Option[Interval] = None,
+      strategy: KdeStrategy = KdeStrategy.Direct
+  ): Either[GraphicsError, DensityConfig] =
+    DensityPoints(points).map(DensityConfig(None, _, domain, strategy))
 
   def fixed(
       bandwidth: Double,
       points: Int = 512,
-      domain: Option[Interval] = None
+      domain: Option[Interval] = None,
+      strategy: KdeStrategy = KdeStrategy.Direct
   ): Either[GraphicsError, DensityConfig] =
     for
       resolvedBandwidth <- DensityBandwidth(bandwidth)
       resolvedPoints <- DensityPoints(points)
-    yield DensityConfig(Some(resolvedBandwidth), resolvedPoints, domain)
+    yield DensityConfig(Some(resolvedBandwidth), resolvedPoints, domain, strategy)
 
   def fixedUnsafe(
       bandwidth: Double,
       points: Int = 512,
-      domain: Option[Interval] = None
+      domain: Option[Interval] = None,
+      strategy: KdeStrategy = KdeStrategy.Direct
   ): DensityConfig =
-    fixed(bandwidth, points, domain).orThrow
+    fixed(bandwidth, points, domain, strategy).orThrow
 
 private[intaglio] object DensityMath:
-  /** R's `bw.nrd0`: the standard deviation or robust IQR scale, with the
-    * same constant-data fallbacks, followed by Silverman's 0.9 rule.
+  /** R's `bw.nrd0`: the standard deviation or robust IQR scale, with the same constant-data
+    * fallbacks, followed by Silverman's 0.9 rule.
     */
   def nrd0(values: Array[Double]): Double =
     val sorted = values.clone()
     scala.util.Sorting.quickSort(sorted)
-    var sum = 0.0
-    var sumIndex = 0
-    while sumIndex < values.length do
-      sum += values(sumIndex)
-      sumIndex += 1
-    val mean = sum / values.length.toDouble
-    var sumSquares = 0.0
-    var index = 0
-    while index < values.length do
-      val centered = values(index) - mean
-      sumSquares += centered * centered
-      index += 1
-    val standardDeviation = math.sqrt(sumSquares / (values.length - 1).toDouble)
+    val standardDeviation = NumericalMath.moments(values).sampleStandardDeviation
     val robust = (quantile(sorted, 0.75) - quantile(sorted, 0.25)) / 1.34
     var scale = math.min(standardDeviation, robust)
     if !(scale > 0.0) then scale = standardDeviation
@@ -319,12 +769,51 @@ private[intaglio] object DensityMath:
     val fraction = position - lower.toDouble
     sorted(lower) + fraction * (sorted(upper) - sorted(lower))
 
-sealed trait Stat[-Row]:
+private[intaglio] object QuantileMath:
+  /** Hyndman-Fan type 7, the default used by R and common scientific tools. */
+  def type7(values: Vector[Double], probability: Double): Double =
+    require(values.nonEmpty, "quantiles require at least one observation")
+    require(probability >= 0.0 && probability <= 1.0, "probability must be in [0, 1]")
+    val sorted = values.toArray
+    scala.util.Sorting.quickSort(sorted)
+    val position = (sorted.length - 1).toDouble * probability
+    val lower = math.floor(position).toInt
+    val upper = math.ceil(position).toInt
+    val fraction = position - lower.toDouble
+    sorted(lower) + fraction * (sorted(upper) - sorted(lower))
+
+/** Open typed statistical transform. Implementations receive an indexed typed batch plus compiler
+  * context and return an existential package that keeps their exact output-row subtype attached to
+  * its aesthetic mapping.
+  */
+trait Stat[-Row]:
   def label: String
+  def contract: StatContract
+
+  def compute[Input <: Row](
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult[Input]]
 
 object Stat:
   case object Identity extends Stat[Any]:
     override val label: String = "identity"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.OneToOne,
+        StatGroupingPolicy.None,
+        StatSummarizationPolicy.Identity,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Preserve,
+        StatGeometryPolicy.Any,
+        StatLowering.Geom
+      )
+
+    override def compute[Input](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Identity[Input]]] =
+      BuiltinStatRuntime.identity(batch, context)
 
   final case class Count[Row](
       x: Row => String,
@@ -334,9 +823,42 @@ object Stat:
       group: Option[Row => String] = None
   ) extends Stat[Row]:
     override val label: String = "count"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.DiscreteKeys,
+        StatSummarizationPolicy.Frequency,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Bar),
+        StatLowering.Geom
+      )
 
-  final case class Bin[Row](x: Row => Double, bins: HistogramBins = HistogramBins.default) extends Stat[Row]:
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Counted[Input]]] =
+      BuiltinStatRuntime.count(this, batch, context)
+
+  final case class Bin[Row](x: Row => Double, bins: HistogramBins = HistogramBins.default)
+      extends Stat[Row]:
     override val label: String = "bin"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.HistogramBins,
+        StatSummarizationPolicy.Frequency,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Bar),
+        StatLowering.Geom
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Binned[Input]]] =
+      BuiltinStatRuntime.bin(this, batch, context)
 
   final case class Summary[Row](
       x: Row => Double,
@@ -344,6 +866,85 @@ object Stat:
       interval: SummaryInterval = SummaryInterval.StandardError
   ) extends Stat[Row]:
     override val label: String = "summary"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.NumericPositions,
+        StatSummarizationPolicy.MeanInterval,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Point),
+        StatLowering.Summary
+      )
 
-  final case class Density[Row](x: Row => Double, config: DensityConfig = DensityConfig.default) extends Stat[Row]:
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Summarized[Input]]] =
+      BuiltinStatRuntime.summary(this, batch, context)
+
+  /** Median plus the first and third type-7 quantiles at each numeric x position. Lowering reuses
+    * the ordinary point-plus-interval composition, so callers get a compact boxplot-like summary
+    * without introducing renderer-specific geometry.
+    */
+  final case class QuantileSummary[Row](x: Row => Double, y: Row => Double) extends Stat[Row]:
+    override val label: String = "quantile-summary"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.NumericPositions,
+        StatSummarizationPolicy.Quantiles,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Point),
+        StatLowering.Summary
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.QuantileSummary[Input]]] =
+      BuiltinStatRuntime.quantileSummary(this, batch, context)
+
+  /** Right-continuous empirical CDF. Ties collapse to one step and optional groups are computed
+    * independently in first-encounter order.
+    */
+  final case class Ecdf[Row](x: Row => Double, group: Option[Row => String] = None)
+      extends Stat[Row]:
+    override val label: String = "ecdf"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.AggregateMembers,
+        StatGroupingPolicy.GroupedNumericPositions,
+        StatSummarizationPolicy.EmpiricalCdf,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Line),
+        StatLowering.Ecdf
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Ecdf[Input]]] =
+      BuiltinStatRuntime.ecdf(this, batch, context)
+
+  final case class Density[Row](x: Row => Double, config: DensityConfig = DensityConfig.default)
+      extends Stat[Row]:
     override val label: String = "density"
+    override val contract: StatContract =
+      StatContract(
+        StatInputPreservation.WholeBatch,
+        StatGroupingPolicy.WholeBatch,
+        StatSummarizationPolicy.KernelDensity,
+        StatRejectionPolicy.FailBatch,
+        StatMappingPolicy.Replace,
+        StatGeometryPolicy.Require(Geom.Line),
+        StatLowering.Density
+      )
+
+    override def compute[Input <: Row](
+        batch: StatBatch[Input],
+        context: StatContext
+    ): Either[StatError, StatResult.Aux[Input, StatRow.Density[Input]]] =
+      BuiltinStatRuntime.density(this, batch, context)

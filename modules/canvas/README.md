@@ -21,6 +21,16 @@ supplies ordinary browser canvas materialization, while OffscreenCanvas or test
 environments can provide their own image source without changing shared
 graphics.
 
+Pattern fills use the same deterministic RGBA tile generator as the JVM raster
+backends. Each distinct `PatternPaint` is uploaded once per draw and installed
+as a repeating native `CanvasPattern`; `CanvasDrawProfile` reports pattern
+requests, hits, and misses separately from ordinary images. Pattern coordinates
+start at device `(0, 0)`, follow the current group transform, and the mark alpha
+is applied once after ink and optional background have been composited. A tile
+axis is bounded at 1,024 device pixels; larger requests and failed native
+pattern creation return a typed `CanvasRenderError` rather than falling back to
+a solid fill.
+
 `CanvasTextMetrics` is an opt-in layout provider backed by
 `CanvasRenderingContext2D.measureText`. Construct it with the drawing context
 and inject it through `LayoutPolicy(metrics = ...)`; portable output continues

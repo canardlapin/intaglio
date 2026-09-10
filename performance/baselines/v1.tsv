@@ -1,0 +1,21 @@
+# Intaglio deterministic performance receipt
+# schema_version=1
+# source_sha=5cfaceecb60bbbacb96f18d900c76f7b5bc19428
+# recorded_on=2026-08-30
+workload	metric	recorded	high_severity_limit	rationale
+scatter	retained_rows	0	0	Lean compilation must not retain one resolved row per mark
+scatter	grobs	1	1	Large point layers must remain one columnar grob
+scatter	device_primitives	1	1	Device lowering must preserve one point batch
+scatter	batch_coordinates	20000	20000	The batch carries exactly one coordinate per source mark
+raster	packed_bytes	262144	262144	Packed rasters retain one four-byte pixel word
+raster	device_primitives	1	1	One raster grob lowers to one device image
+raster	svg_bytes	350260	437825	A 25 percent ceiling guards deterministic PNG and base64 growth
+dodge	output_rows	10000	10000	Dodge must not duplicate adjusted rows
+dodge	grobs	10000	10000	Dodge lowering remains one rectangle per input row
+stack	output_rows	10000	10000	Stack must not duplicate adjusted rows
+stack	grobs	10000	10000	Stack lowering remains one rectangle per input row
+discrete_lookup	identity_calls	9216	9216	Every indexed lookup derives its stable identity exactly once
+histogram	compiled_bins	256	256	Large generated histograms retain one output per requested bin
+histogram	slow_path_penalty	0	0	Generated bins use arithmetic lookup and explicit breaks use binary search
+svg	mark_elements	10000	10000	Point batches serialize exactly one SVG element per mark
+svg	bytes	1336945	1671182	A 25 percent ceiling guards large-scatter serialization growth

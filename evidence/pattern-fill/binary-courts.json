@@ -1,0 +1,67 @@
+{
+  "schema": "intaglio.pattern-fill-binary-courts.v1",
+  "observedOn": "2026-08-30",
+  "baselineSha": "596b398af380079e4b251535230d0bc03cd88c51",
+  "candidateSha": "b9ea59faacfc5507a7ce71d69ebf75521f11d7d7",
+  "method": {
+    "compileClasspath": "baseline",
+    "testRuntimeClasspath": "candidate",
+    "hashScope": "all consumer main and test classfiles under target/scala-3.7.4",
+    "hashAlgorithm": "sha256 of a repo-relative, path-sorted per-file sha256 manifest",
+    "noRecompileEnforcement": "compare complete consumer class digests immediately before and after; ScalaFIM Compile and Test compile tasks were explicitly skipped for the candidate-runtime run"
+  },
+  "courts": [
+    {
+      "consumer": "image4s",
+      "consumerSha": "3fb9fd6dc385a1cd7021f7d8a7157efb7e1c78a3",
+      "state": "passed",
+      "testCounts": {"jvm": 19, "scalaJs": 17},
+      "classDigestBefore": "beaffd62dd96aa6f7c8a3f8a8210d0d7db44e54ebf4eb6b39b75e862cf3214c1",
+      "classDigestAfter": "beaffd62dd96aa6f7c8a3f8a8210d0d7db44e54ebf4eb6b39b75e862cf3214c1",
+      "sourceRecompiledAgainstCandidate": false
+    },
+    {
+      "consumer": "StoryAtlas4s",
+      "consumerSha": "003f12b21e1b9793fea479e104c2e2eff3e55fe5",
+      "state": "passed",
+      "tasks": ["testAll", "app/fastLinkJS"],
+      "testCounts": {
+        "layoutJVM": 22,
+        "layoutScalaJs": 26,
+        "intaglioJVM": 14,
+        "intaglioScalaJs": 14,
+        "cliJVM": 15,
+        "appScalaJs": 22
+      },
+      "classDigestBefore": "5c2ba173a20565f6cf8b1b4321d9abee72a1e10e83363a7af18b8cb1d11b995d",
+      "classDigestAfter": "5c2ba173a20565f6cf8b1b4321d9abee72a1e10e83363a7af18b8cb1d11b995d",
+      "sourceRecompiledAgainstCandidate": false
+    },
+    {
+      "consumer": "ScalaFIM",
+      "consumerSha": "fd992a0c85001eb50ba2e78d29c497693ca494dc",
+      "state": "passed",
+      "taskSet": "the 15 direct renderer-consumer tasks listed in source-courts.json",
+      "testCounts": {
+        "designJVM": 229,
+        "designScalaJs": 229,
+        "imageViewJVM": 28,
+        "imageViewScalaJs": 28,
+        "canvasScalaJs": 5,
+        "java2dJVM": 2,
+        "javafxJVM": 2,
+        "surfaceViewJVM": 49,
+        "surfaceViewScalaJs": 49,
+        "surfaceRasterJVM": 11,
+        "surfaceRasterScalaJs": 11,
+        "surfaceJavafxJVM": 15,
+        "surfaceThreeScalaJs": 12,
+        "examplesJVM": 12,
+        "examplesScalaJs": 11
+      },
+      "classDigestBefore": "49bf5a3835e7af67211c17588fc63219d65ef5b84f8310ed6dc0fdb34e9e992e",
+      "classDigestAfter": "49bf5a3835e7af67211c17588fc63219d65ef5b84f8310ed6dc0fdb34e9e992e",
+      "sourceRecompiledAgainstCandidate": false
+    }
+  ]
+}

@@ -3,9 +3,35 @@ import sbtcrossproject.CrossPlugin.autoImport.*
 import scalajscrossproject.ScalaJSCrossPlugin.autoImport.*
 
 ThisBuild / organization := "io.github.canardlapin"
-ThisBuild / scalaVersion := "3.4.2"
-ThisBuild / version      := "0.1.0-SNAPSHOT"
+
+/** The published artifact is built with the Scala 3 LTS line, because TASTy is forward- but not
+  * backward-compatible: a consumer on any later 3.x can read an LTS-built library, while a library
+  * built with a feature release locks out every earlier compiler. `crossScalaVersions` adds the
+  * current feature release as a CI court only --- both would produce the same `_3` coordinates, so
+  * a release publishes the default version alone (see docs/releasing.md).
+  */
+val scalaLts = "3.3.8"
+val scalaNext = "3.9.0"
+
+ThisBuild / scalaVersion := scalaLts
+
+/** `version` is deliberately absent: sbt-ci-release derives it from the git state through
+  * sbt-dynver, so a tag is the only thing that names a release.
+  */
 ThisBuild / versionScheme := Some("early-semver")
+
+/** Before the first published release, `tools/check-compatibility.sh` supplies an exact local
+  * baseline and asks for the strongest check. Normal 0.x.0 development remains an explicitly
+  * breaking boundary until that baseline exists in a repository.
+  */
+ThisBuild / versionPolicyIntention := {
+  if (sys.env.contains("INTAGLIO_COMPAT_BASELINE_VERSION"))
+    Compatibility.BinaryAndSourceCompatible
+  else
+    Compatibility.None
+}
+ThisBuild / versionPolicyIgnoredInternalDependencyVersions :=
+  Some("^\\d+\\.\\d+\\.\\d+-SNAPSHOT$".r)
 
 ThisBuild / homepage := Some(url("https://github.com/canardlapin/intaglio"))
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
@@ -24,24 +50,77 @@ ThisBuild / developers := List(
   )
 )
 
+/** Scaladoc runs inside the sbt JVM and is not safe to run beside itself: a `publishM2` or
+  * `publishSigned` over the whole aggregate starts a `doc` task per module, and under load that has
+  * twice died with a `NullPointerException` in `MemberRenderer` --- once during a release
+  * rehearsal. Serializing the doc tasks costs wall-clock only on the publishing path, which is not
+  * hot, and removes the only shared-state race available to them.
+  *
+  * This is insurance, not a verified fix: the crash has never reproduced in isolation, so the
+  * hypothesis that concurrency causes it is untested. If it recurs with this in place, the cause is
+  * elsewhere and this restriction should be removed rather than widened.
+  */
+val scaladocTag = Tags.Tag("scaladoc")
+
+Global / concurrentRestrictions += Tags.limit(scaladocTag, 1)
+
 lazy val commonSettings = Seq(
+  /** Stated in project scope, not only on `ThisBuild`, because a consumer that loads Intaglio as a
+    * `ProjectRef` may carry a plugin deriving `scalaVersion` from `crossScalaVersions` in project
+    * scope --- sbt-typelevel-settings sets `scalaVersion := crossScalaVersions.value.last`. Project
+    * scope beats `ThisBuild`, so without this line such a build would compile Intaglio with the
+    * feature release and hand its own LTS-era compiler a TASTy file it cannot read. `++` appends
+    * its own project-scope setting, so the cross court still switches.
+    */
+  scalaVersion := scalaLts,
+  crossScalaVersions := Seq(scalaLts, scalaNext),
   scalacOptions ++= Seq(
     "-deprecation",
     "-feature",
     "-unchecked",
     "-Xmax-inlines:64"
   ),
+  // No `apiURL`: a POM is immutable once published, and there is no API site to point one at.
+  // Set it, with `autoAPIMappings`, in the change that first deploys one.
   Test / fork := false,
-  libraryDependencies += "org.scalameta" %%% "munit" % "1.2.1" % Test
+  Compile / doc / tags := Seq(scaladocTag -> 1),
+  libraryDependencies += "org.scalameta" %%% "munit" % "1.2.1" % Test,
+  mimaReportSignatureProblems := true,
+  mimaPreviousArtifacts ++= sys.env
+    .get("INTAGLIO_COMPAT_BASELINE_VERSION")
+    .toSet
+    .map(baseline => organization.value %%% name.value % baseline),
+  tastyMiMaPreviousArtifacts ++= sys.env
+    .get("INTAGLIO_COMPAT_BASELINE_VERSION")
+    .toSet
+    .map(baseline => organization.value %%% name.value % baseline),
+  tastyMiMaConfig ~= { previous =>
+    import java.util.Arrays.asList
+    import tastymima.intf.{ProblemKind, ProblemMatcher}
+    // tastyquery cannot read an `Aux` type member that refers to its enclosing type parameter:
+    // `InvalidProgramStructureException: Unexpected local ref TypeRef(NoPrefix, symbol[Aux>Row])`.
+    // That is a limitation of the tool, not a shape this code should change to suit it, and
+    // sbt-tasty-mima 1.4.0 is the latest published version.
+    previous.withMoreProblemFilters(
+      asList(
+        ProblemMatcher.make(ProblemKind.InternalError, "intaglio.PackedStatPlan.Aux"),
+        ProblemMatcher.make(ProblemKind.InternalError, "intaglio.StatResult.Aux")
+      )
+    )
+  }
 )
 
 lazy val jsSettingsBase = Seq(
   scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)),
-  Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv()
+  Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
+  // MiMa reads JVM class files. Shared Scala.js APIs are checked through their
+  // JVM twins, while TASTy-MiMa still runs on every Scala.js artifact.
+  versionPolicyCheck / skip := true,
+  versionCheck / skip := true
 )
 
-/** OpenJFX publishes per-platform artifacts, so the classifier is resolved from
-  * the building machine. It stays `Provided`: a consumer picks its own runtime.
+/** OpenJFX publishes per-platform artifacts, so the classifier is resolved from the building
+  * machine. It stays `Provided`: a consumer picks its own runtime.
   */
 lazy val javafxPlatformClassifier: String = {
   val os = sys.props.getOrElse("os.name", "").toLowerCase
@@ -53,6 +132,10 @@ lazy val javafxPlatformClassifier: String = {
   if (arch.contains("aarch64") && base != "win") base + "-aarch64" else base
 }
 
+lazy val interactionCompatibilityCheck = taskKey[Unit](
+  "Validate reviewed additive API entries and calibrate forward-only filtering"
+)
+
 lazy val core =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Full)
@@ -62,10 +145,82 @@ lazy val core =
       name := "intaglio-core",
       description := "Renderer-neutral grammar-of-graphics core for Scala 3, cross-compiled to JVM and Scala.js."
     )
+    .jvmSettings(
+      mimaForwardIssueFilters ++= {
+        val review = InteractionCompatibility.read(
+          (ThisBuild / baseDirectory).value / "compatibility" / "interaction-additions.txt",
+          (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
+        )
+        val previous = mimaPreviousClassfiles.value
+        InteractionCompatibility.validateArtifacts(
+          review,
+          previous,
+          mimaCurrentClassfiles.value
+        )
+        if (previous.isEmpty) Map.empty[String, Seq[com.typesafe.tools.mima.core.ProblemFilter]]
+        else Map(review.version -> review.filters)
+      },
+
+      interactionCompatibilityCheck := {
+        // MiMa reads this project's compiled classes, so the task has to depend on compiling them.
+        // Without this it passes on a warm `target/` and dies with a NoSuchFileException on a clean
+        // checkout — which is every CI run, and is why this court has never actually run there.
+        val _ = (Compile / compile).value
+        val review = InteractionCompatibility.read(
+          (ThisBuild / baseDirectory).value / "compatibility" / "interaction-additions.txt",
+          (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
+        )
+        InteractionCompatibility.calibrate()
+        val previous = mimaPreviousClassfiles.value
+        val current = mimaCurrentClassfiles.value
+        InteractionCompatibility.validateArtifacts(review, previous, current)
+        val classpath = (Compile / dependencyClasspath).value.map(_.data)
+        val mima = new com.typesafe.tools.mima.lib.MiMaLib(classpath)
+        previous.values.foreach { old =>
+          InteractionCompatibility.validateFindings(review, mima.collectProblems(current, old, Nil))
+        }
+        streams.value.log.info(
+          "Additive review calibration passed: legacy removals and unreviewed additions still report"
+        )
+      }
+    )
     .jsSettings(jsSettingsBase)
 
-lazy val coreJS  = core.js
+lazy val coreJS = core.js
 lazy val coreJVM = core.jvm
+
+lazy val interaction =
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/interaction"))
+    .dependsOn(core)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-interaction",
+      description := "Portable interaction state, events, and picking for Intaglio.",
+      // This new artifact has no historical baseline yet.
+      mimaPreviousArtifacts := Set.empty,
+      tastyMiMaPreviousArtifacts := Set.empty
+    )
+    .jsSettings(jsSettingsBase)
+
+lazy val interactionJS = interaction.js
+lazy val interactionJVM = interaction.jvm
+
+lazy val laws =
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/laws"))
+    .dependsOn(core)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-laws",
+      description := "Framework-neutral extension law kits for Intaglio ecosystem authors."
+    )
+    .jsSettings(jsSettingsBase)
+
+lazy val lawsJS = laws.js
+lazy val lawsJVM = laws.jvm
 
 lazy val svg =
   crossProject(JSPlatform, JVMPlatform)
@@ -79,8 +234,37 @@ lazy val svg =
     )
     .jsSettings(jsSettingsBase)
 
-lazy val svgJS  = svg.js
+lazy val svgJS = svg.js
 lazy val svgJVM = svg.jvm
+
+lazy val notebook =
+  crossProject(JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/notebook"))
+    .dependsOn(core, svg)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-notebook",
+      description := "Optional Jupyter MIME-bundle display adapter for Intaglio plots."
+    )
+
+lazy val notebookJVM = notebook.jvm
+
+lazy val performance =
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/performance"))
+    .dependsOn(core, svg, interaction)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-performance-gates",
+      description := "Deterministic cross-platform performance regression workloads for Intaglio.",
+      publish / skip := true
+    )
+    .jsSettings(jsSettingsBase)
+
+lazy val performanceJS = performance.js
+lazy val performanceJVM = performance.jvm
 
 lazy val canvas =
   crossProject(JSPlatform)
@@ -104,10 +288,40 @@ lazy val java2d =
     .settings(commonSettings)
     .settings(
       name := "intaglio-java2d",
-      description := "Java2D renderer for Intaglio scenes (JVM)."
+      description := "Java2D renderer for Intaglio scenes (JVM).",
+      libraryDependencies += "org.apache.pdfbox" % "pdfbox" % "3.0.8" % Test,
+      // tastyquery is given `modules/java.base` and nothing else of the JDK, so every signature
+      // mentioning an AWT type resolved to nothing. Nine members of this renderer's public surface
+      // were reported as internal errors and filtered, which meant the TASTy court never actually
+      // compared them. `java.awt` lives in `java.desktop` on JDK 9+; supplying that module lets the
+      // court check them, and the nine filters are gone.
+      tastyMiMaCurrentClasspath ~= { case (classpath, classes) =>
+        (classpath :+ JdkModules.desktop, classes)
+      },
+      tastyMiMaPreviousClasspaths ~= (_.map { case (module, classpath, classes) =>
+        (module, classpath :+ JdkModules.desktop, classes)
+      }),
     )
 
 lazy val java2dJVM = java2d.jvm
+
+lazy val pdf =
+  crossProject(JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/pdf"))
+    .dependsOn(core)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-pdf",
+      description := "Publication-quality PDF renderer for Intaglio scenes (JVM).",
+      libraryDependencies += "org.apache.pdfbox" % "pdfbox" % "3.0.8",
+      // PDF render-back assertions exercise AWT image code. Isolate them from
+      // the sbt UI process and make their intended headless environment explicit.
+      Test / fork := true,
+      Test / javaOptions += "-Djava.awt.headless=true"
+    )
+
+lazy val pdfJVM = pdf.jvm
 
 lazy val javafx =
   crossProject(JVMPlatform)
@@ -121,10 +335,59 @@ lazy val javafx =
       libraryDependencies ++= Seq(
         "org.openjfx" % "javafx-base" % "21.0.5" % Provided classifier javafxPlatformClassifier,
         "org.openjfx" % "javafx-graphics" % "21.0.5" % Provided classifier javafxPlatformClassifier
-      )
+      ),
+      tastyMiMaConfig ~= { previous =>
+        import java.util.Arrays.asList
+        import tastymima.intf.{ProblemKind, ProblemMatcher}
+        previous.withMoreProblemFilters(
+          asList(
+                        // tastyquery reports `MemberNotFoundException: Member javafx not found in PackageRef()`
+            // even though the OpenJFX jar carrying `GraphicsContext` is on the classpath it is given.
+            // The `java.desktop` fix that cleared the Java2D errors does not apply: these are ordinary
+            // modular jars, not a JDK module. Dropping the class-less OpenJFX stub jar was tried and
+            // changed nothing.
+ProblemMatcher.make(
+              ProblemKind.InternalError,
+              "intaglio.javafx.JavaFxCanvasContext.<init>"
+            )
+          )
+        )
+      }
     )
 
 lazy val javafxJVM = javafx.jvm
+
+/** Executable documentation. Every fenced block marked `mdoc` in `docs/` is compiled against the
+  * real modules, so a guide cannot drift from the API it documents, and the gallery writes its own
+  * SVG output next to its source (see docs/gallery.md).
+  */
+lazy val docs =
+  project
+    .in(file("modules/docs"))
+    .enablePlugins(MdocPlugin)
+    .dependsOn(coreJVM, lawsJVM, svgJVM, java2dJVM, pdfJVM, notebookJVM)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-docs",
+      description := "Compiled documentation examples and the SVG gallery generator.",
+      publish / skip := true,
+      mimaPreviousArtifacts := Set.empty,
+      tastyMiMaPreviousArtifacts := Set.empty,
+      versionPolicyCheck / skip := true,
+      versionCheck / skip := true,
+      mdocIn := (ThisBuild / baseDirectory).value / "docs",
+      // mdoc's link hygiene only knows the files under `mdocIn`, so it reports
+      // every link out to the repository root as unknown. tools/check-links.sh
+      // checks the whole repository, targets and heading anchors alike.
+      mdocExtraArguments += "--no-link-hygiene",
+      mdocOut := target.value / "docs",
+      mdocVariables := Map(
+        "VERSION" -> (if (isSnapshot.value) previousStableVersion.value.getOrElse("0.1.0")
+                      else version.value),
+        "SCALA_LTS" -> scalaLts,
+        "SCALA_NEXT" -> scalaNext
+      )
+    )
 
 lazy val root =
   project
@@ -132,10 +395,18 @@ lazy val root =
     .aggregate(
       coreJS,
       coreJVM,
+      interactionJS,
+      interactionJVM,
+      lawsJS,
+      lawsJVM,
       svgJS,
       svgJVM,
+      notebookJVM,
+      performanceJS,
+      performanceJVM,
       canvasJS,
       java2dJVM,
+      pdfJVM,
       javafxJVM
     )
     .settings(
@@ -144,11 +415,26 @@ lazy val root =
     )
 
 addCommandAlias(
+  "docsCheck",
+  ";docs/mdoc"
+)
+
+addCommandAlias(
   "compileAll",
-  ";coreJVM/compile;coreJS/compile;svgJVM/compile;svgJS/compile;canvasJS/compile;java2dJVM/compile;javafxJVM/compile"
+  ";coreJVM/compile;coreJS/compile;interactionJVM/compile;interactionJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile"
 )
 
 addCommandAlias(
   "testAll",
-  ";coreJVM/test;coreJS/test;svgJVM/test;svgJS/test;canvasJS/test;java2dJVM/test;javafxJVM/test"
+  ";coreJVM/test;coreJS/test;interactionJVM/test;interactionJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test"
+)
+
+addCommandAlias(
+  "compatibilityCheck",
+  ";coreJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
+)
+
+addCommandAlias(
+  "featureVisualQaJVM",
+  "java2dJVM / Test / testOnly intaglio.java2d.FeatureVisualRegressionSuite"
 )

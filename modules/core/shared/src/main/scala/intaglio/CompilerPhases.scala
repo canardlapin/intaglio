@@ -1,18 +1,31 @@
 package intaglio
 
-/** Output of the mapping-resolution phase: one plan per layer with effective
-  * data and its canonical aesthetic mapping.
+private[intaglio] final case class AnnotationPlan(
+    reference: ReferenceLine,
+    coordinate: Double,
+    trainedScale: Option[TrainedScale] = None
+):
+  def isMapped: Boolean =
+    trainedScale.nonEmpty
+
+  def resolved: ResolvedReferenceLine =
+    ResolvedReferenceLine(reference, coordinate, trainedScale)
+
+/** Output of the mapping-resolution phase: one plan per layer with effective data and its canonical
+  * aesthetic mapping.
   */
 private[intaglio] final case class LayerPlan[Row](
     layerIndex: Int,
     layer: Layer[Row],
     data: Vector[Row],
     mapping: AesSpec[Row],
-    packageKey: AnyRef
+    packageKey: AnyRef,
+    statScope: StatScope,
+    annotation: Option[AnnotationPlan]
 )
 
-/** Existential package that keeps one layer's row type attached to every
-  * compiler input derived from it.
+/** Existential package that keeps one layer's row type attached to every compiler input derived
+  * from it.
   */
 private[intaglio] sealed trait PackedLayerPlan:
   type Row
@@ -22,6 +35,8 @@ private[intaglio] sealed trait PackedLayerPlan:
   final def layer: Layer[Row] = value.layer
   final def data: Vector[Row] = value.data
   final def mapping: AesSpec[Row] = value.mapping
+  final def statScope: StatScope = value.statScope
+  final def annotation: Option[AnnotationPlan] = value.annotation
 
 private[intaglio] object PackedLayerPlan:
   type Aux[Row0] = PackedLayerPlan { type Row = Row0 }
@@ -31,56 +46,69 @@ private[intaglio] object PackedLayerPlan:
       type Row = Row0
       val value: LayerPlan[Row] = plan
 
-/** A layer after its statistical transform. Every stat emits the same typed
-  * row envelope, so scale training remains plot-wide even when layers have
-  * different statistics.
+/** A layer after its statistical transform. Every stat emits a subtype of the shared typed row
+  * algebra, so scale training remains plot-wide even when layers have different statistics.
   */
-private[intaglio] final case class StatPlan[Row](
+private[intaglio] final case class StatPlan[Row, Output <: StatRow[Row]](
     source: LayerPlan[Row],
     frame: StatFrame[Row],
-    mapping: AesSpec[StatRow[Row]]
+    data: Vector[Output],
+    mapping: AesSpec[Output]
 ):
   def layerIndex: Int = source.layerIndex
   def layer: Layer[Row] = source.layer
-  def data: Vector[StatRow[Row]] = frame.rows
+  def annotation: Option[AnnotationPlan] = source.annotation
 
-/** Existential package for a statistically transformed layer. All operations
-  * except alignment of two copies of the same package remain fully typed.
+/** Existential package for a statistically transformed layer. All operations except alignment of
+  * two copies of the same package remain fully typed.
   */
 private[intaglio] sealed trait PackedStatPlan:
   type Row
-  def value: StatPlan[Row]
+  type Output <: StatRow[Row]
+  def value: StatPlan[Row, Output]
 
   final def layerIndex: Int = value.layerIndex
   final def layer: Layer[Row] = value.layer
-  final def data: Vector[StatRow[Row]] = value.data
-  final def mapping: AesSpec[StatRow[Row]] = value.mapping
+  final def data: Vector[Output] = value.data
+  final def mapping: AesSpec[Output] = value.mapping
   final def frame: StatFrame[Row] = value.frame
   final def packageKey: AnyRef = value.source.packageKey
+  final def annotation: Option[AnnotationPlan] = value.annotation
 
 private[intaglio] object PackedStatPlan:
-  type Aux[Row0] = PackedStatPlan { type Row = Row0 }
+  type Aux[Row0, Output0 <: StatRow[Row0]] =
+    PackedStatPlan { type Row = Row0; type Output = Output0 }
 
-  def apply[Row0](plan: StatPlan[Row0]): Aux[Row0] =
+  def apply[Row0, Output0 <: StatRow[Row0]](
+      plan: StatPlan[Row0, Output0]
+  ): Aux[Row0, Output0] =
     new PackedStatPlan:
       type Row = Row0
-      val value: StatPlan[Row] = plan
+      type Output = Output0
+      val value: StatPlan[Row, Output] = plan
 
-  /** Facet compilation creates global and panel-local copies from the same
-    * package. Runtime identity proves their hidden row types agree; the one
-    * unavoidable erasure recovery for heterogeneous layers is confined here.
+  /** Facet compilation creates global and panel-local copies from the same package. Runtime
+    * identity proves their hidden row types agree; the one unavoidable erasure recovery for
+    * heterogeneous layers is confined here.
     */
   def mergePositionScales(
       global: PackedStatPlan,
       local: PackedStatPlan,
       scales: FacetScales
   ): PackedStatPlan =
-    require(global.packageKey eq local.packageKey, "facet plans must originate from the same layer package")
-    mergeAligned(global.value, local.value.asInstanceOf[StatPlan[global.Row]], scales)
+    require(
+      global.packageKey eq local.packageKey,
+      "facet plans must originate from the same layer package"
+    )
+    mergeAligned(
+      global.value,
+      local.value.asInstanceOf[StatPlan[global.Row, global.Output]],
+      scales
+    )
 
-  private def mergeAligned[Row](
-      global: StatPlan[Row],
-      local: StatPlan[Row],
+  private def mergeAligned[Row, Output <: StatRow[Row]](
+      global: StatPlan[Row, Output],
+      local: StatPlan[Row, Output],
       scales: FacetScales
   ): PackedStatPlan =
     val withX =
@@ -89,7 +117,16 @@ private[intaglio] object PackedStatPlan:
     val mapping =
       if scales.yIsFree then replace(withX, local.mapping, Aesthetic.Y)
       else withX
-    PackedStatPlan(global.copy(mapping = mapping))
+    val annotation = global.annotation match
+      case Some(value)
+          if ((value.reference.aesthetic eq Aesthetic.X) && scales.xIsFree) ||
+            ((value.reference.aesthetic eq Aesthetic.Y) && scales.yIsFree) =>
+        local.annotation
+      case value =>
+        value
+    PackedStatPlan(
+      global.copy(mapping = mapping, source = global.source.copy(annotation = annotation))
+    )
 
   private def replace[Row, A](
       target: AesSpec[Row],
@@ -98,8 +135,8 @@ private[intaglio] object PackedStatPlan:
   ): AesSpec[Row] =
     source.get(aesthetic).fold(target)(target.updated(aesthetic, _))
 
-/** Phase 1 — mapping resolution: merge layer and plot mappings, validate the
-  * input contract, and reject unsupported geoms before any row is evaluated.
+/** Phase 1 — mapping resolution: merge layer and plot mappings, validate the input contract, and
+  * reject unsupported geoms before any row is evaluated.
   */
 private[intaglio] object MappingPhase:
   def plan[Row](plot: Plot[Row]): Either[GraphicsError, Vector[PackedLayerPlan]] =
@@ -114,36 +151,58 @@ private[intaglio] object MappingPhase:
       idx += 1
     result.map(_ => out.result())
 
-  def planPanel[Row](
+  def planPanels[Row](
       plot: Plot[Row],
       facet: FacetSpec[Row],
-      cell: FacetCell
-  ): Either[GraphicsError, Vector[PackedLayerPlan]] =
-    val out = Vector.newBuilder[PackedLayerPlan]
+      layout: FacetLayout
+  ): Either[GraphicsError, Vector[Vector[PackedLayerPlan]]] =
+    val out =
+      Vector.fill(layout.cells.length)(scala.collection.mutable.ArrayBuffer.empty[PackedLayerPlan])
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plot.layers.length && result.isRight do
       val packed = plot.layers(idx)
-      result = planValues(
-        packed.layer,
-        packed.panelData(plot.data, facet, cell),
-        packed.effectiveMapping(plot.mapping),
-        idx,
-        packed
-      ).map { plan =>
-        out += PackedLayerPlan(plan)
-        ()
+      val annotation = packed.layer.annotation.flatMap { reference =>
+        Option.when(reference.facetPolicy == AnnotationFacetPolicy.Repeat)(
+          AnnotationPlan(reference, reference.coordinate)
+        )
+      }
+      val mapping = packed.effectiveMapping(plot.mapping)
+      result = packed.panelDataByCell(plot.data, facet, layout, idx).flatMap { panelData =>
+        var panelIndex = 0
+        var layerResult: Either[GraphicsError, Unit] = Right(())
+        while panelIndex < layout.cells.length && layerResult.isRight do
+          layerResult = planValues(
+            packed.layer,
+            panelData(panelIndex),
+            mapping,
+            idx,
+            packed,
+            StatScope.Facet(layout.cells(panelIndex)),
+            annotation
+          ).map { plan =>
+            out(panelIndex) += PackedLayerPlan(plan)
+            ()
+          }
+          panelIndex += 1
+        layerResult
       }
       idx += 1
-    result.map(_ => out.result())
+    result.map(_ => out.map(_.toVector))
 
-  def planLayer[Row](plot: Plot[Row], layer: Layer[Row], layerIndex: Int): Either[GraphicsError, LayerPlan[Row]] =
+  def planLayer[Row](
+      plot: Plot[Row],
+      layer: Layer[Row],
+      layerIndex: Int
+  ): Either[GraphicsError, LayerPlan[Row]] =
     planValues(
       layer,
       layer.effectiveData(plot.data),
       layer.effectiveMapping(plot.mapping),
       layerIndex,
-      layer
+      layer,
+      StatScope.Plot,
+      layer.annotation.map(reference => AnnotationPlan(reference, reference.coordinate))
     )
 
   private def planLayer[PlotRow](
@@ -156,7 +215,9 @@ private[intaglio] object MappingPhase:
       packed.effectiveData(plot.data),
       packed.effectiveMapping(plot.mapping),
       layerIndex,
-      packed
+      packed,
+      StatScope.Plot,
+      packed.layer.annotation.map(reference => AnnotationPlan(reference, reference.coordinate))
     ).map(PackedLayerPlan(_))
 
   private def planValues[Row](
@@ -164,22 +225,16 @@ private[intaglio] object MappingPhase:
       data: Vector[Row],
       mapping: AesSpec[Row],
       layerIndex: Int,
-      packageKey: AnyRef
+      packageKey: AnyRef,
+      statScope: StatScope,
+      annotation: Option[AnnotationPlan]
   ): Either[GraphicsError, LayerPlan[Row]] =
-    if !isSupported(layer.geom) then Left(GraphicsError.UnsupportedGeom(layer.geom.label))
-    else
-      Layer.validate(layer, mapping).map { _ =>
-        LayerPlan(layerIndex, layer, data, mapping, packageKey)
-      }
+    Layer.validate(layer, mapping).map { _ =>
+      LayerPlan(layerIndex, layer, data, mapping, packageKey, statScope, annotation)
+    }
 
-  private def isSupported(geom: Geom): Boolean =
-    geom match
-      case Geom.Point | Geom.Line | Geom.Text | Geom.Rect | Geom.Bar | Geom.Segment |
-          Geom.ErrorBar | Geom.Ribbon | Geom.Area | Geom.HLine | Geom.VLine | Geom.Tile | Geom.Polygon => true
-
-/** Phase 2 — statistical transformation. Identity only lifts the source
-  * mapping into a stat row. Count aggregates by its typed key, creates count
-  * and proportion fields, and owns the discrete x scale plus computed y.
+/** Phase 2 — invoke the open statistic contract and package its precise output-row type for the
+  * remaining compiler phases. The compiler has no built-in-stat dispatch table.
   */
 private[intaglio] object StatPhase:
   def transform(plans: Vector[PackedLayerPlan]): Either[GraphicsError, Vector[PackedStatPlan]] =
@@ -188,83 +243,118 @@ private[intaglio] object StatPhase:
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plans.length && result.isRight do
       result = transform(plans(idx).value).map { plan =>
-        out += PackedStatPlan(plan)
+        out += plan
         ()
       }
       idx += 1
     result.map(_ => out.result())
 
-  def transform[Row](plan: LayerPlan[Row]): Either[GraphicsError, StatPlan[Row]] =
-    plan.layer.stat match
-      case Stat.Identity =>
-        val rows = plan.data.map(row => StatRow(row, Vector(row), None, ComputedValues.empty))
-        val frame = StatFrame(rows, Set.empty)
-        val mapping = plan.mapping.contramap[StatRow[Row]](_.source)
-        Right(StatPlan(plan, frame, mapping))
-      case count: Stat.Count[?] =>
-        countFrame(plan, count.asInstanceOf[Stat.Count[Row]])
-      case bin: Stat.Bin[?] =>
-        binFrame(plan, bin.asInstanceOf[Stat.Bin[Row]])
-      case summary: Stat.Summary[?] =>
-        summaryFrame(plan, summary.asInstanceOf[Stat.Summary[Row]])
-      case density: Stat.Density[?] =>
-        densityFrame(plan, density.asInstanceOf[Stat.Density[Row]])
+  def transform[Row](plan: LayerPlan[Row]): Either[GraphicsError, PackedStatPlan] =
+    val stat = plan.layer.stat
+    val context = StatContext(plan.layerIndex, plan.layer.geom, plan.statScope)
+    stat
+      .compute(StatBatch(plan.data, plan.mapping), context)
+      .left
+      .map(_.toGraphicsError(stat.label, plan.layerIndex))
+      .flatMap(result => packageResult(plan, result))
 
-  private def countFrame[Row](
+  private def packageResult[Row](
       plan: LayerPlan[Row],
-      stat: Stat.Count[Row]
-  ): Either[GraphicsError, StatPlan[Row]] =
-    if plan.data.isEmpty then
-      val mapping = countMapping[Row](stat)
-      mapping.map { resolved =>
-        StatPlan(
-          plan,
-          StatFrame(Vector.empty, Set(ComputedAesthetic.Count, ComputedAesthetic.Proportion)),
-          resolved
+      result: StatResult[Row]
+  ): Either[GraphicsError, PackedStatPlan] =
+    Layer
+      .validate(plan.layer.geom, result.mapping)
+      .left
+      .map(error => GraphicsError.InvalidStatResult(plan.layer.stat.label, error.message))
+      .map { _ =>
+        PackedStatPlan(StatPlan(plan, result.frame, result.rows, result.mapping))
+      }
+
+/** Implementations of the public contract used by the built-in statistics. */
+private[intaglio] object BuiltinStatRuntime:
+  def identity[Input](
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult.Aux[Input, StatRow.Identity[Input]]] =
+    val _ = context
+    val rows = batch.rows.map(StatRow.Identity(_))
+    val mapping = batch.mapping.contramap[StatRow.Identity[Input]](_.source)
+    Right(StatResult[Input, StatRow.Identity[Input]](rows, mapping))
+
+  def count[Row, Input <: Row](
+      stat: Stat.Count[Row],
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult.Aux[Input, StatRow.Counted[Input]]] =
+    val _ = context
+    val data = batch.rows
+    if data.isEmpty then
+      countMapping[Row, Input](stat).map { mapping =>
+        StatResult[Input, StatRow.Counted[Input]](
+          Vector.empty,
+          mapping,
+          Set(ComputedAesthetic.Count, ComputedAesthetic.Proportion)
         )
       }
     else
-      val keys = plan.data.map(stat.x)
-      val categories = stat.order.arrange(keys)
-      val groupKeys = stat.group match
-        case None          => Vector(None)
-        case Some(groupOf) => plan.data.map(row => Some(groupOf(row))).distinct
-      val groups = scala.collection.mutable.HashMap.empty[(String, Option[String]), scala.collection.mutable.ArrayBuffer[Row]]
-      plan.data.zip(keys).foreach { case (row, key) =>
-        val group = stat.group.map(_(row))
-        groups.getOrElseUpdate((key, group), scala.collection.mutable.ArrayBuffer.empty) += row
-      }
-      val rows = categories.flatMap { category =>
-        groupKeys.flatMap { group =>
-          groups.get((category, group)).map { bucket =>
-            val members = bucket.toVector
-            StatRow(
-              source = members.head,
-              members = members,
-              category = Some(category),
-              computed = ComputedValues.counted(members.length, plan.data.length)
-            )
+      for
+        keys <- batch.evaluate(Aesthetic.X.label, stat.x)
+        rowGroups <- stat.group match
+          case None =>
+            Right(Vector.fill(data.length)(Option.empty[String]))
+          case Some(groupOf) =>
+            batch.evaluate(Aesthetic.Group.label, groupOf).map(_.map(Some(_)))
+        mapping <- countMapping[Row, Input](stat)
+      yield
+        val categories = stat.order.arrange(keys)
+        val groupKeys = rowGroups.distinct
+        val groups = scala.collection.mutable.HashMap
+          .empty[(String, Option[String]), scala.collection.mutable.ArrayBuffer[Input]]
+        var rowIndex = 0
+        while rowIndex < data.length do
+          val key = keys(rowIndex)
+          val group = rowGroups(rowIndex)
+          groups.getOrElseUpdate((key, group), scala.collection.mutable.ArrayBuffer.empty) +=
+            data(rowIndex)
+          rowIndex += 1
+        val rows = categories.flatMap { category =>
+          groupKeys.flatMap { group =>
+            groups.get((category, group)).map { bucket =>
+              val members = bucket.toVector
+              StatRow.Counted(
+                source = members.head,
+                members = members,
+                level = category,
+                count = members.length,
+                proportion = members.length.toDouble / data.length.toDouble
+              )
+            }
           }
         }
-      }
-      countMapping[Row](stat).map { mapping =>
-        StatPlan(
-          plan,
-          StatFrame(rows, Set(ComputedAesthetic.Count, ComputedAesthetic.Proportion)),
-          mapping
+        StatResult[Input, StatRow.Counted[Input]](
+          rows,
+          mapping,
+          Set(ComputedAesthetic.Count, ComputedAesthetic.Proportion)
+        )
+
+  private def countMapping[Row, Input <: Row](
+      stat: Stat.Count[Row]
+  ): Either[StatError, AesSpec[StatRow.Counted[Input]]] =
+    BandScale(stat.scaleName.value, DiscreteDomain.empty, stat.padding).left
+      .map(error => StatError.Rejected(error.message))
+      .map { scale =>
+        AesSpec[StatRow.Counted[Input]](
+          x = Some(
+            AesValue.scaledTotal[StatRow.Counted[Input], String, Double](_.level, scale)
+          ),
+          y = Some(AesValue.total[StatRow.Counted[Input], Double](_.count.toDouble)),
+          group = stat.group.map(groupOf =>
+            AesValue.direct(
+              RowMapping.fromFunction(groupOf).contramap[StatRow.Counted[Input]](_.source)
+            )
+          )
         )
       }
-
-  private def countMapping[Row](
-      stat: Stat.Count[Row]
-  ): Either[GraphicsError, AesSpec[StatRow[Row]]] =
-    BandScale(stat.scaleName.value, DiscreteDomain.empty, stat.padding).map { scale =>
-      AesSpec[StatRow[Row]](
-        x = Some(AesValue.scaled(_.category.getOrElse(""), scale)),
-        y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Count).getOrElse(0.0))),
-        group = stat.group.map(groupOf => AesValue.direct(row => groupOf(row.source)))
-      )
-    }
 
   private val binAesthetics: Set[ComputedAesthetic[?]] =
     Set(
@@ -286,165 +376,334 @@ private[intaglio] object StatPhase:
       ComputedAesthetic.Upper
     )
 
+  private val quantileSummaryAesthetics: Set[ComputedAesthetic[?]] =
+    Set(
+      ComputedAesthetic.Count,
+      ComputedAesthetic.Position,
+      ComputedAesthetic.Median,
+      ComputedAesthetic.Lower,
+      ComputedAesthetic.Upper
+    )
+
+  private val ecdfAesthetics: Set[ComputedAesthetic[?]] =
+    Set(ComputedAesthetic.Count, ComputedAesthetic.Proportion, ComputedAesthetic.Position)
+
   private val densityAesthetics: Set[ComputedAesthetic[?]] =
     Set(ComputedAesthetic.Count, ComputedAesthetic.Position, ComputedAesthetic.Density)
 
-  private def binFrame[Row](plan: LayerPlan[Row], stat: Stat.Bin[Row]): Either[GraphicsError, StatPlan[Row]] =
-    val values = plan.data.map(stat.x)
-    firstNonFinite(values) match
-      case Some(value) => Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
-      case None if values.isEmpty =>
-        val mapping = binMapping[Row]
-        Right(StatPlan(plan, StatFrame(Vector.empty, binAesthetics), mapping))
-      case None =>
-        val breaks = HistogramBins.partition(stat.bins, values.min, values.max)
-        val lower = breaks.head
-        val upper = breaks.last
-        values.find(value => value < lower || value > upper) match
-          case Some(value) if HistogramBins.isExplicit(stat.bins) =>
-            Left(GraphicsError.StatInputOutsideBins(value, lower, upper))
-          case _ =>
-            val buckets = Array.fill(breaks.length - 1)(scala.collection.mutable.ArrayBuffer.empty[Row])
-            var rowIndex = 0
-            while rowIndex < plan.data.length do
-              val value = values(rowIndex)
-              val binIndex = findBin(value, breaks)
-              if binIndex >= 0 then buckets(binIndex) += plan.data(rowIndex)
-              rowIndex += 1
-            val rows = Vector.newBuilder[StatRow[Row]]
-            var binIndex = 0
-            while binIndex < buckets.length do
-              val members = buckets(binIndex).toVector
-              if members.nonEmpty then
-                rows += StatRow(
-                  members.head,
-                  members,
-                  None,
-                  ComputedValues.binned(members.length, plan.data.length, breaks(binIndex), breaks(binIndex + 1))
+  def bin[Row, Input <: Row](
+      stat: Stat.Bin[Row],
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult.Aux[Input, StatRow.Binned[Input]]] =
+    val _ = context
+    val data = batch.rows
+    batch.evaluate(Aesthetic.X.label, stat.x).flatMap { values =>
+      firstNonFinite(values) match
+        case Some(value) =>
+          Left(StatError.NonFiniteInput(Aesthetic.X.label, value))
+        case None if values.isEmpty =>
+          Right(
+            StatResult[Input, StatRow.Binned[Input]](
+              Vector.empty,
+              binMapping[Input],
+              binAesthetics
+            )
+          )
+        case None =>
+          val breaks = HistogramBins.partition(stat.bins, values.min, values.max)
+          val lower = breaks.head
+          val upper = breaks.last
+          values.find(value => value < lower || value > upper) match
+            case Some(value) if HistogramBins.isExplicit(stat.bins) =>
+              Left(StatError.InputOutsideBins(value, lower, upper))
+            case _ =>
+              val buckets =
+                Array.fill(breaks.length - 1)(scala.collection.mutable.ArrayBuffer.empty[Input])
+              val lookup = HistogramBins.lookup(stat.bins, breaks)
+              var rowIndex = 0
+              while rowIndex < data.length do
+                val value = values(rowIndex)
+                val binIndex = lookup.index(value)
+                if binIndex >= 0 then buckets(binIndex) += data(rowIndex)
+                rowIndex += 1
+              val rows = Vector.newBuilder[StatRow.Binned[Input]]
+              var binIndex = 0
+              while binIndex < buckets.length do
+                val members = buckets(binIndex).toVector
+                if members.nonEmpty then
+                  val binLower = breaks(binIndex)
+                  val binUpper = breaks(binIndex + 1)
+                  val binWidth = binUpper - binLower
+                  val count = members.length
+                  rows += StatRow.Binned(
+                    source = members.head,
+                    members = members,
+                    count = count,
+                    proportion = count.toDouble / data.length.toDouble,
+                    density = count.toDouble / (data.length.toDouble * binWidth),
+                    binLower = binLower,
+                    binUpper = binUpper
+                  )
+                binIndex += 1
+              Right(
+                StatResult[Input, StatRow.Binned[Input]](
+                  rows.result(),
+                  binMapping[Input],
+                  binAesthetics
                 )
-              binIndex += 1
-            val mapping = binMapping[Row]
-            Right(StatPlan(plan, StatFrame(rows.result(), binAesthetics), mapping))
+              )
+    }
 
-  private def binMapping[Row]: AesSpec[StatRow[Row]] =
-    AesSpec(
-      x = Some(AesValue.direct(_.computed.get(ComputedAesthetic.BinMidpoint).getOrElse(0.0))),
-      y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Count).getOrElse(0.0)))
+  private def binMapping[Input]: AesSpec[StatRow.Binned[Input]] =
+    AesSpec[StatRow.Binned[Input]](
+      x = Some(AesValue.total(_.binMidpoint)),
+      y = Some(AesValue.total(_.count.toDouble))
     )
 
-  /** ggplot2 histograms are right-closed by default: the first interval also
-    * owns its lower boundary, while an internal break belongs to the bin on
-    * its left.
-    */
-  private def findBin(value: Double, breaks: Vector[Double]): Int =
-    var idx = 0
-    var found = -1
-    while idx < breaks.length - 1 && found < 0 do
-      val aboveLower = if idx == 0 then value >= breaks(idx) else value > breaks(idx)
-      if aboveLower && value <= breaks(idx + 1) then found = idx
-      idx += 1
-    found
-
-  private def summaryFrame[Row](
-      plan: LayerPlan[Row],
-      stat: Stat.Summary[Row]
-  ): Either[GraphicsError, StatPlan[Row]] =
-    val xs = plan.data.map(stat.x)
-    val ys = plan.data.map(stat.y)
-    firstNonFinite(xs) match
-      case Some(value) => Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
-      case None =>
-        firstNonFinite(ys) match
-          case Some(value) => Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.Y.label, value))
+  def summary[Row, Input <: Row](
+      stat: Stat.Summary[Row],
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult.Aux[Input, StatRow.Summarized[Input]]] =
+    val _ = context
+    val data = batch.rows
+    for
+      xs <- batch.evaluate(Aesthetic.X.label, stat.x)
+      ys <- batch.evaluate(Aesthetic.Y.label, stat.y)
+      transformed <-
+        firstNonFinite(xs) match
+          case Some(value) =>
+            Left(StatError.NonFiniteInput(Aesthetic.X.label, value))
           case None =>
-            val groups = scala.collection.mutable.HashMap.empty[Double, scala.collection.mutable.ArrayBuffer[(Row, Double)]]
-            var idx = 0
-            while idx < plan.data.length do
-              groups.getOrElseUpdate(xs(idx), scala.collection.mutable.ArrayBuffer.empty) += ((plan.data(idx), ys(idx)))
-              idx += 1
-            val rows = groups.keys.toVector.sorted.map { x =>
-              val observations = groups(x).toVector
-              val values = observations.map(_._2)
-              val mean = values.sum / values.length.toDouble
-              val (lower, upper) = summaryBounds(values, mean, stat.interval)
-              StatRow(
-                observations.head._1,
-                observations.map(_._1),
-                None,
-                ComputedValues.summarized(x, mean, lower, upper, values.length)
-              )
-            }
-            val mapping = summaryMapping[Row]
-            Right(StatPlan(plan, StatFrame(rows, summaryAesthetics), mapping))
+            firstNonFinite(ys) match
+              case Some(value) =>
+                Left(StatError.NonFiniteInput(Aesthetic.Y.label, value))
+              case None =>
+                val groups = scala.collection.mutable.HashMap
+                  .empty[Double, scala.collection.mutable.ArrayBuffer[(Input, Double)]]
+                var idx = 0
+                while idx < data.length do
+                  groups.getOrElseUpdate(xs(idx), scala.collection.mutable.ArrayBuffer.empty) += ((
+                    data(idx),
+                    ys(idx)
+                  ))
+                  idx += 1
+                val rows = groups.keys.toVector.sorted.map { x =>
+                  val observations = groups(x).toVector
+                  val values = observations.map(_._2)
+                  val moments = NumericalMath.moments(values)
+                  val (lower, upper) = summaryBounds(moments, stat.interval)
+                  StatRow.Summarized(
+                    source = observations.head._1,
+                    members = observations.map(_._1),
+                    position = x,
+                    mean = moments.mean,
+                    lower = lower,
+                    upper = upper,
+                    count = values.length
+                  )
+                }
+                Right(
+                  StatResult[Input, StatRow.Summarized[Input]](
+                    rows,
+                    summaryMapping[Input],
+                    summaryAesthetics
+                  )
+                )
+    yield transformed
 
-  private def summaryBounds(values: Vector[Double], mean: Double, interval: SummaryInterval): (Double, Double) =
+  private def summaryBounds(
+      moments: NumericalMath.SampleMoments,
+      interval: SummaryInterval
+  ): (Double, Double) =
     interval match
       case SummaryInterval.StandardError =>
         val standardError =
-          if values.length < 2 then 0.0
-          else
-            var sumSquares = 0.0
-            var idx = 0
-            while idx < values.length do
-              val centered = values(idx) - mean
-              sumSquares += centered * centered
-              idx += 1
-            math.sqrt(sumSquares / (values.length - 1).toDouble) / math.sqrt(values.length.toDouble)
-        (mean - standardError, mean + standardError)
+          moments.sampleStandardDeviation / math.sqrt(moments.count.toDouble)
+        (moments.mean - standardError, moments.mean + standardError)
       case SummaryInterval.Range =>
-        (values.min, values.max)
+        (moments.minimum, moments.maximum)
 
-  private def summaryMapping[Row]: AesSpec[StatRow[Row]] =
-    AesSpec(
-      x = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Position).getOrElse(0.0))),
-      y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Mean).getOrElse(0.0)))
+  private def summaryMapping[Input]: AesSpec[StatRow.Summarized[Input]] =
+    AesSpec[StatRow.Summarized[Input]](
+      x = Some(AesValue.total(_.position)),
+      y = Some(AesValue.total(_.mean))
     )
 
-  private def densityFrame[Row](
-      plan: LayerPlan[Row],
-      stat: Stat.Density[Row]
-  ): Either[GraphicsError, StatPlan[Row]] =
-    val values = Array.ofDim[Double](plan.data.length)
-    var valueIndex = 0
-    while valueIndex < plan.data.length do
-      values(valueIndex) = stat.x(plan.data(valueIndex))
-      valueIndex += 1
-    firstNonFinite(values) match
-      case Some(value) => Left(GraphicsError.NonFiniteStatInput(stat.label, Aesthetic.X.label, value))
-      case None if values.length < 2 => Left(GraphicsError.InsufficientStatData(stat.label, 2, values.length))
-      case None =>
-        val bandwidth = stat.config.bandwidth.map(_.toDouble).getOrElse(DensityMath.nrd0(values))
-        val domain = stat.config.domain.getOrElse(Interval.unsafe(values.min, values.max))
-        val points = stat.config.points.toInt
-        val step = domain.width / (points - 1).toDouble
-        val rows = Vector.tabulate(points) { idx =>
-          val position = domain.lower + step * idx.toDouble
-          val density = gaussianDensity(values, position, bandwidth)
-          StatRow(
-            plan.data.head,
-            plan.data,
-            None,
-            ComputedValues.densityAt(position, density, plan.data.length)
-          )
-        }
-        val mapping = densityMapping[Row]
-        Right(StatPlan(plan, StatFrame(rows, densityAesthetics), mapping))
+  def quantileSummary[Row, Input <: Row](
+      stat: Stat.QuantileSummary[Row],
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult.Aux[Input, StatRow.QuantileSummary[Input]]] =
+    val _ = context
+    val data = batch.rows
+    for
+      xs <- batch.evaluate(Aesthetic.X.label, stat.x)
+      ys <- batch.evaluate(Aesthetic.Y.label, stat.y)
+      transformed <-
+        firstNonFinite(xs) match
+          case Some(value) => Left(StatError.NonFiniteInput(Aesthetic.X.label, value))
+          case None        =>
+            firstNonFinite(ys) match
+              case Some(value) => Left(StatError.NonFiniteInput(Aesthetic.Y.label, value))
+              case None        =>
+                val groups = scala.collection.mutable.HashMap
+                  .empty[Double, scala.collection.mutable.ArrayBuffer[(Input, Double)]]
+                var index = 0
+                while index < data.length do
+                  groups.getOrElseUpdate(
+                    xs(index),
+                    scala.collection.mutable.ArrayBuffer.empty
+                  ) += ((
+                    data(index),
+                    ys(index)
+                  ))
+                  index += 1
+                val rows = groups.keys.toVector.sorted.map { position =>
+                  val observations = groups(position).toVector
+                  val values = observations.map(_._2)
+                  StatRow.QuantileSummary(
+                    source = observations.head._1,
+                    members = observations.map(_._1),
+                    position = position,
+                    lowerQuartile = QuantileMath.type7(values, 0.25),
+                    median = QuantileMath.type7(values, 0.5),
+                    upperQuartile = QuantileMath.type7(values, 0.75),
+                    count = observations.length
+                  )
+                }
+                Right(
+                  StatResult[Input, StatRow.QuantileSummary[Input]](
+                    rows,
+                    quantileSummaryMapping[Input],
+                    quantileSummaryAesthetics
+                  )
+                )
+    yield transformed
 
-  private def densityMapping[Row]: AesSpec[StatRow[Row]] =
-    AesSpec(
-      x = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Position).getOrElse(0.0))),
-      y = Some(AesValue.direct(_.computed.get(ComputedAesthetic.Density).getOrElse(0.0)))
+  private def quantileSummaryMapping[Input]: AesSpec[StatRow.QuantileSummary[Input]] =
+    AesSpec[StatRow.QuantileSummary[Input]](
+      x = Some(AesValue.total(_.position)),
+      y = Some(AesValue.total(_.median))
+    )
+
+  def ecdf[Row, Input <: Row](
+      stat: Stat.Ecdf[Row],
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult.Aux[Input, StatRow.Ecdf[Input]]] =
+    val _ = context
+    val data = batch.rows
+    for
+      xs <- batch.evaluate(Aesthetic.X.label, stat.x)
+      groups <- stat.group match
+        case Some(groupOf) => batch.evaluate(Aesthetic.Group.label, groupOf).map(_.map(Some(_)))
+        case None          => Right(Vector.fill(data.length)(Option.empty[String]))
+      transformed <-
+        firstNonFinite(xs) match
+          case Some(value) => Left(StatError.NonFiniteInput(Aesthetic.X.label, value))
+          case None        =>
+            val rows = Vector.newBuilder[StatRow.Ecdf[Input]]
+            val groupOrder = groups.distinct
+            var groupIndex = 0
+            while groupIndex < groupOrder.length do
+              val group = groupOrder(groupIndex)
+              val ordered = data.indices
+                .filter(index => groups(index) == group)
+                .map(index => xs(index) -> data(index))
+                .toVector
+                .sortBy(_._1)
+              var cumulative = 0
+              var start = 0
+              while start < ordered.length do
+                val position = ordered(start)._1
+                var end = start + 1
+                while end < ordered.length && ordered(end)._1 == position do end += 1
+                val members = ordered.slice(start, end).map(_._2)
+                cumulative += members.length
+                rows += StatRow.Ecdf(
+                  source = members.head,
+                  members = members,
+                  position = position,
+                  cumulativeCount = cumulative,
+                  totalCount = ordered.length,
+                  groupLevel = group
+                )
+                start = end
+              groupIndex += 1
+            Right(
+              StatResult[Input, StatRow.Ecdf[Input]](
+                rows.result(),
+                ecdfMapping[Input](stat.group.nonEmpty),
+                ecdfAesthetics
+              )
+            )
+    yield transformed
+
+  private def ecdfMapping[Input](grouped: Boolean): AesSpec[StatRow.Ecdf[Input]] =
+    AesSpec[StatRow.Ecdf[Input]](
+      x = Some(AesValue.total(_.position)),
+      y = Some(AesValue.total(_.proportion)),
+      group = Option.when(grouped)(AesValue.total(_.groupLevel.getOrElse("")))
+    )
+
+  def density[Row, Input <: Row](
+      stat: Stat.Density[Row],
+      batch: StatBatch[Input],
+      context: StatContext
+  ): Either[StatError, StatResult.Aux[Input, StatRow.Density[Input]]] =
+    val _ = context
+    val data = batch.rows
+    batch.evaluate(Aesthetic.X.label, stat.x).flatMap { mapped =>
+      val values = mapped.toArray
+      firstNonFinite(values) match
+        case Some(value) =>
+          Left(StatError.NonFiniteInput(Aesthetic.X.label, value))
+        case None if values.length < 2 =>
+          Left(StatError.InsufficientData(2, values.length))
+        case None if stat.config.strategy == KdeStrategy.Fft =>
+          Left(StatError.UnsupportedStrategy(stat.config.strategy.label))
+        case None =>
+          val bandwidth = stat.config.bandwidth.map(_.toDouble).getOrElse(DensityMath.nrd0(values))
+          val domain = stat.config.domain.getOrElse(Interval.unsafe(values.min, values.max))
+          val points = stat.config.points.toInt
+          val step = domain.width / (points - 1).toDouble
+          val rows = Vector.tabulate(points) { idx =>
+            val position = domain.lower + step * idx.toDouble
+            val density = gaussianDensity(values, position, bandwidth)
+            StatRow.Density(
+              source = data.head,
+              members = data,
+              position = position,
+              density = density,
+              sampleSize = data.length
+            )
+          }
+          Right(
+            StatResult[Input, StatRow.Density[Input]](
+              rows,
+              densityMapping[Input],
+              densityAesthetics
+            )
+          )
+    }
+
+  private def densityMapping[Input]: AesSpec[StatRow.Density[Input]] =
+    AesSpec[StatRow.Density[Input]](
+      x = Some(AesValue.total(_.position)),
+      y = Some(AesValue.total(_.density))
     )
 
   private def gaussianDensity(values: Array[Double], position: Double, bandwidth: Double): Double =
     val normalizer = values.length.toDouble * bandwidth * math.sqrt(2.0 * math.Pi)
-    var sum = 0.0
+    val sum = NumericalMath.CompensatedSum()
     var idx = 0
     while idx < values.length do
       val z = (position - values(idx)) / bandwidth
-      sum += math.exp(-0.5 * z * z)
+      sum.add(math.exp(-0.5 * z * z))
       idx += 1
-    sum / normalizer
+    sum.result / normalizer
 
   private def firstNonFinite(values: Vector[Double]): Option[Double] =
     values.find(value => !value.isFinite)
@@ -457,19 +716,17 @@ private[intaglio] object StatPhase:
       idx += 1
     result
 
-/** Output of plot-wide scale training: every layer plan is rebound to the same
-  * trained scale for each aesthetic, and the plot registry contains one entry
-  * per aesthetic.
+/** Output of plot-wide scale training: every layer plan is rebound to the same trained scale for
+  * each aesthetic, and the plot registry contains one entry per aesthetic.
   */
 private[intaglio] final case class ScaleResolution(
     plans: Vector[PackedStatPlan],
     registry: PlotScaleRegistry
 )
 
-/** Phase 3 — plot-wide scale training. All observations from all layers using
-  * an aesthetic train one shared scale before any row is mapped. Distinct
-  * scale declarations for the same aesthetic are rejected instead of silently
-  * placing independently normalized layers on one axis.
+/** Phase 3 — plot-wide scale training. All observations from all layers using an aesthetic train
+  * one shared scale before any row is mapped. Distinct scale declarations for the same aesthetic
+  * are rejected instead of silently placing independently normalized layers on one axis.
   */
 private[intaglio] object ScalePhase:
   private final case class Contribution(
@@ -478,28 +735,50 @@ private[intaglio] object ScalePhase:
       observations: Vector[ScaleObservation]
   )
 
-  def train(plans: Vector[PackedStatPlan]): Either[GraphicsError, ScaleResolution] =
+  def train(
+      plans: Vector[PackedStatPlan],
+      theme: Theme = Theme.default
+  ): Either[GraphicsError, ScaleResolution] =
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
-    Aesthetic.values.foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
+    declaredAesthetics(plans).foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
       (result, aesthetic) =>
-        result.flatMap(trainAesthetic(_, aesthetic, facetLocal = false, unifyFacetCopies = false))
+        result.flatMap(
+          trainAesthetic(
+            _,
+            aesthetic,
+            facetLocal = false,
+            unifyFacetCopies = false,
+            theme = theme
+          )
+        )
     }
 
-  /** Facet statistics are transformed panel-by-panel, so a computed stat may
-    * construct equivalent scale values more than once. Copies are unified
-    * only when they retain the same source layer and compatible descriptor;
-    * distinct plot layers keep the ordinary strict conflict rule.
+  /** Facet statistics are transformed panel-by-panel, so a computed stat may construct equivalent
+    * scale values more than once. Copies are unified only when they retain the same source layer
+    * and compatible descriptor; distinct plot layers keep the ordinary strict conflict rule.
     */
-  def trainFacets(plans: Vector[PackedStatPlan]): Either[GraphicsError, ScaleResolution] =
+  def trainFacets(
+      plans: Vector[PackedStatPlan],
+      theme: Theme = Theme.default
+  ): Either[GraphicsError, ScaleResolution] =
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
-    Aesthetic.values.foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
+    declaredAesthetics(plans).foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
       (result, aesthetic) =>
-        result.flatMap(trainAesthetic(_, aesthetic, facetLocal = false, unifyFacetCopies = true))
+        result.flatMap(
+          trainAesthetic(
+            _,
+            aesthetic,
+            facetLocal = false,
+            unifyFacetCopies = true,
+            theme = theme
+          )
+        )
     }
 
   def trainFacetPositions(
       plans: Vector[PackedStatPlan],
-      scales: FacetScales
+      scales: FacetScales,
+      theme: Theme = Theme.default
   ): Either[GraphicsError, Vector[PackedStatPlan]] =
     val aesthetics =
       Vector(
@@ -508,67 +787,121 @@ private[intaglio] object ScalePhase:
       ).flatten
     val initial = ScaleResolution(plans, PlotScaleRegistry.empty)
     aesthetics
-      .foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) {
-        (result, aesthetic) =>
-          result.flatMap(trainAesthetic(_, aesthetic, facetLocal = true, unifyFacetCopies = false))
+      .foldLeft[Either[GraphicsError, ScaleResolution]](Right(initial)) { (result, aesthetic) =>
+        result.flatMap(
+          trainAesthetic(
+            _,
+            aesthetic,
+            facetLocal = true,
+            unifyFacetCopies = false,
+            theme = theme
+          )
+        )
       }
       .map(_.plans)
+
+  /** Every core and ecosystem key actually present in the plans, in deterministic declaration
+    * order. Scale training must discover open aesthetics from mappings rather than a closed global
+    * registry.
+    */
+  private[intaglio] def declaredAesthetics(
+      plans: Vector[PackedStatPlan]
+  ): Vector[Aesthetic[?]] =
+    plans.foldLeft(Vector.empty[Aesthetic[?]]) { (result, plan) =>
+      plan.mapping.bound.foldLeft(result) { (keys, aesthetic) =>
+        if keys.exists(_ eq aesthetic) then keys else keys :+ aesthetic
+      }
+    }
 
   def registry(plan: PackedStatPlan): ScaleRegistry[?] =
     registryTyped(plan.value)
 
-  private def registryTyped[Row](plan: StatPlan[Row]): ScaleRegistry[StatRow[Row]] =
+  private def registryTyped[Row, Output <: StatRow[Row]](
+      plan: StatPlan[Row, Output]
+  ): ScaleRegistry[Output] =
     ScaleRegistry.fromMapping(plan.mapping)
 
   private def trainAesthetic(
       resolution: ScaleResolution,
       aesthetic: Aesthetic[?],
       facetLocal: Boolean,
-      unifyFacetCopies: Boolean
+      unifyFacetCopies: Boolean,
+      theme: Theme
   ): Either[GraphicsError, ScaleResolution] =
-    val contributions = resolution.plans.flatMap(contribution(_, aesthetic))
-    contributions.headOption match
-      case None =>
-        Right(resolution)
-      case Some(first) =>
-        contributions.find { contribution =>
-          !first.entry.sharesDeclaration(contribution.entry) &&
-          !(unifyFacetCopies && compatibleFacetCopy(first, contribution))
-        } match
-          case Some(conflicting) =>
-            Left(
-              GraphicsError.ConflictingPlotScales(
-                aesthetic.label,
-                first.layerIndex,
-                first.entry.descriptor.name.value,
-                conflicting.layerIndex,
-                conflicting.entry.descriptor.name.value
+    contributions(resolution.plans, aesthetic).flatMap { contributions =>
+      contributions.headOption match
+        case None =>
+          Right(resolution)
+        case Some(first) =>
+          contributions.find { contribution =>
+            !first.entry.sharesDeclaration(contribution.entry) &&
+            !(unifyFacetCopies && compatibleFacetCopy(first, contribution))
+          } match
+            case Some(conflicting) =>
+              Left(
+                GraphicsError.ConflictingPlotScales(
+                  aesthetic.label,
+                  first.layerIndex,
+                  first.entry.descriptor.name.value,
+                  conflicting.layerIndex,
+                  conflicting.entry.descriptor.name.value
+                )
               )
-            )
-          case None =>
-            val observations = contributions.flatMap(_.observations)
-            for
-              trained <- trainEntry(first.entry, observations, facetLocal)
-              plans <- rebind(resolution.plans, aesthetic, observations, facetLocal)
-            yield
-              ScaleResolution(
+            case None =>
+              for
+                annotationObservations <- annotationObservations(
+                  resolution.plans,
+                  aesthetic,
+                  first.entry
+                )
+                observations = contributions.flatMap(_.observations) ++ annotationObservations
+                trained <- trainEntry(first.entry, observations, facetLocal, theme)
+                rebound <- rebind(
+                  resolution.plans,
+                  aesthetic,
+                  first.entry,
+                  trained,
+                  unifyFacetCopies
+                )
+                plans <- mapAnnotations(rebound, aesthetic, trained)
+              yield ScaleResolution(
                 plans,
                 PlotScaleRegistry.from(resolution.registry.scales :+ trained.trained)
               )
+    }
+
+  private def contributions(
+      plans: Vector[PackedStatPlan],
+      aesthetic: Aesthetic[?]
+  ): Either[GraphicsError, Vector[Contribution]] =
+    val out = Vector.newBuilder[Contribution]
+    var index = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while index < plans.length && result.isRight do
+      result = contribution(plans(index), aesthetic).map { value =>
+        value.foreach(out += _)
+        ()
+      }
+      index += 1
+    result.map(_ => out.result())
 
   private def contribution(
       plan: PackedStatPlan,
       aesthetic: Aesthetic[?]
-  ): Option[Contribution] =
+  ): Either[GraphicsError, Option[Contribution]] =
     contributionTyped(plan.value, aesthetic)
 
-  private def contributionTyped[Row](
-      plan: StatPlan[Row],
+  private def contributionTyped[Row, Output <: StatRow[Row]](
+      plan: StatPlan[Row, Output],
       aesthetic: Aesthetic[?]
-  ): Option[Contribution] =
-    plan.mapping.scaledEntry(aesthetic).map { entry =>
-      Contribution(plan.layerIndex, entry, entry.observations(plan.data))
-    }
+  ): Either[GraphicsError, Option[Contribution]] =
+    plan.mapping.scaledEntry(aesthetic) match
+      case None =>
+        Right(None)
+      case Some(entry) =>
+        entry
+          .observations(plan.data, plan.layerIndex)
+          .map(observations => Some(Contribution(plan.layerIndex, entry, observations)))
 
   private def compatibleFacetCopy(
       first: Contribution,
@@ -581,20 +914,116 @@ private[intaglio] object ScalePhase:
     left.kind == right.kind &&
     left.training == right.training
 
+  private def annotationObservations(
+      plans: Vector[PackedStatPlan],
+      aesthetic: Aesthetic[?],
+      entry: RegisteredScale[?]
+  ): Either[GraphicsError, Vector[ScaleObservation]] =
+    val annotations = plans.flatMap(_.annotation).filter { annotation =>
+      (annotation.reference.aesthetic eq aesthetic) &&
+      annotation.reference.scalePolicy == AnnotationScalePolicy.Train
+    }
+    if annotations.isEmpty then Right(Vector.empty)
+    else
+      entry.descriptor.kind match
+        case ScaleKind.Continuous =>
+          Right(annotations.map(annotation => ScaleObservation.Continuous(annotation.coordinate)))
+        case _ =>
+          val reference = annotations.head.reference
+          Left(
+            GraphicsError.AnnotationRequiresContinuousScale(
+              reference.orientation.label,
+              aesthetic.label,
+              entry.descriptor.name.value
+            )
+          )
+
+  private def mapAnnotations[EntryRow](
+      plans: Vector[PackedStatPlan],
+      aesthetic: Aesthetic[?],
+      trained: RegisteredScale[EntryRow]
+  ): Either[GraphicsError, Vector[PackedStatPlan]] =
+    val out = Vector.newBuilder[PackedStatPlan]
+    var index = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while index < plans.length && result.isRight do
+      result = mapAnnotation(plans(index), aesthetic, trained).map { plan =>
+        out += plan
+        ()
+      }
+      index += 1
+    result.map(_ => out.result())
+
+  private def mapAnnotation[EntryRow](
+      plan: PackedStatPlan,
+      aesthetic: Aesthetic[?],
+      trained: RegisteredScale[EntryRow]
+  ): Either[GraphicsError, PackedStatPlan] =
+    mapAnnotationTyped(plan.value, aesthetic, trained)
+
+  private def mapAnnotationTyped[Row, Output <: StatRow[Row], EntryRow](
+      plan: StatPlan[Row, Output],
+      aesthetic: Aesthetic[?],
+      trained: RegisteredScale[EntryRow]
+  ): Either[GraphicsError, PackedStatPlan] =
+    plan.annotation match
+      case Some(annotation)
+          if (annotation.reference.aesthetic eq aesthetic) &&
+            annotation.reference.scalePolicy == AnnotationScalePolicy.Train =>
+        mapAnnotationCoordinate(annotation, aesthetic, trained).map { coordinate =>
+          val resolved = annotation.copy(
+            coordinate = coordinate,
+            trainedScale = Some(trained.trained)
+          )
+          PackedStatPlan(plan.copy(source = plan.source.copy(annotation = Some(resolved))))
+        }
+      case _ =>
+        Right(PackedStatPlan(plan))
+
+  private def mapAnnotationCoordinate[EntryRow](
+      annotation: AnnotationPlan,
+      aesthetic: Aesthetic[?],
+      trained: RegisteredScale[EntryRow]
+  ): Either[GraphicsError, Double] =
+    trained.scale match
+      case continuous: ContinuousScale[?] =>
+        continuous
+          .asInstanceOf[ContinuousScale[Double]]
+          .mapValueResult(annotation.reference.coordinate)
+          .left
+          .map(failure =>
+            GraphicsError.AnnotationScaleMappingFailed(
+              annotation.reference.orientation.label,
+              aesthetic.label,
+              annotation.reference.coordinate,
+              failure.toString
+            )
+          )
+      case _ =>
+        Left(
+          GraphicsError.AnnotationRequiresContinuousScale(
+            annotation.reference.orientation.label,
+            aesthetic.label,
+            trained.descriptor.name.value
+          )
+        )
+
   private def rebind(
       plans: Vector[PackedStatPlan],
       aesthetic: Aesthetic[?],
-      observations: Vector[ScaleObservation],
-      facetLocal: Boolean
+      source: RegisteredScale[?],
+      trained: RegisteredScale[?],
+      allowCompatibleFacetCopy: Boolean
   ): Either[GraphicsError, Vector[PackedStatPlan]] =
     val out = Vector.newBuilder[PackedStatPlan]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plans.length && result.isRight do
       val plan = plans(idx)
-      result = rebindPlan(plan, aesthetic, observations, facetLocal).map { rebound =>
-        out += rebound
-        ()
+      result = rebindPlan(plan, aesthetic, source, trained, allowCompatibleFacetCopy).map {
+        rebound =>
+          out += rebound
+          ()
       }
       idx += 1
     result.map(_ => out.result())
@@ -602,48 +1031,60 @@ private[intaglio] object ScalePhase:
   private def rebindPlan(
       plan: PackedStatPlan,
       aesthetic: Aesthetic[?],
-      observations: Vector[ScaleObservation],
-      facetLocal: Boolean
+      source: RegisteredScale[?],
+      trained: RegisteredScale[?],
+      allowCompatibleFacetCopy: Boolean
   ): Either[GraphicsError, PackedStatPlan] =
-    rebindTyped(plan.value, aesthetic, observations, facetLocal)
+    rebindTyped(plan.value, aesthetic, source, trained, allowCompatibleFacetCopy)
 
-  private def rebindTyped[Row](
-      plan: StatPlan[Row],
+  private def rebindTyped[Row, Output <: StatRow[Row]](
+      plan: StatPlan[Row, Output],
       aesthetic: Aesthetic[?],
-      observations: Vector[ScaleObservation],
-      facetLocal: Boolean
+      source: RegisteredScale[?],
+      trained: RegisteredScale[?],
+      allowCompatibleFacetCopy: Boolean
   ): Either[GraphicsError, PackedStatPlan] =
     plan.mapping.scaledEntry(aesthetic) match
       case None =>
         Right(PackedStatPlan(plan))
       case Some(entry) =>
-        trainEntry(entry, observations, facetLocal).map { trained =>
-          PackedStatPlan(plan.copy(mapping = trained.install(plan.mapping)))
-        }
+        Right(
+          PackedStatPlan(
+            plan.copy(
+              mapping = entry.installTrainedFrom(
+                source,
+                trained,
+                plan.mapping,
+                allowCompatibleFacetCopy
+              )
+            )
+          )
+        )
 
   private def trainEntry[EntryRow](
       entry: RegisteredScale[EntryRow],
       observations: Vector[ScaleObservation],
-      facetLocal: Boolean
+      facetLocal: Boolean,
+      theme: Theme
   ): Either[GraphicsError, RegisteredScale[EntryRow]] =
-    if facetLocal then entry.trainFacet(observations)
-    else entry.trainPlotWide(observations)
+    entry.train(observations, theme, facetLocal)
 
-/** Phase 4 — row evaluation: map each stat row through the canonical aesthetic
-  * mapping, keeping typed drop diagnostics for rows a renderer must skip.
+/** Phase 4 — row evaluation: map each stat row through the canonical aesthetic mapping, keeping
+  * typed drop diagnostics for rows a renderer must skip.
   */
 private[intaglio] object RowPhase:
-  def resolve[Row](
-      plan: StatPlan[Row],
+  def resolve[Row, Output <: StatRow[Row]](
+      plan: StatPlan[Row, Output],
       theme: Theme = Theme.default
   ): Either[GraphicsError, (Vector[ResolvedRow[Row]], Vector[DroppedRow[Row]])] =
+    val grouping = plan.mapping.groupingDecision
     val rows = Vector.newBuilder[ResolvedRow[Row]]
     val dropped = Vector.newBuilder[DroppedRow[Row]]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < plan.data.length && result.isRight do
       val source = plan.data(idx)
-      resolveRow(idx, source, plan.layer, plan.mapping, theme) match
+      resolveRow(idx, source, plan.layer, plan.mapping, grouping, theme) match
         case RowResolution.Resolved(row) =>
           rows += row
         case RowResolution.Dropped(reason) =>
@@ -653,90 +1094,163 @@ private[intaglio] object RowPhase:
       idx += 1
     result.map(_ => (rows.result(), dropped.result()))
 
-  private def resolveRow[Row](
+  private def resolveRow[Row, Output <: StatRow[Row]](
       rowIndex: Int,
-      source: StatRow[Row],
+      source: Output,
       layer: Layer[Row],
-      mapping: AesSpec[StatRow[Row]],
+      mapping: AesSpec[Output],
+      grouping: GroupingDecision,
       theme: Theme
   ): RowResolution[Row] =
     val resolved =
       for
-        x <- requiredAes(Aesthetic.X, mapping.get(Aesthetic.X), source)
-        y <- requiredAes(Aesthetic.Y, mapping.get(Aesthetic.Y), source)
+        xValue <- requiredEvaluatedAes(Aesthetic.X, mapping.get(Aesthetic.X), source, rowIndex)
+        yValue <- requiredEvaluatedAes(Aesthetic.Y, mapping.get(Aesthetic.Y), source, rowIndex)
+        x = xValue.value
+        y = yValue.value
         _ <- finitePosition(x, y)
-        xBand = mapping.get(Aesthetic.X).flatMap(_.mappedBand(source))
-        yBand = mapping.get(Aesthetic.Y).flatMap(_.mappedBand(source))
-        xEnd <- optionalFiniteAes(Aesthetic.XEnd, mapping.get(Aesthetic.XEnd), source)
-        yEnd <- optionalFiniteAes(Aesthetic.YEnd, mapping.get(Aesthetic.YEnd), source)
-        xMin <- optionalFiniteAes(Aesthetic.XMin, mapping.get(Aesthetic.XMin), source)
-        xMax <- optionalFiniteAes(Aesthetic.XMax, mapping.get(Aesthetic.XMax), source)
-        yMin <- optionalFiniteAes(Aesthetic.YMin, mapping.get(Aesthetic.YMin), source)
-        yMax <- optionalFiniteAes(Aesthetic.YMax, mapping.get(Aesthetic.YMax), source)
+        xBand = xValue.band
+        yBand = yValue.band
+        xEnd <- optionalFiniteAes(Aesthetic.XEnd, mapping.get(Aesthetic.XEnd), source, rowIndex)
+        yEnd <- optionalFiniteAes(Aesthetic.YEnd, mapping.get(Aesthetic.YEnd), source, rowIndex)
+        xMin <- optionalFiniteAes(Aesthetic.XMin, mapping.get(Aesthetic.XMin), source, rowIndex)
+        xMax <- optionalFiniteAes(Aesthetic.XMax, mapping.get(Aesthetic.XMax), source, rowIndex)
+        yMin <- optionalFiniteAes(Aesthetic.YMin, mapping.get(Aesthetic.YMin), source, rowIndex)
+        yMax <- optionalFiniteAes(Aesthetic.YMax, mapping.get(Aesthetic.YMax), source, rowIndex)
         _ <- validBounds(Aesthetic.X.label, xMin, xMax)
         _ <- validBounds(Aesthetic.Y.label, yMin, yMax)
-        text <- labelValue(layer.geom, mapping, source)
-        group <- optionalAes(Aesthetic.Group, mapping.get(Aesthetic.Group), source)
-        subpath <- optionalAes(Aesthetic.Subpath, mapping.get(Aesthetic.Subpath), source)
-        gp <- rowGraphicParams(source, mapping, layer.params.getOrElse(theme.geom))
-        size <- rowSize(source, mapping, theme.pointSizePt)
-      yield
-        ResolvedRow(
-          rowIndex = rowIndex,
-          source = source.source,
-          computed = source.computed,
-          x = x,
-          y = y,
-          xBand = xBand,
-          yBand = yBand,
-          xEnd = xEnd,
-          yEnd = yEnd,
-          xMin = xMin,
-          xMax = xMax,
-          yMin = yMin,
-          yMax = yMax,
-          point = Point.nativeUnsafe(x, y),
-          label = if layer.geom == Geom.Text then Some(text) else None,
-          group = group,
-          subpath = subpath,
-          gp = gp,
-          size = size
+        text <- labelValue(layer.geom, mapping, source, rowIndex)
+        explicitGroup <- optionalAes(
+          Aesthetic.Group,
+          mapping.get(Aesthetic.Group),
+          source,
+          rowIndex
         )
+        subpath <- optionalAes(Aesthetic.Subpath, mapping.get(Aesthetic.Subpath), source, rowIndex)
+        stroke <- optionalEvaluatedAes(
+          Aesthetic.Color,
+          mapping.get(Aesthetic.Color),
+          source,
+          rowIndex
+        )
+        fill <- optionalEvaluatedAes(Aesthetic.Fill, mapping.get(Aesthetic.Fill), source, rowIndex)
+        alpha <- optionalEvaluatedAes(
+          Aesthetic.Alpha,
+          mapping.get(Aesthetic.Alpha),
+          source,
+          rowIndex
+        )
+        mappedSize <- optionalEvaluatedAes(
+          Aesthetic.Size,
+          mapping.get(Aesthetic.Size),
+          source,
+          rowIndex
+        )
+        shape <- optionalEvaluatedAes(
+          Aesthetic.Shape,
+          mapping.get(Aesthetic.Shape),
+          source,
+          rowIndex
+        )
+        lineType <- optionalEvaluatedAes(
+          Aesthetic.LineType,
+          mapping.get(Aesthetic.LineType),
+          source,
+          rowIndex
+        )
+        lineWidth <- optionalEvaluatedAes(
+          Aesthetic.LineWidth,
+          mapping.get(Aesthetic.LineWidth),
+          source,
+          rowIndex
+        )
+        angle <- optionalAes(Aesthetic.Angle, mapping.get(Aesthetic.Angle), source, rowIndex)
+        rotation <- rowRotation(angle)
+        hJust <- optionalAes(Aesthetic.HJust, mapping.get(Aesthetic.HJust), source, rowIndex)
+        vJust <- optionalAes(Aesthetic.VJust, mapping.get(Aesthetic.VJust), source, rowIndex)
+        gp <- rowGraphicParams(
+          layer.params.getOrElse(theme.geom),
+          stroke.map(_.value),
+          fill.map(_.value),
+          alpha.map(_.value),
+          lineType.map(_.value),
+          lineWidth.map(_.value)
+        )
+        size <- rowSize(mappedSize.map(_.value), theme.pointSizePt)
+        groupKey <- resolveGroupKey(
+          grouping,
+          explicitGroup,
+          stroke,
+          fill,
+          alpha,
+          mappedSize,
+          shape,
+          lineType,
+          lineWidth
+        )
+      yield ResolvedRow(
+        rowIndex = rowIndex,
+        source = source.source,
+        statRow = source,
+        x = x,
+        y = y,
+        xBand = xBand,
+        yBand = yBand,
+        xEnd = xEnd,
+        yEnd = yEnd,
+        xMin = xMin,
+        xMax = xMax,
+        yMin = yMin,
+        yMax = yMax,
+        point = Point.nativeUnsafe(x, y),
+        label = Option.when(requiresLabel(layer.geom))(text),
+        grouping = grouping,
+        groupKey = groupKey,
+        group = groupKey.map(_.display),
+        subpath = subpath,
+        gp = gp,
+        size = size,
+        shape = shape.map(_.value).getOrElse(PointShape.Circle),
+        textAnchor = Anchor(hJust.getOrElse(HJust.Center), vJust.getOrElse(VJust.Center)),
+        rotationDegrees = rotation,
+        xCategoryIdentity = xValue.rawDiscreteCategory,
+        yCategoryIdentity = yValue.rawDiscreteCategory
+      )
     resolved match
       case Right(row)   => RowResolution.Resolved(row)
       case Left(reason) => RowResolution.Dropped(reason)
 
-  private def rowGraphicParams[Row](
-      row: StatRow[Row],
-      mapping: AesSpec[StatRow[Row]],
-      base: GraphicParams
+  private def rowGraphicParams(
+      base: GraphicParams,
+      stroke: Option[Rgba],
+      fill: Option[Rgba],
+      alpha: Option[Double],
+      lineType: Option[LineType],
+      lineWidth: Option[Double]
   ): Either[PlotDropReason, GraphicParams] =
-    for
-      stroke <- optionalAes(Aesthetic.Color, mapping.get(Aesthetic.Color), row)
-      fill <- optionalAes(Aesthetic.Fill, mapping.get(Aesthetic.Fill), row)
-      alpha <- optionalAes(Aesthetic.Alpha, mapping.get(Aesthetic.Alpha), row)
-      gp <- GraphicParams
-        .checked(
-          stroke = stroke.orElse(base.stroke),
-          fill = fill.orElse(base.fill),
-          lineWidth = base.lineWidth,
-          lineType = base.lineType,
-          lineCap = base.lineCap,
-          lineJoin = base.lineJoin,
-          alpha = alpha.getOrElse(base.alpha),
-          fontFamily = base.fontFamily,
-          fontSize = base.fontSize
-        )
-        .left
-        .map(error => PlotDropReason.InvalidAesthetic("gp", error.message))
-    yield gp
+    base
+      .withAestheticOverrides(
+        stroke = stroke,
+        fill = fill,
+        alpha = alpha,
+        lineType = lineType,
+        lineWidthPoints = lineWidth
+      )
+      .left
+      .map(error => PlotDropReason.InvalidAesthetic("gp", error.message))
 
-  private def rowSize[Row](
-      row: StatRow[Row],
-      mapping: AesSpec[StatRow[Row]],
+  private def rowRotation(value: Option[Double]): Either[PlotDropReason, Double] =
+    value match
+      case Some(angle) if !angle.isFinite =>
+        Left(PlotDropReason.InvalidAesthetic(Aesthetic.Angle.label, "rotation must be finite"))
+      case Some(angle) => Right(angle)
+      case None        => Right(0.0)
+
+  private def rowSize(
+      value: Option[Double],
       defaultSizePt: Double
   ): Either[PlotDropReason, ExtentExpr] =
-    optionalAes(Aesthetic.Size, mapping.get(Aesthetic.Size), row).flatMap {
+    value match
       case None =>
         Right(ExtentExpr.pointsUnsafe(defaultSizePt))
       case Some(size) =>
@@ -744,18 +1258,57 @@ private[intaglio] object RowPhase:
           .points(size)
           .left
           .map(error => PlotDropReason.InvalidAesthetic("size", error.message))
-    }
 
-  private def labelValue[Row](
+  private def resolveGroupKey(
+      grouping: GroupingDecision,
+      explicit: Option[String],
+      color: Option[EvaluatedAes[Rgba]],
+      fill: Option[EvaluatedAes[Rgba]],
+      alpha: Option[EvaluatedAes[Double]],
+      size: Option[EvaluatedAes[Double]],
+      shape: Option[EvaluatedAes[PointShape]],
+      lineType: Option[EvaluatedAes[LineType]],
+      lineWidth: Option[EvaluatedAes[Double]]
+  ): Either[PlotDropReason, Option[GroupKey]] =
+    grouping match
+      case GroupingDecision.Ungrouped =>
+        Right(None)
+      case GroupingDecision.Explicit =>
+        Right(explicit.map(GroupKey.Explicit(_)))
+      case GroupingDecision.Inferred(aesthetics) =>
+        val values = Vector(
+          discreteGroupValue(Aesthetic.Color, color),
+          discreteGroupValue(Aesthetic.Fill, fill),
+          discreteGroupValue(Aesthetic.Alpha, alpha),
+          discreteGroupValue(Aesthetic.Size, size),
+          discreteGroupValue(Aesthetic.Shape, shape),
+          discreteGroupValue(Aesthetic.LineType, lineType),
+          discreteGroupValue(Aesthetic.LineWidth, lineWidth)
+        ).flatten
+        aesthetics.find(aesthetic => !values.exists(_.aesthetic eq aesthetic)) match
+          case Some(aesthetic) =>
+            Left(PlotDropReason.GroupingCategoryUnavailable(aesthetic.label))
+          case None =>
+            Right(Some(GroupKey.Inferred(values)))
+
+  private def discreteGroupValue[A](
+      aesthetic: Aesthetic[A],
+      evaluated: Option[EvaluatedAes[A]]
+  ): Option[DiscreteGroupValue] =
+    evaluated.flatMap(_.rawDiscreteCategory.map(DiscreteGroupValue.typed(aesthetic, _)))
+
+  private def labelValue[Output](
       geom: Geom,
-      mapping: AesSpec[StatRow[Row]],
-      row: StatRow[Row]
+      mapping: AesSpec[Output],
+      row: Output,
+      rowIndex: Int
   ): Either[PlotDropReason, String] =
-    geom match
-      case Geom.Text =>
-        requiredAes(Aesthetic.Label, mapping.get(Aesthetic.Label), row)
-      case _ =>
-        Right("")
+    if requiresLabel(geom) then
+      requiredAes(Aesthetic.Label, mapping.get(Aesthetic.Label), row, rowIndex)
+    else Right("")
+
+  private def requiresLabel(geom: Geom): Boolean =
+    geom.contract.required.exists(_.aesthetic eq Aesthetic.Label)
 
   private def finitePosition(x: Double, y: Double): Either[PlotDropReason, Unit] =
     if x.isFinite && y.isFinite then Right(())
@@ -764,9 +1317,10 @@ private[intaglio] object RowPhase:
   private def optionalFiniteAes[Row](
       aesthetic: Aesthetic[Double],
       value: Option[AesValue[Row, Double]],
-      row: Row
+      row: Row,
+      rowIndex: Int
   ): Either[PlotDropReason, Option[Double]] =
-    optionalAes(aesthetic, value, row).flatMap {
+    optionalAes(aesthetic, value, row, rowIndex).flatMap {
       case Some(resolved) if !resolved.isFinite =>
         Left(PlotDropReason.NonFiniteAesthetic(aesthetic.label, resolved))
       case resolved =>
@@ -787,37 +1341,90 @@ private[intaglio] object RowPhase:
   private def requiredAes[Row, A](
       aesthetic: Aesthetic[A],
       value: Option[AesValue[Row, A]],
-      row: Row
+      row: Row,
+      rowIndex: Int
   ): Either[PlotDropReason, A] =
+    requiredEvaluatedAes(aesthetic, value, row, rowIndex).map(_.value)
+
+  private def requiredEvaluatedAes[Row, A](
+      aesthetic: Aesthetic[A],
+      value: Option[AesValue[Row, A]],
+      row: Row,
+      rowIndex: Int
+  ): Either[PlotDropReason, EvaluatedAes[A]] =
     value match
       case None      => Left(PlotDropReason.MissingAesthetic(aesthetic.label))
-      case Some(aes) => evalAes(aesthetic, aes, row)
+      case Some(aes) => evalAes(aesthetic, aes, row, rowIndex)
 
   private def optionalAes[Row, A](
       aesthetic: Aesthetic[A],
       value: Option[AesValue[Row, A]],
-      row: Row
+      row: Row,
+      rowIndex: Int
   ): Either[PlotDropReason, Option[A]] =
     value match
       case None      => Right(None)
-      case Some(aes) => evalAes(aesthetic, aes, row).map(Some(_))
+      case Some(aes) => evalAes(aesthetic, aes, row, rowIndex).map(value => Some(value.value))
+
+  private def optionalEvaluatedAes[Row, A](
+      aesthetic: Aesthetic[A],
+      value: Option[AesValue[Row, A]],
+      row: Row,
+      rowIndex: Int
+  ): Either[PlotDropReason, Option[EvaluatedAes[A]]] =
+    value match
+      case None      => Right(None)
+      case Some(aes) => evalAes(aesthetic, aes, row, rowIndex).map(Some(_))
 
   private def evalAes[Row, A](
       aesthetic: Aesthetic[A],
       value: AesValue[Row, A],
-      row: Row
-  ): Either[PlotDropReason, A] =
+      row: Row,
+      rowIndex: Int
+  ): Either[PlotDropReason, EvaluatedAes[A]] =
     value match
       case AesValue.Direct(f) =>
-        Right(f(row))
-      case AesValue.Constant(v) =>
-        Right(v)
-      case scaled: AesValue.Scaled[Row, ?, A] =>
-        scaled
-          .scale
-          .mapValueResult(scaled.value(row))
+        RowMapping
+          .evaluateFunction(f, row)
+          .map(EvaluatedAes(_, None, None))
           .left
-          .map(toDropReason(aesthetic, _))
+          .map(toMappingDropReason(aesthetic, rowIndex, _))
+      case AesValue.Constant(v) =>
+        Right(EvaluatedAes(v, None, None))
+      case scaled: AesValue.Scaled[Row, ?, A] =>
+        RowMapping
+          .evaluateFunction(scaled.value, row)
+          .left
+          .map(toMappingDropReason(aesthetic, rowIndex, _))
+          .flatMap { input =>
+            scaled.scale
+              .mapDeclaredValueResult(input)
+              .map { output =>
+                val rawDiscreteCategory =
+                  if scaled.scale.descriptor.kind == ScaleKind.Discrete ||
+                    scaled.scale.descriptor.kind == ScaleKind.Band
+                  then
+                    scaled.scale.observation(input).collect {
+                      case ScaleObservation.Discrete(category) => category.token
+                    }
+                  else None
+                EvaluatedAes(output, scaled.scale.mappedBand(input), rawDiscreteCategory)
+              }
+              .left
+              .map(toDropReason(aesthetic, _))
+          }
+
+  private def toMappingDropReason[A](
+      aesthetic: Aesthetic[A],
+      rowIndex: Int,
+      problem: RowMapping.Problem
+  ): PlotDropReason =
+    PlotDropReason.MappingEvaluationFailed(
+      aesthetic.label,
+      rowIndex,
+      problem._1,
+      problem._2
+    )
 
   private def toDropReason[A](
       aesthetic: Aesthetic[A],
@@ -828,14 +1435,22 @@ private[intaglio] object RowPhase:
         PlotDropReason.TransformDomain(aesthetic.label, transform, value)
       case ScaleMapFailure.OutOfDomain(scale, value) =>
         PlotDropReason.ScaleOutOfDomain(aesthetic.label, scale, value)
+      case ScaleMapFailure.PaletteOverflow(scale, levels, capacity) =>
+        PlotDropReason.PaletteOverflow(aesthetic.label, scale, levels, capacity)
+
+  private final case class EvaluatedAes[+A](
+      value: A,
+      band: Option[Band],
+      rawDiscreteCategory: Option[CategoryToken]
+  )
 
   private enum RowResolution[Row]:
     case Resolved(row: ResolvedRow[Row])
     case Dropped(reason: PlotDropReason)
     case Failed(error: GraphicsError)
 
-/** Phase 5 — pure position adjustment over resolved statistical rows. The
-  * phase owns collision semantics; geoms only lower the resulting geometry.
+/** Phase 5 — pure position adjustment over resolved statistical rows. The phase owns collision
+  * semantics; geoms only lower the resulting geometry.
   */
 private[intaglio] object PositionPhase:
   def adjust[Row](
@@ -860,27 +1475,38 @@ private[intaglio] object PositionPhase:
       config: DodgeConfig
   ): Vector[ResolvedRow[Row]] =
     val updated = scala.collection.mutable.ArrayBuffer.from(rows)
-    val globalGroups = rows.map(_.group).distinct
-    val positions = rows.map(_.x).distinct
-    positions.foreach { base =>
-      val indices = rows.indices.filter(index => rows(index).x == base).toVector
-      val localGroups = globalGroups.filter(group => indices.exists(index => rows(index).group == group))
-      val slots = config.preserve match
-        case DodgePreserve.Total  => localGroups
-        case DodgePreserve.Single => globalGroups
+    val groups = groupIndex(rows)
+    positionBuckets(rows).foreach { case (_, indices) =>
+      val base = rows(indices.head).x
+      val localGroups = groupsAt(indices, rows, groups.rank)
+      val (slots, slotByGroup) = config.preserve match
+        case DodgePreserve.Total =>
+          localGroups -> localGroups.iterator.zipWithIndex.toMap
+        case DodgePreserve.Single =>
+          groups.order -> groups.rank
       val slotCount = math.max(1, slots.length)
       val displacementWidth = config.width.fold {
-        indices.flatMap(index => rows(index).xBand.map(_.width)).maxOption.getOrElse(0.9)
+        var maximum = 0.0
+        var found = false
+        indices.foreach { index =>
+          rows(index).xBand.foreach { band =>
+            if !found || band.width > maximum then maximum = band.width
+            found = true
+          }
+        }
+        if found then maximum else 0.9
       }(_.toDouble)
       indices.foreach { index =>
         val row = rows(index)
-        val slot = math.max(0, slots.indexOf(row.group))
+        val slot = slotByGroup.getOrElse(row.groupKey, 0)
         val center = base + displacementWidth * ((slot.toDouble + 0.5) / slotCount.toDouble - 0.5)
         val delta = center - row.x
         val sourceWidth = row.xBand.map(_.width).getOrElse(0.9)
         val band = row.xBand
           .map(_ => Band.unsafe(center, sourceWidth / slotCount.toDouble))
-          .orElse(Option.when(geom == Geom.Bar)(Band.unsafe(center, sourceWidth / slotCount.toDouble)))
+          .orElse(
+            Option.when(geom == Geom.Bar)(Band.unsafe(center, sourceWidth / slotCount.toDouble))
+          )
         val (xMin, xMax) = (row.xMin, row.xMax) match
           case (Some(lower), Some(upper)) =>
             val width = (upper - lower) / slotCount.toDouble
@@ -904,25 +1530,93 @@ private[intaglio] object PositionPhase:
       order: StackOrder
   ): Vector[ResolvedRow[Row]] =
     val updated = scala.collection.mutable.ArrayBuffer.from(rows)
-    val encountered = rows.map(_.group).distinct
-    val groupOrder = order match
-      case StackOrder.Encountered => encountered
-      case StackOrder.Reverse     => encountered.reverse
-    rows.map(_.x).distinct.foreach { x =>
-      val atPosition = rows.indices.filter(index => rows(index).x == x).toVector
-      val positives = ordered(atPosition.filter(index => rows(index).y >= 0.0), rows, groupOrder)
-      val negatives = ordered(atPosition.filter(index => rows(index).y < 0.0), rows, groupOrder)
+    val groups = groupIndex(rows)
+    positionBuckets(rows).foreach { case (_, atPosition) =>
+      val positiveBuckets =
+        scala.collection.mutable.LinkedHashMap.empty[
+          Option[GroupKey],
+          scala.collection.mutable.ArrayBuffer[Int]
+        ]
+      val negativeBuckets =
+        scala.collection.mutable.LinkedHashMap.empty[
+          Option[GroupKey],
+          scala.collection.mutable.ArrayBuffer[Int]
+        ]
+      atPosition.foreach { index =>
+        val target = if rows(index).y >= 0.0 then positiveBuckets else negativeBuckets
+        target.getOrElseUpdate(
+          rows(index).groupKey,
+          scala.collection.mutable.ArrayBuffer.empty[Int]
+        ) += index
+      }
+      val positives = orderedIndices(positiveBuckets, groups.rank, order)
+      val negatives = orderedIndices(negativeBuckets, groups.rank, order)
       stackSide(positives, rows, updated, positive = true)
       stackSide(negatives, rows, updated, positive = false)
     }
     updated.toVector
 
-  private def ordered[Row](
+  private enum PositionKey:
+    case Numeric(value: Double)
+    case Categorical(value: CategoryToken)
+
+  private final case class GroupIndex(
+      order: Vector[Option[GroupKey]],
+      rank: Map[Option[GroupKey], Int]
+  )
+
+  private def positionBuckets[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Vector[(PositionKey, Vector[Int])] =
+    val buckets = scala.collection.mutable.LinkedHashMap.empty[
+      PositionKey,
+      scala.collection.mutable.ArrayBuffer[Int]
+    ]
+    rows.indices.foreach { index =>
+      val row = rows(index)
+      val key = row.xCategoryIdentity match
+        case Some(category) => PositionKey.Categorical(category)
+        case None           => PositionKey.Numeric(if row.x == 0.0 then 0.0 else row.x)
+      buckets.getOrElseUpdate(key, scala.collection.mutable.ArrayBuffer.empty[Int]) += index
+    }
+    buckets.iterator.map { case (key, indices) => key -> indices.toVector }.toVector
+
+  private def groupIndex[Row](rows: Vector[ResolvedRow[Row]]): GroupIndex =
+    val rank = scala.collection.mutable.LinkedHashMap.empty[Option[GroupKey], Int]
+    rows.foreach { row =>
+      if !rank.contains(row.groupKey) then rank += row.groupKey -> rank.size
+    }
+    GroupIndex(rank.keysIterator.toVector, rank.toMap)
+
+  private def groupsAt[Row](
       indices: Vector[Int],
       rows: Vector[ResolvedRow[Row]],
-      groups: Vector[Option[String]]
+      rank: Map[Option[GroupKey], Int]
+  ): Vector[Option[GroupKey]] =
+    val seen = scala.collection.mutable.HashSet.empty[Option[GroupKey]]
+    val groups = Vector.newBuilder[Option[GroupKey]]
+    indices.foreach { index =>
+      val group = rows(index).groupKey
+      if seen.add(group) then groups += group
+    }
+    groups.result().sortBy(rank)
+
+  private def orderedIndices(
+      buckets: scala.collection.mutable.LinkedHashMap[
+        Option[GroupKey],
+        scala.collection.mutable.ArrayBuffer[Int]
+      ],
+      rank: Map[Option[GroupKey], Int],
+      order: StackOrder
   ): Vector[Int] =
-    indices.sortBy(index => (groups.indexOf(rows(index).group), index))
+    val groups = buckets.keysIterator.toVector.sortBy { group =>
+      order match
+        case StackOrder.Encountered => rank(group)
+        case StackOrder.Reverse     => -rank(group)
+    }
+    val indices = Vector.newBuilder[Int]
+    groups.foreach(group => indices ++= buckets(group))
+    indices.result()
 
   private def stackSide[Row](
       indices: Vector[Int],
@@ -960,10 +1654,14 @@ private[intaglio] object PositionPhase:
 
   private def resolution(values: Vector[Double]): Double =
     val ordered = values.filter(_.isFinite).distinct.sorted
-    ordered.sliding(2).flatMap {
-      case Vector(left, right) if right > left => Some(right - left)
-      case _                                   => None
-    }.minOption.getOrElse(1.0)
+    ordered
+      .sliding(2)
+      .flatMap {
+        case Vector(left, right) if right > left => Some(right - left)
+        case _                                   => None
+      }
+      .minOption
+      .getOrElse(1.0)
 
   private def translate[Row](
       row: ResolvedRow[Row],
@@ -984,9 +1682,8 @@ private[intaglio] object PositionPhase:
       point = Point.nativeUnsafe(x, y)
     )
 
-  /** SplitMix64 gives identical integer arithmetic on the JVM and Scala.js.
-    * Each row/axis is addressed independently, so traversal refactors cannot
-    * perturb later offsets.
+  /** SplitMix64 gives identical integer arithmetic on the JVM and Scala.js. Each row/axis is
+    * addressed independently, so traversal refactors cannot perturb later offsets.
     */
   private def symmetric(seed: Long, row: Int, axis: Int): Double =
     var value = seed + 0x9e3779b97f4a7c15L * (row.toLong * 2L + axis.toLong + 1L)
@@ -996,84 +1693,164 @@ private[intaglio] object PositionPhase:
     val bits = value >>> 11
     bits.toDouble / 9007199254740992.0 * 2.0 - 1.0
 
-/** Phase 6 — geom lowering: turn adjusted rows into grobs. Lowering is
-  * group-aware: layers honoring the group aesthetic lower to one grob per
-  * group carrying that group's graphic params.
+/** Phase 6 — geom lowering: turn adjusted rows into grobs. Lowering is group-aware: layers honoring
+  * the group aesthetic lower to one grob per group carrying that group's graphic params.
   */
 private[intaglio] object GeomPhase:
   def lower[Row](
+      layerIndex: Int,
       layer: Layer[Row],
-      rows: Vector[ResolvedRow[Row]]
+      lowering: StatLowering,
+      rows: Vector[ResolvedRow[Row]],
+      annotation: Option[ResolvedReferenceLine],
+      theme: Theme,
+      batchPointMarks: Boolean = false
   ): Either[GraphicsError, Vector[Grob]] =
-    layer.stat match
-      case _: Stat.Summary[?] => summaryGrobs(rows)
-      case _: Stat.Density[?] => densityGrobs(rows)
-      case _ => lowerIdentity(layer.geom, rows)
+    annotation match
+      case Some(reference) =>
+        referenceLineGrob(reference, layer.params.getOrElse(theme.geom))
+      case None if layer.annotation.nonEmpty =>
+        // The layer is a valid annotation declaration that this facet panel explicitly excludes.
+        // Keep that distinct from a row-backed HLine/VLine, which remains an invalid contract.
+        Right(Vector.empty)
+      case None =>
+        validateGroupConstancy(layer.geom, rows).flatMap { _ =>
+          lowering match
+            case StatLowering.Summary => summaryGrobs(rows)
+            case StatLowering.Density => densityGrobs(rows)
+            case StatLowering.Ecdf    => ecdfGrobs(rows)
+            case StatLowering.Geom    =>
+              if batchPointMarks && (layer.geom eq Geom.Point) then pointBatch(rows)
+              else layer.geom.lower(GeomBatch(rows, GeomContext(layerIndex, theme)))
+        }
 
-  private def lowerIdentity[Row](
+  private def validateGroupConstancy[Row](
       geom: Geom,
       rows: Vector[ResolvedRow[Row]]
-  ): Either[GraphicsError, Vector[Grob]] =
-    geom match
-      case Geom.Point =>
-        pointGrobs(rows)
-      case Geom.Line =>
-        lineGrobs(rows)
-      case Geom.Text =>
-        textGrobs(rows)
-      case Geom.Bar =>
-        barGrobs(rows)
-      case Geom.Rect =>
-        boundedRectGrobs(rows, "rect")
-      case Geom.Segment =>
-        segmentGrobs(rows)
-      case Geom.ErrorBar =>
-        errorBarGrobs(rows)
-      case Geom.Ribbon =>
-        ribbonGrobs(rows, "ribbon")
-      case Geom.Area =>
-        ribbonGrobs(rows, "area")
-      case Geom.HLine =>
-        horizontalLineGrob(rows)
-      case Geom.VLine =>
-        verticalLineGrob(rows)
-      case Geom.Tile =>
-        boundedRectGrobs(rows, "tile")
-      case Geom.Polygon =>
-        polygonGrobs(rows)
+  ): Either[GraphicsError, Unit] =
+    val groups = groupInOrder(rows)
+    val aesthetics = geom.contract.groupConstant
+    var groupIndex = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while groupIndex < groups.length && result.isRight do
+      val group = groups(groupIndex)
+      if group.nonEmpty then
+        var aestheticIndex = 0
+        while aestheticIndex < aesthetics.length && result.isRight do
+          val aesthetic = aesthetics(aestheticIndex)
+          val first = group.head
+          val expected = groupAestheticValue(first, aesthetic)
+          group.tail.find(row => groupAestheticValue(row, aesthetic) != expected).foreach { row =>
+            result = Left(
+              GraphicsError.VaryingGroupAesthetic(
+                geom.label,
+                aesthetic.label,
+                first.groupKey.map(_.display).getOrElse("<ungrouped>"),
+                first.rowIndex,
+                row.rowIndex
+              )
+            )
+          }
+          aestheticIndex += 1
+      groupIndex += 1
+    result
 
-  private def summaryGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private def groupAestheticValue(
+      row: ResolvedRow[?],
+      aesthetic: Aesthetic[?]
+  ): GroupAestheticValue =
+    aesthetic match
+      case Aesthetic.Color     => GroupAestheticValue.Color(row.gp.stroke)
+      case Aesthetic.Fill      => GroupAestheticValue.Fill(row.gp.fill, row.gp.fillPattern)
+      case Aesthetic.Alpha     => GroupAestheticValue.Alpha(row.gp.alpha)
+      case Aesthetic.Size      => GroupAestheticValue.Size(row.size)
+      case Aesthetic.LineType  => GroupAestheticValue.LineType(row.gp.lineType)
+      case Aesthetic.LineWidth => GroupAestheticValue.LineWidth(row.gp.strokeWidth)
+      case other               => GroupAestheticValue.Unsupported(other.label)
+
+  private enum GroupAestheticValue:
+    case Color(value: Option[Rgba])
+    case Fill(value: Option[Rgba], pattern: Option[PatternPaint])
+    case Alpha(value: Double)
+    case Size(value: ExtentExpr)
+    case LineType(value: intaglio.LineType)
+    case LineWidth(value: StrokeWidth)
+    case Unsupported(aesthetic: String)
+
+  private def referenceLineGrob(
+      annotation: ResolvedReferenceLine,
+      params: GraphicParams
+  ): Either[GraphicsError, Vector[Grob]] =
+    val coordinate = LengthExpr.nativeUnsafe(annotation.coordinate)
+    val (segment, name) = annotation.reference.orientation match
+      case ReferenceLineOrientation.Horizontal =>
+        (
+          Point(LengthExpr.npcUnsafe(0.0), coordinate) ->
+            Point(LengthExpr.npcUnsafe(1.0), coordinate),
+          "geom-hline"
+        )
+      case ReferenceLineOrientation.Vertical =>
+        (
+          Point(coordinate, LengthExpr.npcUnsafe(0.0)) ->
+            Point(coordinate, LengthExpr.npcUnsafe(1.0)),
+          "geom-vline"
+        )
+    Grob
+      .segments(
+        Vector(segment),
+        gp = params,
+        name = Some(GraphicsName.unsafe(name))
+      )
+      .map(Vector(_))
+
+  private def summaryGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < rows.length && result.isRight do
       val row = rows(idx)
-      val lower = row.computed.get(ComputedAesthetic.Lower).getOrElse(row.y)
-      val upper = row.computed.get(ComputedAesthetic.Upper).getOrElse(row.y)
-      result = Grob
-        .segments(
-          Vector((Point.nativeUnsafe(row.x, lower), Point.nativeUnsafe(row.x, upper))),
-          gp = row.gp,
-          name = Some(GraphicsName.unsafe(s"stat-summary-interval-$idx"))
-        )
-        .flatMap { interval =>
-          Grob
-            .points(
-              Vector(row.point),
-              size = row.size,
-              gp = row.gp,
-              name = Some(GraphicsName.unsafe(s"stat-summary-mean-$idx"))
-            )
-            .map { point =>
-              out += interval
-              out += point
-              ()
-            }
-        }
+      val summary = row.statRow match
+        case output: StatRow.Summarized[?] =>
+          Right((output.lower, output.upper, "summary", "mean"))
+        case output: StatRow.QuantileSummary[?] =>
+          Right((output.lowerQuartile, output.upperQuartile, "quantile-summary", "median"))
+        case other =>
+          Left(GraphicsError.InvalidStatParameter("summary", "typed output row", other.kind))
+      result = summary.flatMap { case (lower, upper, prefix, center) =>
+        Grob
+          .segments(
+            Vector(
+              (
+                Point.nativeUnsafe(row.x, lower),
+                Point.nativeUnsafe(row.x, upper)
+              )
+            ),
+            gp = row.gp,
+            name = Some(GraphicsName.unsafe(s"stat-$prefix-interval-$idx"))
+          )
+          .flatMap { interval =>
+            Grob
+              .points(
+                Vector(row.point),
+                size = row.size,
+                gp = row.gp,
+                name = Some(GraphicsName.unsafe(s"stat-$prefix-$center-$idx"))
+              )
+              .map { point =>
+                out += interval
+                out += point
+                ()
+              }
+          }
+      }
       idx += 1
     result.map(_ => out.result())
 
-  private def densityGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private def densityGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     if rows.length < 2 then Right(Vector.empty)
     else
       Grob
@@ -1084,7 +1861,40 @@ private[intaglio] object GeomPhase:
         )
         .map(Vector(_))
 
-  private def boundedRectGrobs[Row](
+  private def ecdfGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
+    val groups = groupInOrder(rows)
+    val out = Vector.newBuilder[Grob]
+    var groupIndex = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while groupIndex < groups.length && result.isRight do
+      val group = groups(groupIndex)
+      if group.nonEmpty then
+        val points = Vector.newBuilder[Point]
+        points += Point.nativeUnsafe(group.head.x, 0.0)
+        var rowIndex = 0
+        var previous = 0.0
+        while rowIndex < group.length do
+          val row = group(rowIndex)
+          if rowIndex > 0 then points += Point.nativeUnsafe(row.x, previous)
+          points += row.point
+          previous = row.y
+          rowIndex += 1
+        result = Grob
+          .lines(
+            points.result(),
+            gp = group.head.gp,
+            name = Some(GraphicsName.unsafe(s"stat-ecdf-line-$groupIndex"))
+          )
+          .map { grob =>
+            out += grob
+            ()
+          }
+      groupIndex += 1
+    result.map(_ => out.result())
+
+  private[intaglio] def boundedRectGrobs[Row](
       rows: Vector[ResolvedRow[Row]],
       prefix: String
   ): Either[GraphicsError, Vector[Grob]] =
@@ -1098,14 +1908,17 @@ private[intaglio] object GeomPhase:
       val yMax = row.yMax.getOrElse(row.y)
       out += Grob.rectUnsafe(
         center = Point.nativeUnsafe(xMin + (xMax - xMin) / 2.0, yMin + (yMax - yMin) / 2.0),
-        size = Size.fromExtents(ExtentExpr.nativeUnsafe(xMax - xMin), ExtentExpr.nativeUnsafe(yMax - yMin)),
+        size = Size
+          .fromExtents(ExtentExpr.nativeUnsafe(xMax - xMin), ExtentExpr.nativeUnsafe(yMax - yMin)),
         gp = row.gp,
         name = Some(GraphicsName.unsafe(s"geom-$prefix-$idx"))
       )
       idx += 1
     Right(out.result())
 
-  private def segmentGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def segmentGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
@@ -1125,7 +1938,9 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def errorBarGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def errorBarGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     val halfCap = ExtentExpr.pointsUnsafe(3.0)
     var idx = 0
@@ -1151,7 +1966,7 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def ribbonGrobs[Row](
+  private[intaglio] def ribbonGrobs[Row](
       rows: Vector[ResolvedRow[Row]],
       prefix: String
   ): Either[GraphicsError, Vector[Grob]] =
@@ -1177,46 +1992,40 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def horizontalLineGrob[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
-    rows.headOption match
-      case None => Right(Vector.empty)
-      case Some(row) =>
-        val y = LengthExpr.nativeUnsafe(row.y)
-        Grob
-          .segments(
-            Vector(Point(LengthExpr.npcUnsafe(0.0), y) -> Point(LengthExpr.npcUnsafe(1.0), y)),
-            gp = row.gp,
-            name = Some(GraphicsName.unsafe("geom-hline"))
-          )
-          .map(Vector(_))
-
-  private def verticalLineGrob[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
-    rows.headOption match
-      case None => Right(Vector.empty)
-      case Some(row) =>
-        val x = LengthExpr.nativeUnsafe(row.x)
-        Grob
-          .segments(
-            Vector(Point(x, LengthExpr.npcUnsafe(0.0)) -> Point(x, LengthExpr.npcUnsafe(1.0))),
-            gp = row.gp,
-            name = Some(GraphicsName.unsafe("geom-vline"))
-          )
-          .map(Vector(_))
-
-  private def pointGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def pointGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < rows.length && result.isRight do
       val row = rows(idx)
-      result = Grob.points(Vector(row.point), size = row.size, gp = row.gp).map { grob =>
-        out += grob
-        ()
-      }
+      result = Grob
+        .points(Vector(row.point), size = row.size, shape = row.shape, gp = row.gp)
+        .map { grob =>
+          out += grob
+          ()
+        }
       idx += 1
     result.map(_ => out.result())
 
-  private def lineGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def pointBatch[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
+    if rows.isEmpty then Right(Vector.empty)
+    else
+      Grob
+        .pointBatch(
+          rows.map(_.point),
+          sizes = BatchColumn.compact(rows.map(_.size)),
+          shapes = BatchColumn.compact(rows.map(_.shape)),
+          graphicParams = BatchColumn.compact(rows.map(_.gp))
+        )
+        .map(Vector(_))
+
+  private[intaglio] def lineGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val groups = groupInOrder(rows)
     val out = Vector.newBuilder[Grob]
     var idx = 0
@@ -1231,7 +2040,9 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  private def polygonGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def polygonGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val groups = groupInOrder(rows)
     val out = Vector.newBuilder[Grob]
     var index = 0
@@ -1260,14 +2071,16 @@ private[intaglio] object GeomPhase:
       index += 1
     result.map(_ => out.result())
 
-  private def subpathsInOrder[Row](rows: Vector[ResolvedRow[Row]]): Vector[Vector[ResolvedRow[Row]]] =
+  private def subpathsInOrder[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Vector[Vector[ResolvedRow[Row]]] =
     val order = scala.collection.mutable.ArrayBuffer.empty[Option[String]]
-    val buckets = scala.collection.mutable.HashMap.empty[Option[String], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
+    val buckets = scala.collection.mutable.HashMap
+      .empty[Option[String], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
     rows.foreach { row =>
       val key = row.subpath
       val bucket = buckets.getOrElseUpdate(
-        key,
-        {
+        key, {
           order += key
           scala.collection.mutable.ArrayBuffer.empty[ResolvedRow[Row]]
         }
@@ -1276,20 +2089,32 @@ private[intaglio] object GeomPhase:
     }
     order.toVector.map(key => buckets(key).toVector)
 
-  private def textGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def textGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < rows.length && result.isRight do
       val row = rows(idx)
-      result = Grob.text(row.label.getOrElse(""), row.point, gp = row.gp).map { grob =>
-        out += grob
-        ()
-      }
+      result = Grob
+        .text(
+          row.label.getOrElse(""),
+          row.point,
+          anchor = row.textAnchor,
+          rotationDegrees = row.rotationDegrees,
+          gp = row.gp
+        )
+        .map { grob =>
+          out += grob
+          ()
+        }
       idx += 1
     result.map(_ => out.result())
 
-  private def barGrobs[Row](rows: Vector[ResolvedRow[Row]]): Either[GraphicsError, Vector[Grob]] =
+  private[intaglio] def barGrobs[Row](
+      rows: Vector[ResolvedRow[Row]]
+  ): Either[GraphicsError, Vector[Grob]] =
     val out = Vector.newBuilder[Grob]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
@@ -1299,8 +2124,11 @@ private[intaglio] object GeomPhase:
       val upper = row.yMax.getOrElse(math.max(0.0, row.y))
       val height = upper - lower
       val centerY = lower + height / 2.0
-      val width = row.xBand.map(_.width).orElse(row.computed.get(ComputedAesthetic.BinWidth)).getOrElse(0.9)
-      val statName = if row.computed.get(ComputedAesthetic.BinWidth).nonEmpty then "bin" else "count"
+      val binWidth = row.statRow match
+        case output: StatRow.Binned[?] => Some(output.binWidth)
+        case _                         => None
+      val width = row.xBand.map(_.width).orElse(binWidth).getOrElse(0.9)
+      val statName = if binWidth.nonEmpty then "bin" else "count"
       result = Grob
         .rect(
           center = Point.nativeUnsafe(row.x, centerY),
@@ -1315,19 +2143,19 @@ private[intaglio] object GeomPhase:
       idx += 1
     result.map(_ => out.result())
 
-  /** Partition rows by their group value, preserving first-encounter order of
-    * groups and row order within each group.
+  /** Partition rows by their group value, preserving first-encounter order of groups and row order
+    * within each group.
     */
   private def groupInOrder[Row](rows: Vector[ResolvedRow[Row]]): Vector[Vector[ResolvedRow[Row]]] =
-    if rows.forall(_.group.isEmpty) then
-      if rows.isEmpty then Vector.empty else Vector(rows)
+    if rows.forall(_.groupKey.isEmpty) then if rows.isEmpty then Vector.empty else Vector(rows)
     else
-      val order = Vector.newBuilder[Option[String]]
-      val buckets = scala.collection.mutable.HashMap.empty[Option[String], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
+      val order = Vector.newBuilder[Option[GroupKey]]
+      val buckets = scala.collection.mutable.HashMap
+        .empty[Option[GroupKey], scala.collection.mutable.ArrayBuffer[ResolvedRow[Row]]]
       rows.foreach { row =>
         val bucket = buckets.getOrElseUpdate(
-          row.group, {
-            order += row.group
+          row.groupKey, {
+            order += row.groupKey
             scala.collection.mutable.ArrayBuffer.empty[ResolvedRow[Row]]
           }
         )
@@ -1335,42 +2163,167 @@ private[intaglio] object GeomPhase:
       }
       order.result().map(key => buckets(key).toVector)
 
-/** Phase 7 — coordinate transformation is deliberately one compiler phase. Statistical
-  * output and geoms remain expressed in logical x/y space; this phase turns
-  * their rows, grobs, and panel ranges into physical panel coordinates before
-  * layout and guide lowering. Backends therefore know nothing about plot
-  * coordinates.
+/** Phase 7 — coordinate transformation is deliberately one compiler phase. Statistical output and
+  * geoms remain expressed in logical x/y space; this phase turns their rows, grobs, and panel
+  * ranges into physical panel coordinates before layout and guide lowering. Backends therefore know
+  * nothing about plot coordinates.
   */
 private[intaglio] object CoordPhase:
-  final case class CoordinateResolution(
-      layers: Vector[TrainedLayer],
-      ranges: Option[(Interval, Interval)]
-  )
-
   def transform(
       coord: Coord,
       layers: Vector[TrainedLayer],
-      ranges: Option[(Interval, Interval)]
-  ): Either[GraphicsError, CoordinateResolution] =
-    coord match
-      case Coord.Flipped(_) =>
-        Right(
-          CoordinateResolution(
-            layers.map(flipLayer),
-            ranges.map { case (xRange, yRange) => (yRange, xRange) }
-          )
+      ranges: Option[(Interval, Interval)],
+      scales: PlotScaleRegistry = PlotScaleRegistry.empty
+  ): Either[GraphicsError, CoordResult] =
+    coord.transform(CoordInput(layers, ranges, scales))
+
+/** Reusable, renderer-neutral transforms for built-in and ecosystem coordinates. */
+object CoordinateTransform:
+  def identity(input: CoordInput): Either[GraphicsError, CoordResult] =
+    Right(CoordResult(input.layers, input.ranges))
+
+  def transpose(input: CoordInput): Either[GraphicsError, CoordResult] =
+    Right(
+      CoordResult(
+        input.layers.map(flipLayer),
+        input.ranges.map { case (xRange, yRange) => (yRange, xRange) }
+      )
+    )
+
+  /** Replace physical panel ranges from raw data-space windows after statistics and scale training.
+    * Rows and grobs are retained unchanged; ordinary panel clipping performs the visual zoom.
+    */
+  def zoom(
+      input: CoordInput,
+      x: Option[CoordinateWindow],
+      y: Option[CoordinateWindow]
+  ): Either[GraphicsError, CoordResult] =
+    input.ranges match
+      case None                   => Left(GraphicsError.MissingLayout("coordinate zoom"))
+      case Some((xRange, yRange)) =>
+        zoomRanges(xRange, yRange, input.scales, x, y).map { ranges =>
+          CoordResult(input.layers, Some(ranges))
+        }
+
+  private[intaglio] def zoomRanges(
+      xRange: Interval,
+      yRange: Interval,
+      scales: PlotScaleRegistry,
+      x: Option[CoordinateWindow],
+      y: Option[CoordinateWindow]
+  ): Either[GraphicsError, (Interval, Interval)] =
+    for
+      resolvedX <- resolveZoomRange("x", Aesthetic.X, xRange, scales, x)
+      resolvedY <- resolveZoomRange("y", Aesthetic.Y, yRange, scales, y)
+    yield (resolvedX, resolvedY)
+
+  private def resolveZoomRange(
+      axis: String,
+      aesthetic: Aesthetic[Double],
+      existing: Interval,
+      scales: PlotScaleRegistry,
+      requested: Option[CoordinateWindow]
+  ): Either[GraphicsError, Interval] =
+    requested match
+      case None         => Right(existing)
+      case Some(window) =>
+        scales.forAesthetic(aesthetic) match
+          case None =>
+            window match
+              case CoordinateWindow.Numeric(range) => Right(range)
+              case _                               =>
+                Left(
+                  GraphicsError.CoordinateZoomScaleMismatch(axis, window.kindLabel, "unscaled")
+                )
+          case Some(trained) =>
+            (window, trained.scale) match
+              case (CoordinateWindow.Numeric(range), scale: ContinuousScale[?]) =>
+                val numeric = scale.asInstanceOf[ContinuousScale[Double]]
+                mapZoomBounds(
+                  axis,
+                  range.lower,
+                  range.upper,
+                  range.lower.toString,
+                  range.upper.toString,
+                  numeric.mapValueResult
+                )
+              case (CoordinateWindow.Date(range), scale: DateScale) =>
+                mapZoomBounds(
+                  axis,
+                  range.lower,
+                  range.upper,
+                  range.lower.toString,
+                  range.upper.toString,
+                  scale.mapValueResult
+                )
+              case (CoordinateWindow.DateTime(range), scale: DateTimeScale) =>
+                mapZoomBounds(
+                  axis,
+                  range.lower,
+                  range.upper,
+                  range.lower.toString,
+                  range.upper.toString,
+                  scale.mapValueResult
+                )
+              case _ =>
+                Left(
+                  GraphicsError.CoordinateZoomScaleMismatch(
+                    axis,
+                    window.kindLabel,
+                    trained.descriptor.kind.toString.toLowerCase
+                  )
+                )
+
+  private def mapZoomBounds[A](
+      axis: String,
+      lowerValue: A,
+      upperValue: A,
+      lowerLabel: String,
+      upperLabel: String,
+      map: A => Either[ScaleMapFailure, Double]
+  ): Either[GraphicsError, Interval] =
+    for
+      lower <- map(lowerValue).left.map(failure =>
+        GraphicsError.CoordinateZoomMappingFailed(axis, "lower", lowerLabel, failure.toString)
+      )
+      upper <- map(upperValue).left.map(failure =>
+        GraphicsError.CoordinateZoomMappingFailed(axis, "upper", upperLabel, failure.toString)
+      )
+      range <- Interval(math.min(lower, upper), math.max(lower, upper))
+    yield range
+
+  /** Translate all resolved row, annotation, grob, and range coordinates by a finite native delta.
+    */
+  def translate(
+      input: CoordInput,
+      x: Double,
+      y: Double
+  ): Either[GraphicsError, CoordResult] =
+    if !x.isFinite || !y.isFinite then Left(GraphicsError.InvalidCoordinateTranslation(x, y))
+    else
+      Right(
+        CoordResult(
+          input.layers.map(translateLayer(_, x, y)),
+          input.ranges.map { case (xRange, yRange) =>
+            (
+              Interval.unsafe(xRange.lower + x, xRange.upper + x),
+              Interval.unsafe(yRange.lower + y, yRange.upper + y)
+            )
+          }
         )
-      case Coord.Cartesian(_) | Coord.Fixed(_, _) =>
-        Right(CoordinateResolution(layers, ranges))
+      )
 
   private def flipLayer(layer: TrainedLayer): TrainedLayer =
     flipTypedLayer(layer.value)
 
   private def flipTypedLayer[Row](layer: ResolvedLayer[Row]): TrainedLayer =
-    TrainedLayer(layer.copy(
-      rows = layer.rows.map(flipRow),
-      grobs = layer.grobs.map(flipGrob)
-    ))
+    TrainedLayer(
+      layer.copy(
+        rows = layer.rows.map(flipRow),
+        annotation = layer.annotation.map(_.flipped),
+        grobs = layer.grobs.map(flipGrob)
+      )
+    )
 
   private def flipRow[Row](row: ResolvedRow[Row]): ResolvedRow[Row] =
     row.copy(
@@ -1378,6 +2331,8 @@ private[intaglio] object CoordPhase:
       y = row.x,
       xBand = row.yBand,
       yBand = row.xBand,
+      xCategoryIdentity = row.yCategoryIdentity,
+      yCategoryIdentity = row.xCategoryIdentity,
       xEnd = row.yEnd,
       yEnd = row.xEnd,
       xMin = row.yMin,
@@ -1397,14 +2352,21 @@ private[intaglio] object CoordPhase:
     grob match
       case points: Grob.Points =>
         points.copy(points = points.points.map(flipPoint))
+      case points: Grob.PointBatch =>
+        points.copy(points = points.points.map(flipPoint))
       case lines: Grob.Lines =>
-        lines.copy(points = lines.points.map(flipPoint))
+        lines.copy(
+          points = lines.points.map(flipPoint),
+          interpolation = lines.interpolation.transposed
+        )
       case polygon: Grob.Polygon =>
         polygon.copy(points = polygon.points.map(flipPoint))
       case polygon: Grob.CompoundPolygon =>
         polygon.copy(rings = polygon.rings.map(_.map(flipPoint)))
       case segments: Grob.Segments =>
-        segments.copy(segments = segments.segments.map { case (start, end) => (flipPoint(start), flipPoint(end)) })
+        segments.copy(segments = segments.segments.map { case (start, end) =>
+          (flipPoint(start), flipPoint(end))
+        })
       case rect: Grob.Rect =>
         rect.copy(center = flipPoint(rect.center), size = flipSize(rect.size))
       case circle: Grob.Circle =>
@@ -1415,17 +2377,102 @@ private[intaglio] object CoordPhase:
         image.copy(at = flipPoint(image.at), size = flipSize(image.size))
       case group: Grob.Group =>
         group.copy(children = group.children.map(flipGrob))
+      case annotated: Grob.Annotated =>
+        annotated.copy(child = flipGrob(annotated.child))
 
-/** Phase 8 — layout resolution: use the explicit panel layout when given,
-  * or derive one from an explicit frame plus panel data ranges computed from
-  * the layers' position scales (mapped space is the unit interval) or their
-  * resolved row values when a position is unscaled.
+  private def translateLayer(layer: TrainedLayer, x: Double, y: Double): TrainedLayer =
+    translateTypedLayer(layer.value, x, y)
+
+  private def translateTypedLayer[Row](
+      layer: ResolvedLayer[Row],
+      x: Double,
+      y: Double
+  ): TrainedLayer =
+    TrainedLayer(
+      layer.copy(
+        rows = layer.rows.map(translateRow(_, x, y)),
+        annotation = layer.annotation.map(translateReference(_, x, y)),
+        grobs = layer.grobs.map(translateGrob(_, x, y))
+      )
+    )
+
+  private def translateRow[Row](
+      row: ResolvedRow[Row],
+      x: Double,
+      y: Double
+  ): ResolvedRow[Row] =
+    row.copy(
+      x = row.x + x,
+      y = row.y + y,
+      xBand = row.xBand.map(band => Band.unsafe(band.center + x, band.width)),
+      yBand = row.yBand.map(band => Band.unsafe(band.center + y, band.width)),
+      xEnd = row.xEnd.map(_ + x),
+      yEnd = row.yEnd.map(_ + y),
+      xMin = row.xMin.map(_ + x),
+      xMax = row.xMax.map(_ + x),
+      yMin = row.yMin.map(_ + y),
+      yMax = row.yMax.map(_ + y),
+      point = translatePoint(row.point, x, y)
+    )
+
+  private def translateReference(
+      annotation: ResolvedReferenceLine,
+      x: Double,
+      y: Double
+  ): ResolvedReferenceLine =
+    val delta = annotation.reference.orientation match
+      case ReferenceLineOrientation.Horizontal => y
+      case ReferenceLineOrientation.Vertical   => x
+    annotation.copy(coordinate = annotation.coordinate + delta)
+
+  private def translatePoint(point: Point, x: Double, y: Double): Point =
+    Point(translateLength(point.x, x), translateLength(point.y, y))
+
+  private def translateLength(value: LengthExpr, delta: Double): LengthExpr =
+    value match
+      case LengthExpr.Const(length) if length.unit == LengthUnit.Native =>
+        LengthExpr.nativeUnsafe(length.value + delta)
+      case _ if delta >= 0.0 => value + ExtentExpr.nativeUnsafe(delta)
+      case _                 => value - ExtentExpr.nativeUnsafe(-delta)
+
+  private def translateGrob(grob: Grob, x: Double, y: Double): Grob =
+    grob match
+      case points: Grob.Points =>
+        points.copy(points = points.points.map(translatePoint(_, x, y)))
+      case points: Grob.PointBatch =>
+        points.copy(points = points.points.map(translatePoint(_, x, y)))
+      case lines: Grob.Lines =>
+        lines.copy(points = lines.points.map(translatePoint(_, x, y)))
+      case polygon: Grob.Polygon =>
+        polygon.copy(points = polygon.points.map(translatePoint(_, x, y)))
+      case polygon: Grob.CompoundPolygon =>
+        polygon.copy(rings = polygon.rings.map(_.map(translatePoint(_, x, y))))
+      case segments: Grob.Segments =>
+        segments.copy(segments = segments.segments.map { case (start, end) =>
+          (translatePoint(start, x, y), translatePoint(end, x, y))
+        })
+      case rect: Grob.Rect =>
+        rect.copy(center = translatePoint(rect.center, x, y))
+      case circle: Grob.Circle =>
+        circle.copy(center = translatePoint(circle.center, x, y))
+      case text: Grob.Text =>
+        text.copy(at = translatePoint(text.at, x, y))
+      case image: Grob.Image =>
+        image.copy(at = translatePoint(image.at, x, y))
+      case group: Grob.Group =>
+        group.copy(children = group.children.map(translateGrob(_, x, y)))
+      case annotated: Grob.Annotated =>
+        annotated.copy(child = translateGrob(annotated.child, x, y))
+
+/** Phase 8 — layout resolution: use the explicit panel layout when given, or derive one from an
+  * explicit frame plus panel data ranges computed from the layers' position scales (mapped space is
+  * the unit interval) or their resolved row values when a position is unscaled.
   */
 private[intaglio] object LayoutPhase:
   final case class LayoutResolution(layout: Option[PanelLayout], frames: Option[PlotFrames])
 
-  /** Panel data ranges when any layout source (explicit layout, frame, or
-    * solver policy) is in play; `None` when the plot compiles layout-free.
+  /** Panel data ranges when any layout source (explicit layout, frame, or solver policy) is in
+    * play; `None` when the plot compiles layout-free.
     */
   def panelRangesFor(
       options: PlotCompilerOptions,
@@ -1449,16 +2496,24 @@ private[intaglio] object LayoutPhase:
     val clip = coordClip(coord)
     (options.layout, options.frame, options.policy, ranges) match
       case (Some(layout), _, _, Some((xRange, yRange))) =>
-        Right(LayoutResolution(Some(layout.copy(xScale = xRange, yScale = yRange, clip = clip)), None))
+        Right(
+          LayoutResolution(Some(layout.copy(xScale = xRange, yScale = yRange, clip = clip)), None)
+        )
       case (None, Some(frame), _, Some((xRange, yRange))) =>
-        expandedRanges(options.expansion, xRange, yRange).map { case (expandedX, expandedY) =>
-          LayoutResolution(Some(PanelLayout(frame, expandedX, expandedY, options.margins, clip)), None)
+        coord.expandRanges(options.expansion, xRange, yRange).map { case (expandedX, expandedY) =>
+          LayoutResolution(
+            Some(PanelLayout(frame, expandedX, expandedY, options.margins, clip)),
+            None
+          )
         }
       case (None, None, Some(policy), Some((xRange, yRange))) =>
         for
-          expanded <- expandedRanges(options.expansion, xRange, yRange)
+          expanded <- coord.expandRanges(options.expansion, xRange, yRange)
           aspect <- panelAspect(coord, expanded._1, expanded._2)
-          frames <- PlotLayoutSolver.solve(policy, layoutRequest(specs, expanded._1, expanded._2, labels, aspect))
+          frames <- PlotLayoutSolver.solve(
+            policy,
+            layoutRequest(specs, expanded._1, expanded._2, labels, aspect)
+          )
         yield
           val (expandedX, expandedY) = expanded
           LayoutResolution(
@@ -1507,14 +2562,7 @@ private[intaglio] object LayoutPhase:
       xRange: Interval,
       yRange: Interval
   ): Either[GraphicsError, Option[CoordinateRatio]] =
-    coord match
-      case Coord.Fixed(ratio, _) =>
-        if xRange.width <= 0.0 || yRange.width <= 0.0 then
-          Left(GraphicsError.DegenerateFixedAspect(xRange.width, yRange.width))
-        else
-          CoordinateRatio(yRange.width / xRange.width * ratio.toDouble).map(Some(_))
-      case Coord.Cartesian(_) | Coord.Flipped(_) =>
-        Right(None)
+    coord.panelAspect(xRange, yRange)
 
   private def axisLabels(axis: GuideSpec.Axis, range: Interval): Vector[String] =
     axis.ticks match
@@ -1527,67 +2575,88 @@ private[intaglio] object LayoutPhase:
       layers: Vector[TrainedLayer]
   ): Either[GraphicsError, (Interval, Interval)] =
     for
-      xRange <- positionRange(layers, Aesthetic.X.label)
-      yRange <- positionRange(layers, Aesthetic.Y.label)
+      xRange <- positionRange(layers, Aesthetic.X)
+      yRange <- positionRange(layers, Aesthetic.Y)
     yield (xRange, yRange)
 
-  /** Union of the position ranges contributed by each layer. Scaled layers
-    * live in mapped unit space (trained with the unit interval plus their
-    * actual mapped rows, so an `OobPolicy.Keep` overflow widens the panel
-    * rather than silently clipping); unscaled layers contribute raw row
-    * values. Mixing the two across layers is incoherent — mapped and raw
-    * coordinates share no unit — and is a typed error.
+  /** Union of the position ranges contributed by each layer. Scaled layers live in mapped unit
+    * space (trained with the unit interval plus their actual mapped rows, so an `OobPolicy.Keep`
+    * overflow widens the panel rather than silently clipping); unscaled layers contribute raw row
+    * values. Mixing the two across layers is incoherent — mapped and raw coordinates share no unit
+    * — and is a typed error.
     */
   private def positionRange(
       layers: Vector[TrainedLayer],
-      aesthetic: String
+      aesthetic: Aesthetic[Double]
   ): Either[GraphicsError, Interval] =
     var sawScaled = false
     var sawUnscaledData = false
     var range = ContinuousRange.empty
     layers.foreach { layer =>
       val contributes =
-        !(layer.geom == Geom.HLine && aesthetic == Aesthetic.X.label)
-          && !(layer.geom == Geom.VLine && aesthetic == Aesthetic.Y.label)
+        !(layer.geom == Geom.HLine && aesthetic == Aesthetic.X)
+          && !(layer.geom == Geom.VLine && aesthetic == Aesthetic.Y)
       val values =
-        if contributes then layer.rows.iterator.flatMap(row => positionValues(row, aesthetic)).toVector
+        if contributes then
+          layer.rows.iterator.flatMap(row => positionValues(row, aesthetic)).toVector
         else Vector.empty
-      layer.trainedScales.find(_.aesthetic == aesthetic) match
+      val annotationValues = layer.annotation.toVector.collect {
+        case annotation
+            if annotation.reference.scalePolicy == AnnotationScalePolicy.Train &&
+              (annotation.reference.aesthetic eq aesthetic) =>
+          annotation.coordinate
+      }
+      val positionData = values ++ annotationValues
+      layer.trainedScales.find(_.key eq aesthetic) match
         case Some(scale) =>
           sawScaled = true
-          if scale.descriptor.kind == ScaleKind.Continuous then
-            range = range.train(Vector(0.0, 1.0))
-          range = range.train(values)
+          if scale.descriptor.kind == ScaleKind.Continuous ||
+            scale.descriptor.kind == ScaleKind.Temporal
+          then range = range.train(Vector(0.0, 1.0))
+          range = range.train(positionData)
         case None =>
-          if values.nonEmpty then sawUnscaledData = true
-          range = range.train(values)
+          if positionData.nonEmpty then sawUnscaledData = true
+          range = range.train(positionData)
       if layer.geom == Geom.Bar then
-        if aesthetic == Aesthetic.X.label then
+        if aesthetic == Aesthetic.X then
           val edges = layer.rows.iterator.flatMap { row =>
+            val binWidth = row.statRow match
+              case output: StatRow.Binned[?] => Some(output.binWidth)
+              case _                         => None
             val halfWidth =
-              row.xBand.map(_.width).orElse(row.computed.get(ComputedAesthetic.BinWidth)).getOrElse(0.9) / 2.0
+              row.xBand
+                .map(_.width)
+                .orElse(binWidth)
+                .getOrElse(0.9) / 2.0
             Iterator(row.x - halfWidth, row.x + halfWidth)
           }
           range = range.train(edges)
-        else if aesthetic == Aesthetic.Y.label then
-          range = range.train(Iterator.single(0.0))
-      if aesthetic == Aesthetic.Y.label then
+        else if aesthetic == Aesthetic.Y then range = range.train(Iterator.single(0.0))
+      if aesthetic == Aesthetic.Y then
         val intervalValues = layer.rows.iterator.flatMap { row =>
-          Iterator(
-            row.computed.get(ComputedAesthetic.Lower),
-            row.computed.get(ComputedAesthetic.Upper)
-          ).flatten
+          row.statRow match
+            case output: StatRow.Summarized[?]      => Iterator(output.lower, output.upper)
+            case output: StatRow.QuantileSummary[?] =>
+              Iterator(output.lowerQuartile, output.upperQuartile)
+            case _ => Iterator.empty
         }
         range = range.train(intervalValues)
+        if layer.rows.exists(_.statRow.isInstanceOf[StatRow.Ecdf[?]]) then
+          range = range.train(Iterator.single(0.0))
     }
-    if sawScaled && sawUnscaledData then Left(GraphicsError.MixedPositionScaling(aesthetic))
-    else range.requireTrained
+    if sawScaled && sawUnscaledData then Left(GraphicsError.MixedPositionScaling(aesthetic.label))
+    else
+      range.requireTrained match
+        case Left(GraphicsError.EmptyContinuousRange) if layers.exists(_.annotation.nonEmpty) =>
+          Right(Interval.unsafe(0.0, 1.0))
+        case result =>
+          result
 
   private def positionValues(
       row: ResolvedRow[?],
-      aesthetic: String
+      aesthetic: Aesthetic[Double]
   ): Vector[Double] =
-    if aesthetic == Aesthetic.X.label then
+    if aesthetic == Aesthetic.X then
       Vector(Some(row.x), row.xEnd, row.xMin, row.xMax).flatten ++
         row.xBand.toVector.flatMap(band => Vector(band.lower, band.upper))
     else
@@ -1597,9 +2666,9 @@ private[intaglio] object LayoutPhase:
   private[intaglio] def coordClip(coord: Coord): Clip =
     coord.clipping
 
-/** Structural plot text lowers into solver-owned regions before any backend
-  * sees the scene. Axis titles remain guide children; title and subtitle are
-  * top-level text grobs in dedicated viewports.
+/** Structural plot text lowers into solver-owned regions before any backend sees the scene. Axis
+  * titles remain guide children; title and subtitle are top-level text grobs in dedicated
+  * viewports.
   */
 private[intaglio] object PlotLabelPhase:
   def lower(
@@ -1611,7 +2680,7 @@ private[intaglio] object PlotLabelPhase:
     if !needsHeader then Right(Vector.empty)
     else
       frames match
-        case None => Left(GraphicsError.MissingLayout("plot title"))
+        case None         => Left(GraphicsError.MissingLayout("plot title"))
         case Some(solved) =>
           val out = Vector.newBuilder[Grob]
           for
@@ -1639,10 +2708,10 @@ private[intaglio] object PlotLabelPhase:
       out: scala.collection.mutable.Builder[Grob, Vector[Grob]]
   ): Either[GraphicsError, Unit] =
     text match
-      case None => Right(())
+      case None        => Right(())
       case Some(label) =>
         viewport match
-          case None => Left(GraphicsError.MissingLayout(name.value))
+          case None        => Left(GraphicsError.MissingLayout(name.value))
           case Some(frame) =>
             Grob
               .text(
@@ -1658,9 +2727,8 @@ private[intaglio] object PlotLabelPhase:
                 ()
               }
 
-/** Phase 7 — guide resolution: determine guide specs from the policy (deriving
-  * routine axes and legends from trained scales) and lower them against the
-  * panel layout.
+/** Phase 7 — guide resolution: determine guide specs from the policy (deriving routine axes and
+  * legends from trained scales) and lower them against the panel layout.
   */
 private[intaglio] object GuidePhase:
   def specs(
@@ -1678,14 +2746,26 @@ private[intaglio] object GuidePhase:
         if explicit.isEmpty then Right(Vector.empty)
         else
           ranges match
-            case Some((xRange, yRange)) => materializeAxisTicks(explicit, xRange, yRange)
-            case None                   => Left(GraphicsError.MissingLayout("guides"))
+            case Some((xRange, yRange)) =>
+              coord
+                .resolvedGuideLayout(xRange, yRange, plotScales)
+                .flatMap(materializeAxisTicks(explicit, _))
+            case None => Left(GraphicsError.MissingLayout("guides"))
       case GuidePolicy.Derived(overrides, deriveLegends) =>
         ranges match
           case None =>
             Left(GraphicsError.MissingLayout("guides"))
           case Some((xRange, yRange)) =>
-            derived(coord, plotScales, xRange, yRange, overrides, deriveLegends, relativeLegend, labels)
+            derived(
+              coord,
+              plotScales,
+              xRange,
+              yRange,
+              overrides,
+              deriveLegends,
+              relativeLegend,
+              labels
+            )
 
   private def derived(
       coord: Coord,
@@ -1703,12 +2783,13 @@ private[intaglio] object GuidePhase:
       case _: GuideSpec.Colorbar => true
       case _                     => false
     }
-    val (xSide, xPhysicalRange, ySide, yPhysicalRange) =
-      coord match
-        case Coord.Flipped(_) => (AxisSide.Left, xRange, AxisSide.Bottom, yRange)
-        case Coord.Cartesian(_) | Coord.Fixed(_, _) => (AxisSide.Bottom, xRange, AxisSide.Left, yRange)
     for
-      resolvedOverrides <- materializeAxisTicks(overrides, xRange, yRange)
+      guideLayout <- coord.resolvedGuideLayout(xRange, yRange, plotScales)
+      xSide = guideLayout.xSide
+      xPhysicalRange = guideLayout.xRange
+      ySide = guideLayout.ySide
+      yPhysicalRange = guideLayout.yRange
+      resolvedOverrides <- materializeAxisTicks(overrides, guideLayout)
       xAxis <-
         if overriddenSides.contains(xSide) then Right(None)
         else positionAxis(plotScales, Aesthetic.X, xSide, xPhysicalRange, labels.x)
@@ -1720,22 +2801,25 @@ private[intaglio] object GuidePhase:
         else nonPositionGuides(plotScales)
     yield Vector(xAxis, yAxis).flatten ++ resolvedOverrides ++ legends
 
-  /** Resolve caller-supplied break policies against the unexpanded data
-    * ranges. Panel padding is a view concern and must not leak into tick values
-    * or labels when the guides are lowered later against the expanded layout.
+  /** Resolve caller-supplied break policies against the unexpanded data ranges. Panel padding is a
+    * view concern and must not leak into tick values or labels when the guides are lowered later
+    * against the expanded layout.
     */
   private def materializeAxisTicks(
       specs: Vector[GuideSpec],
-      xRange: Interval,
-      yRange: Interval
+      layout: CoordGuideLayout
   ): Either[GraphicsError, Vector[GuideSpec]] =
+    val horizontalRange =
+      if layout.xSide.isHorizontal then layout.xRange else layout.yRange
+    val verticalRange =
+      if layout.xSide.isHorizontal then layout.yRange else layout.xRange
     val out = Vector.newBuilder[GuideSpec]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < specs.length && result.isRight do
       specs(idx) match
         case axis: GuideSpec.Axis if axis.ticks.isEmpty =>
-          val range = if axis.side.isHorizontal then xRange else yRange
+          val range = if axis.side.isHorizontal then horizontalRange else verticalRange
           result = Axis.ticks(range, axis.breaks, axis.labeler).map { ticks =>
             out += axis.copy(ticks = Some(ticks))
             ()
@@ -1745,10 +2829,9 @@ private[intaglio] object GuidePhase:
       idx += 1
     result.map(_ => out.result())
 
-  /** Derive an axis for a position aesthetic. A trained continuous scale
-    * provides breaks and labels in the raw data domain, positioned in mapped
-    * unit space; an unscaled position takes default breaks over the panel
-    * range. Both carry explicit ticks so the layout solver can size strips
+  /** Derive an axis for a position aesthetic. A trained continuous scale provides breaks and labels
+    * in the raw data domain, positioned in mapped unit space; an unscaled position takes default
+    * breaks over the panel range. Both carry explicit ticks so the layout solver can size strips
     * from the actual labels.
     */
   private def positionAxis(
@@ -1767,26 +2850,37 @@ private[intaglio] object GuidePhase:
               Some(
                 GuideSpec.Axis(
                   side,
-                  ticks = Some(ticks),
+                  ticks = Some(ticks.filter(tick => range.contains(tick.value))),
                   title = requestedTitle.orElse(Some(continuous.name.value)),
                   name = Some(name)
                 )
               )
             }
-          case band: BandScale =>
+          case temporal: TemporalAxisScale =>
+            temporal.axisTicksResult.map { ticks =>
+              Some(
+                GuideSpec.Axis(
+                  side,
+                  ticks = Some(ticks.filter(tick => range.contains(tick.value))),
+                  title = requestedTitle.orElse(Some(trained.descriptor.name.value)),
+                  name = Some(name)
+                )
+              )
+            }
+          case band: BandScale[?] =>
             Right(
               Some(
                 GuideSpec.Axis(
                   side,
                   ticks = Some(band.bands.map { case (level, position) =>
-                    AxisTick.unsafe(position.center, level)
+                    AxisTick.unsafe(position.center, band.domain.label(level))
                   }),
                   title = requestedTitle.orElse(Some(band.name.value)),
                   name = Some(name)
                 )
               )
             )
-          case discrete: DiscreteScale[?] =>
+          case discrete: DiscreteScale[?, ?] =>
             discretePositionTicks(discrete) match
               case Some(ticks) =>
                 Right(
@@ -1816,7 +2910,9 @@ private[intaglio] object GuidePhase:
       Some(GuideSpec.Axis(side, ticks = Some(ticks), title = title, name = Some(name)))
     }
 
-  private def discretePositionTicks(scale: DiscreteScale[?]): Option[Vector[AxisTick]] =
+  private def discretePositionTicks[Category](
+      scale: DiscreteScale[Category, ?]
+  ): Option[Vector[AxisTick]] =
     val out = Vector.newBuilder[AxisTick]
     var idx = 0
     var valid = true
@@ -1824,7 +2920,7 @@ private[intaglio] object GuidePhase:
       val level = scale.domain.levels(idx)
       scale.mapValue(level) match
         case Some(position: Double) =>
-          AxisTick(position, level) match
+          AxisTick(position, scale.domain.label(level)) match
             case Right(tick) => out += tick
             case Left(_)     => valid = false
         case _ =>
@@ -1832,32 +2928,32 @@ private[intaglio] object GuidePhase:
       idx += 1
     if valid then Some(out.result()) else None
 
-  /** Ticks for a trained continuous scale: break values come from the scale's
-    * transform in the raw data domain; positions are the mapped unit-space
-    * coordinates the rows were resolved into.
+  /** Ticks for a trained continuous scale: break values come from the scale's transform in the raw
+    * data domain; positions are the mapped unit-space coordinates the rows were resolved into.
     */
   private def scaledTicks(scale: ContinuousScale[?]): Either[GraphicsError, Vector[AxisTick]] =
-    val breaks = scale.breaks
-    val labels = scale.labels
-    if labels.length != breaks.length then
-      Left(GraphicsError.AxisLabelCountMismatch(breaks.length, labels.length))
-    else
-      val out = Vector.newBuilder[AxisTick]
-      var idx = 0
-      var result: Either[GraphicsError, Unit] = Right(())
-      while idx < breaks.length && result.isRight do
-        result = scale.transform.transform(breaks(idx)).flatMap { transformed =>
-          AxisTick(scale.transformedDomain.rescale(transformed), labels(idx)).map { tick =>
-            out += tick
-            ()
+    scale.breaksResult.flatMap { breaks =>
+      val labels = scale.transform.labeler(breaks)
+      if labels.length != breaks.length then
+        Left(GraphicsError.AxisLabelCountMismatch(breaks.length, labels.length))
+      else
+        val out = Vector.newBuilder[AxisTick]
+        var idx = 0
+        var result: Either[GraphicsError, Unit] = Right(())
+        while idx < breaks.length && result.isRight do
+          result = scale.transform.transform(breaks(idx)).flatMap { transformed =>
+            AxisTick(scale.transformedDomain.rescale(transformed), labels(idx)).map { tick =>
+              out += tick
+              ()
+            }
           }
-        }
-        idx += 1
-      result.map(_ => out.result())
+          idx += 1
+        result.map(_ => out.result())
+    }
 
-  /** One guide per distinct color/fill scale: discrete scales become keyed
-    * legends and continuous scales become sampled colorbars. The layout
-    * solver measures and places the resulting stack later.
+  /** One guide per distinct color/fill scale: discrete scales become keyed legends and continuous
+    * scales become sampled colorbars. The layout solver measures and places the resulting stack
+    * later.
     */
   private def nonPositionGuides(
       plotScales: PlotScaleRegistry
@@ -1867,11 +2963,11 @@ private[intaglio] object GuidePhase:
     var result: Either[GraphicsError, Unit] = Right(())
     plotScales.scales.foreach { trained =>
       if result.isRight
-        && (trained.aesthetic == Aesthetic.Color.label || trained.aesthetic == Aesthetic.Fill.label)
+        && (trained.key == Aesthetic.Color || trained.key == Aesthetic.Fill)
         && seen.add(trained.descriptor.name.value)
       then
         trained.scale match
-          case discrete: DiscreteScale[?] =>
+          case discrete: DiscreteScale[?, ?] =>
             result = legendFor(discrete).map { legend =>
               legend.foreach { spec =>
                 out += spec
@@ -1890,8 +2986,8 @@ private[intaglio] object GuidePhase:
     }
     result.map(_ => out.result())
 
-  private def legendFor(
-      scale: DiscreteScale[?]
+  private def legendFor[Category](
+      scale: DiscreteScale[Category, ?]
   ): Either[GraphicsError, Option[GuideSpec.Legend]] =
     val entries = Vector.newBuilder[LegendEntry]
     var colorable = true
@@ -1900,7 +2996,7 @@ private[intaglio] object GuidePhase:
       if result.isRight && colorable then
         scale.mapValue(level) match
           case Some(color: Rgba) =>
-            result = LegendEntry.color(level, color).map { entry =>
+            result = LegendEntry.color(scale.domain.label(level), color).map { entry =>
               entries += entry
               ()
             }
@@ -1972,7 +3068,7 @@ private[intaglio] object GuidePhase:
           var result: Either[GraphicsError, Unit] = Right(())
           while idx < specs.length && result.isRight do
             val spec = specs(idx)
-            val placed = placements.get(idx).fold(spec)(placeGuide(spec, _))
+            val placed = placements.get(idx).fold(spec)(GuideSpec.place(spec, _))
             result = GuideSpec.lower(placed, panel, legendViewport, policy, theme).map { guide =>
               out += guide
               ()
@@ -1980,40 +3076,9 @@ private[intaglio] object GuidePhase:
             idx += 1
           result.map(_ => out.result())
 
-  /** Apply a solved placement to the spec it was measured from. Placements are
-    * keyed by that spec's index, so the two variants always agree; the final
-    * case is unreachable and keeps the authored origin rather than inventing an
-    * error for a condition that cannot arise.
-    */
-  private def placeGuide(spec: GuideSpec, placement: GuidePlacement): GuideSpec =
-    def x(value: Double): LengthExpr = LengthExpr(Length.pointsUnsafe(value))
-    def y(value: Double): LengthExpr = LengthExpr.npcUnsafe(1.0) - ExtentExpr.pointsUnsafe(value)
-    (spec, placement) match
-      case (legend: GuideSpec.Legend, solved: GuidePlacement.Legend) =>
-        legend.copy(
-          origin = Point(x(solved.xPt), y(solved.topPt)),
-          rowGap = ExtentExpr.pointsUnsafe(solved.rowPitchPt),
-          firstRowOffset = Some(ExtentExpr.pointsUnsafe(solved.firstRowOffsetPt)),
-          labelOffset = x(solved.labelOffsetPt),
-          markerSize = ExtentExpr.pointsUnsafe(solved.markerSizePt)
-        )
-      case (colorbar: GuideSpec.Colorbar, solved: GuidePlacement.Colorbar) =>
-        colorbar.copy(
-          origin = Point(
-            x(solved.xPt),
-            y(solved.topPt + solved.barTopOffsetPt + solved.barHeightPt)
-          ),
-          barWidth = ExtentExpr.pointsUnsafe(solved.barWidthPt),
-          barHeight = ExtentExpr.pointsUnsafe(solved.barHeightPt),
-          tickLength = ExtentExpr.pointsUnsafe(solved.tickLengthPt),
-          labelOffset = ExtentExpr.pointsUnsafe(solved.labelOffsetPt),
-          titleOffset = ExtentExpr.pointsUnsafe(solved.titleOffsetPt)
-        )
-      case _ => spec
-
-/** Panel decoration is ordinary renderer-neutral geometry. It is lowered
-  * after guide derivation so grid lines use the same tick positions as axes,
-  * and inserted before layer marks so data remains visually authoritative.
+/** Panel decoration is ordinary renderer-neutral geometry. It is lowered after guide derivation so
+  * grid lines use the same tick positions as axes, and inserted before layer marks so data remains
+  * visually authoritative.
   */
 private[intaglio] object PanelPhase:
   def lower(
@@ -2022,7 +3087,7 @@ private[intaglio] object PanelPhase:
       theme: PanelTheme
   ): Either[GraphicsError, Vector[Grob]] =
     layout match
-      case None => Right(Vector.empty)
+      case None        => Right(Vector.empty)
       case Some(panel) =>
         val out = Vector.newBuilder[Grob]
         theme.background.foreach { gp =>
@@ -2034,26 +3099,40 @@ private[intaglio] object PanelPhase:
           )
         }
         theme.grid match
-          case None => Right(out.result())
+          case None     => Right(out.result())
           case Some(gp) =>
             val xValues = tickValues(specs, horizontal = true).filter(panel.xScale.contains)
             val yValues = tickValues(specs, horizontal = false).filter(panel.yScale.contains)
             if xValues.nonEmpty then
-              out += Grob.segments(
-                xValues.map(x => Point.nativeUnsafe(x, panel.yScale.lower) -> Point.nativeUnsafe(x, panel.yScale.upper)),
-                gp = gp,
-                name = Some(PlotRegion.PanelGridX)
-              ).orThrow
+              out += Grob
+                .segments(
+                  xValues.map(x =>
+                    Point.nativeUnsafe(x, panel.yScale.lower) -> Point
+                      .nativeUnsafe(x, panel.yScale.upper)
+                  ),
+                  gp = gp,
+                  name = Some(PlotRegion.PanelGridX)
+                )
+                .orThrow
             if yValues.nonEmpty then
-              out += Grob.segments(
-                yValues.map(y => Point.nativeUnsafe(panel.xScale.lower, y) -> Point.nativeUnsafe(panel.xScale.upper, y)),
-                gp = gp,
-                name = Some(PlotRegion.PanelGridY)
-              ).orThrow
+              out += Grob
+                .segments(
+                  yValues.map(y =>
+                    Point.nativeUnsafe(panel.xScale.lower, y) -> Point
+                      .nativeUnsafe(panel.xScale.upper, y)
+                  ),
+                  gp = gp,
+                  name = Some(PlotRegion.PanelGridY)
+                )
+                .orThrow
             Right(out.result())
 
   private def tickValues(specs: Vector[GuideSpec], horizontal: Boolean): Vector[Double] =
-    specs.iterator.collect {
-      case axis: GuideSpec.Axis if axis.side.isHorizontal == horizontal =>
-        axis.ticks.getOrElse(Vector.empty).map(_.value)
-    }.flatten.toVector.distinct
+    specs.iterator
+      .collect {
+        case axis: GuideSpec.Axis if axis.side.isHorizontal == horizontal =>
+          axis.ticks.getOrElse(Vector.empty).map(_.value)
+      }
+      .flatten
+      .toVector
+      .distinct

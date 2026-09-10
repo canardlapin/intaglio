@@ -5,8 +5,8 @@ enum Bin2DValue:
   case Count
   case Proportion
 
-/** Validated rectangular-binning plan. Fixed domains are useful for parity,
-  * composition, and repeated plots; absent domains train from finite input.
+/** Validated rectangular-binning plan. Fixed domains are useful for parity, composition, and
+  * repeated plots; absent domains train from finite input.
   */
 final case class Bin2DConfig private (
     xBins: BinCount,
@@ -32,7 +32,11 @@ object Bin2DConfig:
       y <- BinCount(yBins)
       _ <-
         if x.toInt.toLong * y.toInt.toLong <= Int.MaxValue.toLong then Right(())
-        else Left(GraphicsError.InvalidStatParameter("bin2d", "representable cell count", s"${x.toInt}x${y.toInt}"))
+        else
+          Left(
+            GraphicsError
+              .InvalidStatParameter("bin2d", "representable cell count", s"${x.toInt}x${y.toInt}")
+          )
     yield Bin2DConfig(x, y, xDomain, yDomain, value)
 
   def unsafe(
@@ -44,9 +48,8 @@ object Bin2DConfig:
   ): Bin2DConfig =
     apply(xBins, yBins, xDomain, yDomain, value).orThrow
 
-/** Gaussian 2D kernel-density plan. Fixed bandwidths are kernel standard
-  * deviations; automatic bandwidths use the same `bw.nrd0` rule as the 1D
-  * density statistic, independently for x and y.
+/** Gaussian 2D kernel-density plan. Fixed bandwidths are kernel standard deviations; automatic
+  * bandwidths use the same `bw.nrd0` rule as the 1D density statistic, independently for x and y.
   */
 final case class Kde2DConfig private (
     bandwidthX: Option[DensityBandwidth],
@@ -54,23 +57,33 @@ final case class Kde2DConfig private (
     xPoints: DensityPoints,
     yPoints: DensityPoints,
     xDomain: Option[Interval],
-    yDomain: Option[Interval]
+    yDomain: Option[Interval],
+    strategy: KdeStrategy
 )
 
 object Kde2DConfig:
   val default: Kde2DConfig =
-    Kde2DConfig(None, None, DensityPoints.unsafe(100), DensityPoints.unsafe(100), None, None)
+    Kde2DConfig(
+      None,
+      None,
+      DensityPoints.unsafe(100),
+      DensityPoints.unsafe(100),
+      None,
+      None,
+      KdeStrategy.Direct
+    )
 
   def automatic(
       xPoints: Int = 100,
       yPoints: Int = 100,
       xDomain: Option[Interval] = None,
-      yDomain: Option[Interval] = None
+      yDomain: Option[Interval] = None,
+      strategy: KdeStrategy = KdeStrategy.Direct
   ): Either[GraphicsError, Kde2DConfig] =
     for
       xGrid <- DensityPoints(xPoints)
       yGrid <- DensityPoints(yPoints)
-    yield Kde2DConfig(None, None, xGrid, yGrid, xDomain, yDomain)
+    yield Kde2DConfig(None, None, xGrid, yGrid, xDomain, yDomain, strategy)
 
   def fixed(
       bandwidthX: Double,
@@ -78,14 +91,23 @@ object Kde2DConfig:
       xPoints: Int = 100,
       yPoints: Int = 100,
       xDomain: Option[Interval] = None,
-      yDomain: Option[Interval] = None
+      yDomain: Option[Interval] = None,
+      strategy: KdeStrategy = KdeStrategy.Direct
   ): Either[GraphicsError, Kde2DConfig] =
     for
       xBandwidth <- DensityBandwidth(bandwidthX)
       yBandwidth <- DensityBandwidth(bandwidthY)
       xGrid <- DensityPoints(xPoints)
       yGrid <- DensityPoints(yPoints)
-    yield Kde2DConfig(Some(xBandwidth), Some(yBandwidth), xGrid, yGrid, xDomain, yDomain)
+    yield Kde2DConfig(
+      Some(xBandwidth),
+      Some(yBandwidth),
+      xGrid,
+      yGrid,
+      xDomain,
+      yDomain,
+      strategy
+    )
 
   def fixedUnsafe(
       bandwidthX: Double,
@@ -93,12 +115,13 @@ object Kde2DConfig:
       xPoints: Int = 100,
       yPoints: Int = 100,
       xDomain: Option[Interval] = None,
-      yDomain: Option[Interval] = None
+      yDomain: Option[Interval] = None,
+      strategy: KdeStrategy = KdeStrategy.Direct
   ): Kde2DConfig =
-    fixed(bandwidthX, bandwidthY, xPoints, yPoints, xDomain, yDomain).orThrow
+    fixed(bandwidthX, bandwidthY, xPoints, yPoints, xDomain, yDomain, strategy).orThrow
 
-/** A renderer-neutral statistical transform whose result is a checked scalar
-  * field rather than an R-style dynamically shaped row table.
+/** A renderer-neutral statistical transform whose result is a checked scalar field rather than an
+  * R-style dynamically shaped row table.
   */
 sealed trait FieldStat[-Row]:
   def label: String
@@ -156,6 +179,7 @@ object FieldStat:
         for
           _ <- requireFinite(xs, Aesthetic.X.label, label)
           _ <- requireFinite(ys, Aesthetic.Y.label, label)
+          _ <- requireKdeStrategy(config.strategy, label)
           xRange = config.xDomain.getOrElse(observedDomain(xs))
           yRange = config.yDomain.getOrElse(observedDomain(ys))
           xAxis <- RegularGridAxis.vertexCentered(xRange.lower, xRange.upper, config.xPoints.toInt)
@@ -200,17 +224,25 @@ object FieldStat:
       var xIndex = 0
       while xIndex < xAxis.sampleCount do
         val x = xAxis.coordinateUnsafe(xIndex)
-        var sum = 0.0
+        val sum = NumericalMath.CompensatedSum()
         var observation = 0
         while observation < xs.length do
           val zx = (x - xs(observation)) / bandwidthX
           val zy = (y - ys(observation)) / bandwidthY
-          sum += math.exp(-0.5 * (zx * zx + zy * zy))
+          sum.add(math.exp(-0.5 * (zx * zx + zy * zy)))
           observation += 1
-        density(yIndex * xAxis.sampleCount + xIndex) = sum / normalizer
+        density(yIndex * xAxis.sampleCount + xIndex) = sum.result / normalizer
         xIndex += 1
       yIndex += 1
     ScalarField2D(xAxis, yAxis, density)
+
+  private def requireKdeStrategy(
+      strategy: KdeStrategy,
+      stat: String
+  ): Either[GraphicsError, Unit] =
+    strategy match
+      case KdeStrategy.Direct => Right(())
+      case KdeStrategy.Fft    => Left(GraphicsError.UnsupportedStatStrategy(stat, strategy.label))
 
   private def bin(
       xs: Array[Double],
@@ -237,8 +269,8 @@ object FieldStat:
           index += 1
         ScalarField2D(xAxis, yAxis, counts)
 
-  /** ggplot-compatible right closure: the lower domain boundary belongs to
-    * the first bin and an internal break belongs to the bin on its left.
+  /** ggplot-compatible right closure: the lower domain boundary belongs to the first bin and an
+    * internal break belongs to the bin on its left.
     */
   private def locateRightClosed(value: Double, domain: Interval, bins: Int): Int =
     if value <= domain.lower then 0
@@ -272,8 +304,11 @@ object FieldStat:
       if !domain.contains(values(index)) then outside = Some(values(index))
       index += 1
     outside match
-      case Some(value) => Left(GraphicsError.StatInputOutsideGrid("bin2d", aesthetic, value, domain.lower, domain.upper))
-      case None        => Right(())
+      case Some(value) =>
+        Left(
+          GraphicsError.StatInputOutsideGrid("bin2d", aesthetic, value, domain.lower, domain.upper)
+        )
+      case None => Right(())
 
   private def observedDomain(values: Array[Double]): Interval =
     var lower = values(0)

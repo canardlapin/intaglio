@@ -1,0 +1,74 @@
+name: Release
+
+# A release is an explicit act: it happens only when a maintainer pushes a
+# `v*` tag, or dispatches this workflow by hand. Pushing to `main` publishes
+# nothing -- there is no snapshot-on-merge step, so no accidental artifact can
+# reach Central.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    name: Clean-clone rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      JAVA_OPTS: -Xms1G -Xmx4G -Xss6M -Dfile.encoding=UTF-8
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: sbt
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+      - name: Rehearse the release without publishing
+        run: tools/release-rehearsal.sh
+
+  publish:
+    name: Publish signed artifacts
+    needs: rehearse
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      JAVA_OPTS: -Xms1G -Xmx4G -Xss6M -Dfile.encoding=UTF-8
+      # The published artifact is built with the Scala 3 LTS alone. Every
+      # Scala 3 artifact carries the same `_3` suffix, so cross-publishing the
+      # feature release would overwrite the LTS build at the same coordinates.
+      CI_RELEASE: publishSigned
+      CI_SNAPSHOT_RELEASE: publishSigned
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: sbt
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+      - name: Publish to the Central Portal
+        run: sbt -Djava.awt.headless=true -Dsbt.supershell=false ci-release
+        env:
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
