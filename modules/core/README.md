@@ -141,6 +141,40 @@ fill channel, while `withSolidFill` explicitly switches back. Patterns affect
 only primitives that already have a fill channel: discs, closed polygons,
 compound polygons, and rectangles. Text, images, and open lines are unchanged.
 
+## Mapping-derived scalar legends
+
+`ScalarLegend` retains an inspectable `ScalarMapping`, quantity label, units,
+ticks, and optional hidden/invalid keys. Its limits and colors come from that
+mapping. Resolve display-window and threshold overrides before constructing the
+legend. `ScalarLegendDrawing.draw` produces an ordinary `Scene`, measured in
+points, with wrapped titles and separate rows for colliding tick labels.
+
+```scala
+val mapping = ScalarMapping(ScalarScale.sequential(
+  DisplayWindow.unsafe(-1, 1),
+  ScalarRamp.linear(Rgba32.unsafe(30, 70, 170), Rgba32.unsafe(180, 35, 35))
+))
+val legend = for
+  title <- LegendTitle.make("Contrast", Some("percent signal change"))
+  spec <- ScalarLegend.make(mapping, title)
+  drawing <- ScalarLegendDrawing.draw(spec)
+yield drawing
+```
+
+The drawing reports its width, height, tick bounds, and semantic legend identity.
+Supply a `TextMetrics` implementation through `ScalarLegendStyle` when exact
+platform font metrics are available. The portable default is an estimate.
+Asymmetric diverging and split scales retain the scalar window's proportions;
+ticks use that same window, while each tail evaluates its own ramp. Sampled
+image strips use nearest-neighbor rendering and split at mapping boundaries,
+preventing antialiasing seams between individual colored rectangles or smoothing
+across hidden intervals. Sampling resolution controls the finite display palette.
+
+The descriptor identity includes mapping, metadata, ticks, and key visibility;
+resizing or changing fonts leaves it unchanged. It describes unlit mapping
+colors, not the result of lighting or layer composition. Existing grammar
+`GuideSpec.Legend` and `GuideSpec.Colorbar` APIs remain available.
+
 ## Plotting DSL
 
 The ordinary entry point is a small immutable Scala DSL. Position mappings
@@ -672,3 +706,11 @@ requirements.
 `intaglio-java2d` and `intaglio-javafx` independently adopt the same contract,
 and `intaglio-java2d` adds raster-level `BufferedImage` assertions for JVM
 rendering behavior.
+
+Categorical and manual keys use `SwatchLegendDrawing.draw(title, entries, notes,
+style)`, where entries are `(String, Rgba32)` pairs. `SwatchLegendStyle` controls
+physical width, font and swatch sizes; labels and titles wrap within the measured
+card. Transparent colors appear over a checkerboard. `LegendTextLayout.wrap`
+exposes the same measured text layout for publication annotations. Scalar cards
+also accept `extraNotes` for explanations such as opacity or compositing, without
+changing their calibration identity.
