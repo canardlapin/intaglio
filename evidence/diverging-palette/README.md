@@ -19,7 +19,7 @@ that produced it.
 | Qualitative prefix separation table and its optimality | passed | `DiscretePaletteEvidenceSuite`, re-run every build |
 | Default theme palette separation | passed (measured, not improved) | `DiscretePaletteEvidenceSuite`, re-run every build |
 | JVM and Scala.js byte identity for the colour path | passed | `ColorDeterminismSuite`, re-run every build on both platforms |
-| Exhaustive Oklab round trip over all 16 777 216 sRGB colours | passed once, JVM | `OklabRoundTripCourt`, run on demand |
+| Exhaustive Oklab round trip over all 16 777 216 sRGB colours | passed once on each platform | `OklabRoundTripCourt`, run on demand |
 | Anomalous trichromacy | not established | only dichromacy is modelled; see below |
 | Observer study | not run | every figure here is a model prediction, not a measurement of readers |
 | Print and projector reproduction | not run | figures are for an sRGB display |
@@ -130,9 +130,10 @@ This matters because `math.cbrt` and `math.pow` are implementation-approximated 
 identity of the *bytes*, not of the intermediate coordinates; the contract is the colour that
 reaches the device.
 
-Not established: byte identity between platforms for arbitrary colours outside that sample.
-`OklabRoundTripCourt` is a JVM main and cannot run under Scala.js without being moved to the shared
-source tree.
+Not established: byte identity between platforms for arbitrary colours outside that sample. The
+round trip is now exhaustive on both platforms, which is a stronger statement about `fromRgba` and
+`toRgba` than the digest makes — but a colour part way along a ramp is a `mix` result rather than a
+round trip, so neither claim substitutes for the other.
 
 ## Oklab round trip
 
@@ -143,8 +144,18 @@ colours. Run:
 sbt "coreJVM/Test/runMain intaglio.oklabRoundTripCourt"
 ```
 
-Last run on 2026-09-08, against the working tree that introduced `Color.scala`, with Homebrew
-Java 25.0.1, sbt 1.12.9, Scala 3.3.8, on macOS arm64:
+Scala.js needs the linker pointed at the main, which the build deliberately does not do for the
+test configuration, so the setting is applied for the one run rather than committed:
+
+```
+sbt 'set coreJS/Test/scalaJSUseTestModuleInitializer := false' \
+    'set coreJS/Test/scalaJSUseMainModuleInitializer := true' \
+    'set coreJS/Test/mainClass := Some("intaglio.oklabRoundTripCourt")' \
+    'coreJS/Test/run'
+```
+
+Run on both platforms on 2026-09-10, with Homebrew Java 25.0.1, sbt 1.12.9, Scala 3.3.8, Node
+through the build's `NodeJSEnv`, on macOS arm64. Identical output from each:
 
 ```
 sampled colors:        16777216
@@ -152,9 +163,10 @@ round trips that moved: 0
 worst channel error:    0
 ```
 
-The sweep depends only on `Oklab.fromRgba` and `Oklab.toRgba`, so it needs re-running when either
-conversion or the sRGB transfer function changes, not on every commit. `ColorSuite` walks a strided
-grid of the same sweep on every build.
+The court lives in the shared test sources so both runs are possible at all and neither can drift
+from the API. The sweep depends only on `Oklab.fromRgba` and `Oklab.toRgba`, so it needs re-running
+when either conversion or the sRGB transfer function changes, not on every commit. `ColorSuite`
+walks a strided grid of the same sweep on every build, on both platforms.
 
 ## Qualitative: `DiscretePalette.okabeIto`
 
