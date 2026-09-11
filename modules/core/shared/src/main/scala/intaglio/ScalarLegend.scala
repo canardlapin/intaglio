@@ -80,10 +80,19 @@ final class ScalarLegend private (
         then "]"
         else ")"
       s"$left${labels(0)}, ${labels(1)}$right"
+
+    /** A non-finite cutoff hides nothing or everything, so it has no edge to name. */
+    def cutoff(label: String, value: Double): Vector[String] =
+      if value.isFinite then Vector(s"$label: ${ScalarLegend.labels(Vector(value)).head}")
+      else Vector.empty
     val visibility = mapping.visibility match
-      case ScalarVisibility.All            => Vector.empty
-      case ScalarVisibility.Inside(value)  => Vector(s"Visible interval: ${interval(value)}")
-      case ScalarVisibility.Outside(value) => Vector(s"Hidden interval: ${interval(value)}")
+      case ScalarVisibility.All                => Vector.empty
+      case ScalarVisibility.Inside(value)      => Vector(s"Visible interval: ${interval(value)}")
+      case ScalarVisibility.Outside(value)     => Vector(s"Hidden interval: ${interval(value)}")
+      case ScalarVisibility.AtLeast(value)     => cutoff("Hidden below", value)
+      case ScalarVisibility.AtMost(value)      => cutoff("Hidden above", value)
+      case ScalarVisibility.Band(inner, outer) =>
+        Vector(s"Visible interval: ${interval(outer)}", s"Hidden interval: ${interval(inner)}")
     val gap =
       mapping.scale.omittedInterval.map(value => s"Omitted interval: ${interval(value)}").toVector
     val outside = mapping.outOfRange match
@@ -115,10 +124,7 @@ object ScalarLegend:
     val values = (Vector(window.lower, window.upper) ++ mapping.scale.center ++
       mapping.scale.omittedInterval.toVector.flatMap(v =>
         Vector(v.lower, v.upper)
-      ) ++ (mapping.visibility match
-        case ScalarVisibility.All        => Vector.empty
-        case ScalarVisibility.Inside(v)  => Vector(v.lower, v.upper)
-        case ScalarVisibility.Outside(v) => Vector(v.lower, v.upper)))
+      ) ++ mapping.visibility.endpoints)
       .filter(v => v >= window.lower && v <= window.upper)
       .distinct
       .sorted

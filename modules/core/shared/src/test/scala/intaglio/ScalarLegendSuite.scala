@@ -123,3 +123,33 @@ class ScalarLegendSuite extends munit.FunSuite:
     val larger = ScalarLegendDrawing.draw(legend, style.copy(widthPt = 350)).toOption.get
     assertEquals(larger.legendKey, drawing.legendKey)
     assert(larger.heightPt < drawing.heightPt)
+
+  test("one-sided and banded visibility name their cutoffs in notes, ticks and cell edges"):
+    def legendFor(visibility: ScalarVisibility) =
+      ScalarLegend.make(split.copy(visibility = visibility), title).toOption.get
+    val atLeast = legendFor(ScalarVisibility.AtLeast(3))
+    assert(atLeast.notes.contains("Hidden below: 3"), atLeast.notes)
+    assert(atLeast.ticks.exists(_.value == 3.0))
+    val atMost = legendFor(ScalarVisibility.AtMost(-3))
+    assert(atMost.notes.contains("Hidden above: -3"), atMost.notes)
+    assert(atMost.ticks.exists(_.value == -3.0))
+    for degenerate <- Vector(Double.NaN, Double.NegativeInfinity) do
+      val notes = legendFor(ScalarVisibility.AtLeast(degenerate)).notes
+      assert(!notes.exists(_.startsWith("Hidden below")), notes)
+    val band = legendFor(
+      ScalarVisibility.Band(
+        ScalarInterval.make(-2, 3, ScalarEndpointInclusion.Neither).toOption.get,
+        ScalarInterval.make(-3, 6, ScalarEndpointInclusion.Both).toOption.get
+      )
+    )
+    assert(band.notes.contains("Visible interval: [-3, 6]"), band.notes)
+    assert(band.notes.contains("Hidden interval: (-2, 3)"), band.notes)
+    assertEquals(
+      band.ticks.map(_.value),
+      Vector(-4.0, -3.0, -2.0, -1.0, 0.0, 2.0, 3.0, 6.0, 8.0)
+    )
+    val edges = Vector(-3.0, -2.0, 3.0, 6.0).map(band.position)
+    for
+      cell <- band.cells(101)
+      edge <- edges
+    do assert(!(cell.lowerFraction < edge && cell.upperFraction > edge), s"cell straddles $edge")

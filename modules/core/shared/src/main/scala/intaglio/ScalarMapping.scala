@@ -43,19 +43,58 @@ enum ScalarVisibility:
   case Inside(interval: ScalarInterval)
   case Outside(interval: ScalarInterval)
 
+  /** Hides values strictly below `cutoff`; `cutoff` itself stays visible. */
+  case AtLeast(cutoff: Double)
+
+  /** Hides values strictly above `cutoff`; `cutoff` itself stays visible. */
+  case AtMost(cutoff: Double)
+
+  /** Shows values inside `outer` except those inside `inner`, each with its own endpoints. */
+  case Band(inner: ScalarInterval, outer: ScalarInterval)
+
+  /** Cutoffs are tested as the complement of the hiding comparison, so a cutoff no constructor
+    * validated still agrees with the threshold it came from.
+    */
   def includes(value: Double): Boolean = this match
-    case All               => true
-    case Inside(interval)  => interval.contains(value)
-    case Outside(interval) => !interval.contains(value)
+    case All                => true
+    case Inside(interval)   => interval.contains(value)
+    case Outside(interval)  => !interval.contains(value)
+    case AtLeast(cutoff)    => !(value < cutoff)
+    case AtMost(cutoff)     => !(value > cutoff)
+    case Band(inner, outer) => outer.contains(value) && !inner.contains(value)
+
+  /** The finite values at which visibility changes, for boundary lists and legend ticks. */
+  private[intaglio] def endpoints: Vector[Double] = this match
+    case All                => Vector.empty
+    case Inside(interval)   => Vector(interval.lower, interval.upper)
+    case Outside(interval)  => Vector(interval.lower, interval.upper)
+    case AtLeast(cutoff)    => Vector(cutoff).filter(_.isFinite)
+    case AtMost(cutoff)     => Vector(cutoff).filter(_.isFinite)
+    case Band(inner, outer) => Vector(inner.lower, inner.upper, outer.lower, outer.upper)
 
 object ScalarVisibility:
-  /** The historical transparent band excludes only its open interior. */
+  /** Shows exactly the finite values `threshold` does not hide. A hidden band's own edges stay
+    * visible, so it becomes an `Outside` interval with neither endpoint; a two-sided threshold
+    * without an outer band is that same band, and with one is a `Band` whose outer edges show.
+    */
   def fromThreshold(threshold: DisplayThreshold): ScalarVisibility = threshold match
     case DisplayThreshold.Disabled              => ScalarVisibility.All
-    case DisplayThreshold.TransparentBand(band) =>
-      ScalarVisibility.Outside(
-        ScalarInterval.make(band.lower, band.upper, ScalarEndpointInclusion.Neither).toOption.get
-      )
+    case DisplayThreshold.TransparentBand(band) => ScalarVisibility.Outside(openInterval(band))
+    case DisplayThreshold.Below(cutoff)         => ScalarVisibility.AtLeast(cutoff)
+    case DisplayThreshold.Above(cutoff)         => ScalarVisibility.AtMost(cutoff)
+    case DisplayThreshold.TwoSided(inner, None) => ScalarVisibility.Outside(openInterval(inner))
+    case DisplayThreshold.TwoSided(inner, Some(outer)) =>
+      ScalarVisibility.Band(openInterval(inner), closedInterval(outer))
+
+  private def openInterval(band: ThresholdBand): ScalarInterval =
+    asInterval(band, ScalarEndpointInclusion.Neither)
+
+  private def closedInterval(band: ThresholdBand): ScalarInterval =
+    asInterval(band, ScalarEndpointInclusion.Both)
+
+  /** A threshold band is finite and ordered by construction, so it is always a valid interval. */
+  private def asInterval(band: ThresholdBand, endpoints: ScalarEndpointInclusion): ScalarInterval =
+    ScalarInterval.make(band.lower, band.upper, endpoints).toOption.get
 
 /** Immutable, ordered stops. No arbitrary callback is needed to reconstruct this ramp. */
 final class ScalarRamp private (val stops: Vector[(Double, Rgba32)]):
@@ -280,11 +319,7 @@ final case class ScalarMapping(
     val knots = scale.segments.flatMap: segment =>
       segment.ramp.stops.map: (t, _) =>
         (1.0 - t) * segment.window.lower + t * segment.window.upper
-    val selected = visibility match
-      case ScalarVisibility.All               => Vector.empty
-      case ScalarVisibility.Inside(interval)  => Vector(interval.lower, interval.upper)
-      case ScalarVisibility.Outside(interval) => Vector(interval.lower, interval.upper)
-    (knots ++ selected).distinct.sorted
+    (knots ++ visibility.endpoints).distinct.sorted
 
   /** Complete, versioned descriptor identity, identical on JVM and JS; not a lossy hash. Signed
     * zero is canonicalized because it has no distinct display semantics here.
@@ -297,9 +332,12 @@ final case class ScalarMapping(
     def interval(value: ScalarInterval): String =
       s"${number(value.lower)},${number(value.upper)},${value.endpoints}"
     val selection = visibility match
-      case ScalarVisibility.All            => "all"
-      case ScalarVisibility.Inside(value)  => s"inside:${interval(value)}"
-      case ScalarVisibility.Outside(value) => s"outside:${interval(value)}"
+      case ScalarVisibility.All                => "all"
+      case ScalarVisibility.Inside(value)      => s"inside:${interval(value)}"
+      case ScalarVisibility.Outside(value)     => s"outside:${interval(value)}"
+      case ScalarVisibility.AtLeast(cutoff)    => s"at-least:${number(cutoff)}"
+      case ScalarVisibility.AtMost(cutoff)     => s"at-most:${number(cutoff)}"
+      case ScalarVisibility.Band(inner, outer) => s"band:${interval(inner)}/${interval(outer)}"
     val segments = scale.segments.map: segment =>
       val stops = segment.ramp.stops
         .map((position, color) => s"${number(position)}=${pixel(color)}")

@@ -30,10 +30,12 @@ The center and cutoffs are absolute scalar values, so asymmetric limits are
 supported without assuming symmetry about zero.
 
 Ramps contain ordered stops from 0 to 1 and interpolate stored sRGB bytes,
-including alpha. Visibility selects the inside or outside of a separate
-interval, with lower, upper, both, or neither endpoint included. It never changes
-the scaling intervals. A split scale always omits its gap, even when a separate
-visibility threshold is disabled.
+including alpha. Visibility is a separate rule: the inside or outside of an
+interval, with lower, upper, both, or neither endpoint included; everything at or
+above a cutoff, or at or below one; or a band, which shows the inside of an outer
+interval except the inside of an inner one. It never changes the scaling
+intervals. A split scale always omits its gap, even when a separate visibility
+threshold is disabled.
 
 Classification tests the original sample in this order:
 
@@ -49,12 +51,13 @@ are identical. `color` avoids allocating that richer result in sample loops.
 
 Resolve presentation changes with `mapping.resolve(window, threshold)`. A window
 change preserves the absolute center and split cutoffs and returns `Left` if the
-new window cannot contain them. Threshold overrides retain the legacy open-band
-contract. Use `effective.colorizer` only after this checked resolution; that
+new window cannot contain them. A threshold override accepts every
+`DisplayThreshold` mode and shows exactly the finite values that threshold does
+not hide. Use `effective.colorizer` only after this checked resolution; that
 adapter deliberately does not advertise unchecked window/threshold callbacks.
 
 `ScalarMapping.fromLegacy` describes a `ScalarColorizer`, including its invalid
-color and open transparent band. `inspect` recognizes that colorizer and the new
+color and its threshold, in any mode. `inspect` recognizes that colorizer and the new
 mapping adapter; other callbacks return `None`. The window normalizer now handles
 finite limits whose difference overflows, so a symmetric extreme window maps
 zero to its midpoint in both APIs.

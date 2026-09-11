@@ -210,3 +210,101 @@ class ScalarMappingSuite extends munit.FunSuite:
     for value <- Vector(-10.0, -4.0, -2.5, -2.0, -1.0, 0.0, 2.0, 3.0, 5.0, 8.0, 10.0) do
       assertEquals(transformed.color(value * 2.0 + 10.0), mapping.color(value))
       assertEquals(transformed.classify(value * 2.0 + 10.0), mapping.classify(value))
+
+  private val thresholdBand = ThresholdBand.unsafe(-1.0, 2.0)
+
+  /** Every threshold mode, including constructions the enum admits but the checked constructors
+    * reject: a non-finite cutoff and an outer band that does not contain its inner band.
+    */
+  private val thresholds = Vector(
+    DisplayThreshold.Disabled,
+    DisplayThreshold.TransparentBand(thresholdBand),
+    DisplayThreshold.Below(-1.0),
+    DisplayThreshold.Above(2.0),
+    DisplayThreshold.TwoSided(thresholdBand, None),
+    DisplayThreshold.TwoSided(thresholdBand, Some(ThresholdBand.unsafe(-3.0, 5.0))),
+    DisplayThreshold.Below(Double.NaN),
+    DisplayThreshold.Above(Double.PositiveInfinity),
+    DisplayThreshold.TwoSided(thresholdBand, Some(ThresholdBand.unsafe(0.0, 1.0)))
+  )
+
+  /** Each cutoff and band edge, its immediate neighbours, and the extremes of the finite line. */
+  private val probes =
+    Vector(-3.0, -1.0, 0.0, 1.0, 2.0, 5.0).flatMap(edge =>
+      Vector(
+        math.nextAfter(edge, Double.NegativeInfinity),
+        edge,
+        math.nextAfter(edge, Double.PositiveInfinity)
+      )
+    ) ++ Vector(-Double.MaxValue, -10.0, -0.0, 10.0, Double.MaxValue)
+
+  test("every display threshold becomes a visibility showing exactly what it does not hide"):
+    for
+      threshold <- thresholds
+      value <- probes
+    do
+      assertEquals(
+        ScalarVisibility.fromThreshold(threshold).includes(value),
+        !threshold.hides(value),
+        s"$threshold at $value"
+      )
+
+  test("legacy colorizers and checked overrides accept every threshold mode"):
+    val values = probes ++ Vector(Double.NaN, Double.NegativeInfinity, Double.PositiveInfinity)
+    for threshold <- thresholds do
+      val legacy = ScalarColorizer(
+        DisplayWindow.unsafe(-2.0, 3.0),
+        ColorRamp(blue, red),
+        invalid = white,
+        threshold = threshold
+      )
+      val mapping = ScalarMapping.fromLegacy(legacy)
+      for value <- values do
+        assertEquals(mapping.color(value), legacy.color(value), s"$threshold at $value")
+      assertEquals(ScalarMapping.inspect(legacy).map(_.canonicalKey), Some(mapping.canonicalKey))
+      val effective = split.resolve(threshold = Some(threshold)).toOption.get
+      for value <- probes do
+        assertEquals(
+          effective.classify(value) == ScalarSampleState.HiddenVisibility,
+          threshold.hides(value),
+          s"$threshold at $value"
+        )
+
+  test("visibility identity names every kind and cutoff exactly and feeds the boundary list"):
+    val inner = ScalarInterval.make(-2.0, 2.0, ScalarEndpointInclusion.Neither).toOption.get
+    val outer = ScalarInterval.make(-8.0, 8.0, ScalarEndpointInclusion.Both).toOption.get
+    def mapped(visibility: ScalarVisibility) = diverging.copy(visibility = visibility)
+    def selection(visibility: ScalarVisibility) = mapped(visibility).canonicalKey.split('|')(4)
+    val kinds = Vector(
+      ScalarVisibility.All,
+      ScalarVisibility.Inside(inner),
+      ScalarVisibility.Outside(inner),
+      ScalarVisibility.AtLeast(2.0),
+      ScalarVisibility.AtMost(-1.0),
+      ScalarVisibility.Band(inner, outer)
+    )
+    assertEquals(kinds.map(selection).distinct.length, kinds.length)
+    assertEquals(selection(ScalarVisibility.AtLeast(2.0)), "at-least:4000000000000000")
+    assertEquals(selection(ScalarVisibility.AtMost(-1.0)), "at-most:bff0000000000000")
+    assertEquals(
+      selection(ScalarVisibility.Band(inner, outer)),
+      "band:c000000000000000,4000000000000000,Neither/c020000000000000,4020000000000000,Both"
+    )
+    def viaThreshold(threshold: DisplayThreshold) =
+      mapped(ScalarVisibility.fromThreshold(threshold)).canonicalKey
+    val band = ThresholdBand.unsafe(-2.0, 2.0)
+    assertEquals(
+      viaThreshold(DisplayThreshold.TwoSided(band, None)),
+      viaThreshold(DisplayThreshold.TransparentBand(band))
+    )
+    assertEquals(
+      viaThreshold(DisplayThreshold.TwoSided(band, Some(ThresholdBand.unsafe(-8.0, 8.0)))),
+      mapped(ScalarVisibility.Band(inner, outer)).canonicalKey
+    )
+    assertEquals(
+      mapped(ScalarVisibility.Band(inner, outer)).boundaries,
+      Vector(-8.0, -4.0, -2.0, 0.0, 2.0, 8.0)
+    )
+    assertEquals(mapped(ScalarVisibility.AtLeast(2.0)).boundaries, Vector(-4.0, 0.0, 2.0, 8.0))
+    assertEquals(mapped(ScalarVisibility.AtMost(-1.0)).boundaries, Vector(-4.0, -1.0, 0.0, 8.0))
+    assertEquals(mapped(ScalarVisibility.AtLeast(Double.NaN)).boundaries, Vector(-4.0, 0.0, 8.0))
