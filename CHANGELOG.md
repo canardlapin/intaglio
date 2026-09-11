@@ -20,7 +20,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `PdfRenderError.DuplicateFontFamily` was removed because it can no longer be
   produced. See [MIGRATION.md](MIGRATION.md).
 
+- `DisplayThreshold` gained `Below`, `Above` and `TwoSided` cases, and
+  `DisplayError` gained `InvalidThresholdCutoff` and `InvalidThresholdNesting`.
+  Both are sealed, so a `match` that enumerated every case is no longer
+  exhaustive: the compiler only warns, and one of the new cases reaching it
+  throws `MatchError` at run time. See [MIGRATION.md](MIGRATION.md).
+
 ### Added
+
+- **Inspectable scalar mappings, and legends derived from them.**
+  `ScalarMapping` exposes a scalar colour scale as data --- its window, ramps,
+  visibility rules and split cutoffs --- rather than as an opaque
+  `Colorizer[Double]`. That is the information a renderer needs to build a
+  shader, or a legend it can trust; a plain colour function does not carry it.
+  `ScalarScale.sequential`, `.diverging` and `.split` give one ramp over the
+  whole window, two ramps about an explicit centre, and two ramps over nonempty
+  tails with the open gap omitted. Centres and cutoffs are absolute scalar
+  values, so asymmetric limits need no assumption of symmetry about zero.
+
+  Visibility is separate from the scale and covers every `DisplayThreshold`
+  mode: an interval shown or hidden, a cutoff with everything at or above it
+  (`AtLeast`) or at or below it (`AtMost`) visible, or a `Band` that shows an
+  outer interval except an inner one. `fromLegacy`, `inspect` and `resolve`
+  therefore accept a colorizer or override carrying any threshold.
+
+  `evaluate` returns a classification state and an optional segment coordinate
+  beside the colour, so hidden, invalid and saturated samples stay
+  distinguishable even when their colours agree; `color` skips that allocation
+  in sample loops. `canonicalKey` is a versioned descriptor identity built from
+  IEEE-754 bit strings with normalized signed zero, identical on JVM and
+  Scala.js. It can guard a cache; it is not a cryptographic digest.
+
+  `ScalarLegend`, `ScalarLegendDrawing` and `SwatchLegendDrawing` derive
+  legends from that descriptor, with wrapped swatch measurement and
+  publication annotations. Documented in
+  [docs/scalar-mappings.md](docs/scalar-mappings.md). Shaders, lookup textures
+  and automatic legend placement are not included.
+
+- **One-sided and bounded two-sided display thresholds.** `DisplayThreshold`
+  gained `Below(cutoff)` and `Above(cutoff)` for positive- and negative-going
+  thresholds, and `TwoSided(inner, outer)` for the minimum-magnitude /
+  maximum-magnitude control, with `twoSidedMagnitude` as its symmetric
+  constructor over `|value|`. Every comparison is strict, so cutoffs and band
+  endpoints stay visible, and `TwoSided(band, None)` hides exactly what
+  `TransparentBand(band)` hides. `InvalidThresholdCutoff` rejects a non-finite
+  cutoff; `InvalidThresholdNesting` rejects an outer band that does not contain
+  its inner band, which could never show anything on that side.
 
 - **Typographic weight, measured as well as drawn.** `GraphicParams.fontWeight`
   carries a checked `FontWeight` on the 100-to-900 scale, so a figure can
@@ -65,6 +110,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Resolves #2.
 
 ### Fixed
+
+- `DisplayWindow.normalize` no longer returns NaN for finite limits whose
+  difference overflows to infinity. It divides halved operands in that case, so
+  a symmetric extreme window maps zero to its midpoint.
 
 - **A faceted plot names each dimension once.** The axis title was lowered as
   part of every rendered axis, so "how many axes are drawn" silently decided

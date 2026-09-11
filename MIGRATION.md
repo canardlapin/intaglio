@@ -8,6 +8,35 @@ given release preserves, and what moving the baseline requires — is
 
 ## Unreleased
 
+### `DisplayThreshold` and `DisplayError` gained cases
+
+`DisplayThreshold` gained `Below`, `Above` and `TwoSided`; `DisplayError` gained
+`InvalidThresholdCutoff` and `InvalidThresholdNesting`. Both are sealed, so
+construction and ordinary use are unaffected --- but an exhaustive `match` that
+listed every case is no longer exhaustive. Scala 3 reports that as a warning,
+not an error, so the build still passes and one of the new cases reaching the
+match throws `MatchError` at run time:
+
+```
+match may not be exhaustive.
+It would fail on pattern case: DisplayThreshold.Below(_), DisplayThreshold.Above(_), ...
+```
+
+Add the new cases, or a wildcard if the code genuinely does not care:
+
+```scala
+threshold match
+  case DisplayThreshold.Disabled              => ...
+  case DisplayThreshold.TransparentBand(band) => ...
+  case DisplayThreshold.Below(cutoff)         => ...
+  case DisplayThreshold.Above(cutoff)         => ...
+  case DisplayThreshold.TwoSided(inner, outer) => ...
+```
+
+`hides` already accounts for every case, so code that asks the threshold rather
+than matching on it needs no edit. `TwoSided(band, None)` hides exactly what
+`TransparentBand(band)` hides, so the old case keeps its meaning.
+
 ### PDF font catalogs index a face, not a family
 
 `PdfFont.fromBytes` gained a trailing `weight: FontWeight = FontWeight.Regular`, and
