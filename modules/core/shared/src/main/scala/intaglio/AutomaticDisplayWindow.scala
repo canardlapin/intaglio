@@ -57,6 +57,27 @@ object AutomaticDisplayWindow:
       values: IterableOnce[Double],
       config: AutomaticWindowConfig = AutomaticWindowConfig()
   ): Either[AutomaticWindowError, AutomaticWindowEstimate] =
+    estimateMany(values, Vector(config)).head
+
+  /** Several windows from one traversal, one bounded reservoir and one sort. Configurations must
+    * share their sampling domain, sample limit and seed; only their probabilities may differ.
+    * Results preserve request order (including duplicates), and each window retains its own
+    * constant expansion or refusal. With the same ordered input each result equals a separate
+    * [[estimate]] call, including sampled streams. The input is consumed exactly once.
+    *
+    * An empty request or incompatible sampling configurations is a caller error, rejected before
+    * obtaining the input iterator. Sampling remains O(maxSamples) storage; output costs O(windows).
+    */
+  def estimateMany(
+      values: IterableOnce[Double],
+      configs: Vector[AutomaticWindowConfig]
+  ): Vector[Either[AutomaticWindowError, AutomaticWindowEstimate]] =
+    require(configs.nonEmpty, "Automatic window batch requires at least one configuration")
+    val config = configs.head
+    require(
+      configs.forall(c => c.domain == config.domain && c.maxSamples == config.maxSamples && c.seed == config.seed),
+      "Automatic window batch must share sampling domain, sample limit and seed"
+    )
     val sample = new Array[Double](config.maxSamples)
     val random = new scala.util.Random(config.seed)
     var observed = 0L
@@ -75,7 +96,7 @@ object AutomaticDisplayWindow:
           val slot = random.nextLong(eligible)
           if slot < sample.length then sample(slot.toInt) = value
     }
-    if eligible == 0 then Left(AutomaticWindowError.NoEligibleValues)
+    if eligible == 0 then configs.map(_ => Left(AutomaticWindowError.NoEligibleValues))
     else
       val retained = math.min(eligible, sample.length.toLong).toInt
       val sorted = sample.take(retained).sorted
@@ -86,24 +107,26 @@ object AutomaticDisplayWindow:
         val next = sorted(math.min(index + 1, retained - 1))
         // Weighted endpoints avoid overflow in next-current for signed extremes.
         sorted(index) * (1 - fraction) + next * fraction
-      val lower = quantile(config.lowerProbability)
-      val upper = quantile(config.upperProbability)
-      val constant = lower == upper
-      val delta = if lower == 0 then 0.5 else math.abs(lower) * 0.01
-      val lo = if constant then lower - delta else lower
-      val hi = if constant then upper + delta else upper
-      if !lo.isFinite || !hi.isFinite || !(lo < hi) || !(hi - lo).isFinite then
-        Left(AutomaticWindowError.UnrepresentableWindow(lo, hi))
-      else
-        Right(
-          AutomaticWindowEstimate(
-            DisplayWindow.unsafe(lo, hi),
-            config,
-            observed,
-            nonFinite,
-            excludedZero,
-            eligible,
-            retained,
-            constant
+      configs.map { requested =>
+        val lower = quantile(requested.lowerProbability)
+        val upper = quantile(requested.upperProbability)
+        val constant = lower == upper
+        val delta = if lower == 0 then 0.5 else math.abs(lower) * 0.01
+        val lo = if constant then lower - delta else lower
+        val hi = if constant then upper + delta else upper
+        if !lo.isFinite || !hi.isFinite || !(lo < hi) || !(hi - lo).isFinite then
+          Left(AutomaticWindowError.UnrepresentableWindow(lo, hi))
+        else
+          Right(
+            AutomaticWindowEstimate(
+              DisplayWindow.unsafe(lo, hi),
+              requested,
+              observed,
+              nonFinite,
+              excludedZero,
+              eligible,
+              retained,
+              constant
+            )
           )
-        )
+      }
