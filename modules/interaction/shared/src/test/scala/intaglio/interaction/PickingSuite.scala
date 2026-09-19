@@ -220,6 +220,26 @@ class PickingSuite extends munit.FunSuite:
     )
   }
 
+  test("a custom rhythm picks through the public path and matches the named one it repeats") {
+    def painted(dash: LineType) =
+      val mark = line(
+        Vector(40.0 -> 50.0, 44.0 -> 50.0, 60.0 -> 50.0),
+        GraphicParams.unsafe(lineWidth = 2, lineType = dash)
+      )
+      compile(Vector(route(single, mark)), policy = ok(PickPolicy(dashes = DashPicking.Painted)))
+    // `Custom(6 4)` is `Dashed` spelled out, so it picks exactly where `Dashed` does above.
+    // Until picking resolved the rhythm through `LineType.dash`, a custom one reached a match
+    // that did not name it and `Picking.fromDeviceScene` threw `MatchError`.
+    val repeated = painted(LineType.Custom(DashPattern.unsafe(6.0, 4.0)))
+    assert(hit(repeated, 45, 50))
+    assert(!hit(repeated, 47, 50))
+    assert(hit(repeated, 51, 50))
+    // A rhythm with no named equivalent resolves too, and its own gap is a miss.
+    val uneven = painted(LineType.Custom(DashPattern.unsafe(2.0, 8.0)))
+    assert(hit(uneven, 41, 50))
+    assert(!hit(uneven, 45, 50))
+  }
+
   test("a single dash covering a closed path keeps endpoint caps at its coincident seam") {
     val points = Vector(50.0 -> 50.0, 50.5 -> 50.0, 50.5 -> 50.7)
     def pick(cap: LineCap, dash: LineType) = compile(
