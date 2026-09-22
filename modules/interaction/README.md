@@ -71,6 +71,9 @@ reports `PickingError.Unsupported` for curved dashed outlines. Painted linear
 paths longer than 100,000 device pixels also report unsupported capability to
 bound dash expansion. The default miter limit is 4; hosts must configure drawing
 and picking with the same limit (Canvas and Java2D defaults can differ).
+When a closed path's last dash ends exactly on its start point, painted picking
+joins it to the first dash as Chromium SVG and Canvas do; Java2D caps both ends
+there instead, so a JVM host can differ by up to half a line width at that seam.
 
 For a centered, aspect-preserving browser layout, `PickViewport.fit` takes the
 device-scene dimensions and the CSS content rectangle. `toDevice` maps client
@@ -131,9 +134,10 @@ activation and category links, stale and duplicate input, cancellation,
 reconciliation, callback failure, and disposal. Picking checks include analytic
 and sampled distance oracles, clipped/rotated regions, winding, caps/joins,
 dashes, batch identity, and display-coordinate scaling. A JVM suite compares
-stroke containment against Java2D's independently constructed `BasicStroke`.
+stroke containment against Java2D's independently constructed `BasicStroke`,
+and confines their one known disagreement to the exact closed dash seam.
 
-`tools/check-picking-browser.cjs` checks the dashed-seam regression against
+`tools/check-picking-browser.cjs` checks both dashed-seam fixtures against
 Chromium SVG and Canvas and validates SVG screen-coordinate transforms at four
 device pixel ratios. It requires Playwright and its installed Chromium; run it
 after the repository's browser ownership audit. An explicit test executable can

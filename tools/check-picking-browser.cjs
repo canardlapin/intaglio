@@ -41,6 +41,39 @@ async function main() {
         assert.equal(row.canvas, expected, JSON.stringify(row));
         assert.equal(row.svg, expected, JSON.stringify(row));
       }
+      // PickingSuite: a `6 4` dash ending exactly on a closed seam (perimeter 56) is joined to
+      // the first dash there, so the outside corner is in the stroke unless the join is a
+      // bevel. Java2D caps this seam instead; picking follows the browser.
+      report.seams = await page.evaluate(() => {
+        const d = 'M40 50L58 50L58 60L40 60Z';
+        const ctx = document.createElement('canvas').getContext('2d');
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        document.body.append(svg);
+        const path = document.createElementNS(svg.namespaceURI, 'path');
+        svg.append(path);
+        for (const [key, value] of Object.entries({ d, fill: 'none', stroke: 'black', 'stroke-width': '4', 'stroke-miterlimit': '4', 'stroke-dasharray': '6 4' }))
+          path.setAttribute(key, value);
+        ctx.lineWidth = 4;
+        ctx.miterLimit = 4;
+        ctx.setLineDash([6, 4]);
+        const results = [];
+        for (const cap of ['butt', 'round']) {
+          for (const join of ['miter', 'round', 'bevel']) {
+            ctx.lineCap = cap;
+            ctx.lineJoin = join;
+            path.setAttribute('stroke-linecap', cap);
+            path.setAttribute('stroke-linejoin', join);
+            results.push({ cap, join, canvas: ctx.isPointInStroke(new Path2D(d), 39.137, 48.271),
+              svg: path.isPointInStroke(new DOMPoint(39.137, 48.271)) });
+          }
+        }
+        return results;
+      });
+      for (const row of report.seams) {
+        const expected = row.join !== 'bevel';
+        assert.equal(row.canvas, expected, JSON.stringify(row));
+        assert.equal(row.svg, expected, JSON.stringify(row));
+      }
     } finally {
       await context.close();
     }

@@ -39,6 +39,10 @@ private[interaction] object PickStroke:
       // A dash is an open run even when its endpoints coincide. Only separate first/last
       // runs are joined across a closed path's seam above; coincident endpoints alone do
       // not authorize a closing join (including when one dash covers the whole path).
+      // The seam join also applies when the last dash ends exactly on the seam rather than
+      // running across it. That is the browser's rule: Chromium 141 SVG and Canvas both join
+      // there, and picking answers for what the browser painted. Java2D butt-caps that case
+      // instead; StrokeOracleSuite pins the divergence to the seam.
       joined.flatMap(run => solid(run, closed = false, gp, miterLimit))
     else solid(normalized, closed, gp, miterLimit)
 

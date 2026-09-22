@@ -263,6 +263,31 @@ class PickingSuite extends munit.FunSuite:
     assert(hit(pick(LineCap.Square, LineType.Dashed), 48.137, 48.271))
   }
 
+  test("a dash ending exactly on a closed seam joins the first dash there, as the browser does") {
+    // Perimeter 56: five `6 4` periods and one dash that ends on the seam at (40, 50).
+    def pick(cap: LineCap, join: LineJoin) = compile(
+      Vector(
+        route(
+          single,
+          line(
+            Vector(40.0 -> 50.0, 58.0 -> 50.0, 58.0 -> 60.0, 40.0 -> 60.0),
+            GraphicParams
+              .unsafe(lineWidth = 4, lineCap = cap, lineJoin = join, lineType = LineType.Dashed),
+            closed = true
+          )
+        )
+      ),
+      policy = ok(PickPolicy(dashes = DashPicking.Painted))
+    )
+    // Independently reproduced with Chromium 141 SVG and Canvas. Java2D butt-caps this seam
+    // instead, so the corner outside it would miss there (StrokeOracleSuite).
+    assert(hit(pick(LineCap.Butt, LineJoin.Miter), 39.137, 48.271))
+    assert(hit(pick(LineCap.Butt, LineJoin.Round), 39.137, 48.271))
+    assert(!hit(pick(LineCap.Butt, LineJoin.Bevel), 39.137, 48.271))
+    // Round caps would cover this point; the browser's bevel join does not.
+    assert(!hit(pick(LineCap.Round, LineJoin.Bevel), 39.137, 48.271))
+  }
+
   test("compound polygons use the renderer's nonzero winding rule") {
     val outer =
       Vector(DevicePoint(30, 30), DevicePoint(70, 30), DevicePoint(70, 70), DevicePoint(30, 70))
