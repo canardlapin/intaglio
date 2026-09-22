@@ -78,6 +78,13 @@ lazy val commonSettings = Seq(
     "-deprecation",
     "-feature",
     "-unchecked",
+    // A `match` left behind by a new case in a closed enum is an error here, not a warning.
+    // Scala 3 only warns, and that warning is the whole signal: #6 and #7 were each green
+    // alone, and merging them left `ScalarVisibility.fromThreshold` non-exhaustive so three
+    // public entry points threw `MatchError` with every test still passing. Scoped to E029
+    // rather than `-Werror` so a warning kind the feature release adds cannot fail the build
+    // for a reason unrelated to correctness.
+    "-Wconf:id=E029:e",
     "-Xmax-inlines:64"
   ),
   // No `apiURL`: a POM is immutable once published, and there is no API site to point one at.

@@ -26,10 +26,10 @@ private[interaction] object PickStroke:
         case LineCap.Round  => Vector(Region.disc(p, h))
         case LineCap.Square => Vector(Region.rectangle(Box(p.x - h, p.y - h, p.x + h, p.y + h)))
     else if paintedDashes && gp.lineType != LineType.Solid then
-      val pattern = gp.lineType match
-        case LineType.Dashed => Vector(6.0, 4.0)
-        case LineType.Dotted => Vector(1.0, 3.0)
-        case LineType.Solid  => Vector.empty
+      // `LineType.dash` is where every renderer resolves a rhythm, so picking reads the same
+      // definition the paint did rather than a second copy of `6 4` and `1 3`, and a line type
+      // added later reaches this outline without needing a case here.
+      val pattern = gp.lineType.dash.fold(Vector.empty)(_.segments)
       val path = if closed then normalized :+ normalized.head else normalized
       val runs = dashRuns(path, pattern)
       val joined =
