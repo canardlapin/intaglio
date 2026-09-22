@@ -25,9 +25,8 @@ class StrokeOracleSuite extends munit.FunSuite:
       join <- Vector(LineJoin.Miter, LineJoin.Round, LineJoin.Bevel)
       // Four unequal segments, so a rhythm beyond the two named ones is checked against the
       // oracle rather than assumed. Its period is chosen so that no path here ends a dash
-      // exactly on a closed seam: that join disagrees with this oracle
-      // (bd-01M2XQEHRTX5V422SWDC74X4MV), and the named rhythms already cover the branch on
-      // the paths where it agrees.
+      // exactly on a closed seam, where picking follows the browser and not this oracle; the
+      // test below owns that case.
       dash <- Vector(
         LineType.Solid,
         LineType.Dashed,
@@ -61,6 +60,47 @@ class StrokeOracleSuite extends munit.FunSuite:
           oracle.contains(p.x, p.y),
           clues(points, closed, cap, join, dash, p)
         )
+  }
+
+  test("a dash ending exactly on a closed seam departs from BasicStroke only at the seam") {
+    // Perimeter 56 is five `6 4` periods and one more dash, so the last dash ends on the
+    // seam. Chromium 141 SVG and Canvas join it to the first there, and picking does too
+    // (PickingSuite; tools/check-picking-browser.cjs); BasicStroke caps both dash ends. The
+    // two outlines must still agree everywhere a half line width away from the seam.
+    val points = Vector(P(40, 50), P(58, 50), P(58, 60), P(40, 60))
+    val path = new Path2D.Double
+    path.moveTo(40, 50)
+    points.tail.foreach(p => path.lineTo(p.x, p.y))
+    path.closePath()
+    var departures = 0
+    for
+      (cap, awtCap) <- Vector(
+        LineCap.Butt -> BasicStroke.CAP_BUTT,
+        LineCap.Round -> BasicStroke.CAP_ROUND,
+        LineCap.Square -> BasicStroke.CAP_SQUARE
+      )
+      (join, awtJoin) <- Vector(
+        LineJoin.Miter -> BasicStroke.JOIN_MITER,
+        LineJoin.Round -> BasicStroke.JOIN_ROUND,
+        LineJoin.Bevel -> BasicStroke.JOIN_BEVEL
+      )
+    do
+      val gp = GraphicParams.unsafe(
+        lineWidth = 4,
+        lineCap = cap,
+        lineJoin = join,
+        lineType = LineType.Dashed
+      )
+      val regions = PickStroke(points, true, gp, paintedDashes = true, miterLimit = 4)
+      val oracle = new BasicStroke(4, awtCap, awtJoin, 4, Array(6f, 4f), 0)
+        .createStrokedShape(path)
+      for x <- 34 to 64; y <- 44 to 66 do
+        val p = P(x + 0.137, y + 0.271)
+        if regions.exists(_.contains(p)) != oracle.contains(p.x, p.y) then
+          departures += 1
+          assert(p.distance(points.head) < 2 * math.sqrt(2), clues(cap, join, p))
+    // Nonzero, so this is the seam case and not a path the two outlines happen to agree on.
+    assert(departures > 0)
   }
 
   test("nonzero fill containment does not mistake an internal same-winding ring for a hole") {
