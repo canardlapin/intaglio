@@ -5,5 +5,5 @@
 # Empty because the baseline was just moved to a commit that already contains every symbol the
 # previous list reviewed. An entry belongs here only while it is a live forward finding against the
 # pinned baseline; a stale one fails the build rather than being ignored.
-sha=339aed30ae266a27d7b9be26515d455900345ba2
-version=0.4.0
+sha=3f3db55c92a49cf06489fd72c0e94e7383738314
+version=0.5.0
