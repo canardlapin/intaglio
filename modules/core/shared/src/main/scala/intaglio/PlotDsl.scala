@@ -609,6 +609,12 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
   def compilerOptions(value: PlotCompilerOptions): PlotBuilder[Row, Position] =
     updateOptions(value)
 
+  /** How derived panel ranges are framed; [[PanelFraming.markInk]] keeps whole point marks inside
+    * the panel at the size the plot is placed at.
+    */
+  def framing(value: PanelFraming): PlotBuilder[Row, Position] =
+    updateOptions(options.copy(framing = value))
+
   /** Add a self-contained layer whose row type differs from the plot data. The required facet
     * policy keeps future faceting behavior explicit.
     */
