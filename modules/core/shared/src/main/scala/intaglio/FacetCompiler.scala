@@ -263,7 +263,7 @@ private[intaglio] object FacetCompiler:
         )
       )
       resolvedPanels <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
-        lowerPanels(faceted.panels, frames, trained.coord, options)
+        lowerPanels(faceted.panels, frames, trained.coord, faceted.facetScales, options)
       )
       axes <- PhaseClock.timed(PhaseClock.Phase.Lowering)(
         lowerAxes(
@@ -476,35 +476,90 @@ private[intaglio] object FacetCompiler:
       panels: Vector[PanelResolution],
       frames: PlotFrames,
       coord: Coord,
+      scales: FacetScales,
       options: PlotCompilerOptions
   ): Either[GraphicsError, Vector[ResolvedFacetPanel]] =
     if frames.grid.length != panels.length then Left(GraphicsError.EmptyFacet)
     else
-      traverse(panels.zip(frames.grid)) { case (panel, frame) =>
-        for
-          expanded <- coord.expandRanges(
-            options.expansion,
-            panel.physicalRanges._1,
-            panel.physicalRanges._2
-          )
-          layout = PanelLayout(
-            frame.panel,
-            expanded._1,
-            expanded._2,
-            options.margins,
-            LayoutPhase.coordClip(coord)
-          )
-          decoration <- PanelPhase.lower(Some(layout), panel.specs, options.theme.panel)
-          strip <- stripGrob(panel.cell, frame.strip, options.theme.axis.text)
-        yield ResolvedFacetPanel(
-          panel.cell,
-          layout,
-          panel.layers,
-          panel.registry,
-          decoration,
-          strip
+      for
+        expanded <- traverse(panels)(panel =>
+          coord.expandRanges(options.expansion, panel.physicalRanges._1, panel.physicalRanges._2)
         )
-      }
+        framed <- options.framing match
+          case PanelFraming.Data         => Right(expanded)
+          case ink: PanelFraming.MarkInk =>
+            frameMarkInk(panels, frames, expanded, coord, scales, ink, options)
+        resolved <- traverse(panels.zip(frames.grid).zip(framed)) { case ((panel, frame), ranges) =>
+          lowerPanel(panel, frame, ranges, coord, options)
+        }
+      yield resolved
+
+  /** [[PanelFraming.MarkInk]] across a grid. On a shared axis every panel's ink constraints pool
+    * into one solve, so the panels keep one range and their shared axis labels stay true; a free
+    * axis, which trains per panel, frames per panel.
+    */
+  private def frameMarkInk(
+      panels: Vector[PanelResolution],
+      frames: PlotFrames,
+      expanded: Vector[(Interval, Interval)],
+      coord: Coord,
+      scales: FacetScales,
+      ink: PanelFraming.MarkInk,
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, Vector[(Interval, Interval)]] =
+    val policy = options.policy.getOrElse(options.theme.layoutPolicy)
+    val device = policy.referenceDevice
+    val root = new LengthResolver(device, DeviceFrame.root(device))
+    val clearancePx = ink.clearancePt * device.pxPerUnit(LengthUnit.Point).getOrElse(96.0 / 72.0)
+    val (frameX, frameY) = coord match
+      case zoom: Coord.Zoom => (zoom.x.isEmpty, zoom.y.isEmpty)
+      case _                => (true, true)
+    traverse(panels.zip(frames.grid).zip(expanded)) { case ((panel, frame), (x, y)) =>
+      root
+        .childFrame(PanelLayout(frame.panel, x, y).viewport)
+        .flatMap(device0 =>
+          MarkInkFraming.collect(panel.layers.flatMap(_.value.grobs), device, device0, clearancePx)
+        )
+    }.map { marks =>
+      def axisMarks(axis: Int, i: Int) = if axis == 0 then marks(i)._1 else marks(i)._2
+      def solve(axis: Int, enabled: Boolean, free: Boolean): Vector[Interval] =
+        val bases = expanded.map(r => if axis == 0 then r._1 else r._2)
+        if !enabled || bases.isEmpty then bases
+        else if free then
+          bases.indices.toVector.map(i => MarkInkFraming.frameAxis(bases(i), axisMarks(axis, i)))
+        else
+          // A shared axis has one expanded base range across panels.
+          val shared =
+            MarkInkFraming.frameAxis(bases.head, bases.indices.toVector.flatMap(axisMarks(axis, _)))
+          bases.map(_ => shared)
+      solve(0, frameX, scales.xIsFree).zip(solve(1, frameY, scales.yIsFree))
+    }
+
+  private def lowerPanel(
+      panel: PanelResolution,
+      frame: PanelGridFrame,
+      expanded: (Interval, Interval),
+      coord: Coord,
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, ResolvedFacetPanel] =
+    val layout = PanelLayout(
+      frame.panel,
+      expanded._1,
+      expanded._2,
+      options.margins,
+      LayoutPhase.coordClip(coord)
+    )
+    for
+      decoration <- PanelPhase.lower(Some(layout), panel.specs, options.theme.panel)
+      strip <- stripGrob(panel.cell, frame.strip, options.theme.axis.text)
+    yield ResolvedFacetPanel(
+      panel.cell,
+      layout,
+      panel.layers,
+      panel.registry,
+      decoration,
+      strip
+    )
 
   private def stripGrob(
       cell: FacetCell,
