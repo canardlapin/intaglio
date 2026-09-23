@@ -158,10 +158,10 @@ Layer 0 (intaglio-plot-layer-0): geom=point, stat=summary, input=24, resolved=6,
     </g>
   </g>
   <g data-name="group-legend">
-    <text data-name="group-legend-title" fill="#000000" stroke="none" font-size="13.3333" x="460.8" y="21.3333" text-anchor="start" dominant-baseline="text-before-edge">group</text>
-    <circle data-name="group-legend-entry-0-key" stroke="#000000" fill="#000000" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="460.8" cy="51.6667" r="13.3333" />
+    <text data-name="group-legend-title" fill="#000000" stroke="none" font-size="13.3333" x="467.4667" y="21.3333" text-anchor="start" dominant-baseline="text-before-edge">group</text>
+    <circle data-name="group-legend-entry-0-key" stroke="#000000" fill="#000000" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="467.4667" cy="51.6667" r="6.1667" />
     <text data-name="group-legend-entry-0-label" fill="#000000" stroke="none" font-size="13.3333" x="480.8" y="51.6667" text-anchor="start" dominant-baseline="middle">control</text>
-    <circle data-name="group-legend-entry-1-key" stroke="#e69f00" fill="#e69f00" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="460.8" cy="73.6667" r="13.3333" />
+    <circle data-name="group-legend-entry-1-key" stroke="#e69f00" fill="#e69f00" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="467.4667" cy="73.6667" r="6.1667" />
     <text data-name="group-legend-entry-1-label" fill="#000000" stroke="none" font-size="13.3333" x="480.8" y="73.6667" text-anchor="start" dominant-baseline="middle">treated</text>
   </g>
   <defs>
