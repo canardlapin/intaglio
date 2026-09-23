@@ -322,7 +322,7 @@ object Picking:
           Left(PickingError.InvalidInput("scene and routing table disagree"))
         case None => Right(new PickingPlan(targets.values.toVector))
 
-  private def pointPrimitives(
+  private[interaction] def pointPrimitives(
       at: P,
       radius: Double,
       shape: PointShape,
@@ -374,7 +374,7 @@ object Picking:
           )
         )
 
-  private def primitiveRegions(
+  private[interaction] def primitiveRegions(
       primitive: DevicePrimitive,
       context: RenderContext,
       policy: PickPolicy

@@ -92,6 +92,21 @@ rather than total mark count (measured medians on one machine are in
 formal capacity or latency guarantee is established. Incremental index updates
 remain separate work.
 
+## Query a hand-built scene by name
+
+A scene drawn directly from grobs has no plot routing table. When its
+interactive marks carry a `GraphicsName` (the name the SVG renderer writes as
+`data-name`), `NamedPicking.compile(scene, context)` returns a
+`NamedPickingPlan` whose `hits`, `nearest`, and `select` answer with names.
+A painted part belongs to the innermost enclosing name — the primitive's own
+name, else its nearest named group — which is the element a browser finds with
+`closest("[data-name]")`. Parts sharing a name are one target; unnamed parts
+are not targets but keep their place in draw order. Geometry, paint
+visibility, clipping, rotation, dashes, and ordering are those of
+`PickingPlan`, so a canvas or JavaFX host resolves a pointer to the same name
+an SVG host would. Area selection scans every named target rather than the
+grid.
+
 ## State contracts
 
 - Select displayed targets and observation entities independently. Selecting
