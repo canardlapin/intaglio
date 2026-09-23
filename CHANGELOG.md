@@ -130,6 +130,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Composed cells keep their axis text.** `PlotComposition` aligned cells on
+  each plot's panel strips as fractions of the plot's own canvas, so a cell
+  narrower than that canvas shrank the strips while their point-sized tick
+  labels and axis titles kept their size, and the clip --- applied to the
+  plot's scaled canvas rather than to the cell --- cut them: the gallery's
+  composed figure lost both y titles and drew '3.5' as '.5'. Strips now keep
+  their physical size in every cell, only the panel takes the room that
+  remains, and `cellClip` clips the whole cell. With `CollectCompatible`, a
+  plot's own legend column no longer counts as a strip, since the composition
+  draws that legend in a column of its own. A cell too narrow for its plots'
+  strips is a typed `LayoutOverflow`.
+
 - `DisplayWindow.normalize` no longer returns NaN for finite limits whose
   difference overflows to infinity. It divides halved operands in that case, so
   a symmetric extreme window maps zero to its midpoint.

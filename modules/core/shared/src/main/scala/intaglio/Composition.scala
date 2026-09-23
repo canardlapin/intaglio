@@ -92,7 +92,8 @@ object PlotInset:
 
 /** Inspectable placement of one plot in a renderer-neutral composition. `panel` is the aligned
   * panel envelope in whole-composition coordinates; `viewport` is the affine transform applied to
-  * the complete child plot.
+  * the complete child plot, in the same coordinates. Clipping, when the composition asks for it,
+  * applies to the whole cell rather than to that viewport, so a plot's axis text stays visible.
   */
 final case class CompositionCell(
     index: Int,
@@ -159,7 +160,8 @@ object PlotComposition:
       sourcePanels <- traverse(plots.zipWithIndex) { case (plot, index) =>
         panelEnvelope(plot, index, context)
       }
-      alignment <- alignmentFor(sourcePanels)
+      rightEdges <- traverse(plots)(retainedRightEdge(_, options.guides, context))
+      strips = stripsFor(sourcePanels, rightEdges, context)
       policy = context.layoutPolicy(options.layoutPolicy)
       uniqueGuides = collectedGuideSpecs(plots, options.guides)
       guideLayout <- layoutGuides(uniqueGuides, context, policy, options)
@@ -171,7 +173,7 @@ object PlotComposition:
         policy,
         options
       )
-      built <- buildCells(plots, sourcePanels, gridFrames, columns, alignment, options)
+      built <- buildCells(plots, sourcePanels, gridFrames, columns, strips, context, options)
     yield
       val semantics = built.scenes.foldLeft(SceneSemantics.empty)(_ ++ _.semantics)
       val grobs = built.groups ++ guideLayout.guides.map(_.grob)
@@ -186,12 +188,19 @@ object PlotComposition:
     def right: Double = x + width
     def top: Double = y + height
 
+  /** The aligned panel within one cell, as fractions of that cell. */
   private final case class Alignment(
       left: Double,
       bottom: Double,
       panelWidth: Double,
       panelHeight: Double
   )
+
+  /** The widest strip any plot reserves on each side of its panel --- left, bottom, right, top ---
+    * in device pixels. Strips hold point-sized ticks, labels and titles, so they keep their
+    * physical size in every cell; only the panel between them takes up a cell's remaining room.
+    */
+  private type StripsPx = (Double, Double, Double, Double)
 
   private final case class GuideLayout(
       content: NormalizedFrame,
@@ -289,19 +298,55 @@ object PlotComposition:
         )
       )
 
+  private def stripsFor(
+      panels: Vector[NormalizedFrame],
+      rightEdges: Vector[Double],
+      context: RenderContext
+  ): StripsPx =
+    val width = context.width.toDouble
+    val height = context.height.toDouble
+    (
+      panels.map(_.x * width).max,
+      panels.map(_.y * height).max,
+      panels.zip(rightEdges).map((panel, edge) => (edge - panel.right) * width).max,
+      panels.map(panel => (1.0 - panel.top) * height).max
+    )
+
+  /** Where a plot's retained content ends on the right, as a fraction of its canvas. A plot's own
+    * legend column is the rightmost thing it draws; when the composition collects its legends and
+    * colorbars into one column of its own, the plot no longer draws them, so its right strip ends
+    * where that column began rather than at the canvas edge.
+    */
+  private def retainedRightEdge(
+      plot: TrainedPlot,
+      policy: CompositionGuidePolicy,
+      context: RenderContext
+  ): Either[GraphicsError, Double] =
+    policy match
+      case CompositionGuidePolicy.KeepPerPlot       => Right(1.0)
+      case CompositionGuidePolicy.CollectCompatible =>
+        val collected = plot.guides.flatMap {
+          case ResolvedGuide(_: GuideSpec.Axis, _) => None
+          case ResolvedGuide(_, grob)              => grob.viewport
+        }
+        traverse(collected)(viewport =>
+          resolveFrame(PanelFrame(viewport.origin, viewport.size), context)
+        ).map(frames => frames.map(_.x).minOption.fold(1.0)(math.min(1.0, _)))
+
   private def alignmentFor(
-      panels: Vector[NormalizedFrame]
+      strips: StripsPx,
+      cell: NormalizedFrame,
+      context: RenderContext
   ): Either[GraphicsError, Alignment] =
-    val left = panels.map(_.x).max
-    val right = panels.map(panel => 1.0 - panel.right).max
-    val bottom = panels.map(_.y).max
-    val top = panels.map(panel => 1.0 - panel.top).max
-    val width = 1.0 - left - right
-    val height = 1.0 - bottom - top
+    val (leftPx, bottomPx, rightPx, topPx) = strips
+    val cellWidthPx = cell.width * context.width.toDouble
+    val cellHeightPx = cell.height * context.height.toDouble
+    val width = 1.0 - (leftPx + rightPx) / cellWidthPx
+    val height = 1.0 - (bottomPx + topPx) / cellHeightPx
     if width <= 0.0 then Left(GraphicsError.LayoutOverflow("aligned composition panel width"))
     else if height <= 0.0 then
       Left(GraphicsError.LayoutOverflow("aligned composition panel height"))
-    else Right(Alignment(left, bottom, width, height))
+    else Right(Alignment(leftPx / cellWidthPx, bottomPx / cellHeightPx, width, height))
 
   private def collectedGuideSpecs(
       plots: Vector[TrainedPlot],
@@ -423,7 +468,8 @@ object PlotComposition:
       sourcePanels: Vector[NormalizedFrame],
       frames: Vector[NormalizedFrame],
       columns: Int,
-      alignment: Alignment,
+      strips: StripsPx,
+      context: RenderContext,
       options: CompositionOptions
   ): Either[GraphicsError, BuiltCells] =
     val groups = Vector.newBuilder[Grob]
@@ -434,19 +480,33 @@ object PlotComposition:
     while index < plots.length && result.isRight do
       val source = sourcePanels(index)
       val cell = frames(index)
-      val scaleX = alignment.panelWidth / source.width
-      val scaleY = alignment.panelHeight / source.height
-      val offsetX = alignment.left - scaleX * source.x
-      val offsetY = alignment.bottom - scaleY * source.y
       val child = childScene(plots(index), options.guides)
       result =
         for
+          // The aligned panel, as fractions of this cell: the cell less every plot's widest strips.
+          alignment <- alignmentFor(strips, cell, context)
+          scaleX = alignment.panelWidth / source.width
+          scaleY = alignment.panelHeight / source.height
+          offsetX = alignment.left - scaleX * source.x
+          offsetY = alignment.bottom - scaleY * source.y
           origin <- Point.npc(
             cell.x + cell.width * offsetX,
             cell.y + cell.height * offsetY
           )
           size <- Size.npc(cell.width * scaleX, cell.height * scaleY)
-          viewport <- Viewport.checked(origin = origin, size = size, clip = options.cellClip)
+          viewport <- Viewport.checked(origin = origin, size = size, clip = Clip.Off)
+          // The clip is the cell, not the child's scaled canvas: the canvas shrinks with its panel
+          // while its point-sized strips do not, so its edge falls inside the strips' text.
+          cellOrigin <- Point.npc(cell.x, cell.y)
+          cellSize <- Size.npc(cell.width, cell.height)
+          cellViewport <- Viewport.checked(
+            origin = cellOrigin,
+            size = cellSize,
+            clip = options.cellClip
+          )
+          childOrigin <- Point.npc(offsetX, offsetY)
+          childSize <- Size.npc(scaleX, scaleY)
+          childViewport <- Viewport.checked(origin = childOrigin, size = childSize, clip = Clip.Off)
           panel <- PanelFrame.npc(
             cell.x + cell.width * alignment.left,
             cell.y + cell.height * alignment.bottom,
@@ -455,8 +515,8 @@ object PlotComposition:
           )
         yield
           groups += Grob.group(
-            child.grobs,
-            viewport = Some(viewport),
+            Vector(Grob.group(child.grobs, viewport = Some(childViewport), name = None)),
+            viewport = Some(cellViewport),
             name = Some(GraphicsName.unsafe(s"composition-cell-$index"))
           )
           scenes += child
