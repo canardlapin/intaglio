@@ -8,23 +8,43 @@ import PickGeometry.*
   */
 final case class NamedHit(name: GraphicsName, distanceDevicePx: Double, drawOrder: Int)
 
+/** `orders(i)` is the draw order of `parts(i)`; `drawOrder` is the target's last-drawn part. */
 private[interaction] final case class NamedTarget(
     name: GraphicsName,
     parts: Vector[PickPart],
-    drawOrder: Int
+    orders: Vector[Int]
 ):
+  def drawOrder: Int = orders.last
   lazy val bounds: Option[Box] = parts.flatMap(_.source.bounds).reduceOption(_.union(_))
-  def distance(point: P): Double =
-    parts.iterator.map(_.visible.distance(point)).minOption.getOrElse(Double.PositiveInfinity)
+
+  /** The distance to the nearest visible part, and the draw order of the topmost part at that
+    * distance: under a pointer, what matters is the part actually drawn there, not the target's
+    * last part elsewhere.
+    */
+  def reach(point: P): (Double, Int) =
+    var best = Double.PositiveInfinity
+    var order = drawOrder
+    var i = 0
+    while i < parts.length do
+      val d = parts(i).visible.distance(point)
+      if d < best - epsilon then
+        best = d
+        order = orders(i)
+      else if math.abs(d - best) <= epsilon then order = math.max(order, orders(i))
+      i += 1
+    (best, order)
 
 /** Picking over a scene that was drawn directly from grobs, where a target is identified by its
   * `GraphicsName` rather than by a plot's typed routing table.
   *
   * A painted part belongs to the innermost name that encloses it: the primitive's own name, else
-  * the nearest named group around it. This is the same name an SVG host finds with
-  * `closest("[data-name]")`. Parts that share a name form one logical target; unnamed parts are not
-  * targets but still occupy draw order. Geometry, paint visibility, clipping, rotation, dash
-  * handling and ordering are exactly those of [[PickingPlan]].
+  * the nearest named group around it. That is the name an SVG host's `closest("[data-name]")`
+  * returns for the same part, provided the page adds no `data-name` above the `<svg>`. Parts that
+  * share a name form one logical target; unnamed parts are not targets but still occupy draw order.
+  * A hit reports the draw order of the target's topmost part at the query point, so interleaved
+  * targets tie-break by what is actually drawn there. Geometry, paint visibility, clipping,
+  * rotation and dash handling are those of [[PickingPlan]]; like it, the default policy ignores
+  * fully transparent paint, which a browser's `visiblePainted` hit test would still hit.
   */
 final class NamedPickingPlan private[interaction] (private val targets: Vector[NamedTarget]):
   private val index: PickIndex = PickIndex.build(targets.map(_.bounds))
@@ -88,9 +108,8 @@ final class NamedPickingPlan private[interaction] (private val targets: Vector[N
         candidates(tolerance + PickIndex.safety)
           .map(targets(_))
           .flatMap { target =>
-            val distance = target.distance(p)
-            if distance <= tolerance + epsilon then
-              Some(NamedHit(target.name, distance, target.drawOrder))
+            val (distance, order) = target.reach(p)
+            if distance <= tolerance + epsilon then Some(NamedHit(target.name, distance, order))
             else None
           }
           .sortBy(hit => (hit.distanceDevicePx, -hit.drawOrder))
@@ -124,14 +143,21 @@ object NamedPicking:
           transform: Rigid,
           clips: Vector[Region]
       ): Unit =
-        Picking.primitiveRegions(primitive, context, policy) match
-          case Left(error)    => failure = Some(error)
-          case Right(regions) =>
-            val parts = regions.map(region => PickPart(region.transform(transform), clips))
-            if parts.nonEmpty then
-              val previous = targets.get(name).fold(Vector.empty[PickPart])(_.parts)
-              targets.update(name, NamedTarget(name, previous ++ parts, order))
-            order += 1
+        if failure.isEmpty then
+          Picking.primitiveRegions(primitive, context, policy) match
+            case Left(error)    => failure = Some(error)
+            case Right(regions) =>
+              val parts = regions.map(region => PickPart(region.transform(transform), clips))
+              if parts.nonEmpty then
+                val (previous, orders) =
+                  targets
+                    .get(name)
+                    .fold((Vector.empty[PickPart], Vector.empty[Int]))(t => (t.parts, t.orders))
+                targets.update(
+                  name,
+                  NamedTarget(name, previous ++ parts, orders ++ Vector.fill(parts.size)(order))
+                )
+              order += 1
 
       def walk(
           elements: Vector[DeviceElement],
@@ -164,7 +190,8 @@ object NamedPicking:
                   batch.points.indices.foreach { index =>
                     val p = batch.points(index)
                     val r = batch.radii.valueAt(index)
-                    if !r.isFinite || r < 0 then
+                    if failure.nonEmpty then ()
+                    else if !r.isFinite || r < 0 then
                       failure = Some(PickingError.InvalidInput("point batch radius"))
                     else
                       Picking

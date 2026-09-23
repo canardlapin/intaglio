@@ -99,13 +99,17 @@ interactive marks carry a `GraphicsName` (the name the SVG renderer writes as
 `data-name`), `NamedPicking.compile(scene, context)` returns a
 `NamedPickingPlan` whose `hits`, `nearest`, and `select` answer with names.
 A painted part belongs to the innermost enclosing name — the primitive's own
-name, else its nearest named group — which is the element a browser finds with
-`closest("[data-name]")`. Parts sharing a name are one target; unnamed parts
-are not targets but keep their place in draw order. Geometry, paint
-visibility, clipping, rotation, dashes, and ordering are those of
-`PickingPlan`, so a canvas or JavaFX host resolves a pointer to the same name
-an SVG host would. Area selection scans every named target rather than the
-grid.
+name, else its nearest named group — which is the name `closest("[data-name]")`
+returns for that part in the SVG output, provided the host page adds no
+`data-name` above the `<svg>`. Parts sharing a name are one target; unnamed
+parts are not targets but keep their place in draw order, and a hit reports
+the draw order of the target's topmost part at the query point. Geometry,
+paint visibility, clipping, rotation, and dashes are those of `PickingPlan`,
+so a canvas or JavaFX host assigns a pointer to the same name an SVG host
+would. Hit rules can still differ from a browser's: the default policy ignores
+fully transparent paint, which `pointer-events: visiblePainted` would hit, and
+text is picked by its measured box. Area selection scans every named target
+rather than the grid.
 
 ## State contracts
 

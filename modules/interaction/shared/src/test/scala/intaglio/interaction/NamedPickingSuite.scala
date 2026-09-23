@@ -55,10 +55,30 @@ class NamedPickingSuite extends munit.FunSuite:
       disc(50, 50, radius = 2, name = Some("over"))
     )
     assertEquals(at(plan, 50, 50), Vector(n("over"), n("under")))
-    val drawn = ok(plan.hits(DevicePoint(50, 50))).map(_.drawOrder)
-    assert(drawn.head > drawn(1), s"draw order counts unnamed parts too: $drawn")
+    assertEquals(
+      ok(plan.hits(DevicePoint(50, 50))).map(_.drawOrder),
+      Vector(2, 0),
+      "the unnamed disc between them still occupies draw order 1"
+    )
     assertEquals(ok(plan.nearest(DevicePoint(56, 50), 10)).map(_.name), Some(n("under")))
     assertEquals(ok(plan.nearest(DevicePoint(75, 50), 10)), None)
+
+  test("interleaved targets tie-break by the part actually drawn at the point"):
+    // a is drawn, then b over it, then a again elsewhere: at the overlap the browser hits b.
+    val plan = compile(
+      disc(50, 50, radius = 10, name = Some("a")),
+      disc(50, 50, radius = 10, name = Some("b")),
+      disc(150, 50, radius = 10, name = Some("a"))
+    )
+    assertEquals(at(plan, 50, 50), Vector(n("b"), n("a")))
+    assertEquals(ok(plan.hits(DevicePoint(50, 50))).map(_.drawOrder), Vector(1, 0))
+    assertEquals(ok(plan.hits(DevicePoint(150, 50))).map(_.drawOrder), Vector(2))
+
+  test("metadata wrappers neither name nor unname what they enclose"):
+    val wrapped = DeviceElement.Annotated(GrobMeta(), Vector(disc(50, 50)))
+    val plan = compile(group(Some("outer"), wrapped), wrapped)
+    assertEquals(at(plan, 50, 50), Vector(n("outer")))
+    assertEquals(plan.targetCount, 1, "an Annotated wrapper outside any name is not a target")
 
   test("a named point batch is one target over all its points"):
     val batch = DeviceElement.Mark(
