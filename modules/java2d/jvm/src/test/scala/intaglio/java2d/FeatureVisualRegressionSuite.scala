@@ -7,8 +7,14 @@ import javax.imageio.ImageIO
 class FeatureVisualRegressionSuite extends munit.FunSuite:
   test("recent visual features satisfy pinned perceptual goldens") {
     FeatureVisualFixtures.cases.foreach { example =>
-      val expected = FeatureVisualFixtures.expected(example)
       val actual = FeatureVisualFixtures.render(example)
+      val expected =
+        try FeatureVisualFixtures.expected(example)
+        catch
+          case missing: IllegalStateException if example.hostGolden =>
+            // Keep this host's render so it can be reviewed and, once accepted, committed.
+            val artifacts = FeatureGoldenArtifacts.writeActual(example.name, actual)
+            fail(s"${missing.getMessage}; this host's render is at $artifacts")
       val full = FeaturePixelDifference.compare(expected, actual)
       val geometry =
         FeaturePixelDifference.compare(expected, actual, Some(example.geometryBounds))
@@ -33,6 +39,17 @@ class FeatureVisualRegressionSuite extends munit.FunSuite:
           s"${example.name}: ${problems.mkString("; ")}; max channel error=${full.maximumChannelError}; review $artifacts"
         )
     }
+  }
+
+  test("every host-pinned case has a golden for each rasterizing host") {
+    val pinned = FeatureVisualFixtures.cases.filter(_.hostGolden)
+    assert(pinned.nonEmpty)
+    for
+      example <- pinned
+      host <- Vector("macos", "linux")
+    do
+      val resource = s"${FeatureVisualFixtures.resourceRoot}/$host/${example.name}.png"
+      assert(getClass.getResource(resource) != null, s"missing $resource")
   }
 
   test("every feature fixture is visible and visually distinct") {
@@ -159,6 +176,12 @@ private[java2d] object FeaturePixelDifference:
     PixelDifference(compared, changed, totalError, maximumError)
 
 private[java2d] object FeatureGoldenArtifacts:
+  def writeActual(name: String, actual: BufferedImage): Path =
+    val output = Paths.get("target/golden-failures/java2d/features").resolve(name)
+    Files.createDirectories(output)
+    ImageIO.write(actual, "png", output.resolve("actual.png").toFile)
+    output
+
   def write(name: String, expected: BufferedImage, actual: BufferedImage): Path =
     val output = Paths.get("target/golden-failures/java2d/features").resolve(name)
     Files.createDirectories(output)

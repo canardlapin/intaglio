@@ -56,6 +56,22 @@ threshold rejects a material change in its own region` blackens a tenth of each 
 case's own region and asserts that case's own threshold still catches it—for `style-aesthetics`
 that block registers a mean channel error of 1.91 against a limit of 0.5.
 
+### Host-pinned goldens
+
+Once the composition fix restored its four axis titles, two of them rotated, the `composition`
+case's macOS-to-Linux delta rose to a mean channel error of 0.56, above even the text threshold.
+Rather than widen the threshold until both hosts' renders pass against one golden, that case is
+host-pinned (`hostGolden = true`): it keeps one exact render per rasterizing host, under
+`golden/features/macos/` and `golden/features/linux/`, and each host is judged against its own at
+the unchanged 0.5 limit. `every host-pinned case has a golden for each rasterizing host` fails if
+either copy is missing.
+
+`tools/update-feature-visual-goldens.sh` updates only the current host's copy of a host-pinned case.
+The Linux copy comes from CI: when a golden fails or is missing, the test job uploads
+`target/golden-failures` as the `golden-failures-scala-<version>-jdk-<version>` artifact, whose
+`<case>/actual.png` is the Linux render. Review it beside the macOS golden --- the two may differ
+only in glyph rasterization --- then commit it under `linux/`.
+
 ## Deterministic fuzz court
 
 `FuzzRegressionSuite` executes 256 fixed SplitMix64 seeds on both the JVM and Scala.js. A failure

@@ -20,7 +20,8 @@ private[java2d] final case class FeatureVisualCase(
     reviewContract: String,
     renderPlan: RenderPlan,
     geometryBounds: PixelBounds,
-    geometryThreshold: PerceptualThreshold = PerceptualThreshold(0.001, 0.03)
+    geometryThreshold: PerceptualThreshold = PerceptualThreshold(0.001, 0.03),
+    hostGolden: Boolean = false
 )
 
 private[java2d] object FeatureVisualCase:
@@ -98,7 +99,11 @@ private[java2d] object FeatureVisualFixtures:
       // case reads glyph rasterization more than geometry --- exactly what its contract above says
       // it does not judge.
       PixelBounds(30, 45, 625, 405),
-      FeatureVisualCase.textDominatedThreshold
+      FeatureVisualCase.textDominatedThreshold,
+      // Its four axis titles, two of them rotated, put the macOS-to-Linux rasterization delta at a
+      // mean channel error of 0.56, above even the text threshold, so each host keeps its own
+      // exact render rather than the threshold widening to admit both.
+      hostGolden = true
     )
   )
 
@@ -111,11 +116,29 @@ private[java2d] object FeatureVisualFixtures:
       )
       .orThrow
 
+  /** The rasterizing host a host-pinned golden belongs to: AWT hints and positions glyphs
+    * differently on each, so a text-heavy case is judged against its own host's render.
+    */
+  val host: String =
+    val os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
+    if os.contains("mac") then "macos"
+    else if os.contains("linux") then "linux"
+    else "other"
+
+  /** Golden path for `example`, relative to the golden root. */
+  def goldenPath(example: FeatureVisualCase): String =
+    if example.hostGolden then s"$host/${example.name}.png" else s"${example.name}.png"
+
   def expected(example: FeatureVisualCase): BufferedImage =
-    val resource = s"$resourceRoot/${example.name}.png"
+    val resource = s"$resourceRoot/${goldenPath(example)}"
     val input = Option(getClass.getResourceAsStream(resource)).getOrElse(
       throw new IllegalStateException(
-        s"missing golden $resource; run tools/update-feature-visual-goldens.sh and review every artifact"
+        if example.hostGolden then
+          s"missing $host golden $resource; render it on a $host host with " +
+            "tools/update-feature-visual-goldens.sh (on CI, from the uploaded golden-failures " +
+            "artifact) and review it against the other hosts' goldens"
+        else
+          s"missing golden $resource; run tools/update-feature-visual-goldens.sh and review every artifact"
       )
     )
     try Option(ImageIO.read(input)).getOrElse(throw new IllegalStateException(s"invalid $resource"))
@@ -535,9 +558,11 @@ object FeatureVisualGoldenUpdate:
       throw new IllegalArgumentException(
         "feature golden updates require --accept after native-size review against peer references"
       )
-    Files.createDirectories(FeatureVisualFixtures.repositoryRoot)
     FeatureVisualFixtures.cases.foreach { example =>
-      val path = FeatureVisualFixtures.repositoryRoot.resolve(s"${example.name}.png")
+      // A host-pinned case updates only this host's golden; the other hosts keep theirs.
+      val path =
+        FeatureVisualFixtures.repositoryRoot.resolve(FeatureVisualFixtures.goldenPath(example))
+      Files.createDirectories(path.getParent)
       val written = ImageIO.write(FeatureVisualFixtures.render(example), "png", path.toFile)
       if !written then throw new IllegalStateException("no PNG ImageIO writer is available")
       println(s"updated $path sha256=${sha256(path)}")
