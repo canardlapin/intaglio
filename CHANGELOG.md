@@ -130,6 +130,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Derived legend keys fit their rows.** The layout solver budgets
+  `LayoutPolicy.legendKeyPt` as the side of each key's box, but placement
+  handed that value to the key glyph as its size, which a point glyph reads as
+  a radius: default keys were drawn 20 pt across in rows pitched 14 pt apart,
+  so neighbouring keys overlapped, crowded their labels and spilled left of the
+  legend column. Keys are now centred in their box at the largest radius at
+  which every entry's shape and stroke fit it (one radius per legend, so
+  area-matched shapes stay matched). Labels keep their positions; the title
+  stays aligned with the key centres, so a title-width legend column is half a
+  key wider. Every plot with a derived legend changes; the gallery plates are
+  regenerated.
+
 - **Composed cells keep their axis text.** `PlotComposition` aligned cells on
   each plot's panel strips as fractions of the plot's own canvas, so a cell
   narrower than that canvas shrank the strips while their point-sized tick

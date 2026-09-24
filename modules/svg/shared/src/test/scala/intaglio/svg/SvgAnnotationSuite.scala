@@ -213,7 +213,9 @@ class SvgAnnotationSuite extends munit.FunSuite:
       "colorbar" -> Set("eab14bce421ed0e8"),
       "scaled-plot" -> Set("183be6bbdd763191", "4315161ef3fde199"),
       "mixed-layer-plot" -> Set("6fce53769e4901a2"),
-      "titled-plot" -> Set("8e11bc1d3d8ccd67"),
+      // Re-pinned when derived legend keys moved into their key boxes (bd-01M20KHQ11W425M83J49GS0JFH):
+      // the diff was the legend keys, title and labels, and the panel width the legend column shares.
+      "titled-plot" -> Set("1dc197dcaecf6ae4"),
       "comparison-scatter" -> Set("65e2b216385e10c2"),
       "comparison-line" -> Set("885ba064c730b940"),
       "comparison-histogram" -> Set("211b7a88b4e7cc54"),

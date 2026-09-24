@@ -229,7 +229,8 @@ object GuideSpec:
           rowGap = ExtentExpr.pointsUnsafe(solved.rowPitchPt),
           firstRowOffset = Some(ExtentExpr.pointsUnsafe(solved.firstRowOffsetPt)),
           labelOffset = x(solved.labelOffsetPt),
-          markerSize = ExtentExpr.pointsUnsafe(solved.markerSizePt)
+          markerSize =
+            ExtentExpr.pointsUnsafe(fittedKeyRadiusPt(legend.entries, solved.markerSizePt))
         )
       case (colorbar: Colorbar, solved: GuidePlacement.Colorbar) =>
         colorbar.copy(
@@ -244,6 +245,34 @@ object GuideSpec:
           titleOffset = ExtentExpr.pointsUnsafe(solved.titleOffsetPt)
         )
       case _ => spec
+
+  /** The largest key-glyph radius at which every entry's ink --- shape and stroke --- stays within
+    * `halfBoxPt` of the key centre. One radius serves the whole legend, so shapes whose areas agree
+    * at a given radius (a circle and a diamond) still agree between their keys. A device-pixel
+    * stroke is budgeted at 96 ppi, its widest extent in points on any denser target.
+    */
+  private def fittedKeyRadiusPt(entries: Vector[LegendEntry], halfBoxPt: Double): Double =
+    val extentPerRadius = entries.foldLeft(1.0) { (widest, entry) =>
+      entry.shape match
+        case PointShape.Diamond => math.max(widest, PointShape.DiamondHalfDiagonalRatio)
+        case _                  => widest
+    }
+    val strokeHalfPt = entries.foldLeft(0.0) { (widest, entry) =>
+      val gp = entry.gp
+      if gp.stroke.isEmpty || gp.lineWidth <= 0.0 then widest
+      else
+        val widthPt = gp.lineWidthUnit match
+          case StrokeUnit.Point       => gp.lineWidth
+          case StrokeUnit.DevicePixel => gp.lineWidth * 72.0 / 96.0
+        // A miter at a diamond's or triangle's corner reaches past the half width.
+        val cornerFactor = entry.shape match
+          case PointShape.Circle | PointShape.Square | PointShape.Cross => 1.0
+          case PointShape.Diamond  => if gp.lineJoin == LineJoin.Miter then math.sqrt(2.0) else 1.0
+          case PointShape.Triangle =>
+            if gp.lineJoin == LineJoin.Miter then math.sqrt(5.0) else 1.0
+        math.max(widest, widthPt / 2.0 * cornerFactor)
+    }
+    math.max(0.0, halfBoxPt - strokeHalfPt) / extentPerRadius
 
   private def lowerAxis(
       spec: Axis,
