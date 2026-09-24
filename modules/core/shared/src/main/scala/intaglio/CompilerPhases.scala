@@ -2491,7 +2491,8 @@ private[intaglio] object LayoutPhase:
       options: PlotCompilerOptions,
       ranges: Option[(Interval, Interval)],
       specs: Vector[GuideSpec],
-      labels: PlotLabels
+      labels: PlotLabels,
+      marks: Vector[Grob] = Vector.empty
   ): Either[GraphicsError, LayoutResolution] =
     val clip = coordClip(coord)
     (options.layout, options.frame, options.policy, ranges) match
@@ -2507,22 +2508,74 @@ private[intaglio] object LayoutPhase:
           )
         }
       case (None, None, Some(policy), Some((xRange, yRange))) =>
+        def solveAt(x: Interval, y: Interval): Either[GraphicsError, PlotFrames] =
+          panelAspect(coord, x, y).flatMap(aspect =>
+            PlotLayoutSolver.solve(policy, layoutRequest(specs, x, y, labels, aspect))
+          )
         for
           expanded <- coord.expandRanges(options.expansion, xRange, yRange)
-          aspect <- panelAspect(coord, expanded._1, expanded._2)
-          frames <- PlotLayoutSolver.solve(
-            policy,
-            layoutRequest(specs, expanded._1, expanded._2, labels, aspect)
-          )
+          frames <- solveAt(expanded._1, expanded._2)
+          framed <- options.framing match
+            case PanelFraming.Data         => Right((expanded, frames))
+            case ink: PanelFraming.MarkInk =>
+              frameMarkInk(coord, ink, policy, marks, expanded, frames, solveAt)
         yield
-          val (expandedX, expandedY) = expanded
+          val ((framedX, framedY), framedFrames) = framed
           LayoutResolution(
-            Some(PanelLayout(frames.panel, expandedX, expandedY, options.margins, clip)),
-            Some(frames)
+            Some(PanelLayout(framedFrames.panel, framedX, framedY, options.margins, clip)),
+            Some(framedFrames)
           )
       case _ =>
         if options.guides.requiresLayout then Left(GraphicsError.MissingLayout("guides"))
         else Right(LayoutResolution(None, None))
+
+  /** Widen expanded ranges until point ink fits the solved panel ([[PanelFraming.MarkInk]]). A
+    * framed range moves the solve only through range-dependent requests (a fixed aspect, underived
+    * axis labels), so framing and solving alternate until they agree: the returned ranges are
+    * framed for the returned panel, and that panel is solved at those ranges, to within a millionth
+    * of a device pixel. Ordinary plots agree after one extra solve.
+    */
+  private def frameMarkInk(
+      coord: Coord,
+      ink: PanelFraming.MarkInk,
+      policy: LayoutPolicy,
+      marks: Vector[Grob],
+      expanded: (Interval, Interval),
+      frames: PlotFrames,
+      solveAt: (Interval, Interval) => Either[GraphicsError, PlotFrames]
+  ): Either[GraphicsError, ((Interval, Interval), PlotFrames)] =
+    val device = policy.referenceDevice
+    val root = new LengthResolver(device, DeviceFrame.root(device))
+    val clearancePx = ink.clearancePt * device.pxPerUnit(LengthUnit.Point).getOrElse(96.0 / 72.0)
+    val (frameX, frameY) = coord match
+      case zoom: Coord.Zoom => (zoom.x.isEmpty, zoom.y.isEmpty)
+      case _                => (true, true)
+    def pixels(current: PlotFrames): Either[GraphicsError, DeviceFrame] =
+      root.childFrame(PanelLayout(current.panel, expanded._1, expanded._2).viewport)
+    def agree(a: DeviceFrame, b: DeviceFrame): Boolean =
+      math.abs(a.x - b.x) <= 1.0e-6 && math.abs(a.y - b.y) <= 1.0e-6 &&
+        math.abs(a.width - b.width) <= 1.0e-6 && math.abs(a.height - b.height) <= 1.0e-6
+    // `current` is the solve at `solvedAt`.
+    def loop(
+        current: PlotFrames,
+        solvedAt: (Interval, Interval),
+        remaining: Int
+    ): Either[GraphicsError, ((Interval, Interval), PlotFrames)] =
+      pixels(current).flatMap { panel =>
+        MarkInkFraming.frame(marks, device, panel, clearancePx, frameX, frameY).flatMap { ranges =>
+          if ranges == solvedAt then Right((ranges, current))
+          else
+            solveAt(ranges._1, ranges._2).flatMap { next =>
+              pixels(next).flatMap { nextPanel =>
+                // Out of iterations, the ranges fit the previous solve rather than this one.
+                if agree(panel, nextPanel) || remaining == 0 then Right((ranges, next))
+                else loop(next, ranges, remaining - 1)
+              }
+            }
+        }
+      }
+    if marks.isEmpty || (!frameX && !frameY) then Right((expanded, frames))
+    else loop(frames, expanded, 8)
 
   private[intaglio] def expandedRanges(
       expansion: RangeExpansion,

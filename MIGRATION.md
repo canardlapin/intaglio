@@ -8,6 +8,28 @@ given release preserves, and what moving the baseline requires — is
 
 ## Unreleased
 
+### `PlotCompilerOptions` gained a `framing` field
+
+`PlotCompilerOptions` has a tenth, defaulted field, `framing`. Construction by
+name, `copy`, and the builder methods are unaffected, and the default,
+`PanelFraming.Data`, frames exactly as before. Two things change:
+
+- Code compiled against the previous class fails to link (`NoSuchMethodError`
+  on `apply`, `copy` or the constructor) until it is recompiled.
+- A positional pattern that lists all nine old fields no longer matches the
+  extractor's arity:
+
+  ```
+  Wrong number of argument patterns for PlotCompilerOptions; expected: (..., framing)
+  ```
+
+  Add a tenth pattern, or match by field access instead:
+
+  ```scala
+  options match
+    case PlotCompilerOptions(layout, frame, policy, margins, expansion, guides, theme, context, provenance, _) => ...
+  ```
+
 ### `DisplayThreshold` and `DisplayError` gained cases
 
 `DisplayThreshold` gained `Below`, `Above` and `TwoSided`; `DisplayError` gained

@@ -76,6 +76,15 @@ jobs:
         run: >-
           sbt -Djava.awt.headless=true -Dsbt.supershell=false
           "++${{ matrix.scala }}" testAll
+      # A failed visual golden writes expected/actual/difference PNGs. Keep them: they are the only
+      # way to review a Linux render, and a host-pinned golden's Linux copy is taken from here.
+      - name: Keep visual golden failures for review
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-failures-scala-${{ matrix.scala }}-jdk-${{ matrix.java }}
+          path: target/golden-failures
+          if-no-files-found: ignore
 
   # The compatibility gate builds the exact baseline from source in an isolated
   # sandbox, so it runs once on the published Scala line rather than per cell.

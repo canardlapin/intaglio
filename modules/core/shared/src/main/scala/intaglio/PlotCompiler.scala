@@ -74,7 +74,8 @@ final case class PlotCompilerOptions(
     guides: GuidePolicy = GuidePolicy.NoGuides,
     theme: Theme = Theme.default,
     renderContext: Option[RenderContext] = None,
-    provenance: ProvenancePolicy = ProvenancePolicy.Full
+    provenance: ProvenancePolicy = ProvenancePolicy.Full,
+    framing: PanelFraming = PanelFraming.Data
 )
 
 object PlotCompilerOptions:
@@ -652,7 +653,8 @@ object PlotCompiler:
           resolvedOptions,
           single.ranges,
           single.specs,
-          trained.labels
+          trained.labels,
+          single.layers.flatMap(_.value.grobs)
         )
       )
       panelGrobs <- PhaseClock.timed(PhaseClock.Phase.Lowering)(

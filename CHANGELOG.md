@@ -12,6 +12,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Breaking
 
+- `PlotCompilerOptions` gained a trailing defaulted `framing: PanelFraming`
+  field, changing its `apply`/`copy`/`unapply` descriptors. Named and defaulted
+  construction still compiles; code compiled against the old class must be
+  recompiled, and a positional pattern over all nine old fields must name the
+  tenth. See [MIGRATION.md](MIGRATION.md).
+
 - `GraphicParams`, `TextStyle`, `LayoutPolicy`, `RenderRequirement.TextStyle`,
   `Java2DPaint` and `JavaFxPaint` each gained a trailing defaulted field for
   typographic weight, changing their `apply`/`copy`/`unapply` descriptors, and
@@ -27,6 +33,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   throws `MatchError` at run time. See [MIGRATION.md](MIGRATION.md).
 
 ### Added
+
+- **Point ink framing.** `PanelFraming.markInk`, set with `.framing(...)` on a
+  plot builder or `PlotCompilerOptions.framing`, widens a solved panel's derived
+  ranges just enough that every point mark's shape, stroke and miter corners sit
+  2 pt inside the panel at the size the plot is placed at;
+  `PanelFraming.MarkInk(clearancePt)` chooses the clearance. The default range
+  expansion is a fraction of the data range, so a large point at a trained
+  extreme was clipped by the panel edge on short or narrow panels. The widening
+  is solved exactly, per side, after the layout solve: it never narrows a range,
+  leaves a plot whose marks already fit byte-for-byte unchanged, keeps zoomed
+  axes and explicit layouts as given, and pools the constraints of facet panels
+  that share a scale so they keep one range. It counts point marks only.
+  `PanelFraming.Data`, the default, keeps the previous framing.
 
 - **Inspectable scalar mappings, and legends derived from them.**
   `ScalarMapping` exposes a scalar colour scale as data --- its window, ramps,
@@ -122,6 +141,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stays aligned with the key centres, so a title-width legend column is half a
   key wider. Every plot with a derived legend changes; the gallery plates are
   regenerated.
+
+- **Composed cells keep their axis text.** `PlotComposition` aligned cells on
+  each plot's panel strips as fractions of the plot's own canvas, so a cell
+  narrower than that canvas shrank the strips while their point-sized tick
+  labels and axis titles kept their size, and the clip --- applied to the
+  plot's scaled canvas rather than to the cell --- cut them: the gallery's
+  composed figure lost both y titles and drew '3.5' as '.5'. Strips now keep
+  their physical size in every cell, only the panel takes the room that
+  remains, and `cellClip` clips the whole cell. With `CollectCompatible`, a
+  plot's own legend column no longer counts as a strip, since the composition
+  draws that legend in a column of its own. A cell too narrow for its plots'
+  strips is a typed `LayoutOverflow`.
 
 - `DisplayWindow.normalize` no longer returns NaN for finite limits whose
   difference overflows to infinity. It divides halved operands in that case, so

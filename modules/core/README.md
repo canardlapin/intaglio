@@ -629,9 +629,16 @@ positioned in mapped space) and legends from discrete color/fill palettes,
 with explicit `GuideSpec` overrides; layout comes from an explicit
 `PanelLayout`, an explicit `PanelFrame` plus derived data ranges, or the
 `LayoutPolicy` solver. Compiler-derived panel ranges use a typed
-`RangeExpansion` (5% by default) after guide derivation so point glyphs at
-trained extrema remain inside the panel; `RangeExpansion.none` restores exact
-edge-centered framing, and an explicit `PanelLayout` is always authoritative.
+`RangeExpansion` (5% by default) after guide derivation; `RangeExpansion.none`
+restores exact edge-centered framing, and an explicit `PanelLayout` is always
+authoritative. The expansion is a fraction of the data range, not of the
+drawn mark, so a large point at a trained extreme can still cross the panel
+edge on a short or narrow panel and be clipped. `.framing(PanelFraming.markInk)`
+widens the solved panel's derived ranges just enough that every point mark's
+shape and stroke sit 2 pt inside the panel at the size the plot is placed at;
+`PanelFraming.MarkInk(clearancePt)` chooses the clearance. It only ever widens,
+leaves zoomed axes alone, keeps shared facet scales shared, and counts point
+marks only.
 
 A lower-level plot remains ordinary immutable composition when a domain adapter
 needs direct control of layers:
