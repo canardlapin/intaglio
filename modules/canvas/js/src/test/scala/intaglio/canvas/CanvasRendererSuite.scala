@@ -201,8 +201,9 @@ class CanvasRendererSuite extends munit.FunSuite:
         translate =
           ((_: Double, _: Double) => calls += "translate"): js.Function2[Double, Double, Unit],
         rotate = ((_: Double) => calls += "rotate"): js.Function1[Double, Unit],
-        setLineDash =
-          ((_: js.Array[Double]) => calls += "dash"): js.Function1[js.Array[Double], Unit],
+        setLineDash = (
+            (values: js.Array[Double]) => calls += s"dash:${values.mkString(",")}"
+        ): js.Function1[js.Array[Double], Unit],
         fillText = ((_: String, _: Double, _: Double) => calls += "fillText"): js.Function3[
           String,
           Double,
@@ -223,12 +224,14 @@ class CanvasRendererSuite extends munit.FunSuite:
     val line = Grob
       .lines(
         Vector(Point.npcUnsafe(0.1, 0.2), Point.npcUnsafe(0.9, 0.8)),
-        gp = GraphicParams.unsafe(
-          stroke = Some(Rgba.unsafe(10, 20, 30)),
-          lineType = LineType.Dashed,
-          lineCap = LineCap.Round,
-          lineJoin = LineJoin.Bevel
-        )
+        gp = GraphicParams
+          .unsafe(
+            stroke = Some(Rgba.unsafe(10, 20, 30)),
+            lineType = LineType.Dashed,
+            lineCap = LineCap.Round,
+            lineJoin = LineJoin.Bevel
+          )
+          .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3.0)))
       )
       .toOption
       .get
@@ -240,10 +243,21 @@ class CanvasRendererSuite extends munit.FunSuite:
 
     assertEquals(
       calls.toVector,
-      Vector("save", "beginPath", "moveTo", "lineTo", "dash", "stroke", "restore")
+      Vector(
+        "save",
+        "beginPath",
+        "moveTo",
+        "lineTo",
+        "dash:",
+        "stroke",
+        "dash:6,4",
+        "stroke",
+        "restore"
+      )
     )
     assertEquals(context.lineCap, "round")
     assertEquals(context.lineJoin, "bevel")
+    assertEquals(context.miterLimit, 4.0)
   }
 
   test("pattern resources are reused across every fill-bearing primitive") {

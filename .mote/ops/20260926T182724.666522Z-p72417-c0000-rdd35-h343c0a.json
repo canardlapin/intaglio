@@ -1,0 +1,1 @@
+{"actor":"claude-intaglio-motes","entity":"bd-01M3F97QY79JMAG21VVR3EBZ4H","kind":"note","note_kind":"progress","op":"20260926T182724.666522Z-p72417-c0000-rdd35-h343c0a","text":"Corrected Coord.Flipped semantics: mapping retains logical axes, swaps raw point components with physical axis mappings, and inverse restores logical (x,y).","ts":"2026-09-26T18:27:24.666522Z","v":1}

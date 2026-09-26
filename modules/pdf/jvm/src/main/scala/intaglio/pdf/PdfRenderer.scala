@@ -313,6 +313,10 @@ object PdfRenderer:
         case DevicePrimitive.Polyline(points, closed, gp, name) =>
           if hasPaint(gp, allowFill = closed) then
             withGraphics {
+              gp.casing.filter(_ => gp.stroke.nonEmpty).foreach { casing =>
+                appendPolyline(points, closed)
+                paintCasing(gp, casing)
+              }
               appendPolyline(points, closed)
               paint(gp, allowFill = closed)
             }
@@ -502,21 +506,36 @@ object PdfRenderer:
       else if hasFill then stream.fill()
       else stream.stroke()
 
+    private def paintCasing(gp: GraphicParams, casing: StrokeCasing): Unit =
+      val width = casing.width match
+        case CasingWidth.Absolute(value) => value.value
+        case CasingWidth.Relative(_)     =>
+          throw new IllegalStateException("relative casing width was not resolved")
+      setStrokingColor(casing.color)
+      configureStroke(gp, width, casing.lineType)
+      val alpha = casing.color.alpha * casing.alpha * gp.alpha
+      setAlpha(alpha, 1.0)
+      stream.stroke()
+
     private def configureStroke(gp: GraphicParams): Unit =
-      stream.setLineWidth(px(gp.lineWidth))
+      configureStroke(gp, gp.lineWidth, gp.lineType)
+
+    private def configureStroke(gp: GraphicParams, width: Double, lineType: LineType): Unit =
+      stream.setLineWidth(px(width))
       stream.setLineCapStyle(
         gp.lineCap match
           case LineCap.Butt   => 0
           case LineCap.Round  => 1
           case LineCap.Square => 2
       )
+      stream.setMiterLimit(4.0f)
       stream.setLineJoinStyle(
         gp.lineJoin match
           case LineJoin.Miter => 0
           case LineJoin.Round => 1
           case LineJoin.Bevel => 2
       )
-      gp.lineType match
+      lineType match
         case other =>
           stream.setLineDashPattern(
             other.dash.fold(Array.emptyFloatArray)(_.segments.map(px).toArray),

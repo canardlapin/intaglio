@@ -17,6 +17,35 @@ enum GestureMode:
 enum MissingEntityPolicy:
   case Drop, Preserve
 
+/** Host-owned visual variants for one target. `S` is deliberately unconstrained so the shared
+  * reducer can serve JavaFX, Canvas, and browser hosts without importing any host style type.
+  */
+final case class AppearanceStyles[S](
+    base: S,
+    focusOutline: S,
+    external: Option[S] = None,
+    selection: Option[S] = None,
+    hover: Option[S] = None
+)
+
+/** The resolved primary style plus an independent focus outline. */
+final case class ResolvedAppearance[S](style: S, focusOutline: Option[S])
+
+object InteractionAppearance:
+  /** Resolve base/external, selection, then hover precedence. Focus never replaces the primary
+    * style: an active focus always supplies its independent outline.
+    */
+  def resolve[S](
+      styles: AppearanceStyles[S],
+      selected: Boolean,
+      hovered: Boolean,
+      focused: Boolean
+  ): ResolvedAppearance[S] =
+    val external = styles.external.getOrElse(styles.base)
+    val selection = if selected then styles.selection.getOrElse(external) else external
+    val primary = if hovered then styles.hover.getOrElse(selection) else selection
+    ResolvedAppearance(primary, if focused then Some(styles.focusOutline) else None)
+
 /** Targets select displayed results; entities select observations. Neither implies the other. */
 final case class Selection[A](
     entities: Set[EntityKey[A]] = Set.empty[EntityKey[A]],

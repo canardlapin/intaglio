@@ -1,0 +1,26 @@
+# Exact additive review for raster fields and stroke casing.
+# Forward MiMa only; no removals, signature changes, backward or TASTy findings are filtered.
+# See docs/compatibility.md for the API review and constructor bridges.
+sha=3f3db55c92a49cf06489fd72c0e94e7383738314
+version=0.5.0
+
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.<init>$default$10
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint._10
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.apply
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.casing
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy$default$10
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.this
+MissingClassProblem intaglio.javafx.JavaFxCasing
+MissingClassProblem intaglio.javafx.JavaFxCasing$
+
+# Resolved viewport frames and minimal JavaFX host (Interaction 12a).
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.clearCaches
+MissingClassProblem intaglio.javafx.JavaFxHostError
+MissingClassProblem intaglio.javafx.JavaFxHostError$
+MissingClassProblem intaglio.javafx.JavaFxHostProfile
+MissingClassProblem intaglio.javafx.JavaFxHostProfile$
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$
+MissingClassProblem intaglio.javafx.JavaFxInteractionView
+MissingClassProblem intaglio.javafx.JavaFxInteractionView$

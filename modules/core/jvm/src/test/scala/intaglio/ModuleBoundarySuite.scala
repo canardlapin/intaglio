@@ -54,7 +54,9 @@ class ModuleBoundarySuite extends munit.FunSuite:
     assertEquals(violations, Vector.empty)
   }
 
-  test("core is dependency-free and every backend depends only on core") {
+  test(
+    "core is dependency-free; only the JavaFX interaction host also depends on shared interaction"
+  ) {
     val build = Files.readString(root.resolve("build.sbt"))
     val coreBlock = projectBlock(build, "core", "coreJS")
     assertEquals(dependencies(coreBlock), Vector.empty)
@@ -69,7 +71,8 @@ class ModuleBoundarySuite extends munit.FunSuite:
     )
     backends.foreach { case (name, end, platform) =>
       val block = projectBlock(build, name, end)
-      assertEquals(dependencies(block), Vector("core"), clues(name))
+      val expected = if name == "javafx" then Vector("core", "interaction") else Vector("core")
+      assertEquals(dependencies(block), expected, clues(name))
       assert(block.contains(platform), clues(name, platform))
     }
   }

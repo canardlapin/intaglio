@@ -52,13 +52,18 @@ final case class PanelLayout(
     clip: Clip = Clip.On
 ):
   def viewport: Viewport =
-    Viewport.unsafe(
-      origin = frame.origin,
-      size = frame.size,
-      xScale = xScale,
-      yScale = yScale,
-      clip = clip
-    )
+    viewport(ViewportCoordinateMapping.native)
+
+  def viewport(mapping: ViewportCoordinateMapping): Viewport =
+    Viewport
+      .unsafe(
+        origin = frame.origin,
+        size = frame.size,
+        xScale = xScale,
+        yScale = yScale,
+        clip = clip
+      )
+      .withCoordinateMapping(mapping)
 
   def guideViewport: Viewport =
     Viewport.unsafe(

@@ -395,6 +395,23 @@ class PdfRendererSuite extends munit.FunSuite:
     )
   }
 
+  test("cased line emits two stroke operations with the underlay first") {
+    val gp = GraphicParams
+      .unsafe(stroke = Some(Rgba.unsafe(20, 80, 180)), lineWidth = 2.0, lineType = LineType.Dashed)
+      .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3.0)))
+    val line = Grob
+      .segments(Vector(Point.npcUnsafe(0.1, 0.5) -> Point.npcUnsafe(0.9, 0.5)), gp = gp)
+      .toOption
+      .get
+    val output = render(Scene(Vector(line)), RenderContext.unsafe(width = 100, height = 60))
+
+    load(output) { parsed =>
+      val strokes = operators(parsed.getPage(0)).zipWithIndex.collect { case ("S", index) => index }
+      assertEquals(strokes.length, 2)
+      assert(strokes.head < strokes.last)
+    }
+  }
+
   private def operators(content: org.apache.pdfbox.contentstream.PDContentStream): Vector[String] =
     val parser = new PDFStreamParser(content)
     try

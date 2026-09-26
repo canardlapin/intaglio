@@ -78,6 +78,23 @@ MiMa and TASTy-MiMa run without these exclusions. Public Scala examples and rend
 additional source and behavior evidence. The new `intaglio-interaction` artifact itself has no
 historical artifact to compare; its tests and later external-consumer check cover that new surface.
 
+### Raster and casing additions
+
+The raster geom, scalar-cell interaction metadata, and stroke-casing styles are reviewed in
+[`interaction-additions.txt`](../compatibility/interaction-additions.txt). The Java2D and JavaFX
+paint additions have separate exact-symbol records in
+[`java2d-additions.txt`](../compatibility/java2d-additions.txt) and
+[`javafx-additions.txt`](../compatibility/javafx-additions.txt). Each record is checked against the
+same pinned baseline and rejects stale entries. The same calibration checks all three modules;
+backward MiMa and TASTy checks have no new exclusions.
+
+The pre-casing `GraphicParams.checked` and `unsafe` signatures remain unchanged; `.withCasing`
+adds the style. Constructor, factory, and copy bridges retain prior target-info and backend-paint
+JVM descriptors. New fields are trailing optional values. As with any case-class field addition,
+this does not promise source compatibility for arbitrary positional extractor patterns; the public
+examples use named properties and constructors. Raster and casing examples compile in the docs
+court, and interaction tests exercise existing target identity, membership and legend behavior.
+
 Run the same court locally with:
 
 ```sh
@@ -113,3 +130,16 @@ at the replacement commit, then update both fields in `baseline.conf` in a later
 release is available from Central, release CI should compare against that immutable published version
 and run `versionCheck` before publication; the repository baseline remains the bootstrap court for
 clean, unpublished development.
+
+### Resolved frames and the minimal JavaFX host
+
+Resolved viewport mappings extend `Viewport`, `TrainedPlot`, and `DeviceScene` with trailing metadata;
+legacy constructors, factories and copies retain their JVM descriptors. Qualified frame paths make
+panels inside composed plots addressable without changing existing scene names. These additions use
+the same exact, baseline-scoped review above. Positional case-class extractors have the trailing-field
+source caveat described above.
+
+The JavaFX module now depends on the optional shared interaction module as well as core, because it
+owns the minimal input/overlay host. Core and shared interaction remain toolkit-free. The module-boundary
+test permits precisely this dependency edge; other renderer dependencies remain restricted to core.
+Monocle and the simulated scale-2 platform factory are test-only and are not runtime requirements.

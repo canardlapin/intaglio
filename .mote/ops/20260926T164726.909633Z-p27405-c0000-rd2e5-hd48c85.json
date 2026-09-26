@@ -1,0 +1,1 @@
+{"actor":"claude-intaglio-motes","entity":"bd-01M3F1ATAKXDE20VEDHSRMPYKY","kind":"reserve_open","mode":"exclusive","op":"20260926T164726.909633Z-p27405-c0000-rd2e5-hd48c85","paths":["modules/core/shared/src/test/scala/intaglio/StrokeCasingSuite.scala"],"reservation_id":"rv-01M3F9TM5XAZV5A0ZGGGYX1CVQ","ts":"2026-09-26T16:47:26.909633Z","ttl_s":3600,"v":2}

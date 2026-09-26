@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="360" viewBox="0 0 560 360">
+  <image data-pixel-width="2" data-pixel-height="1" x="0" y="0" width="560" height="360" preserveAspectRatio="none" image-rendering="pixelated" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAFElEQVR4AQEJAPb/APX19f8UHi3/GyAFPUIT2uQAAAAASUVORK5CYII=" />
+  <polyline stroke="#ffffff" fill="none" stroke-width="12" stroke-linecap="butt" stroke-linejoin="miter" pointer-events="none" points="56,180 504,180" />
+  <polyline data-name="cased-route" stroke="#185eb4" fill="none" stroke-width="4" stroke-linecap="butt" stroke-linejoin="miter" stroke-dasharray="6 4" points="56,180 504,180" />
+</svg>

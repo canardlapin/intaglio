@@ -143,6 +143,48 @@ lazy val interactionCompatibilityCheck = taskKey[Unit](
   "Validate reviewed additive API entries and calibrate forward-only filtering"
 )
 
+/** Apply the same exact-symbol review and negative calibration to each changed JVM API. */
+def additiveCompatibilitySettings(reviewFile: String) = Seq(
+  mimaForwardIssueFilters ++= {
+    val review = InteractionCompatibility.read(
+      (ThisBuild / baseDirectory).value / "compatibility" / reviewFile,
+      (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
+    )
+    val previous = mimaPreviousClassfiles.value
+    InteractionCompatibility.validateArtifacts(
+      review,
+      previous,
+      mimaCurrentClassfiles.value
+    )
+    if (previous.isEmpty) Map.empty[String, Seq[com.typesafe.tools.mima.core.ProblemFilter]]
+    else Map(review.version -> review.filters)
+  },
+
+  interactionCompatibilityCheck := {
+    // MiMa reads this project's compiled classes, so the task has to depend on compiling them.
+    // Without this it passes on a warm `target/` and dies with a NoSuchFileException on a clean
+    // checkout — which is every CI run, and is why this court has never actually run there.
+    val _ = (Compile / compile).value
+    val review = InteractionCompatibility.read(
+      (ThisBuild / baseDirectory).value / "compatibility" / reviewFile,
+      (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
+    )
+    InteractionCompatibility.calibrate()
+    val previous = mimaPreviousClassfiles.value
+    val current = mimaCurrentClassfiles.value
+    InteractionCompatibility.validateArtifacts(review, previous, current)
+    val classpath = (Compile / dependencyClasspath).value.map(_.data)
+    val mima = new com.typesafe.tools.mima.lib.MiMaLib(classpath)
+    previous.values.foreach { old =>
+      InteractionCompatibility.validateFindings(review, mima.collectProblems(current, old, Nil))
+    }
+    streams.value.log.info(
+      "Additive review calibration passed: legacy removals and unreviewed additions still report"
+    )
+  }
+
+)
+
 lazy val core =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Full)
@@ -152,45 +194,7 @@ lazy val core =
       name := "intaglio-core",
       description := "Renderer-neutral grammar-of-graphics core for Scala 3, cross-compiled to JVM and Scala.js."
     )
-    .jvmSettings(
-      mimaForwardIssueFilters ++= {
-        val review = InteractionCompatibility.read(
-          (ThisBuild / baseDirectory).value / "compatibility" / "interaction-additions.txt",
-          (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
-        )
-        val previous = mimaPreviousClassfiles.value
-        InteractionCompatibility.validateArtifacts(
-          review,
-          previous,
-          mimaCurrentClassfiles.value
-        )
-        if (previous.isEmpty) Map.empty[String, Seq[com.typesafe.tools.mima.core.ProblemFilter]]
-        else Map(review.version -> review.filters)
-      },
-
-      interactionCompatibilityCheck := {
-        // MiMa reads this project's compiled classes, so the task has to depend on compiling them.
-        // Without this it passes on a warm `target/` and dies with a NoSuchFileException on a clean
-        // checkout — which is every CI run, and is why this court has never actually run there.
-        val _ = (Compile / compile).value
-        val review = InteractionCompatibility.read(
-          (ThisBuild / baseDirectory).value / "compatibility" / "interaction-additions.txt",
-          (ThisBuild / baseDirectory).value / "compatibility" / "baseline.conf"
-        )
-        InteractionCompatibility.calibrate()
-        val previous = mimaPreviousClassfiles.value
-        val current = mimaCurrentClassfiles.value
-        InteractionCompatibility.validateArtifacts(review, previous, current)
-        val classpath = (Compile / dependencyClasspath).value.map(_.data)
-        val mima = new com.typesafe.tools.mima.lib.MiMaLib(classpath)
-        previous.values.foreach { old =>
-          InteractionCompatibility.validateFindings(review, mima.collectProblems(current, old, Nil))
-        }
-        streams.value.log.info(
-          "Additive review calibration passed: legacy removals and unreviewed additions still report"
-        )
-      }
-    )
+    .jvmSettings(additiveCompatibilitySettings("interaction-additions.txt"))
     .jsSettings(jsSettingsBase)
 
 lazy val coreJS = core.js
@@ -293,6 +297,7 @@ lazy val java2d =
     .in(file("modules/java2d"))
     .dependsOn(core)
     .settings(commonSettings)
+    .settings(additiveCompatibilitySettings("java2d-additions.txt"))
     .settings(
       name := "intaglio-java2d",
       description := "Java2D renderer for Intaglio scenes (JVM).",
@@ -334,14 +339,23 @@ lazy val javafx =
   crossProject(JVMPlatform)
     .crossType(CrossType.Full)
     .in(file("modules/javafx"))
-    .dependsOn(core)
+    .dependsOn(core, interaction)
     .settings(commonSettings)
+    .settings(additiveCompatibilitySettings("javafx-additions.txt"))
     .settings(
       name := "intaglio-javafx",
       description := "JavaFX renderer for Intaglio scenes (JVM).",
       libraryDependencies ++= Seq(
         "org.openjfx" % "javafx-base" % "21.0.5" % Provided classifier javafxPlatformClassifier,
-        "org.openjfx" % "javafx-graphics" % "21.0.5" % Provided classifier javafxPlatformClassifier
+        "org.openjfx" % "javafx-graphics" % "21.0.5" % Provided classifier javafxPlatformClassifier,
+        "org.testfx" % "openjfx-monocle" % "21.0.2" % Test
+      ),
+      Test / fork := true,
+      Test / javaOptions ++= Seq(
+        "-Dglass.platform=Monocle",
+        "-Dmonocle.platform=com.sun.glass.ui.monocle.Scale2HeadlessPlatformFactory",
+        "-Dprism.order=sw",
+        "-Djava.awt.headless=true"
       ),
       tastyMiMaConfig ~= { previous =>
         import java.util.Arrays.asList
@@ -372,7 +386,7 @@ lazy val docs =
   project
     .in(file("modules/docs"))
     .enablePlugins(MdocPlugin)
-    .dependsOn(coreJVM, lawsJVM, svgJVM, java2dJVM, pdfJVM, notebookJVM)
+    .dependsOn(coreJVM, interactionJVM, lawsJVM, svgJVM, java2dJVM, pdfJVM, notebookJVM, javafxJVM)
     .settings(commonSettings)
     .settings(
       name := "intaglio-docs",
@@ -438,7 +452,7 @@ addCommandAlias(
 
 addCommandAlias(
   "compatibilityCheck",
-  ";coreJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
+  ";coreJVM/interactionCompatibilityCheck;java2dJVM/interactionCompatibilityCheck;javafxJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
 )
 
 addCommandAlias(

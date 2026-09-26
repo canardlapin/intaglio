@@ -298,7 +298,8 @@ private[intaglio] object FacetCompiler:
       panelGrobs = Vector.empty,
       labelGrobs = labels ++ axisTitles,
       facetPanels = resolvedPanels,
-      semantics = faceted.semantics
+      semantics = faceted.semantics,
+      coordinateFlipped = trained.coord.isInstanceOf[Coord.Flipped]
     )
 
   private def transformPanels[Row](

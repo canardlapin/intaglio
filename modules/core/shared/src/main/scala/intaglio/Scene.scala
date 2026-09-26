@@ -402,6 +402,64 @@ object StrokeWidth:
   def pointsUnsafe(value: Double): StrokeWidth =
     points(value).orThrow
 
+/** Width of a casing stroke. Absolute widths retain their physical/device unit until device
+  * lowering; relative widths are a multiple of the primary stroke width.
+  */
+enum CasingWidth:
+  case Absolute(value: StrokeWidth)
+  case Relative(multiplier: Double)
+
+object CasingWidth:
+  private[intaglio] def valid(value: CasingWidth): Boolean =
+    value match
+      case CasingWidth.Absolute(_)          => true
+      case CasingWidth.Relative(multiplier) => multiplier.isFinite && multiplier >= 0.0
+
+  def relative(multiplier: Double): Either[GraphicsError, CasingWidth] =
+    if valid(CasingWidth.Relative(multiplier)) then Right(CasingWidth.Relative(multiplier))
+    else Left(GraphicsError.InvalidLineWidth(multiplier))
+
+  def relativeUnsafe(multiplier: Double): CasingWidth =
+    relative(multiplier).orThrow
+
+/** A contrasting underlay painted immediately before a primitive's ordinary stroke. The casing has
+  * its own color alpha, which is multiplied by this alpha and [[GraphicParams.alpha]]. Casings are
+  * solid by default; a caller can opt into a dash pattern explicitly.
+  */
+final case class StrokeCasing private (
+    color: Rgba,
+    width: CasingWidth,
+    alpha: Double,
+    lineType: LineType
+):
+  require(alpha.isFinite && alpha >= 0.0 && alpha <= 1.0, "`alpha` must be in [0, 1]")
+
+  private[intaglio] def withWidth(value: CasingWidth): StrokeCasing =
+    new StrokeCasing(color, value, alpha, lineType)
+
+object StrokeCasing:
+  def checked(
+      color: Rgba,
+      width: CasingWidth,
+      alpha: Double = 1.0,
+      lineType: LineType = LineType.Solid
+  ): Either[GraphicsError, StrokeCasing] =
+    if !CasingWidth.valid(width) then
+      width match
+        case CasingWidth.Relative(multiplier) => Left(GraphicsError.InvalidLineWidth(multiplier))
+        case CasingWidth.Absolute(_)          => Left(GraphicsError.InvalidLineWidth(Double.NaN))
+    else if !alpha.isFinite || alpha < 0.0 || alpha > 1.0 then
+      Left(GraphicsError.InvalidAlpha(alpha))
+    else Right(new StrokeCasing(color, width, alpha, lineType))
+
+  def unsafe(
+      color: Rgba,
+      width: CasingWidth,
+      alpha: Double = 1.0,
+      lineType: LineType = LineType.Solid
+  ): StrokeCasing =
+    checked(color, width, alpha, lineType).orThrow
+
 final case class GraphicParams private (
     stroke: Option[Rgba] = Some(Rgba.Black),
     fill: Option[Rgba] = None,
@@ -414,7 +472,8 @@ final case class GraphicParams private (
     fontSize: Length = Length.pointsUnsafe(12.0),
     fillPattern: Option[PatternPaint] = None,
     lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel,
-    fontWeight: Option[FontWeight] = None
+    fontWeight: Option[FontWeight] = None,
+    casing: Option[StrokeCasing] = None
 ):
   /** Retains the stroke-unit-era constructor descriptor while adding a typographic weight. */
   private[intaglio] def this(
@@ -442,6 +501,38 @@ final case class GraphicParams private (
       fontSize,
       fillPattern,
       lineWidthUnit,
+      None,
+      None
+    )
+
+  /** Retains the font-weight-era constructor descriptor for compiled callers. */
+  private[intaglio] def this(
+      stroke: Option[Rgba],
+      fill: Option[Rgba],
+      lineWidth: Double,
+      lineType: LineType,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      alpha: Double,
+      fontFamily: Option[String],
+      fontSize: Length,
+      fillPattern: Option[PatternPaint],
+      lineWidthUnit: StrokeUnit,
+      fontWeight: Option[FontWeight]
+  ) =
+    this(
+      stroke,
+      fill,
+      lineWidth,
+      lineType,
+      lineCap,
+      lineJoin,
+      alpha,
+      fontFamily,
+      fontSize,
+      fillPattern,
+      lineWidthUnit,
+      fontWeight,
       None
     )
 
@@ -470,7 +561,9 @@ final case class GraphicParams private (
       fontFamily,
       fontSize,
       None,
-      StrokeUnit.DevicePixel
+      StrokeUnit.DevicePixel,
+      None,
+      None
     )
 
   /** Retains the pattern-era constructor descriptor while adding typed stroke units. */
@@ -497,7 +590,9 @@ final case class GraphicParams private (
       fontFamily,
       fontSize,
       fillPattern,
-      StrokeUnit.DevicePixel
+      StrokeUnit.DevicePixel,
+      None,
+      None
     )
 
   require(lineWidth.isFinite && lineWidth >= 0.0, "`lineWidth` must be finite and >= 0")
@@ -549,6 +644,16 @@ final case class GraphicParams private (
   def withoutFontWeight: GraphicParams =
     copy(fontWeight = None)
 
+  /** Paint an optional contrasting underlay before this primitive's ordinary stroke. */
+  def withCasing(value: StrokeCasing): GraphicParams =
+    copy(casing = Some(value))
+
+  def withoutCasing: GraphicParams =
+    copy(casing = None)
+
+  private[intaglio] def withResolvedCasing(value: Option[StrokeCasing]): GraphicParams =
+    copy(casing = value)
+
   /** Replace the solid fill channel with a validated pattern paint. */
   def withPatternFill(pattern: PatternPaint): GraphicParams =
     copy(fill = None, fillPattern = Some(pattern))
@@ -588,7 +693,8 @@ object GraphicParams:
           fontSize,
           None,
           lineWidthUnit,
-          fontWeight
+          fontWeight,
+          None
         )
       )
 
@@ -619,6 +725,38 @@ object GraphicParams:
       fontWeight
     ).orThrow
 
+/** The data-coordinate contract retained by a viewport after plot compilation. Plain scenes use
+  * [[native]], while compiled continuous position scales retain their raw and transformed domains
+  * so hosts can map overlays and pointer positions without re-running the compiler.
+  */
+enum ViewportAxisMapping:
+  case Native
+  case Continuous(domain: Interval, transformedDomain: Interval, transform: Transform)
+  case Unavailable
+
+final case class ViewportCoordinateMapping(
+    x: ViewportAxisMapping = ViewportAxisMapping.Native,
+    y: ViewportAxisMapping = ViewportAxisMapping.Native,
+    flipped: Boolean = false
+):
+  def physicalX: ViewportAxisMapping = if flipped then y else x
+  def physicalY: ViewportAxisMapping = if flipped then x else y
+
+  def withFlippedAxes: ViewportCoordinateMapping =
+    copy(flipped = !flipped)
+
+object ViewportCoordinateMapping:
+  val native: ViewportCoordinateMapping = ViewportCoordinateMapping()
+
+  private[intaglio] def fromRegistry(registry: PlotScaleRegistry): ViewportCoordinateMapping =
+    def axis(aesthetic: Aesthetic[?]): ViewportAxisMapping =
+      registry.forAesthetic(aesthetic).map(_.scale) match
+        case None                            => ViewportAxisMapping.Native
+        case Some(scale: ContinuousScale[?]) =>
+          ViewportAxisMapping.Continuous(scale.domain, scale.transformedDomain, scale.transform)
+        case Some(_) => ViewportAxisMapping.Unavailable
+    ViewportCoordinateMapping(axis(Aesthetic.X), axis(Aesthetic.Y))
+
 final case class Viewport private (
     origin: Point = Point.npcUnsafe(0.0, 0.0),
     size: Size = Size.npcUnsafe(1.0, 1.0),
@@ -626,9 +764,33 @@ final case class Viewport private (
     yScale: Interval = Interval.unsafe(0.0, 1.0),
     clip: Clip = Clip.On,
     angleDegrees: Double = 0.0,
-    yDirection: YDirection = YDirection.Up
+    yDirection: YDirection = YDirection.Up,
+    coordinateMapping: ViewportCoordinateMapping = ViewportCoordinateMapping.native
 ):
   require(angleDegrees.isFinite, "`angleDegrees` must be finite")
+
+  /** Preserve the constructor descriptor used by previously compiled factories. */
+  private def this(
+      origin: Point,
+      size: Size,
+      xScale: Interval,
+      yScale: Interval,
+      clip: Clip,
+      angleDegrees: Double,
+      yDirection: YDirection
+  ) = this(
+    origin,
+    size,
+    xScale,
+    yScale,
+    clip,
+    angleDegrees,
+    yDirection,
+    ViewportCoordinateMapping.native
+  )
+
+  def withCoordinateMapping(value: ViewportCoordinateMapping): Viewport =
+    new Viewport(origin, size, xScale, yScale, clip, angleDegrees, yDirection, value)
 
 object Viewport:
   def checked(
@@ -653,6 +815,12 @@ object Viewport:
       yDirection: YDirection = YDirection.Up
   ): Viewport =
     checked(origin, size, xScale, yScale, clip, angleDegrees, yDirection).orThrow
+
+  def withCoordinateMapping(
+      viewport: Viewport,
+      mapping: ViewportCoordinateMapping
+  ): Viewport =
+    viewport.withCoordinateMapping(mapping)
 
 /** One constant or one value per mark. Batch columns make style cardinality explicit without
   * widening every mark into an object. A value column is checked against its owning batch.

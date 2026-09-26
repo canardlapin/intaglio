@@ -100,6 +100,28 @@ trait RendererHarness[Out]:
   * without encoding plot semantics.
   */
 object RendererConformance:
+  /** Text-free image-background fixture for casing paint order and light/dark contrast. */
+  def casedRasterScene: Scene =
+    val background = RasterImage.unsafeRgba(
+      RasterDimensions.unsafe(2, 1),
+      Vector(Rgba.unsafe(245, 245, 245), Rgba.unsafe(20, 30, 45))
+    )
+    val line = GraphicParams
+      .unsafe(stroke = Some(Rgba.unsafe(24, 94, 180)), lineWidth = 4, lineType = LineType.Dashed)
+      .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3)))
+    Scene(
+      Vector(
+        Grob.imageUnsafe(background, Point.npcUnsafe(0.5, 0.5), Size.npcUnsafe(1, 1)),
+        Grob
+          .lines(
+            Vector(Point.npcUnsafe(0.1, 0.5), Point.npcUnsafe(0.9, 0.5)),
+            gp = line,
+            name = Some(GraphicsName.unsafe("cased-route"))
+          )
+          .orThrow
+      )
+    )
+
   final case class Violation(caseName: String, group: ConformanceGroup, problem: String)
 
   /** Canonical target for target-bound requirements such as point stroke widths and font sizes. */

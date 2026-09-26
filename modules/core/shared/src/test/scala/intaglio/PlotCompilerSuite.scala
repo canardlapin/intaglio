@@ -580,3 +580,62 @@ class PlotCompilerSuite extends munit.FunSuite:
 
     assertEquals(layer.left.toOption, Some(GraphicsError.MissingAesthetic("rect", "xmin")))
   }
+
+  test("compiled panel viewports retain transformed scales in their physical axes") {
+    val rows = Vector(
+      Observation(1.0, 10.0, "a"),
+      Observation(10.0, 100.0, "b"),
+      Observation(100.0, 1000.0, "c")
+    )
+    val xScale = ContinuousScale
+      .train("x-log", rows.map(_.time), Palette.numeric, transform = Transform.log10)
+      .orThrow
+    val yScale = ContinuousScale
+      .train("y-reverse", rows.map(_.value), Palette.numeric, transform = Transform.reverse)
+      .orThrow
+    val plot = Plot(rows)
+      .withScale(ScaleBinding[Observation, Double, Double](Aesthetic.X, _.time, xScale))
+      .flatMap(_.withScale(ScaleBinding[Observation, Double, Double](Aesthetic.Y, _.value, yScale)))
+      .flatMap(_.withCoord(Coord.Flipped()).addLayer(Layer.point[Observation](_.time, _.value)))
+      .orThrow
+    val trained = PlotCompiler
+      .resolve(
+        plot,
+        PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
+      )
+      .orThrow
+    val device = DeviceScene.fromScene(trained.scene, DeviceContext.unsafe(640.0, 480.0)).orThrow
+    val panel =
+      device.frame(GraphicsName.unsafe("plot-panel")).fold(error => fail(error.message), identity)
+
+    assert(
+      panel.coordinateMapping.physicalX match
+        case ViewportAxisMapping.Continuous(_, _, transform) => transform.name.value == "reverse"
+        case _                                               => false
+    )
+    assert(
+      panel.coordinateMapping.physicalY match
+        case ViewportAxisMapping.Continuous(_, _, transform) => transform.name.value == "log10"
+        case _                                               => false
+    )
+    val mapped =
+      panel.nativeToDevice(DevicePoint(10.0, 100.0)).fold(error => fail(error.message), identity)
+    val roundTrip = panel.deviceToNative(mapped).fold(error => fail(error.message), identity)
+    assertEqualsDouble(roundTrip.x, 10.0, 1e-9)
+    assertEqualsDouble(roundTrip.y, 100.0, 1e-9)
+
+    def loweredPoints(elements: Vector[DeviceElement]): Vector[DevicePoint] =
+      elements.flatMap {
+        case DeviceElement.Mark(DevicePrimitive.Disc(x, y, _, _, _)) => Vector(DevicePoint(x, y))
+        case DeviceElement.Mark(DevicePrimitive.PointBatch(points, _, _, _, _)) => points
+        case DeviceElement.Group(_, _, _, children) => loweredPoints(children)
+        case DeviceElement.Annotated(_, children)   => loweredPoints(children)
+        case _                                      => Vector.empty
+      }
+    assert(
+      loweredPoints(device.elements).exists(point =>
+        math.abs(point.x - mapped.x) <= 1e-9 && math.abs(point.y - mapped.y) <= 1e-9
+      ),
+      "the logical point must map to its lowered device anchor"
+    )
+  }

@@ -210,8 +210,58 @@ final case class TrainedPlot(
     panelGrobs: Vector[Grob],
     labelGrobs: Vector[Grob],
     facetPanels: Vector[ResolvedFacetPanel] = Vector.empty,
-    semantics: PlotSemantics = PlotSemantics.empty
+    semantics: PlotSemantics = PlotSemantics.empty,
+    coordinateFlipped: Boolean = false
 ):
+  /** Binary-compatible constructor from before resolved viewport mapping metadata. */
+  def this(
+      layers: Vector[TrainedLayer],
+      layout: Option[PanelLayout],
+      guides: Vector[ResolvedGuide],
+      scaleRegistry: PlotScaleRegistry,
+      panelGrobs: Vector[Grob],
+      labelGrobs: Vector[Grob],
+      facetPanels: Vector[ResolvedFacetPanel],
+      semantics: PlotSemantics
+  ) = this(
+    layers,
+    layout,
+    guides,
+    scaleRegistry,
+    panelGrobs,
+    labelGrobs,
+    facetPanels,
+    semantics,
+    false
+  )
+
+  /** Binary-compatible copy shape from before resolved viewport mapping metadata. */
+  def copy(
+      layers: Vector[TrainedLayer],
+      layout: Option[PanelLayout],
+      guides: Vector[ResolvedGuide],
+      scaleRegistry: PlotScaleRegistry,
+      panelGrobs: Vector[Grob],
+      labelGrobs: Vector[Grob],
+      facetPanels: Vector[ResolvedFacetPanel],
+      semantics: PlotSemantics
+  ): TrainedPlot =
+    new TrainedPlot(
+      layers,
+      layout,
+      guides,
+      scaleRegistry,
+      panelGrobs,
+      labelGrobs,
+      facetPanels,
+      semantics,
+      coordinateFlipped
+    )
+
+  private def viewportMapping(registry: PlotScaleRegistry): ViewportCoordinateMapping =
+    val mapping = ViewportCoordinateMapping.fromRegistry(registry)
+    if coordinateFlipped then mapping.withFlippedAxes else mapping
+
   def scene: Scene =
     val layerGrobs = layers.flatMap(_.grobs)
     val panelGroup =
@@ -220,7 +270,7 @@ final case class TrainedPlot(
           Vector(
             Grob.group(
               panel.panelGrobs ++ panel.layers.flatMap(_.grobs),
-              viewport = Some(panel.layout.viewport),
+              viewport = Some(panel.layout.viewport(viewportMapping(panel.scaleRegistry))),
               name = Some(panel.cell.panelName)
             ),
             panel.stripGrob
@@ -234,7 +284,7 @@ final case class TrainedPlot(
             Vector(
               Grob.group(
                 panelGrobs ++ layerGrobs,
-                viewport = Some(panel.viewport),
+                viewport = Some(panel.viewport(viewportMapping(scaleRegistry))),
                 name = Some(GraphicsName.unsafe("plot-panel"))
               )
             )
@@ -276,6 +326,33 @@ final case class TrainedPlot(
         if retainedPanels.nonEmpty then retainedPanels.flatMap(_.layers)
         else layers.map(_.retainRequestedInspection)
       copy(layers = retainedLayers, facetPanels = retainedPanels)
+
+object TrainedPlot:
+  // Preserve the compiler-generated companion member from before the explicit bridge.
+  override def toString: String = "TrainedPlot"
+
+  /** Binary-compatible factory from before resolved viewport mapping metadata. */
+  def apply(
+      layers: Vector[TrainedLayer],
+      layout: Option[PanelLayout],
+      guides: Vector[ResolvedGuide],
+      scaleRegistry: PlotScaleRegistry,
+      panelGrobs: Vector[Grob],
+      labelGrobs: Vector[Grob],
+      facetPanels: Vector[ResolvedFacetPanel],
+      semantics: PlotSemantics
+  ): TrainedPlot =
+    new TrainedPlot(
+      layers,
+      layout,
+      guides,
+      scaleRegistry,
+      panelGrobs,
+      labelGrobs,
+      facetPanels,
+      semantics,
+      false
+    )
 
 final case class ResolvedFacetPanel(
     cell: FacetCell,
@@ -680,7 +757,8 @@ object PlotCompiler:
       panelGrobs,
       labelGrobs,
       Vector.empty[ResolvedFacetPanel],
-      single.semantics
+      single.semantics,
+      trained.coord.isInstanceOf[Coord.Flipped]
     )
 
   private[intaglio] def resolveLayers(

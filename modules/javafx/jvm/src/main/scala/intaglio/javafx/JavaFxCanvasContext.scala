@@ -18,6 +18,11 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
   private val images = mutable.HashMap.empty[RasterImage, Image]
   private val patterns = mutable.HashMap.empty[PatternPaint, ImagePattern]
 
+  /** Release native resources when the owning host detaches. FX application thread only. */
+  def clearCaches(): Unit =
+    images.clear()
+    patterns.clear()
+
   override def save(): Unit =
     context.save()
 
@@ -87,6 +92,7 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
     )
 
   override def setLineJoin(join: LineJoin): Unit =
+    context.setMiterLimit(4.0)
     context.setLineJoin(
       join match
         case LineJoin.Miter => StrokeLineJoin.MITER

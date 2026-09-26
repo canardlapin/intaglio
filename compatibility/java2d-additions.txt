@@ -1,0 +1,15 @@
+# Exact additive review for raster fields and stroke casing.
+# Forward MiMa only; no removals, signature changes, backward or TASTy findings are filtered.
+# See docs/compatibility.md for the API review and constructor bridges.
+sha=3f3db55c92a49cf06489fd72c0e94e7383738314
+version=0.5.0
+
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint.<init>$default$10
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint._10
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint.apply
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint.casing
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint.copy
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint.copy$default$10
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint.this
+MissingClassProblem intaglio.java2d.Java2DCasing
+MissingClassProblem intaglio.java2d.Java2DCasing$

@@ -72,6 +72,118 @@ class PickingSuite extends munit.FunSuite:
     assert(plan.hits(DevicePoint(0, 0), -1).isLeft)
   }
 
+  test("overlap order uses the part attaining the hit distance, not a later part elsewhere") {
+    val other = group(name = "other")
+    val plan = compile(
+      Vector(
+        route(single, disc(50, 50)),
+        route(other, disc(50, 50)),
+        route(single, disc(150, 50))
+      ),
+      Vector(single, other)
+    )
+    assertEquals(
+      ok(plan.hits(DevicePoint(50, 50))).map(_.target.id),
+      Vector(ok(other.at(0)).id, ok(single.at(0)).id)
+    )
+    assertEquals(ok(plan.hits(DevicePoint(50, 50))).map(_.drawOrder), Vector(1, 0))
+    assertEquals(ok(plan.hits(DevicePoint(150, 50))).map(_.drawOrder), Vector(2))
+    assertEquals(ok(plan.hits(DevicePoint(50, 50))), ok(plan.hitsExhaustive(DevicePoint(50, 50))))
+  }
+
+  test("resolved scene geometry and navigation use clipped visible anchors deterministically") {
+    val batchGroup = group(7, "navigation")
+    val batch = DevicePrimitive.PointBatch(
+      Vector(
+        DevicePoint(50, 50),
+        DevicePoint(50, 50),
+        DevicePoint(50, 50),
+        DevicePoint(80, 50),
+        DevicePoint(50, 80),
+        DevicePoint(20, 50),
+        DevicePoint(50, 20)
+      ),
+      BatchColumn.Constant(5.0),
+      BatchColumn.Constant(PointShape.Circle),
+      BatchColumn.Constant(fill),
+      None
+    )
+    val resolved = DeviceScene(200, 200, Vector(route(batchGroup, batch)))
+    val plan = ok(Picking.fromResolved(resolved, Vector(batchGroup), context))
+    val ids = (0 until 7).map(index => ok(batchGroup.at(index)).id).toVector
+    val navigation = plan.prepareNavigation()
+    assertEquals(navigation.targets.size, 7)
+    assertEquals(
+      ok(navigation.nearest(ids(0), NavigationDirection.Right)).map(_.target.id),
+      Some(ids(1))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(1), NavigationDirection.Right)).map(_.target.id),
+      Some(ids(2))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(2), NavigationDirection.Right)).map(_.target.id),
+      Some(ids(3))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(2), NavigationDirection.Left)).map(_.target.id),
+      Some(ids(1))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(1), NavigationDirection.Left)).map(_.target.id),
+      Some(ids(0))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(0), NavigationDirection.Left)).map(_.target.id),
+      Some(ids(5))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(0), NavigationDirection.Down)).map(_.target.id),
+      Some(ids(1))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(1), NavigationDirection.Down)).map(_.target.id),
+      Some(ids(2))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(2), NavigationDirection.Down)).map(_.target.id),
+      Some(ids(4))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(2), NavigationDirection.Up)).map(_.target.id),
+      Some(ids(1))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(1), NavigationDirection.Up)).map(_.target.id),
+      Some(ids(0))
+    )
+    assertEquals(
+      ok(navigation.nearest(ids(0), NavigationDirection.Up)).map(_.target.id),
+      Some(ids(6))
+    )
+
+    val clipped = DeviceScene(
+      200,
+      200,
+      Vector(
+        DeviceElement.Group(
+          None,
+          Some(DeviceClip(50, 40, 10, 20)),
+          None,
+          Vector(route(single, disc(50, 50, 10)))
+        )
+      )
+    )
+    val clippedPlan = ok(Picking.fromResolved(clipped, Vector(single), context))
+    val geometry =
+      ok(clippedPlan.geometry(ok(single.at(0)).id)).getOrElse(fail("expected geometry"))
+    assertEquals(
+      (geometry.left, geometry.top, geometry.right, geometry.bottom),
+      (50.0, 40.0, 60.0, 60.0)
+    )
+    assertEquals(geometry.anchor, DevicePoint(55, 50))
+  }
+
   test(
     "multiple primitives share one logical hit and area selection considers every visible part"
   ) {

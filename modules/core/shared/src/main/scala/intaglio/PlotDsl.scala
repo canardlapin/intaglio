@@ -500,6 +500,43 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
         params = Some(params)
       )
 
+  /** Draw a regular scalar grid as one image. Masked cells do not train the fill scale; NaN,
+    * transform-domain failures and censored values use `missingColor`. The original scalar values
+    * remain available to interaction metadata.
+    */
+  def geomRaster(
+      palette: Palette[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
+      name: String = "value",
+      transform: Transform = Transform.identity,
+      oob: OobPolicy = OobPolicy.Censor,
+      interpolation: RasterInterpolation = RasterInterpolation.Nearest,
+      missingColor: Rgba = Rgba.unsafe(0, 0, 0, 0.0),
+      missing: ScalarCell => Boolean = _ => false,
+      alpha: Double = 1.0
+  )(using fieldRows: Row =:= ScalarCell, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
+    val scaled = scaleFillContinuous(
+      row => if missing(fieldRows(row)) then Double.NaN else fieldRows(row).value,
+      palette,
+      name,
+      transform,
+      oob
+    )
+    val xy = ev(position)
+    scaled.addLayer(
+      GraphicParams.checked(stroke = None, alpha = alpha).map { params =>
+        Layer.raster(
+          xy.x,
+          xy.y,
+          row => fieldRows(row).width,
+          row => fieldRows(row).height,
+          mapping = scaled.resultMapping,
+          params = Some(params),
+          interpolation = interpolation,
+          missingColor = missingColor
+        )
+      }
+    )
+
   /** Add already-extracted contour paths. The capability witness prevents ordinary row plots from
     * accidentally claiming contour semantics.
     */

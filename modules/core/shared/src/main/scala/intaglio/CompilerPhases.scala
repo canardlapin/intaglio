@@ -1133,7 +1133,20 @@ private[intaglio] object RowPhase:
           source,
           rowIndex
         )
-        fill <- optionalEvaluatedAes(Aesthetic.Fill, mapping.get(Aesthetic.Fill), source, rowIndex)
+        fill <- optionalEvaluatedAes(
+          Aesthetic.Fill,
+          mapping.get(Aesthetic.Fill),
+          source,
+          rowIndex
+        ).left.flatMap { reason =>
+          (layer.geom, reason) match
+            case (
+                  raster: Geom.Raster,
+                  _: PlotDropReason.TransformDomain | _: PlotDropReason.ScaleOutOfDomain
+                ) =>
+              Right(Some(EvaluatedAes(raster.missingColor, None, None)))
+            case _ => Left(reason)
+        }
         alpha <- optionalEvaluatedAes(
           Aesthetic.Alpha,
           mapping.get(Aesthetic.Alpha),
@@ -2321,7 +2334,16 @@ object CoordinateTransform:
       layer.copy(
         rows = layer.rows.map(flipRow),
         annotation = layer.annotation.map(_.flipped),
-        grobs = layer.grobs.map(flipGrob)
+        grobs = layer.grobs.map {
+          case image: Grob.Image if layer.geom.isInstanceOf[Geom.Raster] =>
+            val source = image.image
+            val transposed =
+              RasterImage.tabulate(RasterDimensions.unsafe(source.height, source.width)) { (x, y) =>
+                source.pixelUnsafe(source.width - 1 - y, source.height - 1 - x)
+              }
+            image.copy(image = transposed, at = flipPoint(image.at), size = flipSize(image.size))
+          case grob => flipGrob(grob)
+        }
       )
     )
 

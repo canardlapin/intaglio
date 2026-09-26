@@ -75,9 +75,10 @@ adds a pure state reducer and a synchronous controller with typed subscriptions.
 Its shared tests cover selection operations, revisions, duplicate deliveries,
 reconciliation, and controller disposal on JVM and Scala.js.
 
-Picking, browser gesture handling, widget lifecycle, visible interaction styling,
-and native input integration remain outstanding. Notebook output is still an SVG
-MIME bundle. Generated static datum IDs still use output position; persistent
+Picking, browser gesture handling, widget lifecycle, and native input integration
+remain outstanding. The shared module now resolves appearance precedence and
+focus outlines, and exposes visible target geometry for host navigation. Notebook
+output is still an SVG MIME bundle. Generated static datum IDs still use output position; persistent
 interaction identity comes from explicit key bindings. Statistical membership
 capabilities are checked, but aggregate-member selection is not implemented.
 
@@ -167,9 +168,9 @@ On data replacement, reconcile by entity key and report removed or unresolved
 keys. Persistence across missing data is an explicit policy.
 
 Separate selection membership from currently visible membership: zooming or
-hiding a layer does not silently clear the selection. Hover, focus, selection,
-and externally supplied styles need documented precedence. Focus must remain
-visible when a selected mark is also hovered.
+hiding a layer does not silently clear the selection. Shared appearance resolution
+applies base/external, selection, then hover variants; focus remains a separate,
+always-visible outline when a selected mark is hovered.
 
 ### Pick the geometry that was drawn
 
@@ -188,6 +189,12 @@ SVG DOM targeting can accelerate candidate discovery. A shared picking
 contract remains authoritative so switching to Canvas preserves selected keys
 and event meaning. Indexed queries must agree with an independent exhaustive
 geometry oracle on small adversarial scenes.
+
+Hosts that draw a resolved device scene pass that exact scene through the public
+picker entry point. The picker also exposes clipped visible bounds and anchors
+for each target. Navigation uses strict directional half-planes and deterministic
+distance ties; coincident stacked targets advance or retreat by stable rank,
+then exit through the requested directional neighbor.
 
 ### Distinguish magnification, viewport changes, and filtering
 

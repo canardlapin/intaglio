@@ -11,6 +11,7 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   var lastCap: Option[LineCap] = None
   var lastJoin: Option[LineJoin] = None
   var lastStroke: Option[JavaFxColor] = None
+  val strokeColors: ArrayBuffer[JavaFxColor] = ArrayBuffer.empty
   var lastFill: Option[JavaFxColor] = None
   var lastPattern: Option[PatternPaint] = None
   val patternResources: HashSet[PatternPaint] = HashSet.empty
@@ -53,6 +54,7 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   override def setStroke(color: JavaFxColor): Unit =
     calls += "setStroke"
     lastStroke = Some(color)
+    strokeColors += color
   override def setLineWidth(width: Double): Unit = calls += "setLineWidth"
   override def setLineCap(cap: LineCap): Unit =
     calls += "setLineCap"
@@ -92,6 +94,29 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
     drawnBounds = Vector(x, y, width, height)
 
 class JavaFxRendererSuite extends munit.FunSuite:
+
+  test("casing records a solid underlay before the dashed primary stroke") {
+    val gp = GraphicParams
+      .unsafe(stroke = Some(Rgba.unsafe(20, 80, 180)), lineWidth = 2.0, lineType = LineType.Dashed)
+      .withCasing(
+        StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3.0), alpha = 0.6)
+      )
+    val line = Grob
+      .segments(Vector(Point.npcUnsafe(0.1, 0.5) -> Point.npcUnsafe(0.9, 0.5)), gp = gp)
+      .toOption
+      .get
+    val program = JavaFxRenderer
+      .compile(Scene(Vector(line)), JavaFxOptions.unsafe(width = 100, height = 60))
+      .fold(error => fail(error.message), identity)
+    val context = new RecordingFxContext
+
+    JavaFxRenderer.draw(program, context)
+
+    assertEquals(context.strokeColors.map(_.red).toVector, Vector(255, 20))
+    assertEquals(context.strokeColors.head.alpha, 0.6)
+    assertEquals(context.calls.count(_ == "strokePath"), 2)
+    assertEquals(context.lastDashes, Vector(6.0, 4.0))
+  }
 
   test("program compilation is deterministic and preserves draw order") {
     val first = Grob.circleUnsafe(

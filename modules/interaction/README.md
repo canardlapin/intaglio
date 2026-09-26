@@ -48,6 +48,9 @@ input after the current delivery.
 
 Compile a `PickingPlan` with `Picking.compile(plan, context)` using the same
 render context as the displayed plot, or use `Picking.composition(composed)`.
+When a host has already resolved the exact scene it drew, call
+`Picking.fromResolved(scene, groups, context)` so drawing and picking consume
+that same `DeviceScene`.
 `hits` returns every target within a device-pixel radius; `nearest` returns the
 closest target within its cutoff. Results prefer smaller distances, then the
 later-drawn target. Multiple painted parts of a mark produce one logical hit.
@@ -63,7 +66,16 @@ Queries account for group rotations, nested clipping, point-batch indices,
 fill, stroke, line caps and joins, and rounded corners. Transparent paint is
 excluded unless `PickPolicy.includeTransparent` is enabled; absent paint
 remains absent. Text uses measured, rotated bounds supplied by `TextMetrics`.
-Images use their rectangle and overall opacity, without inspecting pixel alpha.
+Ordinary images use their rectangle and overall opacity. Raster target routes
+also exclude transparent source cells unless `includeTransparent` is enabled.
+
+`PickingPlan.geometry(id)` returns a target's visible clipped device bounds and
+an anchor inside that geometry. It does not materialize unrelated raster cells.
+`prepareNavigation()` explicitly materializes all visible target geometry and
+returns a `NavigationPlan`. Its `nearest(id, direction)` uses strict directional
+half-planes, then Euclidean distance and stable target addressing for ties.
+Coincident targets advance or retreat in stable address order before leaving the
+stack through that direction, avoiding a keyboard-focus trap on stacked marks.
 
 `DashPicking.Continuous`, the default, treats dashed strokes as continuous
 interaction corridors. `Painted` respects dash gaps on linear outlines and
@@ -121,6 +133,10 @@ rather than the grid.
 - Hover and focus remain independent. Viewport changes preserve selection.
   Source keys include rows omitted from visible geometry, such as non-finite
   points.
+- `InteractionAppearance.resolve` is pure and host-style-generic. It applies
+  base, external, selection, then hover style precedence. A focused target also
+  receives its independent `focusOutline`, so hover or selection cannot hide
+  keyboard focus.
 - Each input carries a domain revision and a monotonically increasing sequence
   number for its origin. Duplicate, out-of-order, and stale inputs fail without
   changing state. Projected input changes state without emitting application
@@ -136,9 +152,9 @@ compact batch target tables, without retaining source rows under lean options.
 Category links retain their own key types through activation subscriptions.
 
 This module depends on core and has no browser or reactive-framework dependency.
-Host-specific gesture geometry, viewport scale conversion, accessible UI,
-appearance precedence, exact aggregate resolution, and history persistence
-belong to the remaining [interaction epic](../../docs/design/interaction.md).
+Host-specific gesture handling, viewport scale conversion, accessible UI,
+exact aggregate resolution, and history persistence belong to the remaining
+[interaction epic](../../docs/design/interaction.md).
 `PanelViewport` validates numeric bounds; a host still needs to validate the
 addressed panel and its coordinate capabilities.
 

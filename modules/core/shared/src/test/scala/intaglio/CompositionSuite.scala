@@ -114,6 +114,45 @@ class CompositionSuite extends munit.FunSuite:
     mixed.renderPlan.deviceScene.fold(error => fail(error.message), identity)
   }
 
+  test("composed panel frames use their named viewport paths and map to lowered marks") {
+    val first = trainedPlot("path-first", "condition", Vector(1.0, 2.0))
+    val second = trainedPlot("path-second", "condition", Vector(10.0, 20.0))
+    val composed = PlotComposition.row(Vector(first, second), context).orThrow
+    val device = composed.renderPlan.deviceScene.orThrow
+    val panelName = GraphicsName.unsafe("plot-panel")
+    assertEquals(
+      device.frame(panelName).left.toOption,
+      Some(ViewportFrameError.Duplicate(panelName))
+    )
+
+    def points(elements: Vector[DeviceElement]): Vector[DevicePoint] =
+      elements.flatMap {
+        case DeviceElement.Mark(DevicePrimitive.Disc(x, y, _, _, _)) => Vector(DevicePoint(x, y))
+        case DeviceElement.Mark(DevicePrimitive.PointBatch(values, _, _, _, _)) => values
+        case DeviceElement.Group(_, _, _, children)                             => points(children)
+        case DeviceElement.Annotated(_, children)                               => points(children)
+        case _                                                                  => Vector.empty
+      }
+    def cell(name: GraphicsName): Vector[DeviceElement] =
+      findGroup(device.elements, name) match
+        case Some(DeviceElement.Group(_, _, _, children)) => children
+        case _ => fail(s"missing composition cell ${name.value}")
+
+    Vector((0, 1.0), (1, 10.0)).foreach { case (index, y) =>
+      val path = Vector(GraphicsName.unsafe(s"composition-cell-$index"), panelName)
+      val frame = device.frame(path).fold(error => fail(error.message), identity)
+      val mapped =
+        frame.nativeToDevice(DevicePoint(0.0, y)).fold(error => fail(error.message), identity)
+      val actual = points(cell(path.head))
+      assert(
+        actual.exists(point =>
+          math.abs(point.x - mapped.x) <= 1e-9 && math.abs(point.y - mapped.y) <= 1e-9
+        ),
+        s"$path must map the first logical point to its lowered device anchor"
+      )
+    }
+  }
+
   test("insets retain explicit viewport and clipping semantics") {
     val basePlot = trainedPlot("base-plot", "condition", Vector(1.0, 2.0))
     val insetPlot = trainedPlot("inset-plot", "cohort", Vector(3.0, 4.0))

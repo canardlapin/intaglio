@@ -17,6 +17,39 @@ class SvgRendererSuite extends munit.FunSuite:
   private def render(scene: Scene, options: SvgOptions = SvgOptions.default): String =
     SvgRenderer.render(scene, options).toOption.get.value
 
+  test("cased segments emit an unnamed solid underlay immediately before the named dashed stroke") {
+    val gp = GraphicParams
+      .unsafe(
+        stroke = Some(Rgba.unsafe(20, 80, 180)),
+        lineWidth = 2.0,
+        lineType = LineType.Dashed
+      )
+      .withCasing(
+        StrokeCasing.unsafe(
+          Rgba.unsafe(255, 255, 255, 0.8),
+          CasingWidth.relativeUnsafe(3.0),
+          alpha = 0.5
+        )
+      )
+    val segment = Grob
+      .segments(
+        Vector(Point.npcUnsafe(0.0, 0.0) -> Point.npcUnsafe(1.0, 1.0)),
+        gp = gp,
+        name = Some(GraphicsName.unsafe("route"))
+      )
+      .toOption
+      .get
+
+    val svg = render(Scene(Vector(segment)), SvgOptions.unsafe(width = 100, height = 100))
+    val casing =
+      """<polyline stroke="#ffffff" stroke-opacity="0.8" fill="none" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter" opacity="0.5" pointer-events="none" points="0,100 100,0" />"""
+    val stroke =
+      """<polyline data-name="route" stroke="#1450b4" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" stroke-dasharray="6 4" points="0,100 100,0" />"""
+    assert(svg.indexOf(casing) >= 0)
+    assert(svg.indexOf(stroke) > svg.indexOf(casing))
+    assertEquals(occurrences(svg, "data-name=\"route\""), 1)
+  }
+
   test("point batches serialize identically to heterogeneous per-mark grobs") {
     val points = Vector(
       Point.npcUnsafe(0.2, 0.25),

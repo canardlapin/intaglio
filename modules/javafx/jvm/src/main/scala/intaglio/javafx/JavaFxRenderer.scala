@@ -79,7 +79,8 @@ final case class JavaFxPaint(
     lineJoin: LineJoin,
     opacity: Double,
     fillPattern: Option[PatternPaint] = None,
-    fontWeight: Option[FontWeight] = None
+    fontWeight: Option[FontWeight] = None,
+    casing: Option[JavaFxCasing] = None
 ):
   /** Binary bridge for callers compiled before pattern fills were added. */
   def this(
@@ -92,6 +93,19 @@ final case class JavaFxPaint(
       opacity: Double
   ) = this(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
 
+  /** Binary bridge for the font-weight-era constructor descriptor. */
+  def this(
+      stroke: Option[JavaFxColor],
+      fill: Option[JavaFxColor],
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight]
+  ) = this(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, fillPattern, fontWeight, None)
+
   /** Binary bridge for the former seven-field case-class copy descriptor. */
   def copy(
       stroke: Option[JavaFxColor],
@@ -102,7 +116,32 @@ final case class JavaFxPaint(
       lineJoin: LineJoin,
       opacity: Double
   ): JavaFxPaint =
-    new JavaFxPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
+    new JavaFxPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None, None, casing)
+
+  /** Binary bridge for the font-weight-era copy descriptor. */
+  def copy(
+      stroke: Option[JavaFxColor],
+      fill: Option[JavaFxColor],
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight]
+  ): JavaFxPaint =
+    new JavaFxPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing
+    )
 
 object JavaFxPaint:
   /** Binary bridge for the former seven-field case-class apply descriptor. */
@@ -117,6 +156,31 @@ object JavaFxPaint:
   ): JavaFxPaint =
     new JavaFxPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
 
+  /** Binary bridge for the font-weight-era apply descriptor. */
+  def apply(
+      stroke: Option[JavaFxColor],
+      fill: Option[JavaFxColor],
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight]
+  ): JavaFxPaint =
+    new JavaFxPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      None
+    )
+
   def fromGraphicParams(gp: GraphicParams): JavaFxPaint =
     JavaFxPaint(
       gp.stroke.map(JavaFxColor.fromRgba),
@@ -126,7 +190,9 @@ object JavaFxPaint:
       gp.lineCap,
       gp.lineJoin,
       gp.alpha,
-      gp.fillPattern
+      gp.fillPattern,
+      gp.fontWeight,
+      gp.casing.map(JavaFxCasing.fromStrokeCasing)
     )
 
   def text(gp: GraphicParams): JavaFxPaint =
@@ -141,6 +207,26 @@ object JavaFxPaint:
       gp.alpha,
       None,
       gp.fontWeight
+    )
+
+final case class JavaFxCasing(
+    color: JavaFxColor,
+    lineWidth: Double,
+    dash: JavaFxLineDash,
+    alpha: Double
+)
+
+object JavaFxCasing:
+  def fromStrokeCasing(value: StrokeCasing): JavaFxCasing =
+    val width = value.width match
+      case CasingWidth.Absolute(strokeWidth) => strokeWidth.value
+      case CasingWidth.Relative(_)           =>
+        throw new IllegalStateException("relative casing width was not resolved")
+    JavaFxCasing(
+      JavaFxColor.fromRgba(value.color),
+      width,
+      JavaFxLineDash.fromLineType(value.lineType),
+      value.alpha
     )
 
 final case class JavaFxDrawProfile(
@@ -718,6 +804,18 @@ object JavaFxRenderer:
   ): Unit =
     if allowFill then fill(context, paint, accumulator)(context.fillPath())
     paint.stroke.foreach { color =>
+      paint.casing.foreach { casing =>
+        strokeState(
+          context,
+          casing.color,
+          casing.lineWidth,
+          casing.dash,
+          paint.lineCap,
+          paint.lineJoin,
+          paint.opacity * casing.alpha
+        )
+        context.strokePath()
+      }
       strokeState(context, paint, color)
       context.strokePath()
     }
@@ -747,11 +845,30 @@ object JavaFxRenderer:
       paint: JavaFxPaint,
       color: JavaFxColor
   ): Unit =
-    context.setStroke(color.combined(paint.opacity))
-    context.setLineWidth(paint.lineWidth)
-    context.setLineCap(paint.lineCap)
-    context.setLineJoin(paint.lineJoin)
-    paint.dash match
+    strokeState(
+      context,
+      color,
+      paint.lineWidth,
+      paint.dash,
+      paint.lineCap,
+      paint.lineJoin,
+      paint.opacity
+    )
+
+  private def strokeState(
+      context: JavaFxGraphicsContext,
+      color: JavaFxColor,
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double
+  ): Unit =
+    context.setStroke(color.combined(opacity))
+    context.setLineWidth(lineWidth)
+    context.setLineCap(lineCap)
+    context.setLineJoin(lineJoin)
+    dash match
       case JavaFxLineDash.Solid =>
         context.setLineDashes(Vector.empty)
       case JavaFxLineDash.Pattern(values) =>

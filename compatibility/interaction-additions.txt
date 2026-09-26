@@ -1,9 +1,97 @@
-# Reviewed additive API surface relative to this exact bootstrap baseline.
-# Used only by forward MiMa. Backward problems and TASTy problems are not filtered.
-# No wildcards: extending this list requires a new source/API review.
-#
-# Empty because the baseline was just moved to a commit that already contains every symbol the
-# previous list reviewed. An entry belongs here only while it is a live forward finding against the
-# pinned baseline; a stale one fails the build rather than being ignored.
+# Exact additive review for raster fields and stroke casing.
+# Forward MiMa only; no removals, signature changes, backward or TASTy findings are filtered.
+# See docs/compatibility.md for the API review and constructor bridges.
 sha=3f3db55c92a49cf06489fd72c0e94e7383738314
 version=0.5.0
+
+DirectMissingMethodProblem intaglio.GraphicParams._13
+DirectMissingMethodProblem intaglio.GraphicParams.casing
+DirectMissingMethodProblem intaglio.GraphicParams.this
+DirectMissingMethodProblem intaglio.GraphicParams.withCasing
+DirectMissingMethodProblem intaglio.GraphicParams.withoutCasing
+DirectMissingMethodProblem intaglio.Layer.raster
+DirectMissingMethodProblem intaglio.Layer.raster$default$5
+DirectMissingMethodProblem intaglio.Layer.raster$default$6
+DirectMissingMethodProblem intaglio.Layer.raster$default$7
+DirectMissingMethodProblem intaglio.Layer.raster$default$8
+DirectMissingMethodProblem intaglio.Layer.raster$default$9
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$1
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$2
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$3
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$4
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$5
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$6
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$7
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$8
+DirectMissingMethodProblem intaglio.RendererConformance.casedRasterScene
+DirectMissingMethodProblem intaglio.interaction.TargetGroup.raster
+DirectMissingMethodProblem intaglio.interaction.TargetGroup.this
+DirectMissingMethodProblem intaglio.interaction.TargetInfo.<init>$default$5
+DirectMissingMethodProblem intaglio.interaction.TargetInfo._5
+DirectMissingMethodProblem intaglio.interaction.TargetInfo.apply
+DirectMissingMethodProblem intaglio.interaction.TargetInfo.copy
+DirectMissingMethodProblem intaglio.interaction.TargetInfo.copy$default$5
+DirectMissingMethodProblem intaglio.interaction.TargetInfo.rasterCell
+DirectMissingMethodProblem intaglio.interaction.TargetInfo.this
+MissingClassProblem intaglio.CasingWidth
+MissingClassProblem intaglio.CasingWidth$
+MissingClassProblem intaglio.CasingWidth$Absolute
+MissingClassProblem intaglio.CasingWidth$Absolute$
+MissingClassProblem intaglio.CasingWidth$Relative
+MissingClassProblem intaglio.CasingWidth$Relative$
+MissingClassProblem intaglio.Geom$Raster
+MissingClassProblem intaglio.Geom$Raster$
+MissingClassProblem intaglio.RasterGeom
+MissingClassProblem intaglio.RasterGeom$
+MissingClassProblem intaglio.StrokeCasing
+MissingClassProblem intaglio.StrokeCasing$
+MissingClassProblem intaglio.interaction.RasterCell
+MissingClassProblem intaglio.interaction.RasterCell$
+MissingFieldProblem intaglio.Geom.Raster
+
+# Resolved viewport frames and minimal JavaFX host (Interaction 12a).
+DirectMissingMethodProblem intaglio.DeviceScene.<init>$default$5
+DirectMissingMethodProblem intaglio.DeviceScene._5
+DirectMissingMethodProblem intaglio.DeviceScene.apply
+DirectMissingMethodProblem intaglio.DeviceScene.copy
+DirectMissingMethodProblem intaglio.DeviceScene.copy$default$5
+DirectMissingMethodProblem intaglio.DeviceScene.frame
+DirectMissingMethodProblem intaglio.DeviceScene.frames
+DirectMissingMethodProblem intaglio.DeviceScene.this
+DirectMissingMethodProblem intaglio.PanelLayout.viewport
+DirectMissingMethodProblem intaglio.TrainedPlot.<init>$default$9
+DirectMissingMethodProblem intaglio.TrainedPlot._9
+DirectMissingMethodProblem intaglio.TrainedPlot.apply
+DirectMissingMethodProblem intaglio.TrainedPlot.coordinateFlipped
+DirectMissingMethodProblem intaglio.TrainedPlot.copy
+DirectMissingMethodProblem intaglio.TrainedPlot.copy$default$9
+DirectMissingMethodProblem intaglio.TrainedPlot.this
+DirectMissingMethodProblem intaglio.Viewport._8
+DirectMissingMethodProblem intaglio.Viewport.coordinateMapping
+DirectMissingMethodProblem intaglio.Viewport.this
+DirectMissingMethodProblem intaglio.Viewport.withCoordinateMapping
+MissingClassProblem intaglio.ResolvedViewportFrame
+MissingClassProblem intaglio.ResolvedViewportFrame$
+MissingClassProblem intaglio.ViewportAxisMapping
+MissingClassProblem intaglio.ViewportAxisMapping$
+MissingClassProblem intaglio.ViewportAxisMapping$Continuous
+MissingClassProblem intaglio.ViewportAxisMapping$Continuous$
+MissingClassProblem intaglio.ViewportCoordinateMapping
+MissingClassProblem intaglio.ViewportCoordinateMapping$
+MissingClassProblem intaglio.ViewportFrameError
+MissingClassProblem intaglio.ViewportFrameError$
+MissingClassProblem intaglio.ViewportFrameError$Duplicate
+MissingClassProblem intaglio.ViewportFrameError$Duplicate$
+MissingClassProblem intaglio.ViewportFrameError$Missing
+MissingClassProblem intaglio.ViewportFrameError$Missing$
+MissingClassProblem intaglio.ViewportFrameError$NonFiniteCoordinate
+MissingClassProblem intaglio.ViewportFrameError$NonFiniteCoordinate$
+MissingClassProblem intaglio.ViewportFrameError$OutsideFrame
+MissingClassProblem intaglio.ViewportFrameError$OutsideFrame$
+MissingClassProblem intaglio.ViewportFrameError$Rotated
+MissingClassProblem intaglio.ViewportFrameError$Rotated$
+MissingClassProblem intaglio.ViewportFrameError$TransformFailed
+MissingClassProblem intaglio.ViewportFrameError$TransformFailed$
+MissingClassProblem intaglio.ViewportFrameError$UnavailableAxis
+MissingClassProblem intaglio.ViewportFrameError$UnavailableAxis$

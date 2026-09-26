@@ -6,6 +6,54 @@ import intaglio.*
 
 class Java2DRendererSuite extends munit.FunSuite:
 
+  test("acute miter uses the shared picking limit of four") {
+    val line = Grob.linesUnsafe(
+      Vector(Point.npcUnsafe(0.4, 0.2), Point.npcUnsafe(0.5, 0.8), Point.npcUnsafe(0.6, 0.2)),
+      gp = GraphicParams.unsafe(stroke = Some(Rgba.Black), lineWidth = 6, lineJoin = LineJoin.Miter)
+    )
+    val program = Java2DRenderer
+      .compile(Scene(Vector(line)), Java2DOptions.unsafe(width = 100, height = 100))
+      .fold(e => fail(e.message), identity)
+    val image = new BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB)
+    val graphics = image.createGraphics()
+    try Java2DRenderer.draw(program, graphics)
+    finally graphics.dispose()
+    assertEquals(image.getRGB(50, 8) >>> 24, 0, "limit ten would paint the long acute tip")
+    assert((image.getRGB(50, 22) >>> 24) > 0, "beveled join remains painted")
+  }
+
+  test("casing lowers once with device width and leaves the named line as one command") {
+    val gp = GraphicParams
+      .unsafe(stroke = Some(Rgba.unsafe(25, 90, 200)), lineWidth = 2.0, lineType = LineType.Dashed)
+      .withCasing(
+        StrokeCasing.unsafe(
+          Rgba.unsafe(255, 255, 255),
+          CasingWidth.relativeUnsafe(3.0),
+          alpha = 0.6
+        )
+      )
+    val line = Grob
+      .segments(
+        Vector(Point.npcUnsafe(0.1, 0.5) -> Point.npcUnsafe(0.9, 0.5)),
+        gp = gp,
+        name = Some(GraphicsName.unsafe("cased-route"))
+      )
+      .toOption
+      .get
+    val program = Java2DRenderer
+      .compile(Scene(Vector(line)), Java2DOptions.unsafe(width = 100, height = 60))
+      .fold(error => fail(error.message), identity)
+
+    assertEquals(program.commands.length, 1)
+    program.commands.head match
+      case Java2DCommand.Polyline(_, false, paint, name) =>
+        assertEquals(name.map(_.value), Some("cased-route"))
+        assertEquals(paint.casing.map(_.lineWidth), Some(6.0))
+        assertEquals(paint.casing.map(_.dash), Some(Java2DLineDash.Solid))
+        assertEquals(paint.dash, Java2DLineDash.Pattern(Vector(6.0f, 4.0f)))
+      case other => fail(s"expected cased polyline, found $other")
+  }
+
   test("program compilation is deterministic and preserves draw order") {
     val first = Grob.circleUnsafe(
       Point.npcUnsafe(0.25, 0.5),

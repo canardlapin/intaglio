@@ -46,3 +46,8 @@ pattern starts at device `(0, 0)`, follows enclosing transforms, and applies
 mark alpha once after ink/background composition. Raster pattern axes are
 bounded at 1,024 device pixels; oversized requests fail through the typed
 `JavaFxRenderError` compilation boundary rather than degrading to solid fill.
+
+The [minimal interaction host](../../docs/javafx-interaction.md) adds pointer and keyboard input,
+projected selection, cached overlay redraw and explicit disposal using `intaglio-interaction`.
+Compile a `JavaFxInteractionView` from a typed interaction plan, then call
+`JavaFxInteractionHost.attach` on the FX application thread and mount its `node`.

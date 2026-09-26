@@ -99,6 +99,32 @@ class FacetSuite extends munit.FunSuite:
     )
   }
 
+  test("faceted panels expose separately addressable resolved frames") {
+    val facet = FacetSpec.wrap[Observation](_.condition).orThrow
+    val trained = PlotCompiler
+      .resolve(
+        Plot(rows)
+          .withFacet(facet)
+          .addLayer(Layer.point[Observation](_.x, _.y))
+          .orThrow,
+        PlotCompilerOptions(policy = Some(LayoutPolicy()), guides = GuidePolicy.Derived())
+      )
+      .orThrow
+    val device = DeviceScene.fromScene(trained.scene, DeviceContext.unsafe(640.0, 480.0)).orThrow
+
+    trained.facetPanels.foreach { panel =>
+      val resolved = device.frame(panel.cell.panelName).fold(error => fail(error.message), identity)
+      val native = DevicePoint(
+        resolved.frame.xScale.lower + resolved.frame.xScale.width / 2.0,
+        resolved.frame.yScale.lower + resolved.frame.yScale.width / 2.0
+      )
+      val mapped = resolved.nativeToDevice(native).fold(error => fail(error.message), identity)
+      val roundTrip = resolved.deviceToNative(mapped).fold(error => fail(error.message), identity)
+      assertEqualsDouble(roundTrip.x, native.x, tolerance)
+      assertEqualsDouble(roundTrip.y, native.y, tolerance)
+    }
+  }
+
   test("declared facet levels index row membership once per layer, independent of panel count") {
     val levels = Vector.tabulate(12)(index => s"level-$index")
     val indexedRows = Vector.tabulate(120) { index =>

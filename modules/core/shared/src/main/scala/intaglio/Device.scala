@@ -134,9 +134,23 @@ final class LengthResolver(
     val pixels = gp.lineWidthUnit match
       case StrokeUnit.DevicePixel => gp.lineWidth
       case StrokeUnit.Point       => gp.lineWidth * device.pixelsPerInch / 72.0
-    DeviceValue
-      .checked("line width", pixels)
-      .map(value => gp.withStrokeWidth(StrokeWidth.devicePixelsUnsafe(value)))
+    for
+      lineWidth <- DeviceValue.checked("line width", pixels)
+      casing <- gp.casing match
+        case None        => Right(None)
+        case Some(value) =>
+          val casingPixels = value.width match
+            case CasingWidth.Relative(multiplier) => lineWidth * multiplier
+            case CasingWidth.Absolute(width)      =>
+              width.unit match
+                case StrokeUnit.DevicePixel => width.value
+                case StrokeUnit.Point       => width.value * device.pixelsPerInch / 72.0
+          DeviceValue
+            .checked("casing width", casingPixels)
+            .map(resolved =>
+              Some(value.withWidth(CasingWidth.Absolute(StrokeWidth.devicePixelsUnsafe(resolved))))
+            )
+    yield gp.withStrokeWidth(StrokeWidth.devicePixelsUnsafe(lineWidth)).withResolvedCasing(casing)
 
   def fontFamily(requested: Option[String]): Option[String] =
     fontRegistry.resolve(requested)
@@ -213,6 +227,145 @@ final class LengthResolver(
           case None     => Left(GraphicsError.UnresolvableLength(s"length unit '$other'"))
 
 final case class DevicePoint(x: Double, y: Double)
+
+/** Typed failures from a resolved viewport frame. They are separate from compilation and rendering
+  * errors because pointer and overlay hosts may legitimately ask for a location a frame cannot
+  * invert.
+  */
+enum ViewportFrameError extends IntaglioError:
+  case Missing(name: GraphicsName)
+  case Duplicate(name: GraphicsName)
+  case OutsideFrame(name: GraphicsName, point: DevicePoint)
+  case NonFiniteCoordinate(name: GraphicsName, axis: String, value: Double)
+  case UnavailableAxis(name: GraphicsName, axis: String)
+  case TransformFailed(name: GraphicsName, axis: String, cause: GraphicsError)
+  case Rotated(name: GraphicsName)
+
+  def message: String =
+    this match
+      case Missing(name)   => s"no resolved viewport frame named '${name.value}'"
+      case Duplicate(name) => s"multiple resolved viewport frames are named '${name.value}'"
+      case OutsideFrame(name, point) =>
+        s"device point (${point.x}, ${point.y}) lies outside viewport '${name.value}'"
+      case NonFiniteCoordinate(name, axis, value) =>
+        s"viewport '${name.value}' received non-finite $axis coordinate $value"
+      case UnavailableAxis(name, axis) =>
+        s"viewport '${name.value}' has no invertible $axis-axis data mapping"
+      case TransformFailed(name, axis, cause) =>
+        s"viewport '${name.value}' $axis-axis transform failed: ${cause.message}"
+      case Rotated(name) =>
+        s"viewport '${name.value}' is rotated and cannot be mapped as an axis-aligned frame"
+
+/** One named viewport after its physical device frame and compiler-provided coordinate mappings
+  * have been resolved. The device frame is y-down; native values use the panel's own y direction.
+  */
+final case class ResolvedViewportFrame private[intaglio] (
+    name: GraphicsName,
+    path: Vector[GraphicsName],
+    frame: DeviceFrame,
+    coordinateMapping: ViewportCoordinateMapping,
+    rotated: Boolean
+):
+  def nativeToDevice(point: DevicePoint): Either[ViewportFrameError, DevicePoint] =
+    if rotated then Left(ViewportFrameError.Rotated(name))
+    else
+      val (xValue, yValue) =
+        if coordinateMapping.flipped then (point.y, point.x) else (point.x, point.y)
+      for
+        _ <- finite("x", xValue)
+        _ <- finite("y", yValue)
+        _ <- invertibleFrame
+        x <- nativeAxisToDevice(
+          xValue,
+          frame.xScale,
+          frame.x,
+          frame.width,
+          coordinateMapping.physicalX,
+          "x"
+        )
+        yNative <- nativeAxis(yValue, coordinateMapping.physicalY, "y")
+        yOffset = frame.yScale.rescale(yNative) * frame.height
+        y = frame.yDirection match
+          case YDirection.Up   => frame.y + frame.height - yOffset
+          case YDirection.Down => frame.y + yOffset
+        _ <- finite("x", x)
+        _ <- finite("y", y)
+      yield DevicePoint(x, y)
+
+  def deviceToNative(point: DevicePoint): Either[ViewportFrameError, DevicePoint] =
+    if rotated then Left(ViewportFrameError.Rotated(name))
+    else if !point.x.isFinite then Left(ViewportFrameError.NonFiniteCoordinate(name, "x", point.x))
+    else if !point.y.isFinite then Left(ViewportFrameError.NonFiniteCoordinate(name, "y", point.y))
+    else if !contains(point) then Left(ViewportFrameError.OutsideFrame(name, point))
+    else
+      for
+        _ <- invertibleFrame
+        xNative = frame.xScale.lower + (point.x - frame.x) / frame.width * frame.xScale.width
+        yFraction = frame.yDirection match
+          case YDirection.Up   => (frame.y + frame.height - point.y) / frame.height
+          case YDirection.Down => (point.y - frame.y) / frame.height
+        yNative = frame.yScale.lower + yFraction * frame.yScale.width
+        x <- deviceAxisToNative(xNative, coordinateMapping.physicalX, "x")
+        y <- deviceAxisToNative(yNative, coordinateMapping.physicalY, "y")
+        _ <- finite("x", x)
+        _ <- finite("y", y)
+      yield if coordinateMapping.flipped then DevicePoint(y, x) else DevicePoint(x, y)
+
+  private def finite(axis: String, value: Double): Either[ViewportFrameError, Unit] =
+    if value.isFinite then Right(())
+    else Left(ViewportFrameError.NonFiniteCoordinate(name, axis, value))
+
+  private def invertibleFrame: Either[ViewportFrameError, Unit] =
+    if !frame.width.isFinite || frame.width <= 0.0 || frame.xScale.width == 0.0 then
+      Left(ViewportFrameError.UnavailableAxis(name, "x"))
+    else if !frame.height.isFinite || frame.height <= 0.0 || frame.yScale.width == 0.0 then
+      Left(ViewportFrameError.UnavailableAxis(name, "y"))
+    else Right(())
+
+  private def contains(point: DevicePoint): Boolean =
+    point.x >= frame.x && point.x <= frame.x + frame.width &&
+      point.y >= frame.y && point.y <= frame.y + frame.height
+
+  private def nativeAxisToDevice(
+      value: Double,
+      scale: Interval,
+      origin: Double,
+      span: Double,
+      mapping: ViewportAxisMapping,
+      axis: String
+  ): Either[ViewportFrameError, Double] =
+    nativeAxis(value, mapping, axis).map(native => origin + scale.rescale(native) * span)
+
+  private def nativeAxis(
+      value: Double,
+      mapping: ViewportAxisMapping,
+      axis: String
+  ): Either[ViewportFrameError, Double] =
+    mapping match
+      case ViewportAxisMapping.Native      => Right(value)
+      case ViewportAxisMapping.Unavailable => Left(ViewportFrameError.UnavailableAxis(name, axis))
+      case ViewportAxisMapping.Continuous(_, transformedDomain, transform) =>
+        if transformedDomain.width == 0.0 then Left(ViewportFrameError.UnavailableAxis(name, axis))
+        else
+          transform
+            .transform(value)
+            .left
+            .map(ViewportFrameError.TransformFailed(name, axis, _))
+            .map(transformedDomain.rescale)
+
+  private def deviceAxisToNative(
+      native: Double,
+      mapping: ViewportAxisMapping,
+      axis: String
+  ): Either[ViewportFrameError, Double] =
+    mapping match
+      case ViewportAxisMapping.Native      => Right(native)
+      case ViewportAxisMapping.Unavailable => Left(ViewportFrameError.UnavailableAxis(name, axis))
+      case ViewportAxisMapping.Continuous(_, transformedDomain, transform) =>
+        if transformedDomain.width == 0.0 then Left(ViewportFrameError.UnavailableAxis(name, axis))
+        else
+          val transformed = transformedDomain.lower + native * transformedDomain.width
+          transform.inverse(transformed).left.map(ViewportFrameError.TransformFailed(name, axis, _))
 
 /** Fully resolved drawing primitives in device coordinates (pixels, y-down). No units, viewports,
   * or plot semantics remain: any backend can interpret these with local drawing calls only.
@@ -304,10 +457,57 @@ final case class DeviceScene(
     width: Double,
     height: Double,
     elements: Vector[DeviceElement],
-    semantics: SceneSemantics = SceneSemantics.empty
-)
+    semantics: SceneSemantics = SceneSemantics.empty,
+    frames: Vector[ResolvedViewportFrame] = Vector.empty
+):
+  /** Binary-compatible constructor from before resolved viewport frames. */
+  def this(
+      width: Double,
+      height: Double,
+      elements: Vector[DeviceElement],
+      semantics: SceneSemantics
+  ) = this(width, height, elements, semantics, Vector.empty)
+
+  /** Binary-compatible copy shape from before resolved viewport frames. */
+  def copy(
+      width: Double,
+      height: Double,
+      elements: Vector[DeviceElement],
+      semantics: SceneSemantics
+  ): DeviceScene =
+    new DeviceScene(width, height, elements, semantics, frames)
 
 object DeviceScene:
+  /** Binary-compatible constructor from before resolved viewport frames. */
+  def apply(
+      width: Double,
+      height: Double,
+      elements: Vector[DeviceElement],
+      semantics: SceneSemantics
+  ): DeviceScene =
+    new DeviceScene(width, height, elements, semantics, Vector.empty)
+
+  extension (scene: DeviceScene)
+    /** Finds exactly one named frame, refusing duplicate identities rather than choosing silently.
+      */
+    def frame(name: GraphicsName): Either[ViewportFrameError, ResolvedViewportFrame] =
+      scene.frames.filter(_.name == name) match
+        case Vector(frame) => Right(frame)
+        case Vector()      => Left(ViewportFrameError.Missing(name))
+        case _             => Left(ViewportFrameError.Duplicate(name))
+
+    /** Finds one viewport by its named ancestor path, including the frame's own name. */
+    def frame(path: Vector[GraphicsName]): Either[ViewportFrameError, ResolvedViewportFrame] =
+      scene.frames.filter(_.path == path) match
+        case Vector(frame) => Right(frame)
+        case Vector()      =>
+          Left(
+            ViewportFrameError.Missing(path.lastOption.getOrElse(GraphicsName.unsafe("viewport")))
+          )
+        case _ =>
+          Left(
+            ViewportFrameError.Duplicate(path.lastOption.getOrElse(GraphicsName.unsafe("viewport")))
+          )
   def fromScene(scene: Scene, device: DeviceContext): Either[GraphicsError, DeviceScene] =
     fromScene(scene, device, FontRegistry.passthrough, lineHeightPt = 12.0)
 
@@ -320,15 +520,21 @@ object DeviceScene:
       fontRegistry: FontRegistry,
       lineHeightPt: Double
   ): Either[GraphicsError, DeviceScene] =
+    val frames = scala.collection.mutable.ArrayBuffer.empty[ResolvedViewportFrame]
     for
       elements <- lowerAll(
         scene.grobs,
         device,
         DeviceFrame.root(device),
         fontRegistry,
-        lineHeightPt
+        lineHeightPt,
+        frames,
+        rotatedAncestor = false,
+        namedAncestors = Vector.empty
       )
-      resolved <- validate(DeviceScene(device.width, device.height, elements, scene.semantics))
+      resolved <- validate(
+        DeviceScene(device.width, device.height, elements, scene.semantics, frames.toVector)
+      )
     yield resolved
 
   private def validate(scene: DeviceScene): Either[GraphicsError, DeviceScene] =
@@ -336,7 +542,28 @@ object DeviceScene:
       _ <- DeviceValue.checked("width", scene.width)
       _ <- DeviceValue.checked("height", scene.height)
       _ <- validateElements(scene.elements)
+      _ <- validateFrames(scene.frames)
     yield scene
+
+  private def validateFrames(frames: Vector[ResolvedViewportFrame]): Either[GraphicsError, Unit] =
+    var idx = 0
+    var result: Either[GraphicsError, Unit] = Right(())
+    while idx < frames.length && result.isRight do
+      val frame = frames(idx)
+      result =
+        if frame.path.isEmpty || frame.path.last != frame.name then
+          Left(GraphicsError.InvalidDeviceValue("viewport frame path", Double.NaN))
+        else
+          validateNumbers(
+            Vector(
+              "viewport frame x" -> frame.frame.x,
+              "viewport frame y" -> frame.frame.y,
+              "viewport frame width" -> frame.frame.width,
+              "viewport frame height" -> frame.frame.height
+            )
+          )
+      idx += 1
+    result
 
   private def validateElements(elements: Vector[DeviceElement]): Either[GraphicsError, Unit] =
     var idx = 0
@@ -397,7 +624,7 @@ object DeviceScene:
       case DevicePrimitive.Polyline(points, closed, gp, _) =>
         validatePoints(points).flatMap { _ =>
           if closed then validateFillGraphicParams(gp)
-          else DeviceValue.checked("line width", gp.lineWidth).map(_ => ())
+          else validateStrokeGraphicParams(gp)
         }
       case DevicePrimitive.CompoundPolygon(rings, gp, _) =>
         validatePointGroups(rings).flatMap(_ => validateFillGraphicParams(gp))
@@ -432,7 +659,7 @@ object DeviceScene:
         )
 
   private def validateFillGraphicParams(gp: GraphicParams): Either[GraphicsError, Unit] =
-    DeviceValue.checked("line width", gp.lineWidth).flatMap { _ =>
+    validateStrokeGraphicParams(gp).flatMap { _ =>
       gp.fillPattern match
         case None          => Right(())
         case Some(pattern) =>
@@ -460,6 +687,17 @@ object DeviceScene:
                 "pattern radius" -> recipe.radius
               )
           validateNumbers(values)
+    }
+
+  private def validateStrokeGraphicParams(gp: GraphicParams): Either[GraphicsError, Unit] =
+    DeviceValue.checked("line width", gp.lineWidth).flatMap { lineWidth =>
+      gp.casing match
+        case None        => Right(())
+        case Some(value) =>
+          val casingWidth = value.width match
+            case CasingWidth.Absolute(width)      => width.value
+            case CasingWidth.Relative(multiplier) => lineWidth * multiplier
+          DeviceValue.checked("casing width", casingWidth).map(_ => ())
     }
 
   private def validateBatchColumn[A](
@@ -519,13 +757,25 @@ object DeviceScene:
       device: DeviceContext,
       frame: DeviceFrame,
       fontRegistry: FontRegistry,
-      lineHeightPt: Double
+      lineHeightPt: Double,
+      frames: scala.collection.mutable.ArrayBuffer[ResolvedViewportFrame],
+      rotatedAncestor: Boolean,
+      namedAncestors: Vector[GraphicsName]
   ): Either[GraphicsError, Vector[DeviceElement]] =
     val out = Vector.newBuilder[DeviceElement]
     var idx = 0
     var result: Either[GraphicsError, Unit] = Right(())
     while idx < grobs.length && result.isRight do
-      result = lower(grobs(idx), device, frame, fontRegistry, lineHeightPt).map { elements =>
+      result = lower(
+        grobs(idx),
+        device,
+        frame,
+        fontRegistry,
+        lineHeightPt,
+        frames,
+        rotatedAncestor,
+        namedAncestors
+      ).map { elements =>
         out ++= elements
         ()
       }
@@ -545,51 +795,121 @@ object DeviceScene:
       device: DeviceContext,
       frame: DeviceFrame,
       fontRegistry: FontRegistry,
-      lineHeightPt: Double
+      lineHeightPt: Double,
+      frames: scala.collection.mutable.ArrayBuffer[ResolvedViewportFrame],
+      rotatedAncestor: Boolean,
+      namedAncestors: Vector[GraphicsName]
   ): Either[GraphicsError, Vector[DeviceElement]] =
     grob.viewport match
       case Some(viewport) =>
         LengthResolver(device, frame, fontRegistry, lineHeightPt).childFrame(viewport).flatMap {
           child =>
-            contents(grob, device, child, fontRegistry, lineHeightPt).map { children =>
-              val clip = viewport.clip match
-                case Clip.On  => Some(DeviceClip(child.x, child.y, child.width, child.height))
-                case Clip.Off => None
-              val rotation =
-                if viewport.angleDegrees == 0.0 then None
-                else
-                  val pivotY = frame.yDirection match
-                    case YDirection.Up   => child.y + child.height
-                    case YDirection.Down => child.y
-                  Some(DeviceRotation(deviceDegrees(viewport.angleDegrees, frame), child.x, pivotY))
+            val clip = viewport.clip match
+              case Clip.On  => Some(DeviceClip(child.x, child.y, child.width, child.height))
+              case Clip.Off => None
+            val rotation =
+              if viewport.angleDegrees == 0.0 then None
+              else
+                val pivotY = frame.yDirection match
+                  case YDirection.Up   => child.y + child.height
+                  case YDirection.Down => child.y
+                Some(DeviceRotation(deviceDegrees(viewport.angleDegrees, frame), child.x, pivotY))
+            val childAncestors = grob.name.fold(namedAncestors)(namedAncestors :+ _)
+            grob.name.foreach { name =>
+              frames += ResolvedViewportFrame(
+                name,
+                childAncestors,
+                child,
+                viewport.coordinateMapping,
+                rotatedAncestor || rotation.nonEmpty
+              )
+            }
+            contents(
+              grob,
+              device,
+              child,
+              fontRegistry,
+              lineHeightPt,
+              frames,
+              rotatedAncestor || rotation.nonEmpty,
+              childAncestors
+            ).map { children =>
               Vector(DeviceElement.Group(grob.name, clip, rotation, children))
             }
         }
       case None =>
         grob match
           case group: Grob.Group =>
-            lowerAll(group.children, device, frame, fontRegistry, lineHeightPt).map { children =>
+            lowerAll(
+              group.children,
+              device,
+              frame,
+              fontRegistry,
+              lineHeightPt,
+              frames,
+              rotatedAncestor,
+              namedAncestors
+            ).map { children =>
               Vector(DeviceElement.Group(group.name, None, None, children))
             }
           case annotated: Grob.Annotated =>
-            lower(annotated.child, device, frame, fontRegistry, lineHeightPt).map { children =>
+            lower(
+              annotated.child,
+              device,
+              frame,
+              fontRegistry,
+              lineHeightPt,
+              frames,
+              rotatedAncestor,
+              namedAncestors
+            ).map { children =>
               Vector(DeviceElement.Annotated(annotated.meta, children))
             }
           case other =>
-            contents(other, device, frame, fontRegistry, lineHeightPt)
+            contents(
+              other,
+              device,
+              frame,
+              fontRegistry,
+              lineHeightPt,
+              frames,
+              rotatedAncestor,
+              namedAncestors
+            )
 
   private def contents(
       grob: Grob,
       device: DeviceContext,
       frame: DeviceFrame,
       fontRegistry: FontRegistry,
-      lineHeightPt: Double
+      lineHeightPt: Double,
+      frames: scala.collection.mutable.ArrayBuffer[ResolvedViewportFrame],
+      rotatedAncestor: Boolean,
+      namedAncestors: Vector[GraphicsName]
   ): Either[GraphicsError, Vector[DeviceElement]] =
     grob match
       case group: Grob.Group =>
-        lowerAll(group.children, device, frame, fontRegistry, lineHeightPt)
+        lowerAll(
+          group.children,
+          device,
+          frame,
+          fontRegistry,
+          lineHeightPt,
+          frames,
+          rotatedAncestor,
+          namedAncestors
+        )
       case annotated: Grob.Annotated =>
-        lower(annotated, device, frame, fontRegistry, lineHeightPt)
+        lower(
+          annotated,
+          device,
+          frame,
+          fontRegistry,
+          lineHeightPt,
+          frames,
+          rotatedAncestor,
+          namedAncestors
+        )
       case other =>
         marks(other, LengthResolver(device, frame, fontRegistry, lineHeightPt))
           .map(_.map(DeviceElement.Mark(_)))

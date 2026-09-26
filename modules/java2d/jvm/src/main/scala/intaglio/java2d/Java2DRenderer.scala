@@ -191,7 +191,8 @@ final case class Java2DPaint(
     lineJoin: LineJoin,
     opacity: Double,
     fillPattern: Option[PatternPaint] = None,
-    fontWeight: Option[FontWeight] = None
+    fontWeight: Option[FontWeight] = None,
+    casing: Option[Java2DCasing] = None
 ):
   /** Binary bridge for callers compiled before pattern fills were added. */
   def this(
@@ -204,6 +205,19 @@ final case class Java2DPaint(
       opacity: Double
   ) = this(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
 
+  /** Binary bridge for the font-weight-era constructor descriptor. */
+  def this(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight]
+  ) = this(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, fillPattern, fontWeight, None)
+
   /** Binary bridge for the former seven-field case-class copy descriptor. */
   def copy(
       stroke: Option[Java2DColor],
@@ -214,7 +228,32 @@ final case class Java2DPaint(
       lineJoin: LineJoin,
       opacity: Double
   ): Java2DPaint =
-    new Java2DPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
+    new Java2DPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None, None, casing)
+
+  /** Binary bridge for the font-weight-era copy descriptor. */
+  def copy(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight]
+  ): Java2DPaint =
+    new Java2DPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing
+    )
 
 object Java2DPaint:
   /** Binary bridge for the former seven-field case-class apply descriptor. */
@@ -229,6 +268,31 @@ object Java2DPaint:
   ): Java2DPaint =
     new Java2DPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
 
+  /** Binary bridge for the font-weight-era apply descriptor. */
+  def apply(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight]
+  ): Java2DPaint =
+    new Java2DPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      None
+    )
+
   def fromGraphicParams(gp: GraphicParams): Java2DPaint =
     Java2DPaint(
       gp.stroke.map(Java2DColor.fromRgba),
@@ -238,7 +302,9 @@ object Java2DPaint:
       gp.lineCap,
       gp.lineJoin,
       gp.alpha,
-      gp.fillPattern
+      gp.fillPattern,
+      gp.fontWeight,
+      gp.casing.map(Java2DCasing.fromStrokeCasing)
     )
 
   def text(gp: GraphicParams): Java2DPaint =
@@ -253,6 +319,26 @@ object Java2DPaint:
       gp.alpha,
       None,
       gp.fontWeight
+    )
+
+final case class Java2DCasing(
+    color: Java2DColor,
+    lineWidth: Double,
+    dash: Java2DLineDash,
+    alpha: Double
+)
+
+object Java2DCasing:
+  def fromStrokeCasing(value: StrokeCasing): Java2DCasing =
+    val width = value.width match
+      case CasingWidth.Absolute(strokeWidth) => strokeWidth.value
+      case CasingWidth.Relative(_)           =>
+        throw new IllegalStateException("relative casing width was not resolved")
+    Java2DCasing(
+      Java2DColor.fromRgba(value.color),
+      width,
+      Java2DLineDash.fromLineType(value.lineType),
+      value.alpha
     )
 
 final case class Java2DDrawProfile(
@@ -888,9 +974,15 @@ object Java2DRenderer:
               copy.fill(shape)
             }
       paint.stroke.foreach { color =>
+        paint.casing.foreach { casing =>
+          copy.setComposite(AlphaComposite.SrcOver)
+          copy.setColor(casing.color.awt(paint.opacity * casing.alpha))
+          copy.setStroke(stroke(casing.lineWidth, casing.dash, paint.lineCap, paint.lineJoin))
+          copy.draw(shape)
+        }
         copy.setComposite(AlphaComposite.SrcOver)
         copy.setColor(color.awt(paint.opacity))
-        copy.setStroke(stroke(paint))
+        copy.setStroke(stroke(paint.lineWidth, paint.dash, paint.lineCap, paint.lineJoin))
         copy.draw(shape)
       }
     }
@@ -916,24 +1008,29 @@ object Java2DRenderer:
         accumulator.recordPattern(hit = false)
         pattern
 
-  private def stroke(paint: Java2DPaint): BasicStroke =
-    val cap = paint.lineCap match
+  private def stroke(
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin
+  ): BasicStroke =
+    val cap = lineCap match
       case LineCap.Butt   => BasicStroke.CAP_BUTT
       case LineCap.Round  => BasicStroke.CAP_ROUND
       case LineCap.Square => BasicStroke.CAP_SQUARE
-    val join = paint.lineJoin match
+    val join = lineJoin match
       case LineJoin.Miter => BasicStroke.JOIN_MITER
       case LineJoin.Round => BasicStroke.JOIN_ROUND
       case LineJoin.Bevel => BasicStroke.JOIN_BEVEL
-    paint.dash match
+    dash match
       case Java2DLineDash.Solid =>
-        new BasicStroke(paint.lineWidth.toFloat, cap, join)
+        new BasicStroke(lineWidth.toFloat, cap, join, 4.0f)
       case Java2DLineDash.Pattern(values) =>
         new BasicStroke(
-          paint.lineWidth.toFloat,
+          lineWidth.toFloat,
           cap,
           join,
-          10.0f,
+          4.0f,
           values.toArray,
           0.0f
         )

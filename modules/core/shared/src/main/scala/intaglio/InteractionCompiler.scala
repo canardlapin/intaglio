@@ -5,13 +5,45 @@ import intaglio.*
 enum MembershipRetention:
   case CountOnly, Representative, ExactKeys
 
+/** Scalar grid coordinates use the field's y-up row index, not the image's top-row index. */
+final case class RasterCell(row: Int, column: Int, value: Double)
+
 /** One target's portable data. No source row is retained by this record. */
 final case class TargetInfo[A](
     id: VisualTargetId,
     entity: Option[EntityKey[A]],
     membership: Membership[A],
-    links: LinkKeys = LinkKeys.empty
-)
+    links: LinkKeys = LinkKeys.empty,
+    rasterCell: Option[RasterCell] = None
+):
+  /** Preserve the pre-raster constructor and copy descriptors. */
+  def this(
+      id: VisualTargetId,
+      entity: Option[EntityKey[A]],
+      membership: Membership[A],
+      links: LinkKeys
+  ) =
+    this(id, entity, membership, links, None)
+
+  def copy[B](
+      id: VisualTargetId,
+      entity: Option[EntityKey[B]],
+      membership: Membership[B],
+      links: LinkKeys
+  ): TargetInfo[B] =
+    new TargetInfo(id, entity, membership, links, rasterCell)
+
+object TargetInfo:
+  // Preserve the compiler-generated companion member from the baseline.
+  override def toString: String = "TargetInfo"
+
+  def apply[A](
+      id: VisualTargetId,
+      entity: Option[EntityKey[A]],
+      membership: Membership[A],
+      links: LinkKeys
+  ): TargetInfo[A] =
+    new TargetInfo(id, entity, membership, links, None)
 
 /** Several grobs may share one logical target. A point batch uses one group with per-index targets.
   */
@@ -20,11 +52,31 @@ final class TargetGroup[A] private[interaction] (
     val series: TargetSeries,
     private val entities: Vector[Option[EntityKey[A]]],
     private val memberships: Vector[Membership[A]],
-    private val links: Vector[LinkKeys]
+    private val links: Vector[LinkKeys],
+    private val rasterCells: Vector[Option[RasterCell]],
+    private[interaction] val raster: Boolean
 ):
+  private[interaction] def this(
+      name: SemanticId,
+      series: TargetSeries,
+      entities: Vector[Option[EntityKey[A]]],
+      memberships: Vector[Membership[A]],
+      links: Vector[LinkKeys]
+  ) = this(name, series, entities, memberships, links, Vector.empty, false)
+
   def size: Int = series.size
   def at(index: Int): Either[InteractionError, TargetInfo[A]] =
-    series.at(index).map(id => TargetInfo(id, entities(index), memberships(index), links(index)))
+    series
+      .at(index)
+      .map(id =>
+        TargetInfo(
+          id,
+          entities(index),
+          memberships(index),
+          links(index),
+          rasterCells.lift(index).flatten
+        )
+      )
 
 /** A scene and its typed interaction metadata are compiled together. Arbitrary scene edits require
   * recompilation; a static scene alone cannot recover source identity.
@@ -160,7 +212,15 @@ object InteractionCompiler:
                       case Vector(row) if row.statRow.isInstanceOf[StatRow.Identity[?]] =>
                         unique.headOption
                       case _ => None
-                    (entity, membership, LinkKeys(projections.flatten))
+                    val cell = Option.when(layer.geom.isInstanceOf[Geom.Raster])(rows).flatMap {
+                      case Vector(row) =>
+                        row.source match
+                          case cell: ScalarCell =>
+                            Some(RasterCell(cell.yIndex, cell.xIndex, cell.value))
+                          case _ => None
+                      case _ => None
+                    }
+                    (entity, membership, LinkKeys(projections.flatten), cell)
                 }
               yield
                 groups += new TargetGroup(
@@ -168,7 +228,9 @@ object InteractionCompiler:
                   series,
                   evidence.map(_._1),
                   evidence.map(_._2),
-                  evidence.map(_._3)
+                  evidence.map(_._3),
+                  evidence.map(_._4),
+                  layer.geom.isInstanceOf[Geom.Raster]
                 )
                 assignment.grobs.foreach { index =>
                   replacements(index) = Grob.annotated(

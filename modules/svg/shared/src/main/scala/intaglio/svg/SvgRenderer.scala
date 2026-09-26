@@ -373,6 +373,11 @@ object SvgRenderer:
           index += 1
       case DevicePrimitive.Polyline(points, closed, gp, name) =>
         val coords = points.map(p => s"${format(p.x)},${format(p.y)}").mkString(" ")
+        gp.casing.filter(_ => gp.stroke.nonEmpty).foreach { casing =>
+          val attrs = casingLineAttrs(gp, casing)
+          if closed then line(out, indent, s"""<polygon$attrs points="$coords" />""")
+          else line(out, indent, s"""<polyline$attrs points="$coords" />""")
+        }
         if closed then
           line(out, indent, s"""<polygon${commonAttrs(name, gp, patterns)} points="$coords" />""")
         else line(out, indent, s"""<polyline${lineAttrs(name, gp)} points="$coords" />""")
@@ -601,6 +606,26 @@ object SvgRenderer:
     attrs.append(s""" stroke-linejoin="${lineJoin(gp.lineJoin)}"""")
     lineTypeAttr(gp.lineType).foreach(attrs.append)
     if gp.alpha != 1.0 then attrs.append(s""" opacity="${format(gp.alpha)}"""")
+    attrs.result()
+
+  /** The casing deliberately omits `data-name`: it is paint for its primary primitive, not a second
+    * scene target.
+    */
+  private def casingLineAttrs(gp: GraphicParams, casing: StrokeCasing): String =
+    val width = casing.width match
+      case CasingWidth.Absolute(value) => value.value
+      case CasingWidth.Relative(_)     =>
+        throw new IllegalStateException("relative casing width was not resolved")
+    val attrs = new StringBuilder
+    appendPaint(attrs, "stroke", Some(casing.color))
+    attrs.append(""" fill="none"""")
+    attrs.append(s""" stroke-width="${format(width)}"""")
+    attrs.append(s""" stroke-linecap="${lineCap(gp.lineCap)}"""")
+    attrs.append(s""" stroke-linejoin="${lineJoin(gp.lineJoin)}"""")
+    lineTypeAttr(casing.lineType).foreach(attrs.append)
+    val opacity = gp.alpha * casing.alpha
+    if opacity != 1.0 then attrs.append(s""" opacity="${format(opacity)}"""")
+    attrs.append(""" pointer-events="none"""")
     attrs.result()
 
   private def textAttrs(

@@ -1,0 +1,38 @@
+Interaction 12a headless toolkit qualification, 2026-09-26
+base_commit=0fd91e77d4aa19dd4d9b70ab67081cdbf40d589d
+working_tree=uncommitted (includes raster fields and stroke casing from preceding work)
+source_manifest=javafx-host-12a-sources.sha256
+source_manifest_sha256=ad6e732aea4fd1028988b4720a5b193d7e1d95c6952c5a5a6359060e84e8f305
+hardware=Apple M3 Max / Mac15,11 (verified by sysctl)
+compiler=Scala 3.3.8
+javafx=OpenJFX 21.0.5 / testfx Monocle 21.0.2
+screen=simulated 2x headless screen, mounted Stage outputScaleX/Y asserted 2
+measurement=synthetic pointer event to synchronous overlay snapshot; not OS-pointer-to-display latency
+warmup_events=20
+statistic=p50/p95 using sorted sample floor(q*(n-1)), no wall-clock pass budget
+
+machine=Mac OS X aarch64 14.3
+java=25.0.1
+processors=14
+backend=Monocle Headless / Prism software / synchronous Canvas snapshot
+window_output_scale=2.0
+marks=10000
+samples=100
+pointer_to_snapshot_median_ms=4.437542
+pointer_to_snapshot_p95_ms=47.178125
+overlay_to_snapshot_median_ms=3.707875
+overlay_to_snapshot_p95_ms=33.169
+base_redraws_during_input=0
+
+Acceptance evidence
+- Real headless FX child pointer events, keyboard focus routing and rendered overlay checks.
+- Device scale 1 and 2 mapping, resize/letterboxing and native-frame picking.
+- Keyboard selection for scatter/tiles and irregular-scatter sequential fallback.
+- Projected selection/hover redraw with zero subscriber events.
+- Focus outlines render last over overlapping emphasis.
+- 1000 attach/dispose cycles; retained nodes do not retain hosts through listeners (weak references).
+- All 22 JavaFX module tests passed in /tmp/intaglio-12a-full-3.log.
+- Final viewport overflow regression passed JVM/JS in /tmp/intaglio-12a-final-docs.log.
+- This is headless toolkit evidence; physical displays, OS input and native accessibility are not qualified.
+- Strict pinned-baseline compatibility passed: /tmp/intaglio-12a-compat-2.log (exit 0).
+- Formatting, all 56 compiled documentation files, relative links and diff checks passed.

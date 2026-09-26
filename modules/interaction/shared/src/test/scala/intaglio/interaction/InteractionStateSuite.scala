@@ -239,6 +239,36 @@ class InteractionStateSuite extends munit.FunSuite:
     assert(PanelViewport(0, Double.PositiveInfinity, 0, 1).isLeft)
   }
 
+  test("appearance precedence is pure and focus remains an independent visible outline") {
+    val styles = AppearanceStyles(
+      base = "base",
+      focusOutline = "focus",
+      external = Some("external"),
+      selection = Some("selection"),
+      hover = Some("hover")
+    )
+    for
+      selected <- Vector(false, true); hovered <- Vector(false, true);
+      focused <- Vector(false, true)
+    do
+      val expected =
+        if hovered then "hover"
+        else if selected then "selection"
+        else "external"
+      assertEquals(
+        InteractionAppearance.resolve(styles, selected, hovered, focused),
+        ResolvedAppearance(expected, if focused then Some("focus") else None)
+      )
+    val selected =
+      InteractionAppearance.resolve(styles, selected = true, hovered = false, focused = true)
+    val hovered =
+      InteractionAppearance.resolve(styles, selected = true, hovered = true, focused = true)
+    val restored =
+      InteractionAppearance.resolve(styles, selected = true, hovered = false, focused = true)
+    assertEquals(hovered.style, "hover")
+    assertEquals(restored, selected, "ending hover restores selection without hiding focus")
+  }
+
   test("gesture cancellation releases the pointer without committing or clearing selection") {
     val chosen =
       step(initial(), 0, InteractionAction.Select(select(1), SelectionOperation.Replace)).state

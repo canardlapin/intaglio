@@ -455,3 +455,187 @@ class DeviceSuite extends munit.FunSuite:
       case other =>
         fail(s"unexpected device elements: $other")
   }
+
+  test("named viewport frames round trip transformed native coordinates") {
+    val name = GraphicsName.unsafe("log-panel")
+    val mapping = ViewportCoordinateMapping(
+      ViewportAxisMapping.Continuous(
+        Interval.unsafe(1.0, 100.0),
+        Interval.unsafe(0.0, 2.0),
+        Transform.log10
+      ),
+      ViewportAxisMapping.Native
+    )
+    val viewport = Viewport
+      .unsafe(
+        origin = Point.npcUnsafe(0.1, 0.2),
+        size = Size.npcUnsafe(0.5, 0.6),
+        xScale = Interval.unsafe(-0.1, 1.1),
+        yScale = Interval.unsafe(0.0, 10.0)
+      )
+      .withCoordinateMapping(mapping)
+    val group = Grob.group(Vector.empty, viewport = Some(viewport), name = Some(name))
+    val resolved = DeviceScene
+      .fromScene(Scene(Vector(group)), device)
+      .orThrow
+      .frame(name)
+      .fold(error => fail(error.message), identity)
+
+    val point = DevicePoint(10.0, 2.5)
+    val mapped = resolved.nativeToDevice(point).fold(error => fail(error.message), identity)
+    assertEqualsDouble(mapped.x, resolved.frame.x + resolved.frame.width * (0.5 + 0.1) / 1.2, tol)
+    assertEqualsDouble(mapped.y, resolved.frame.y + resolved.frame.height * 0.75, tol)
+    val roundTrip = resolved.deviceToNative(mapped).fold(error => fail(error.message), identity)
+    assertEqualsDouble(roundTrip.x, point.x, tol)
+    assertEqualsDouble(roundTrip.y, point.y, tol)
+    assertEquals(
+      resolved.deviceToNative(DevicePoint(resolved.frame.x - 1.0, mapped.y)).left.toOption,
+      Some(ViewportFrameError.OutsideFrame(name, DevicePoint(resolved.frame.x - 1.0, mapped.y)))
+    )
+  }
+
+  test("named viewport frames refuse unavailable and rotated coordinate mappings") {
+    val unavailableName = GraphicsName.unsafe("discrete-panel")
+    val unavailable = Grob.group(
+      Vector.empty,
+      viewport = Some(
+        Viewport
+          .unsafe()
+          .withCoordinateMapping(
+            ViewportCoordinateMapping(ViewportAxisMapping.Unavailable, ViewportAxisMapping.Native)
+          )
+      ),
+      name = Some(unavailableName)
+    )
+    val unavailableFrame = DeviceScene
+      .fromScene(Scene(Vector(unavailable)), device)
+      .orThrow
+      .frame(unavailableName)
+      .fold(error => fail(error.message), identity)
+    assertEquals(
+      unavailableFrame.nativeToDevice(DevicePoint(0.5, 0.5)).left.toOption,
+      Some(ViewportFrameError.UnavailableAxis(unavailableName, "x"))
+    )
+    unavailableFrame.nativeToDevice(DevicePoint(Double.NaN, 0.5)) match
+      case Left(ViewportFrameError.NonFiniteCoordinate(name, axis, value)) =>
+        assertEquals(name, unavailableName)
+        assertEquals(axis, "x")
+        assert(value.isNaN)
+      case other => fail(s"expected a typed non-finite coordinate failure, found $other")
+
+    unavailableFrame
+      .copy(coordinateMapping = ViewportCoordinateMapping.native)
+      .nativeToDevice(DevicePoint(1e308, 0.5)) match
+      case Left(ViewportFrameError.NonFiniteCoordinate(_, "x", value)) => assert(value.isInfinite)
+      case other => fail(s"expected a typed coordinate overflow failure, found $other")
+
+    val degenerateName = GraphicsName.unsafe("degenerate-panel")
+    val degenerate = Grob.group(
+      Vector.empty,
+      viewport = Some(Viewport.unsafe(xScale = Interval.unsafe(1.0, 1.0))),
+      name = Some(degenerateName)
+    )
+    val degenerateFrame = DeviceScene
+      .fromScene(Scene(Vector(degenerate)), device)
+      .orThrow
+      .frame(degenerateName)
+      .fold(error => fail(error.message), identity)
+    assertEquals(
+      degenerateFrame.deviceToNative(DevicePoint(100.0, 50.0)).left.toOption,
+      Some(ViewportFrameError.UnavailableAxis(degenerateName, "x"))
+    )
+
+    val rotatedName = GraphicsName.unsafe("rotated-panel")
+    val rotated = Grob.group(
+      Vector.empty,
+      viewport = Some(Viewport.unsafe(angleDegrees = 15.0)),
+      name = Some(rotatedName)
+    )
+    val rotatedFrame = DeviceScene
+      .fromScene(Scene(Vector(rotated)), device)
+      .orThrow
+      .frame(rotatedName)
+      .fold(error => fail(error.message), identity)
+    assertEquals(
+      rotatedFrame.deviceToNative(DevicePoint(100.0, 50.0)).left.toOption,
+      Some(ViewportFrameError.Rotated(rotatedName))
+    )
+  }
+
+  test("one named frame maps conformance primitive anchors and image bounds to lowered output") {
+    def named(value: String): GraphicsName = GraphicsName.unsafe(value)
+    val viewport = Viewport.unsafe(
+      origin = Point.npcUnsafe(0.1, 0.1),
+      size = Size.npcUnsafe(0.8, 0.8),
+      xScale = Interval.unsafe(0.0, 10.0),
+      yScale = Interval.unsafe(0.0, 10.0)
+    )
+    val group = Grob.group(
+      Vector(
+        Grob.points(Vector(Point.nativeUnsafe(1.0, 2.0)), name = Some(named("point"))).orThrow,
+        Grob
+          .lines(
+            Vector(Point.nativeUnsafe(3.0, 4.0), Point.nativeUnsafe(4.0, 5.0)),
+            name = Some(named("line"))
+          )
+          .orThrow,
+        Grob
+          .circle(
+            Point.nativeUnsafe(6.0, 7.0),
+            ExtentExpr.nativeUnsafe(0.2),
+            name = Some(named("circle"))
+          )
+          .orThrow,
+        Grob.text("label", Point.nativeUnsafe(8.0, 9.0), name = Some(named("text"))).orThrow,
+        Grob
+          .rect(
+            Point.nativeUnsafe(2.0, 7.0),
+            Size.fromExtents(ExtentExpr.nativeUnsafe(1.0), ExtentExpr.nativeUnsafe(2.0)),
+            name = Some(named("rect-tile"))
+          )
+          .orThrow,
+        Grob
+          .image(
+            RasterImage
+              .fromPacked(
+                RasterDimensions.unsafe(1, 1),
+                Vector(Rgba32.unsafe(40, 50, 60))
+              )
+              .orThrow,
+            Point.nativeUnsafe(5.0, 2.0),
+            Size.fromExtents(ExtentExpr.nativeUnsafe(2.0), ExtentExpr.nativeUnsafe(1.0)),
+            name = Some(named("image"))
+          )
+          .orThrow
+      ),
+      viewport = Some(viewport),
+      name = Some(named("primitive-panel"))
+    )
+    val scene = DeviceScene.fromScene(Scene(Vector(group)), device).orThrow
+    val frame = scene.frame(named("primitive-panel")).fold(error => fail(error.message), identity)
+    def mapped(x: Double, y: Double): DevicePoint =
+      frame.nativeToDevice(DevicePoint(x, y)).fold(error => fail(error.message), identity)
+    val children = scene.elements.head.asInstanceOf[DeviceElement.Group].children
+    children.foreach {
+      case DeviceElement.Mark(DevicePrimitive.Disc(x, y, _, _, Some(name)))
+          if name == named("point") =>
+        assertEquals(mapped(1.0, 2.0), DevicePoint(x, y))
+      case DeviceElement.Mark(DevicePrimitive.Polyline(points, _, _, Some(name)))
+          if name == named("line") =>
+        assertEquals(points.head, mapped(3.0, 4.0))
+        assertEquals(points(1), mapped(4.0, 5.0))
+      case DeviceElement.Mark(DevicePrimitive.Disc(x, y, _, _, Some(name)))
+          if name == named("circle") =>
+        assertEquals(mapped(6.0, 7.0), DevicePoint(x, y))
+      case DeviceElement.Mark(DevicePrimitive.TextRun(_, x, y, _, _, _, _, _, _, Some(name)))
+          if name == named("text") =>
+        assertEquals(mapped(8.0, 9.0), DevicePoint(x, y))
+      case DeviceElement.Mark(DevicePrimitive.RectShape(x, y, width, height, _, _, Some(name)))
+          if name == named("rect-tile") =>
+        assertEquals(mapped(2.0, 7.0), DevicePoint(x + width / 2.0, y + height / 2.0))
+      case DeviceElement.Mark(DevicePrimitive.Image(_, x, y, width, height, _, _, Some(name)))
+          if name == named("image") =>
+        assertEquals(mapped(5.0, 2.0), DevicePoint(x + width / 2.0, y + height / 2.0))
+      case other => fail(s"unexpected lowered primitive: $other")
+    }
+  }

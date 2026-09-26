@@ -59,8 +59,14 @@ object TargetLowering:
         else if item.rows.length > 1 then
           item.grobs.map(layer.grobs(_)) match
             case Vector(batch: Grob.PointBatch) if batch.points.length == item.rows.length => ()
-            case _                                                                         =>
-              result = invalid("multiple targets require one point batch of matching cardinality")
+            case Vector(image: Grob.Image)
+                if layer.geom.isInstanceOf[Geom.Raster] &&
+                  image.image.dimensions.pixelCount == item.rows.length =>
+              ()
+            case _ =>
+              result = invalid(
+                "multiple targets require one point batch or raster of matching cardinality"
+              )
         i += 1
       result
 
@@ -105,6 +111,10 @@ object TargetLowering:
                   InteractionError.LoweringMismatch("point batch", rows.length, batch.points.length)
                 )
               case _ => ordinary(singles)
+          else if geom.isInstanceOf[Geom.Raster] then
+            Right(
+              Vector(TargetAssignment(Vector(0), RasterGeom.visualOrder(rows).map(i => Vector(i))))
+            )
           else if (geom eq Geom.Text) || (geom eq Geom.Rect) || (geom eq Geom.Tile) ||
             (geom eq Geom.Bar) || (geom eq Geom.Segment) || (geom eq Geom.ErrorBar)
           then ordinary(singles)

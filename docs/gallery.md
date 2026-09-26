@@ -224,6 +224,60 @@ all come from the checked `ScalarField2D`, with no untyped `z` aesthetic.
 println(intaglio.docs.Gallery.plot("heatmap-field", heatmap))
 ```
 
+## Raster field
+
+A dense field can use one image instead of one rectangle per cell. This 48 × 24 field
+uses the same fill-scale training and legend as `geomHeatmap`.
+
+```scala mdoc:silent
+val rasterField =
+  for
+    x <- RegularGridAxis.cellCentered(-3, 3, 48)
+    y <- RegularGridAxis.cellCentered(-2, 2, 24)
+    field <- ScalarField2D.tabulate(x, y)((x, y) => math.sin(x) * math.cos(y))
+    program <- plot(field)
+      .geomRaster(name = "amplitude", missing = c => c.x * c.x + c.y * c.y < 0.16)
+      .title("One image, continuous fill")
+      .axisTitles("x", "y")
+      .compilerOptions(plateOptions)
+      .build
+  yield program
+```
+
+```scala mdoc:passthrough
+println(intaglio.docs.Gallery.plot("raster-field", rasterField))
+```
+
+Interpolation defaults to `RasterInterpolation.Nearest`; `Smooth` changes image sampling only.
+`alpha` applies to the entire layer. Missing cells default to transparency; set `missingColor`
+for a visible sentinel. The optional `missing` predicate excludes masked values from scale
+training. `ScalarField2D` retains its finite-value contract; NaNs in explicitly supplied
+`ScalarCell` rows also use the missing colour, as do values censored by a fill scale or excluded
+by its transform. A field with no trainable values needs an explicit fixed fill scale, just as
+an empty heatmap does. Use `Layer.raster` with a prepared scale for fixed limits and OOB policies.
+
+Vertex-centered fields use the same half-step-expanded cell bounds as heatmaps. A raster needs
+a complete regular grid in each facet; irregular cells or incomplete grids return an error.
+Fill scales remain shared across facets. The existing [raster size limits](limits.md) apply.
+SVG embeds a lossless PNG and PDF embeds an image XObject.
+
+`InteractionCompiler` and `Picking.compile` retain cell identity without per-cell image or
+rectangle primitives. A hit's `target.rasterCell` reports the original field's zero-based
+`row`, `column`, and `value`; its typed entity key follows the supplied source-key mapping.
+Transparent cells follow `PickPolicy.includeTransparent`. Smooth display interpolation does
+not change which source cell is picked. Point queries compute nearby cells directly; area
+queries visit cells on demand.
+
+## Cased strokes over imagery
+
+A casing adds contrast beneath the stroke without a second plot layer or picking target.
+The same `GraphicParams.withCasing` style works with `geomLine`, `geomSegment`, and
+`geomContour`; see [stroke casing](stroke-casing.md) for width and opacity controls.
+
+```scala mdoc:passthrough
+println(intaglio.docs.Gallery.plate("stroke-casing", Right(RendererConformance.casedRasterScene)))
+```
+
 ## Contour lines
 
 ```scala mdoc:silent

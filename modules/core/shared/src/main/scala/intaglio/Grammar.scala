@@ -1032,6 +1032,16 @@ object Geom:
     def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
       GeomPhase.boundedRectGrobs(batch.rows, label)
 
+  /** A complete regular grid lowered through the same bounded rows as tiles. */
+  final case class Raster(
+      interpolation: RasterInterpolation = RasterInterpolation.Nearest,
+      missingColor: Rgba = Rgba.unsafe(0, 0, 0, 0.0)
+  ) extends Geom:
+    val label: String = "raster"
+    val contract: GeomAestheticContract = boundedContract
+    def lower[Row](batch: GeomBatch[Row]): Either[GraphicsError, Vector[Grob]] =
+      RasterGeom.lower(batch.rows, interpolation)
+
   case object Polygon extends Geom:
     val label: String = "polygon"
     val contract: GeomAestheticContract =
@@ -1589,6 +1599,28 @@ object Layer:
       ),
       inheritMapping = false,
       params
+    )
+
+  /** A regular grid using tile-equivalent bounds and scale mappings, emitted as one image. */
+  def raster[Row](
+      x: Row => Double,
+      y: Row => Double,
+      width: Row => Double,
+      height: Row => Double,
+      data: Option[Vector[Row]] = None,
+      mapping: AesSpec[Row] = AesSpec.empty[Row],
+      params: Option[GraphicParams] = None,
+      interpolation: RasterInterpolation = RasterInterpolation.Nearest,
+      missingColor: Rgba = Rgba.unsafe(0, 0, 0, 0.0)
+  ): Layer[Row] =
+    val bounds = tile(x, y, width, height, data, mapping, params).mapping
+    Layer(
+      Geom.Raster(interpolation, missingColor),
+      Stat.Identity,
+      data,
+      bounds,
+      inheritMapping = false,
+      params = params
     )
 
   /** Count observations by a discrete key and lower the computed result as bars. Position

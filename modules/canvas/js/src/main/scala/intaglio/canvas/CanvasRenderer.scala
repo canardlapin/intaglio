@@ -130,7 +130,8 @@ final case class CanvasPaint(
     lineJoin: LineJoin,
     opacity: Double,
     fillPattern: Option[PatternPaint] = None,
-    fontWeight: Option[FontWeight] = None
+    fontWeight: Option[FontWeight] = None,
+    casing: Option[CanvasCasing] = None
 ):
   /** Binary bridge for callers compiled before pattern fills were added. */
   def this(
@@ -143,6 +144,19 @@ final case class CanvasPaint(
       opacity: Double
   ) = this(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
 
+  /** Binary bridge for the font-weight-era constructor descriptor. */
+  def this(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight]
+  ) = this(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, fillPattern, fontWeight, None)
+
   /** Binary bridge for the former seven-field case-class copy descriptor. */
   def copy(
       stroke: Option[CanvasColor],
@@ -153,7 +167,32 @@ final case class CanvasPaint(
       lineJoin: LineJoin,
       opacity: Double
   ): CanvasPaint =
-    new CanvasPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
+    new CanvasPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None, None, casing)
+
+  /** Binary bridge for the font-weight-era copy descriptor. */
+  def copy(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight]
+  ): CanvasPaint =
+    new CanvasPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing
+    )
 
 object CanvasPaint:
   /** Binary bridge for the former seven-field case-class apply descriptor. */
@@ -168,6 +207,31 @@ object CanvasPaint:
   ): CanvasPaint =
     new CanvasPaint(stroke, fill, lineWidth, dash, lineCap, lineJoin, opacity, None)
 
+  /** Binary bridge for the font-weight-era apply descriptor. */
+  def apply(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight]
+  ): CanvasPaint =
+    new CanvasPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      None
+    )
+
   def fromGraphicParams(gp: GraphicParams): CanvasPaint =
     CanvasPaint(
       gp.stroke.map(CanvasColor.fromRgba),
@@ -177,7 +241,9 @@ object CanvasPaint:
       gp.lineCap,
       gp.lineJoin,
       gp.alpha,
-      gp.fillPattern
+      gp.fillPattern,
+      gp.fontWeight,
+      gp.casing.map(CanvasCasing.fromStrokeCasing)
     )
 
   def text(gp: GraphicParams): CanvasPaint =
@@ -192,6 +258,26 @@ object CanvasPaint:
       gp.alpha,
       None,
       gp.fontWeight
+    )
+
+final case class CanvasCasing(
+    color: CanvasColor,
+    lineWidth: Double,
+    dash: CanvasLineDash,
+    alpha: Double
+)
+
+object CanvasCasing:
+  def fromStrokeCasing(value: StrokeCasing): CanvasCasing =
+    val width = value.width match
+      case CasingWidth.Absolute(strokeWidth) => strokeWidth.value
+      case CasingWidth.Relative(_)           =>
+        throw new IllegalStateException("relative casing width was not resolved")
+    CanvasCasing(
+      CanvasColor.fromRgba(value.color),
+      width,
+      CanvasLineDash.fromLineType(value.lineType),
+      value.alpha
     )
 
 /** The CSS font shorthand, in one place.
@@ -454,6 +540,7 @@ trait CanvasRenderingContext2D extends js.Object:
   var lineWidth: Double = js.native
   var lineCap: String = js.native
   var lineJoin: String = js.native
+  var miterLimit: Double = js.native
   var font: String = js.native
   var textAlign: String = js.native
   var textBaseline: String = js.native
@@ -1012,18 +1099,49 @@ object CanvasRenderer:
             Right(())
     filled.map { _ =>
       paint.stroke.foreach { color =>
-        context.strokeStyle = color.css
-        context.globalAlpha = paint.opacity * color.alpha
-        context.lineWidth = paint.lineWidth
-        context.lineCap = canvasLineCap(paint.lineCap)
-        context.lineJoin = canvasLineJoin(paint.lineJoin)
-        val dash = paint.dash match
-          case CanvasLineDash.Solid           => js.Array[Double]()
-          case CanvasLineDash.Pattern(values) => js.Array(values*)
-        context.setLineDash(dash)
-        context.stroke()
+        paint.casing.foreach { casing =>
+          strokePath(
+            context,
+            casing.color,
+            casing.lineWidth,
+            casing.dash,
+            paint.lineCap,
+            paint.lineJoin,
+            paint.opacity * casing.alpha
+          )
+        }
+        strokePath(
+          context,
+          color,
+          paint.lineWidth,
+          paint.dash,
+          paint.lineCap,
+          paint.lineJoin,
+          paint.opacity
+        )
       }
     }
+
+  private def strokePath(
+      context: CanvasRenderingContext2D,
+      color: CanvasColor,
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double
+  ): Unit =
+    context.strokeStyle = color.css
+    context.globalAlpha = opacity * color.alpha
+    context.lineWidth = lineWidth
+    context.lineCap = canvasLineCap(lineCap)
+    context.lineJoin = canvasLineJoin(lineJoin)
+    context.miterLimit = 4.0
+    val values = dash match
+      case CanvasLineDash.Solid           => js.Array[Double]()
+      case CanvasLineDash.Pattern(values) => js.Array(values*)
+    context.setLineDash(values)
+    context.stroke()
 
   private def canvasLineCap(value: LineCap): String =
     value match
