@@ -159,6 +159,15 @@ final class LengthResolver(
     * this frame is y-up, the upper-left when y-down.
     */
   def childFrame(viewport: Viewport): Either[GraphicsError, DeviceFrame] =
+    childFrames(viewport).map(_._1)
+
+  /** The child's content frame and its extent rectangle `(x, y, width, height)`. They coincide
+    * unless the viewport preserves an aspect ratio, in which case the content frame is fitted to
+    * (or fills) the extent and the extent remains the clip.
+    */
+  private[intaglio] def childFrames(
+      viewport: Viewport
+  ): Either[GraphicsError, (DeviceFrame, DeviceClip)] =
     for
       originX <- x(viewport.origin.x)
       originY <- y(viewport.origin.y)
@@ -168,7 +177,11 @@ final class LengthResolver(
       val top = frame.yDirection match
         case YDirection.Up   => originY - h
         case YDirection.Down => originY
-      DeviceFrame(originX, top, w, h, viewport.xScale, viewport.yScale, viewport.yDirection)
+      val (cx, cy, cw, ch) = viewport.aspect.fold((originX, top, w, h))(_.place(originX, top, w, h))
+      (
+        DeviceFrame(cx, cy, cw, ch, viewport.xScale, viewport.yScale, viewport.yDirection),
+        DeviceClip(originX, top, w, h)
+      )
 
   /** An extent whose sign could only be decided here (a difference) must not resolve negative.
     * Rounding noise below a billionth of a pixel counts as zero, so `npc(1) - npc(1)` is empty
@@ -817,10 +830,13 @@ object DeviceScene:
   ): Either[GraphicsError, Vector[DeviceElement]] =
     grob.viewport match
       case Some(viewport) =>
-        LengthResolver(device, frame, fontRegistry, lineHeightPt).childFrame(viewport).flatMap {
-          child =>
+        LengthResolver(device, frame, fontRegistry, lineHeightPt).childFrames(viewport).flatMap {
+          (child, extent) =>
             val clip = viewport.clip match
-              case Clip.On  => Some(DeviceClip(child.x, child.y, child.width, child.height))
+              case Clip.On =>
+                viewport.aspect.map(_.mode) match
+                  case Some(AspectMode.Fill) => Some(extent)
+                  case _ => Some(DeviceClip(child.x, child.y, child.width, child.height))
               case Clip.Off => None
             val rotation =
               if viewport.angleDegrees == 0.0 then None

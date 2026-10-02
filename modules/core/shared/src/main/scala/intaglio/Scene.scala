@@ -810,9 +810,32 @@ final case class Viewport private (
     clip: Clip = Clip.On,
     angleDegrees: Double = 0.0,
     yDirection: YDirection = YDirection.Up,
-    coordinateMapping: ViewportCoordinateMapping = ViewportCoordinateMapping.native
+    coordinateMapping: ViewportCoordinateMapping = ViewportCoordinateMapping.native,
+    aspect: Option[ViewportAspect] = None
 ):
   require(angleDegrees.isFinite, "`angleDegrees` must be finite")
+
+  /** Preserve the constructor descriptor used before the aspect mode. */
+  private def this(
+      origin: Point,
+      size: Size,
+      xScale: Interval,
+      yScale: Interval,
+      clip: Clip,
+      angleDegrees: Double,
+      yDirection: YDirection,
+      coordinateMapping: ViewportCoordinateMapping
+  ) = this(
+    origin,
+    size,
+    xScale,
+    yScale,
+    clip,
+    angleDegrees,
+    yDirection,
+    coordinateMapping,
+    None
+  )
 
   /** Preserve the constructor descriptor used by previously compiled factories. */
   private def this(
@@ -835,7 +858,35 @@ final case class Viewport private (
   )
 
   def withCoordinateMapping(value: ViewportCoordinateMapping): Viewport =
-    new Viewport(origin, size, xScale, yScale, clip, angleDegrees, yDirection, value)
+    new Viewport(origin, size, xScale, yScale, clip, angleDegrees, yDirection, value, aspect)
+
+  /** Keep the content's aspect ratio inside this viewport's extent; see [[ViewportAspect]]. */
+  def withAspect(value: ViewportAspect): Viewport =
+    new Viewport(
+      origin,
+      size,
+      xScale,
+      yScale,
+      clip,
+      angleDegrees,
+      yDirection,
+      coordinateMapping,
+      Some(value)
+    )
+
+  /** Stretch the content to the whole extent again. */
+  def withoutAspect: Viewport =
+    new Viewport(
+      origin,
+      size,
+      xScale,
+      yScale,
+      clip,
+      angleDegrees,
+      yDirection,
+      coordinateMapping,
+      None
+    )
 
 object Viewport:
   def checked(
@@ -866,6 +917,86 @@ object Viewport:
       mapping: ViewportCoordinateMapping
   ): Viewport =
     viewport.withCoordinateMapping(mapping)
+
+/** How content of a fixed aspect ratio occupies a viewport extent of another shape. */
+enum AspectMode:
+  /** The whole content is visible at the largest size that fits; the extent is letterboxed. */
+  case Fit
+
+  /** The content covers the whole extent at the smallest size that does; the overflow is clipped to
+    * the extent.
+    */
+  case Fill
+
+/** Aspect-preserving placement of a viewport's content within its resolved extent. `ratio` is the
+  * content's width over its height (16/9 for a widescreen frame). The content frame keeps that
+  * ratio exactly at every device size; `horizontal` and `vertical` place it within the extent along
+  * the axis that has slack (or overflow). The resolved content frame is the viewport's frame: its
+  * children, its native scales, and its [[ResolvedViewportFrame]] all use it, so picking and
+  * inverse mapping agree with what is drawn. Under [[AspectMode.Fill]] a clipping viewport clips to
+  * the extent, not to the larger content frame.
+  */
+final case class ViewportAspect private (
+    ratio: Double,
+    mode: AspectMode,
+    horizontal: HJust,
+    vertical: VJust
+):
+  /** The content rectangle `(x, y, width, height)` for an extent, in the same device units. `y`
+    * grows downward, as device frames do, so `VJust.Top` places the content at the extent's top.
+    */
+  private[intaglio] def place(
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double
+  ): (Double, Double, Double, Double) =
+    val wideExtent = width > height * ratio
+    val (w, h) = mode match
+      case AspectMode.Fit => if wideExtent then (height * ratio, height) else (width, width / ratio)
+      case AspectMode.Fill =>
+        if wideExtent then (width, width / ratio) else (height * ratio, height)
+    val fx = horizontal match
+      case HJust.Left   => 0.0
+      case HJust.Center => 0.5
+      case HJust.Right  => 1.0
+    val fy = vertical match
+      case VJust.Top    => 0.0
+      case VJust.Center => 0.5
+      case VJust.Bottom => 1.0
+    (x + (width - w) * fx, y + (height - h) * fy, w, h)
+
+object ViewportAspect:
+  def apply(
+      ratio: Double,
+      mode: AspectMode = AspectMode.Fit,
+      horizontal: HJust = HJust.Center,
+      vertical: VJust = VJust.Center
+  ): Either[GraphicsError, ViewportAspect] =
+    if ratio.isFinite && ratio > 0.0 then
+      Right(new ViewportAspect(ratio, mode, horizontal, vertical))
+    else Left(GraphicsError.InvalidCoordinateRatio(ratio))
+
+  def unsafe(
+      ratio: Double,
+      mode: AspectMode = AspectMode.Fit,
+      horizontal: HJust = HJust.Center,
+      vertical: VJust = VJust.Center
+  ): ViewportAspect =
+    apply(ratio, mode, horizontal, vertical).orThrow
+
+  /** Content whose native units are equal on both axes, such as an image measured in pixels: the
+    * ratio is the x range over the y range.
+    */
+  def ofScales(
+      xScale: Interval,
+      yScale: Interval,
+      mode: AspectMode = AspectMode.Fit,
+      horizontal: HJust = HJust.Center,
+      vertical: VJust = VJust.Center
+  ): Either[GraphicsError, ViewportAspect] =
+    if yScale.width == 0.0 then Left(GraphicsError.InvalidCoordinateRatio(Double.PositiveInfinity))
+    else apply(xScale.width / yScale.width, mode, horizontal, vertical)
 
 /** One constant or one value per mark. Batch columns make style cardinality explicit without
   * widening every mark into an object. A value column is checked against its owning batch.

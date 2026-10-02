@@ -195,6 +195,7 @@ object RendererConformance:
       rotated <- rotatedViewportCase
       clippedAndRotated <- clippedRotatedViewportCase
       rasterOriented <- yDownViewportCase
+      letterboxed <- aspectViewportCase
       axis <- axisCase
       legend <- legendCase
       colorbar <- colorbarCase
@@ -241,6 +242,7 @@ object RendererConformance:
       rotated,
       clippedAndRotated,
       rasterOriented,
+      letterboxed,
       axis,
       legend,
       colorbar,
@@ -935,6 +937,39 @@ object RendererConformance:
           Vector(GraphicsName.unsafe("conformance-ydown"))
         )
       }
+
+  /** A 16:9 frame letterboxed into a 4:3 extent: the image fills the fitted content frame, and the
+    * viewport clips to that frame.
+    */
+  def aspectViewportCase: Either[GraphicsError, ConformanceCase] =
+    val dimensions = RasterDimensions.unsafe(16, 9)
+    val raster = RasterImage.solid(dimensions, Rgba32.unsafe(40, 80, 220))
+    val name = GraphicsName.unsafe("conformance-letterbox")
+    for
+      aspect <- ViewportAspect(16.0 / 9.0)
+      viewport <- Viewport.checked(
+        origin = Point.npcUnsafe(0.125, 0.0),
+        size = Size.npcUnsafe(0.75, 1.0),
+        clip = Clip.On
+      )
+      grob <- Grob.image(
+        raster,
+        Point.npcUnsafe(0.5, 0.5),
+        Size.npcUnsafe(1.0, 1.0),
+        viewport = Some(viewport.withAspect(aspect)),
+        name = Some(name)
+      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("aspect-viewport"),
+      ConformanceGroup.Layout,
+      Scene(Vector(grob)),
+      Vector(name),
+      Vector(
+        RenderRequirement.Group(name, clipped = true, rotated = false),
+        RenderRequirement.Primitive(name, RenderPrimitiveKind.Image),
+        RenderRequirement.Image(name, dimensions, RasterInterpolation.Nearest, alpha = 1.0)
+      )
+    )
 
   // --- Guide cases ---------------------------------------------------------
 

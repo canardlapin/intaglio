@@ -34,6 +34,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Aspect-preserving viewports.** `Viewport.withAspect(ViewportAspect(ratio,
+  mode, horizontal, vertical))` keeps content of a fixed aspect ratio (a 16:9
+  image, a screen-sized frame) at that ratio inside any extent. `AspectMode.Fit`
+  letterboxes the whole content at the requested alignment; `AspectMode.Fill`
+  covers the extent and clips the overflow to it. The fitted frame is the
+  viewport's frame for its children, native scales and `ResolvedViewportFrame`,
+  so picking and inverse mapping agree with the drawn image.
+  `ViewportAspect.ofScales` takes the ratio from equal-unit native ranges. The
+  new `aspect-viewport` conformance case runs on every backend. `Viewport`
+  gained a trailing defaulted `aspect` field behind a constructor bridge; its
+  constructor and `copy` remain private.
+
 - **Difference extents.** `ExtentExpr.fromExpr` now admits a difference of
   two extents, such as `npc(1) - pt(12)` for a panel sized to the full extent
   minus a fixed margin. Its sign depends on the frame, so `LengthResolver`
