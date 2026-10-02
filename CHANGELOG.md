@@ -34,6 +34,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Composition row heights and a shared x frame.**
+  `CompositionOptions.withRowHeights` sizes each row of a composition with
+  `RowHeight.points` (fixed physical height) or `RowHeight.weight` (a share of
+  what the fixed rows and gaps leave), so a short strip can sit over a tall
+  matrix. Explicitly sized rows reserve only their own plots' top and bottom
+  strips; left and right strips stay shared, so every column's panels have
+  identical edges. `withSharedXFrame(true)` refuses plots whose panel x range or
+  x scale domain differs from the first plot's, so aligned columns also mean
+  the same data. A wrong row count is the new
+  `GraphicsError.InvalidCompositionRowHeights`; fixed rows taller than the
+  composition are `LayoutOverflow`. Without row heights, layout is unchanged.
+
 - **Aspect-preserving viewports.** `Viewport.withAspect(ViewportAspect(ratio,
   mode, horizontal, vertical))` keeps content of a fixed aspect ratio (a 16:9
   image, a screen-sized frame) at that ratio inside any extent. `AspectMode.Fit`

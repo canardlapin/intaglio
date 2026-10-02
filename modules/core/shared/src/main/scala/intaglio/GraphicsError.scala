@@ -148,6 +148,7 @@ enum GraphicsError extends IntaglioError:
   case InvalidCompositionGrid(plotCount: Int, columns: Int)
   case InvalidCompositionGap(axis: String, value: Double)
   case InvalidCompositionPanel(index: Int, detail: String)
+  case InvalidCompositionRowHeights(detail: String)
   case InvalidInsetBounds(x: Double, y: Double, width: Double, height: Double)
   case InvalidDeviceSize(width: Double, height: Double)
   case InvalidDeviceResolution(pixelsPerInch: Double)
@@ -364,6 +365,8 @@ enum GraphicsError extends IntaglioError:
         s"plot composition $axis gap must be finite and >= 0 points: $value"
       case InvalidCompositionPanel(index, detail) =>
         s"plot composition item $index has an unusable panel frame: $detail"
+      case InvalidCompositionRowHeights(detail) =>
+        s"plot composition row heights are invalid: $detail"
       case InvalidInsetBounds(x, y, width, height) =>
         s"inset bounds must be finite, positive, and contained in [0, 1] npc: ($x, $y, $width, $height)"
       case InvalidDeviceSize(width, height) =>

@@ -10,8 +10,37 @@ enum CompositionGuidePolicy:
     */
   case CollectCompatible
 
+/** The height of one composition row: a fixed physical size, or a weight that shares whatever
+  * height the fixed rows and gaps leave.
+  */
+sealed trait RowHeight
+
+object RowHeight:
+  final case class Points private[intaglio] (value: Double) extends RowHeight
+  final case class Weight private[intaglio] (value: Double) extends RowHeight
+
+  def points(value: Double): Either[GraphicsError, RowHeight] =
+    if value.isFinite && value > 0.0 then Right(Points(value))
+    else Left(GraphicsError.InvalidCompositionRowHeights(s"row height must be > 0 pt: $value"))
+
+  def pointsUnsafe(value: Double): RowHeight =
+    points(value).orThrow
+
+  def weight(value: Double): Either[GraphicsError, RowHeight] =
+    if value.isFinite && value > 0.0 then Right(Weight(value))
+    else Left(GraphicsError.InvalidCompositionRowHeights(s"row weight must be > 0: $value"))
+
+  def weightUnsafe(value: Double): RowHeight =
+    weight(value).orThrow
+
 /** Target-aware but renderer-neutral composition policy. Gap sizes are physical points; `None`
   * selects the layout policy's ordinary panel gap.
+  *
+  * `rowHeights`, when set, sizes each row explicitly (see [[RowHeight]]); otherwise rows split the
+  * height equally. Explicitly sized rows reserve only their own plots' top and bottom strips, so a
+  * short strip row is not charged a taller neighbour's x axis. `sharedXFrame` requires every plot
+  * to have the same panel x range and x scale domain, and refuses the composition otherwise, so the
+  * aligned column boundaries also mean the same data positions.
   */
 final class CompositionOptions private (
     val guides: CompositionGuidePolicy,
@@ -19,8 +48,35 @@ final class CompositionOptions private (
     val theme: Theme,
     val columnGapPt: Option[Double],
     val rowGapPt: Option[Double],
-    val cellClip: Clip
-)
+    val cellClip: Clip,
+    val rowHeights: Vector[RowHeight] = Vector.empty,
+    val sharedXFrame: Boolean = false
+):
+  /** Size each row explicitly, top row first. The count must match the grid's rows. */
+  def withRowHeights(heights: Vector[RowHeight]): CompositionOptions =
+    new CompositionOptions(
+      guides,
+      layoutPolicy,
+      theme,
+      columnGapPt,
+      rowGapPt,
+      cellClip,
+      heights,
+      sharedXFrame
+    )
+
+  /** Require one x frame across every composed plot. */
+  def withSharedXFrame(value: Boolean): CompositionOptions =
+    new CompositionOptions(
+      guides,
+      layoutPolicy,
+      theme,
+      columnGapPt,
+      rowGapPt,
+      cellClip,
+      rowHeights,
+      value
+    )
 
 object CompositionOptions:
   val default: CompositionOptions = unsafe()
@@ -157,11 +213,13 @@ object PlotComposition:
   ): Either[GraphicsError, ComposedPlot] =
     for
       _ <- validateGrid(plots.length, columns)
+      _ <- validateRowHeights(plots.length, columns, options.rowHeights)
+      _ <- if options.sharedXFrame then validateSharedXFrame(plots) else Right(())
       sourcePanels <- traverse(plots.zipWithIndex) { case (plot, index) =>
         panelEnvelope(plot, index, context)
       }
       rightEdges <- traverse(plots)(retainedRightEdge(_, options.guides, context))
-      strips = stripsFor(sourcePanels, rightEdges, context)
+      strips = stripsFor(sourcePanels, rightEdges, context, columns, options.rowHeights.nonEmpty)
       policy = context.layoutPolicy(options.layoutPolicy)
       uniqueGuides = collectedGuideSpecs(plots, options.guides)
       guideLayout <- layoutGuides(uniqueGuides, context, policy, options)
@@ -201,6 +259,44 @@ object PlotComposition:
     * physical size in every cell; only the panel between them takes up a cell's remaining room.
     */
   private type StripsPx = (Double, Double, Double, Double)
+
+  private def validateRowHeights(
+      count: Int,
+      columns: Int,
+      heights: Vector[RowHeight]
+  ): Either[GraphicsError, Unit] =
+    val rows = (count + columns - 1) / columns
+    if heights.isEmpty || heights.length == rows then Right(())
+    else
+      Left(
+        GraphicsError.InvalidCompositionRowHeights(
+          s"${heights.length} row heights for a grid of $rows rows"
+        )
+      )
+
+  /** Every panel of every plot must show the same x range under the same x scale domain. */
+  private def validateSharedXFrame(plots: Vector[TrainedPlot]): Either[GraphicsError, Unit] =
+    def frames(plot: TrainedPlot): Vector[Interval] =
+      if plot.facetPanels.nonEmpty then plot.facetPanels.map(_.layout.xScale)
+      else plot.layout.map(_.xScale).toVector
+    def domain(plot: TrainedPlot): Option[ScaleDomain] =
+      plot.scaleRegistry.forAesthetic(Aesthetic.X).map(_.descriptor.domain)
+    val reference = plots.headOption.flatMap(frames(_).headOption)
+    val referenceDomain = plots.headOption.flatMap(domain)
+    plots.zipWithIndex
+      .collectFirst {
+        case (plot, index) if frames(plot).exists(frame => !reference.contains(frame)) =>
+          GraphicsError.InvalidCompositionPanel(
+            index,
+            s"x frame ${frames(plot).mkString(", ")} differs from plot 0's ${reference.mkString}"
+          )
+        case (plot, index) if domain(plot) != referenceDomain =>
+          GraphicsError.InvalidCompositionPanel(
+            index,
+            "x scale domain differs from plot 0's; a shared x frame needs one trained x scale"
+          )
+      }
+      .toLeft(())
 
   private final case class GuideLayout(
       content: NormalizedFrame,
@@ -298,19 +394,29 @@ object PlotComposition:
         )
       )
 
+  /** One strip set per plot. Left and right strips are the widest over all plots, so every column's
+    * panels share their edges. Top and bottom strips are the widest over all plots too, unless rows
+    * are sized explicitly; then they are the widest within the plot's own row.
+    */
   private def stripsFor(
       panels: Vector[NormalizedFrame],
       rightEdges: Vector[Double],
-      context: RenderContext
-  ): StripsPx =
+      context: RenderContext,
+      columns: Int,
+      perRowVertical: Boolean
+  ): Vector[StripsPx] =
     val width = context.width.toDouble
     val height = context.height.toDouble
-    (
-      panels.map(_.x * width).max,
-      panels.map(_.y * height).max,
-      panels.zip(rightEdges).map((panel, edge) => (edge - panel.right) * width).max,
-      panels.map(panel => (1.0 - panel.top) * height).max
-    )
+    val left = panels.map(_.x * width).max
+    val right = panels.zip(rightEdges).map((panel, edge) => (edge - panel.right) * width).max
+    val bottoms = panels.map(_.y * height)
+    val tops = panels.map(panel => (1.0 - panel.top) * height)
+    panels.indices.toVector.map { index =>
+      val peers =
+        if perRowVertical then panels.indices.filter(_ / columns == index / columns)
+        else panels.indices
+      (left, peers.map(bottoms).max, right, peers.map(tops).max)
+    }
 
   /** Where a plot's retained content ends on the right, as a fraction of its canvas. A plot's own
     * legend column is the rightmost thing it draws; when the composition collects its legends and
@@ -446,29 +552,58 @@ object PlotComposition:
     val gapX = options.columnGapPt.getOrElse(policy.panelGapPt) * pxPerPt / context.width.toDouble
     val gapY = options.rowGapPt.getOrElse(policy.panelGapPt) * pxPerPt / context.height.toDouble
     val cellWidth = (content.width - gapX * (columns - 1).toDouble) / columns.toDouble
-    val cellHeight = (content.height - gapY * (rows - 1).toDouble) / rows.toDouble
-    if cellWidth <= 0.0 then Left(GraphicsError.LayoutOverflow("composition cell width"))
-    else if cellHeight <= 0.0 then Left(GraphicsError.LayoutOverflow("composition cell height"))
-    else
-      Right(
-        Vector.tabulate(count) { index =>
-          val row = index / columns
-          val column = index % columns
-          NormalizedFrame(
-            content.x + column.toDouble * (cellWidth + gapX),
-            content.y + (rows - row - 1).toDouble * (cellHeight + gapY),
-            cellWidth,
-            cellHeight
+    val available = content.height - gapY * (rows - 1).toDouble
+    rowFractions(rows, available, options.rowHeights, pxPerPt / context.height.toDouble).flatMap {
+      heights =>
+        if cellWidth <= 0.0 then Left(GraphicsError.LayoutOverflow("composition cell width"))
+        else if available <= 0.0 || heights.exists(_ <= 0.0) then
+          Left(GraphicsError.LayoutOverflow("composition cell height"))
+        else
+          // Rows stack downward from the content's top edge, top row first.
+          val tops = heights.scanLeft(content.top)((top, h) => top - h - gapY)
+          Right(
+            Vector.tabulate(count) { index =>
+              val row = index / columns
+              val column = index % columns
+              NormalizedFrame(
+                content.x + column.toDouble * (cellWidth + gapX),
+                tops(row) - heights(row),
+                cellWidth,
+                heights(row)
+              )
+            }
           )
-        }
-      )
+    }
+
+  /** Each row's height as a fraction of the composition. Fixed rows take their points; weighted
+    * rows share what remains in proportion. With no weighted row, leftover height stays empty below
+    * the last row rather than stretching a row that asked for a fixed size.
+    */
+  private def rowFractions(
+      rows: Int,
+      available: Double,
+      heights: Vector[RowHeight],
+      fractionPerPt: Double
+  ): Either[GraphicsError, Vector[Double]] =
+    if heights.isEmpty then Right(Vector.fill(rows)(available / rows.toDouble))
+    else
+      val fixed = heights.collect { case RowHeight.Points(pt) => pt * fractionPerPt }.sum
+      val totalWeight = heights.collect { case RowHeight.Weight(w) => w }.sum
+      val remaining = available - fixed
+      if remaining < 0.0 || (totalWeight > 0.0 && remaining <= 0.0) then
+        Left(GraphicsError.LayoutOverflow("composition fixed row heights"))
+      else
+        Right(heights.map {
+          case RowHeight.Points(pt) => pt * fractionPerPt
+          case RowHeight.Weight(w)  => remaining * w / totalWeight
+        })
 
   private def buildCells(
       plots: Vector[TrainedPlot],
       sourcePanels: Vector[NormalizedFrame],
       frames: Vector[NormalizedFrame],
       columns: Int,
-      strips: StripsPx,
+      strips: Vector[StripsPx],
       context: RenderContext,
       options: CompositionOptions
   ): Either[GraphicsError, BuiltCells] =
@@ -484,7 +619,7 @@ object PlotComposition:
       result =
         for
           // The aligned panel, as fractions of this cell: the cell less every plot's widest strips.
-          alignment <- alignmentFor(strips, cell, context)
+          alignment <- alignmentFor(strips(index), cell, context)
           scaleX = alignment.panelWidth / source.width
           scaleY = alignment.panelHeight / source.height
           offsetX = alignment.left - scaleX * source.x
