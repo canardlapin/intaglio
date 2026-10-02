@@ -95,3 +95,64 @@ MissingClassProblem intaglio.ViewportFrameError$TransformFailed
 MissingClassProblem intaglio.ViewportFrameError$TransformFailed$
 MissingClassProblem intaglio.ViewportFrameError$UnavailableAxis
 MissingClassProblem intaglio.ViewportFrameError$UnavailableAxis$
+
+# Batched display-window estimation (aa19166).
+DirectMissingMethodProblem intaglio.AutomaticDisplayWindow.estimateMany
+MissingFieldProblem intaglio.AutomaticWindowError.EmptyBatch
+MissingFieldProblem intaglio.AutomaticWindowError.IncompatibleBatchSampling
+
+# Explicit position-scale companions (ac855c9).
+DirectMissingMethodProblem intaglio.AesValue.continuousPositionScale
+MissingClassProblem intaglio.PositionCompanions
+MissingClassProblem intaglio.PositionCompanions$
+
+# Difference extents (22ddae5).
+DirectMissingMethodProblem intaglio.ExtentExpr.show
+DirectMissingMethodProblem intaglio.ExtentExpr.signDecidedAtResolution
+MissingClassProblem intaglio.ExtentExpr$Sign
+MissingClassProblem intaglio.ExtentExpr$Sign$
+
+# Aspect-preserving viewports (a57214a).
+DirectMissingMethodProblem intaglio.RendererConformance.aspectViewportCase
+DirectMissingMethodProblem intaglio.Viewport._9
+DirectMissingMethodProblem intaglio.Viewport.aspect
+DirectMissingMethodProblem intaglio.Viewport.withAspect
+DirectMissingMethodProblem intaglio.Viewport.withoutAspect
+MissingClassProblem intaglio.AspectMode
+MissingClassProblem intaglio.AspectMode$
+MissingClassProblem intaglio.ViewportAspect
+MissingClassProblem intaglio.ViewportAspect$
+
+# Explicit composition row heights (d9b578d, constructor bridge dd31fd6).
+DirectMissingMethodProblem intaglio.CompositionOptions.rowHeights
+DirectMissingMethodProblem intaglio.CompositionOptions.sharedXFrame
+DirectMissingMethodProblem intaglio.CompositionOptions.withRowHeights
+DirectMissingMethodProblem intaglio.CompositionOptions.withSharedXFrame
+MissingClassProblem intaglio.GraphicsError$InvalidCompositionRowHeights
+MissingClassProblem intaglio.GraphicsError$InvalidCompositionRowHeights$
+MissingClassProblem intaglio.RowHeight
+MissingClassProblem intaglio.RowHeight$
+MissingClassProblem intaglio.RowHeight$Points
+MissingClassProblem intaglio.RowHeight$Points$
+MissingClassProblem intaglio.RowHeight$Weight
+MissingClassProblem intaglio.RowHeight$Weight$
+MissingFieldProblem intaglio.GraphicsError.InvalidCompositionRowHeights
+
+# Classed raster colour scales (3f44b1d).
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$3
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$4
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$5
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$6
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$7
+DirectMissingMethodProblem intaglio.RendererConformance.classedRasterCase
+MissingClassProblem intaglio.ClassedColorScale
+MissingClassProblem intaglio.ClassedColorScale$
+MissingClassProblem intaglio.ClassedColorScaleSpec
+MissingClassProblem intaglio.ClassedColorScaleSpec$
+MissingClassProblem intaglio.ClassedValue
+MissingClassProblem intaglio.ClassedValue$
+MissingClassProblem intaglio.ColorClass
+MissingClassProblem intaglio.ColorClass$
+MissingClassProblem intaglio.ScaleObservation$Classed
+MissingClassProblem intaglio.ScaleObservation$Classed$

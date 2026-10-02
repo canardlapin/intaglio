@@ -108,6 +108,36 @@ compatibility, and TASTy-MiMa checks retyping compatibility for all Scala 3 arti
 cannot prove behavioral compatibility; Intaglio's law, conformance, differential, fuzz, and golden
 suites cover that separate contract.
 
+### Display, layout, and classed-raster additions
+
+The core additions through `dd31fd6` use the same exact-symbol, baseline-scoped
+forward review in `interaction-additions.txt`:
+
+- `AutomaticDisplayWindow.estimateMany` has a distinct name and leaves the existing
+  `estimate` signature and defaults intact. Its two new errors describe invalid batch requests.
+- `CompositionOptions.withRowHeights` and `withSharedXFrame` add opt-in policies;
+  the existing factories and six-argument JVM constructor remain available. `RowHeight`
+  is a new sealed type with checked physical-size and weight factories.
+- `Viewport.withAspect` and `withoutAspect` add opt-in placement using new
+  `ViewportAspect` and `AspectMode` types. The existing checked/unsafe factories and
+  seven- and eight-argument constructor descriptors remain. The trailing `aspect`
+  field has the positional-extractor caveat already described above.
+- `PlotBuilder.geomRasterByClass` is a distinct method, retaining the `ScalarCell`
+  and `HasXY` witnesses. It introduces classed colour values and scales without adding
+  an overload to `geomRaster` or changing ordinary continuous-scale factories.
+- Position-scale companion helpers and difference-extent sign/formatting helpers
+  are Scala-private implementation details whose JVM symbols are visible to MiMa.
+  The conformance fixture additions have distinct method names.
+
+New error cases can require callers to extend exhaustive source matches; the
+forward review is not a promise that arbitrary exhaustive matches will recompile.
+The new `ScaleObservation.Classed` case is package-scoped. Existing public plotting
+examples are compiled by the documentation court, including the unchanged raster
+API and the new classed-raster, row-height, and viewport examples. The calibrated
+review still rejects unreviewed additions and legacy removals; backward MiMa and
+TASTy checks receive no new exclusions. This review does not cover additions that
+exist only on other integration branches.
+
 ### The baseline is compiler-bound
 
 The baseline is built from source, not downloaded, so both sides of the comparison are compiled ---
