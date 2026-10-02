@@ -228,6 +228,7 @@ lazy val laws =
       name := "intaglio-laws",
       description := "Framework-neutral extension law kits for Intaglio ecosystem authors."
     )
+    .jvmSettings(additiveCompatibilitySettings("laws-additions.txt"))
     .jsSettings(jsSettingsBase)
 
 lazy val lawsJS = laws.js
@@ -452,7 +453,7 @@ addCommandAlias(
 
 addCommandAlias(
   "compatibilityCheck",
-  ";coreJVM/interactionCompatibilityCheck;java2dJVM/interactionCompatibilityCheck;javafxJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
+  ";coreJVM/interactionCompatibilityCheck;lawsJVM/interactionCompatibilityCheck;java2dJVM/interactionCompatibilityCheck;javafxJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
 )
 
 addCommandAlias(

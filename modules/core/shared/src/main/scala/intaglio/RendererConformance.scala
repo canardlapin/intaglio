@@ -227,7 +227,9 @@ object RendererConformance:
       boundedGeoms <- boundedGeomsCase
       segmentGeoms <- segmentGeomsCase
       bandGeoms <- bandGeomsCase
+      casedMarks <- casedMarksCase
     yield Vector(
+      casedMarks,
       point,
       line,
       customDash,
@@ -490,6 +492,82 @@ object RendererConformance:
         )
       )
     )
+
+  /** Cased point marks and a cased disc: a hollow circle point, a single cross (whose two bars must
+    * share one underlay), a mixed-shape batch that must stay one primitive, and a circle grob. The
+    * casing is paint for its mark, so each named mark keeps its own primitive kind and primary
+    * style; backend suites pin the underlay itself.
+    */
+  def casedMarksCase: Either[GraphicsError, ConformanceCase] =
+    val stroke = Rgba.unsafe(24, 94, 180)
+    val gp = GraphicParams
+      .unsafe(stroke = Some(stroke), lineWidth = 2.0)
+      .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3.0)))
+    val point = GraphicsName.unsafe("conformance-cased-point")
+    val cross = GraphicsName.unsafe("conformance-cased-cross")
+    val batch = GraphicsName.unsafe("conformance-cased-batch")
+    val disc = GraphicsName.unsafe("conformance-cased-disc")
+    for
+      pointGrob <- Grob.points(
+        Vector(Point.npcUnsafe(0.2, 0.5)),
+        size = ExtentExpr.pointsUnsafe(5.0),
+        gp = gp,
+        name = Some(point)
+      )
+      crossGrob <- Grob.points(
+        Vector(Point.npcUnsafe(0.4, 0.5)),
+        size = ExtentExpr.pointsUnsafe(5.0),
+        shape = PointShape.Cross,
+        gp = gp,
+        name = Some(cross)
+      )
+      batchGrob <- Grob.pointBatch(
+        Vector(Point.npcUnsafe(0.6, 0.3), Point.npcUnsafe(0.6, 0.5), Point.npcUnsafe(0.6, 0.7)),
+        sizes = BatchColumn.Constant(ExtentExpr.pointsUnsafe(5.0)),
+        shapes =
+          BatchColumn.Values(Vector(PointShape.Square, PointShape.Cross, PointShape.Diamond)),
+        graphicParams = BatchColumn.Constant(gp),
+        name = Some(batch)
+      )
+      discGrob <- Grob.circle(
+        Point.npcUnsafe(0.85, 0.5),
+        ExtentExpr.pointsUnsafe(8.0),
+        gp = gp,
+        name = Some(disc)
+      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("cased-marks"),
+      ConformanceGroup.Primitive,
+      Scene(Vector(pointGrob, crossGrob, batchGrob, discGrob)),
+      Vector(point, cross, batch, disc),
+      Vector(
+        RenderRequirement.Primitive(point, RenderPrimitiveKind.Disc),
+        RenderRequirement.Primitive(cross, RenderPrimitiveKind.Polyline),
+        RenderRequirement.Primitive(batch, RenderPrimitiveKind.Rectangle),
+        RenderRequirement.Primitive(disc, RenderPrimitiveKind.Disc),
+        RenderRequirement.Style(
+          point,
+          Some(stroke),
+          None,
+          2.0,
+          LineType.Solid,
+          LineCap.Butt,
+          LineJoin.Miter,
+          1.0
+        ),
+        RenderRequirement.Style(
+          disc,
+          Some(stroke),
+          None,
+          2.0,
+          LineType.Solid,
+          LineCap.Butt,
+          LineJoin.Miter,
+          1.0
+        )
+      )
+    )
+
 
   /** A point batch whose marks carry [[BatchMarks]] names, titles and an SVG data attribute.
     * Identity never changes geometry or paint, so every backend must draw the batch exactly as an

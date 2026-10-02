@@ -17,6 +17,90 @@ class SvgRendererSuite extends munit.FunSuite:
   private def render(scene: Scene, options: SvgOptions = SvgOptions.default): String =
     SvgRenderer.render(scene, options).toOption.get.value
 
+  private val casedMark = GraphicParams
+    .unsafe(stroke = Some(Rgba.unsafe(20, 80, 180)), lineWidth = 2.0)
+    .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3.0)))
+
+  private val casingAttrs =
+    """ stroke="#ffffff" fill="none" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter" pointer-events="none""""
+
+  private def bodyLines(svg: String): Vector[String] =
+    svg.linesIterator
+      .map(_.trim)
+      .filter(l =>
+        l.startsWith("<circle") || l.startsWith("<rect") ||
+          l.startsWith("<polygon") || l.startsWith("<polyline")
+      )
+      .toVector
+
+  test("a cased hollow circle point and disc emit the underlay with the same geometry first") {
+    val point = Grob
+      .points(
+        Vector(Point.npcUnsafe(0.5, 0.5)),
+        size = ExtentExpr.npcUnsafe(0.1),
+        gp = casedMark,
+        name = Some(GraphicsName.unsafe("dot"))
+      )
+      .orThrow
+    val svg = render(Scene(Vector(point)), SvgOptions.unsafe(width = 100, height = 100))
+    assertEquals(
+      bodyLines(svg).filter(_.startsWith("<circle")),
+      Vector(
+        s"""<circle$casingAttrs cx="50" cy="50" r="10" />""",
+        """<circle data-name="dot" stroke="#1450b4" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" cx="50" cy="50" r="10" />"""
+      )
+    )
+    val plain = render(
+      Scene(
+        Vector(
+          Grob
+            .points(
+              Vector(Point.npcUnsafe(0.5, 0.5)),
+              size = ExtentExpr.npcUnsafe(0.1),
+              gp = casedMark.withoutCasing
+            )
+            .orThrow
+        )
+      ),
+      SvgOptions.unsafe(width = 100, height = 100)
+    )
+    assertEquals(occurrences(plain, "pointer-events=\"none\""), 0)
+  }
+
+  test("a cased batch keeps one named element per mark and underlays both cross bars first") {
+    val batch = Grob
+      .pointBatch(
+        Vector(Point.npcUnsafe(0.2, 0.5), Point.npcUnsafe(0.5, 0.5), Point.npcUnsafe(0.8, 0.5)),
+        sizes = BatchColumn.Constant(ExtentExpr.npcUnsafe(0.1)),
+        shapes =
+          BatchColumn.Values(Vector(PointShape.Square, PointShape.Cross, PointShape.Diamond)),
+        graphicParams = BatchColumn.Constant(casedMark),
+        name = Some(GraphicsName.unsafe("marks"))
+      )
+      .orThrow
+    val lines =
+      bodyLines(render(Scene(Vector(batch)), SvgOptions.unsafe(width = 100, height = 100)))
+    val kinds =
+      lines.map(line => (line.takeWhile(_ != ' '), line.contains("pointer-events=\"none\"")))
+    assertEquals(
+      kinds,
+      Vector(
+        ("<rect", true),
+        ("<rect", false),
+        ("<polyline", true),
+        ("<polyline", true),
+        ("<polyline", false),
+        ("<polyline", false),
+        ("<polygon", true),
+        ("<polygon", false)
+      )
+    )
+    assert(lines.filter(_.contains("pointer-events")).forall(!_.contains("data-name")))
+    def geometry(line: String) = line.substring(line.indexOf("points="))
+    assertEquals(geometry(lines(2)), geometry(lines(4)))
+    assertEquals(geometry(lines(3)), geometry(lines(5)))
+  }
+
   test("cased segments emit an unnamed solid underlay immediately before the named dashed stroke") {
     val gp = GraphicParams
       .unsafe(

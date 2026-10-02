@@ -98,3 +98,8 @@ MissingClassProblem intaglio.ViewportFrameError$UnavailableAxis$
 
 # One resolution shared by drawing and picking.
 DirectMissingMethodProblem intaglio.DeviceScene.validate
+# Batched automatic display windows (c8ed714).
+DirectMissingMethodProblem intaglio.AutomaticDisplayWindow.estimateMany
+
+# Stroke casing on point marks and discs.
+DirectMissingMethodProblem intaglio.RendererConformance.casedMarksCase

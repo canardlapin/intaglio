@@ -1027,10 +1027,25 @@ object CanvasRenderer:
           paintPath(context, paint, true, patterns, accumulator)
         }
       case PointShape.Cross =>
+        // Both bars' casing is one underlay painted before either bar, so the second bar's casing
+        // cannot cut through the first bar where they cross.
+        paint.stroke.foreach { _ =>
+          paint.casing.foreach { casing =>
+            withSaved(context) {
+              context.beginPath()
+              context.moveTo(point.x - radius, point.y)
+              context.lineTo(point.x + radius, point.y)
+              context.moveTo(point.x, point.y - radius)
+              context.lineTo(point.x, point.y + radius)
+              strokeCasing(context, paint, casing)
+            }
+          }
+        }
+        val uncased = paint.copy(casing = None)
         drawPointLine(
           DevicePoint(point.x - radius, point.y),
           DevicePoint(point.x + radius, point.y),
-          paint,
+          uncased,
           context,
           patterns,
           accumulator
@@ -1038,7 +1053,7 @@ object CanvasRenderer:
           drawPointLine(
             DevicePoint(point.x, point.y - radius),
             DevicePoint(point.x, point.y + radius),
-            paint,
+            uncased,
             context,
             patterns,
             accumulator
@@ -1099,17 +1114,7 @@ object CanvasRenderer:
             Right(())
     filled.map { _ =>
       paint.stroke.foreach { color =>
-        paint.casing.foreach { casing =>
-          strokePath(
-            context,
-            casing.color,
-            casing.lineWidth,
-            casing.dash,
-            paint.lineCap,
-            paint.lineJoin,
-            paint.opacity * casing.alpha
-          )
-        }
+        paint.casing.foreach(strokeCasing(context, paint, _))
         strokePath(
           context,
           color,
@@ -1121,6 +1126,21 @@ object CanvasRenderer:
         )
       }
     }
+
+  private def strokeCasing(
+      context: CanvasRenderingContext2D,
+      paint: CanvasPaint,
+      casing: CanvasCasing
+  ): Unit =
+    strokePath(
+      context,
+      casing.color,
+      casing.lineWidth,
+      casing.dash,
+      paint.lineCap,
+      paint.lineJoin,
+      paint.opacity * casing.alpha
+    )
 
   private def strokePath(
       context: CanvasRenderingContext2D,

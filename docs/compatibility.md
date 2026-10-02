@@ -188,3 +188,12 @@ optional `marks` field. As with earlier trailing fields, the pre-identity constr
 `apply` and `copy` descriptors are kept as explicit bridges, and positional extractor patterns over
 all of `GrobMeta`'s fields are the known source caveat. `DevicePrimitive.PointBatch` and every
 other backend-facing primitive are unchanged, so existing backends need no edit.
+
+### Law-kit additions
+
+New law kits are new public classes in `intaglio-laws`, which until now had no additive record of its
+own. [`laws-additions.txt`](../compatibility/laws-additions.txt) is that record, checked against the
+same pinned baseline by `lawsJVM/interactionCompatibilityCheck` and wired into
+`compatibilityCheck`. The first entry is `StrokeCasingLaws`; the stroke-casing conformance case
+`RendererConformance.casedMarksCase` is recorded with the core additions. Neither changes an
+existing signature.

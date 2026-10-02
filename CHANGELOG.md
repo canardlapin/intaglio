@@ -245,6 +245,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   transform is no longer uniformly spaced and is refused by the raster's grid
   contract.
 
+- **Stroke casing on point marks and discs.** A `StrokeCasing` on a point mark,
+  point batch or circle grob was dropped by SVG and PDF (and by JavaFX for
+  circles), and on a cross the second bar's casing was painted over the first
+  bar where they cross. Every backend now underlays each mark's stroke with its
+  casing, using the mark's own geometry; both bars of a cross share one
+  underlay, and a single cased cross point lowers to a one-mark batch so they
+  can. A batch stays one primitive. Picking is unchanged: as for paths, the
+  casing is paint for its mark. `StrokeCasingLaws` states the lowering laws,
+  and `RendererConformance.casedMarksCase` adds the cases to every harness.
+
 - **Derived legend keys fit their rows.** The layout solver budgets
   `LayoutPolicy.legendKeyPt` as the side of each key's box, but placement
   handed that value to the key glyph as its size, which a point glyph reads as

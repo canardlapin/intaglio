@@ -657,18 +657,7 @@ object JavaFxRenderer:
         context.rect(x, y, width, height)
         context.clip()
       case JavaFxCommand.Disc(centerX, centerY, radius, paint, _) =>
-        withSaved(context) {
-          val x = centerX - radius
-          val y = centerY - radius
-          val size = radius * 2.0
-          fill(context, paint, accumulator) {
-            context.fillOval(x, y, size, size)
-          }
-          paint.stroke.foreach { color =>
-            strokeState(context, paint, color)
-            context.strokeOval(x, y, size, size)
-          }
-        }
+        drawOval(centerX, centerY, radius, paint, context, accumulator)
       case JavaFxCommand.PointBatch(points, radii, shapes, paints, _) =>
         var index = 0
         while index < points.length do
@@ -747,18 +736,7 @@ object JavaFxRenderer:
   ): Unit =
     shape match
       case PointShape.Circle =>
-        withSaved(context) {
-          val x = point.x - radius
-          val y = point.y - radius
-          val size = radius * 2.0
-          fill(context, paint, accumulator) {
-            context.fillOval(x, y, size, size)
-          }
-          paint.stroke.foreach { color =>
-            strokeState(context, paint, color)
-            context.strokeOval(x, y, size, size)
-          }
-        }
+        drawOval(point.x, point.y, radius, paint, context, accumulator)
       case PointShape.Square =>
         withSaved(context) {
           context.beginPath()
@@ -786,12 +764,27 @@ object JavaFxRenderer:
           paintPath(context, paint, true, accumulator)
         }
       case PointShape.Cross =>
+        // Both bars' casing is one underlay painted before either bar, so the second bar's casing
+        // cannot cut through the first bar where they cross.
+        paint.stroke.foreach { _ =>
+          paint.casing.foreach { casing =>
+            withSaved(context) {
+              context.beginPath()
+              context.moveTo(point.x - radius, point.y)
+              context.lineTo(point.x + radius, point.y)
+              context.moveTo(point.x, point.y - radius)
+              context.lineTo(point.x, point.y + radius)
+              strokeCasing(context, paint, casing)
+            }
+          }
+        }
+        val bars = paint.copy(casing = None)
         drawPointLine(
           point.x - radius,
           point.y,
           point.x + radius,
           point.y,
-          paint,
+          bars,
           context,
           accumulator
         )
@@ -800,10 +793,61 @@ object JavaFxRenderer:
           point.y - radius,
           point.x,
           point.y + radius,
-          paint,
+          bars,
           context,
           accumulator
         )
+
+  /** A disc through JavaFX's oval primitives: fill, then the casing underlay when the paint has a
+    * stroke to case, then the stroke, in the order [[paintPath]] uses for every other shape.
+    */
+  private def drawOval(
+      centerX: Double,
+      centerY: Double,
+      radius: Double,
+      paint: JavaFxPaint,
+      context: JavaFxGraphicsContext,
+      accumulator: JavaFxDrawAccumulator
+  ): Unit =
+    withSaved(context) {
+      val x = centerX - radius
+      val y = centerY - radius
+      val size = radius * 2.0
+      fill(context, paint, accumulator) {
+        context.fillOval(x, y, size, size)
+      }
+      paint.stroke.foreach { color =>
+        paint.casing.foreach { casing =>
+          strokeCasingState(context, paint, casing)
+          context.strokeOval(x, y, size, size)
+        }
+        strokeState(context, paint, color)
+        context.strokeOval(x, y, size, size)
+      }
+    }
+
+  private def strokeCasing(
+      context: JavaFxGraphicsContext,
+      paint: JavaFxPaint,
+      casing: JavaFxCasing
+  ): Unit =
+    strokeCasingState(context, paint, casing)
+    context.strokePath()
+
+  private def strokeCasingState(
+      context: JavaFxGraphicsContext,
+      paint: JavaFxPaint,
+      casing: JavaFxCasing
+  ): Unit =
+    strokeState(
+      context,
+      casing.color,
+      casing.lineWidth,
+      casing.dash,
+      paint.lineCap,
+      paint.lineJoin,
+      paint.opacity * casing.alpha
+    )
 
   private def drawPointLine(
       x0: Double,
@@ -834,18 +878,7 @@ object JavaFxRenderer:
   ): Unit =
     if allowFill then fill(context, paint, accumulator)(context.fillPath())
     paint.stroke.foreach { color =>
-      paint.casing.foreach { casing =>
-        strokeState(
-          context,
-          casing.color,
-          casing.lineWidth,
-          casing.dash,
-          paint.lineCap,
-          paint.lineJoin,
-          paint.opacity * casing.alpha
-        )
-        context.strokePath()
-      }
+      paint.casing.foreach(strokeCasing(context, paint, _))
       strokeState(context, paint, color)
       context.strokePath()
     }

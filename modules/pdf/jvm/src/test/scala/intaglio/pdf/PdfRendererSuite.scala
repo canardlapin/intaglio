@@ -395,6 +395,34 @@ class PdfRendererSuite extends munit.FunSuite:
     )
   }
 
+  test("cased hollow discs, rectangles and batched marks stroke an underlay before each mark") {
+    val gp = GraphicParams
+      .unsafe(stroke = Some(Rgba.unsafe(20, 80, 180)), lineWidth = 2.0)
+      .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3.0)))
+    val context = RenderContext.unsafe(width = 100, height = 60)
+    def strokes(grob: Grob): Vector[String] =
+      var ops = Vector.empty[String]
+      load(render(Scene(Vector(grob)), context))(parsed => ops = operators(parsed.getPage(0)))
+      ops.filter(op => op == "S" || op == "w")
+    def disc(style: GraphicParams) =
+      Grob.circle(Point.npcUnsafe(0.5, 0.5), ExtentExpr.pointsUnsafe(6), gp = style).orThrow
+    val square = Grob
+      .points(Vector(Point.npcUnsafe(0.5, 0.5)), shape = PointShape.Square, gp = gp)
+      .orThrow
+    val batch = Grob
+      .pointBatch(
+        Vector(Point.npcUnsafe(0.3, 0.5), Point.npcUnsafe(0.7, 0.5)),
+        shapes = BatchColumn.Values(Vector(PointShape.Circle, PointShape.Cross)),
+        graphicParams = BatchColumn.Constant(gp)
+      )
+      .orThrow
+    // Each casing sets its own (wider) width, then the primary stroke resets it.
+    for grob <- Vector(disc(gp), square) do
+      assertEquals(strokes(grob), Vector("w", "S", "w", "S"), clue(grob))
+    assertEquals(strokes(batch), Vector.fill(2)(Vector("w", "S", "w", "S")).flatten)
+    assertEquals(strokes(disc(gp.withoutCasing)), Vector("w", "S"))
+  }
+
   test("cased line emits two stroke operations with the underlay first") {
     val gp = GraphicParams
       .unsafe(stroke = Some(Rgba.unsafe(20, 80, 180)), lineWidth = 2.0, lineType = LineType.Dashed)

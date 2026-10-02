@@ -397,12 +397,14 @@ object SvgRenderer:
   ): Unit =
     primitive match
       case DevicePrimitive.Disc(cx, cy, radius, gp, name) =>
-        line(
+        writeClosedShape(
+          "circle",
+          s"""cx="${format(cx)}" cy="${format(cy)}" r="${format(radius)}"""",
+          name,
+          gp,
           out,
           indent,
-          s"""<circle${commonAttrs(name, gp, patterns)} cx="${format(cx)}" cy="${format(
-              cy
-            )}" r="${format(radius)}" />"""
+          patterns
         )
       case DevicePrimitive.PointBatch(points, radii, shapes, params, name) =>
         var index = 0
@@ -420,7 +422,7 @@ object SvgRenderer:
           index += 1
       case DevicePrimitive.Polyline(points, closed, gp, name) =>
         val coords = points.map(p => s"${format(p.x)},${format(p.y)}").mkString(" ")
-        gp.casing.filter(_ => gp.stroke.nonEmpty).foreach { casing =>
+        visibleCasing(gp).foreach { casing =>
           val attrs = casingLineAttrs(gp, casing)
           if closed then line(out, indent, s"""<polygon$attrs points="$coords" />""")
           else line(out, indent, s"""<polyline$attrs points="$coords" />""")
@@ -446,12 +448,16 @@ object SvgRenderer:
         val corners =
           if cornerRadius == 0.0 then ""
           else s""" rx="${format(cornerRadius)}" ry="${format(cornerRadius)}""""
-        line(
+        writeClosedShape(
+          "rect",
+          s"""x="${format(x)}" y="${format(y)}" width="${format(width)}" height="${format(
+              height
+            )}"$corners""",
+          name,
+          gp,
           out,
           indent,
-          s"""<rect${commonAttrs(name, gp, patterns)} x="${format(x)}" y="${format(
-              y
-            )}" width="${format(width)}" height="${format(height)}"$corners />"""
+          patterns
         )
       case DevicePrimitive.TextRun(
             label,
@@ -506,42 +512,49 @@ object SvgRenderer:
   ): Unit =
     shape match
       case PointShape.Circle =>
-        line(
+        writeClosedShape(
+          "circle",
+          s"""cx="${format(point.x)}" cy="${format(point.y)}" r="${format(radius)}"""",
+          name,
+          gp,
           out,
           indent,
-          s"""<circle${commonAttrs(name, gp, patterns)} cx="${format(point.x)}" cy="${format(
-              point.y
-            )}" r="${format(radius)}" />"""
+          patterns
         )
       case PointShape.Square =>
-        line(
+        writeClosedShape(
+          "rect",
+          s"""x="${format(point.x - radius)}" y="${format(point.y - radius)}" width="${format(
+              radius * 2.0
+            )}" height="${format(radius * 2.0)}"""",
+          name,
+          gp,
           out,
           indent,
-          s"""<rect${commonAttrs(name, gp, patterns)} x="${format(point.x - radius)}" y="${format(
-              point.y - radius
-            )}" width="${format(radius * 2.0)}" height="${format(radius * 2.0)}" />"""
+          patterns
         )
       case PointShape.Triangle =>
         val coords =
           s"${format(point.x)},${format(point.y - radius)} ${format(point.x + radius)},${format(
               point.y + radius
             )} ${format(point.x - radius)},${format(point.y + radius)}"
-        line(out, indent, s"""<polygon${commonAttrs(name, gp, patterns)} points="$coords" />""")
+        writeClosedShape("polygon", s"""points="$coords"""", name, gp, out, indent, patterns)
       case PointShape.Cross =>
-        line(
-          out,
-          indent,
-          s"""<polyline${lineAttrs(name, gp)} points="${format(point.x - radius)},${format(
-              point.y
-            )} ${format(point.x + radius)},${format(point.y)}" />"""
+        val bars = Vector(
+          s"""points="${format(point.x - radius)},${format(point.y)} ${format(
+              point.x + radius
+            )},${format(point.y)}"""",
+          s"""points="${format(point.x)},${format(point.y - radius)} ${format(point.x)},${format(
+              point.y + radius
+            )}""""
         )
-        line(
-          out,
-          indent,
-          s"""<polyline${lineAttrs(name, gp)} points="${format(point.x)},${format(
-              point.y - radius
-            )} ${format(point.x)},${format(point.y + radius)}" />"""
-        )
+        // Both underlays precede both bars: an underlay painted between them would cut the first
+        // bar where the second crosses it.
+        visibleCasing(gp).foreach { casing =>
+          val attrs = casingLineAttrs(gp, casing)
+          bars.foreach(bar => line(out, indent, s"""<polyline$attrs $bar />"""))
+        }
+        bars.foreach(bar => line(out, indent, s"""<polyline${lineAttrs(name, gp)} $bar />"""))
       case PointShape.Diamond =>
         val half = PointShape.diamondHalfDiagonal(radius)
         val coords =
@@ -550,7 +563,28 @@ object SvgRenderer:
             )} ${format(point.x)},${format(point.y + half)} ${format(point.x - half)},${format(
               point.y
             )}"
-        line(out, indent, s"""<polygon${commonAttrs(name, gp, patterns)} points="$coords" />""")
+        writeClosedShape("polygon", s"""points="$coords"""", name, gp, out, indent, patterns)
+
+  /** One filled-and-stroked element, preceded by its unnamed casing underlay when the style has a
+    * stroke to case. The underlay repeats the element's own geometry, so a cased point, disc or
+    * rectangle follows the same rule as a cased path.
+    */
+  private def writeClosedShape(
+      tag: String,
+      geometry: String,
+      name: Option[GraphicsName],
+      gp: GraphicParams,
+      out: StringBuilder,
+      indent: Int,
+      patterns: PatternRegistry
+  ): Unit =
+    visibleCasing(gp).foreach { casing =>
+      line(out, indent, s"""<$tag${casingLineAttrs(gp, casing)} $geometry />""")
+    }
+    line(out, indent, s"""<$tag${commonAttrs(name, gp, patterns)} $geometry />""")
+
+  private def visibleCasing(gp: GraphicParams): Option[StrokeCasing] =
+    gp.casing.filter(_ => gp.stroke.nonEmpty)
 
   private def commonAttrs(
       name: Option[GraphicsName],

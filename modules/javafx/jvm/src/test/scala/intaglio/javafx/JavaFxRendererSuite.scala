@@ -95,6 +95,52 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
 
 class JavaFxRendererSuite extends munit.FunSuite:
 
+  private val casedMark = GraphicParams
+    .unsafe(stroke = Some(Rgba.unsafe(20, 80, 180)), lineWidth = 2.0)
+    .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3.0), alpha = 0.6))
+
+  private def drawn(grob: Grob): RecordingFxContext =
+    val program = JavaFxRenderer
+      .compile(Scene(Vector(grob)), JavaFxOptions.unsafe(width = 100, height = 60))
+      .fold(error => fail(error.message), identity)
+    val context = new RecordingFxContext
+    JavaFxRenderer.draw(program, context)
+    context
+
+  test("a cased hollow circle point and circle grob stroke the oval casing first") {
+    val point = Grob.points(Vector(Point.npcUnsafe(0.5, 0.5)), gp = casedMark).orThrow
+    val circle =
+      Grob.circle(Point.npcUnsafe(0.5, 0.5), ExtentExpr.pointsUnsafe(5), gp = casedMark).orThrow
+    for grob <- Vector(point, circle) do
+      val context = drawn(grob)
+      assertEquals(context.calls.count(_ == "strokeOval"), 2)
+      assertEquals(context.strokeColors.map(_.red).toVector, Vector(255, 20))
+      assertEquals(context.strokeColors.head.alpha, 0.6)
+    val plain =
+      drawn(Grob.points(Vector(Point.npcUnsafe(0.5, 0.5)), gp = casedMark.withoutCasing).orThrow)
+    assertEquals(plain.calls.count(_ == "strokeOval"), 1)
+  }
+
+  test("a cased batched cross strokes one underlay for both bars before either bar") {
+    val batch = Grob
+      .pointBatch(
+        Vector(Point.npcUnsafe(0.3, 0.5), Point.npcUnsafe(0.7, 0.5)),
+        shapes = BatchColumn.Values(Vector(PointShape.Cross, PointShape.Circle)),
+        graphicParams = BatchColumn.Constant(casedMark)
+      )
+      .orThrow
+    val context = drawn(batch)
+    val strokes = context.calls.filter(c => c == "strokePath" || c == "strokeOval").toVector
+    assertEquals(
+      strokes,
+      Vector("strokePath", "strokePath", "strokePath", "strokeOval", "strokeOval")
+    )
+    // Underlay, bar, bar for the cross; underlay, ring for the circle.
+    assertEquals(context.strokeColors.map(_.red).toVector, Vector(255, 20, 20, 255, 20))
+    val crossPath = context.calls.takeWhile(_ != "strokePath").toVector
+    assertEquals(crossPath.count(_ == "moveTo"), 2, "both bars are in the underlay path")
+  }
+
   test("casing records a solid underlay before the dashed primary stroke") {
     val gp = GraphicParams
       .unsafe(stroke = Some(Rgba.unsafe(20, 80, 180)), lineWidth = 2.0, lineType = LineType.Dashed)

@@ -292,8 +292,9 @@ object PdfRenderer:
         case DevicePrimitive.Disc(centerX, centerY, radius, gp, name) =>
           if hasPaint(gp, allowFill = true) then
             withGraphics {
-              appendCircle(stream, x(centerX), y(centerY), px(radius))
-              paint(gp, allowFill = true)
+              casedPaint(gp, allowFill = true) {
+                appendCircle(stream, x(centerX), y(centerY), px(radius))
+              }
             }
             vectorShapes += 1
             recordStyledPrimitive(name, RenderPrimitiveKind.Disc, gp)
@@ -313,12 +314,7 @@ object PdfRenderer:
         case DevicePrimitive.Polyline(points, closed, gp, name) =>
           if hasPaint(gp, allowFill = closed) then
             withGraphics {
-              gp.casing.filter(_ => gp.stroke.nonEmpty).foreach { casing =>
-                appendPolyline(points, closed)
-                paintCasing(gp, casing)
-              }
-              appendPolyline(points, closed)
-              paint(gp, allowFill = closed)
+              casedPaint(gp, allowFill = closed)(appendPolyline(points, closed))
             }
             vectorShapes += 1
             val kind = if closed then RenderPrimitiveKind.Polygon else RenderPrimitiveKind.Polyline
@@ -334,18 +330,19 @@ object PdfRenderer:
         case DevicePrimitive.RectShape(rectX, rectY, width, height, cornerRadius, gp, name) =>
           if hasPaint(gp, allowFill = true) then
             withGraphics {
-              if cornerRadius == 0.0 then
-                stream.addRect(x(rectX), y(rectY + height), px(width), px(height))
-              else
-                appendRoundedRect(
-                  stream,
-                  x(rectX),
-                  y(rectY + height),
-                  px(width),
-                  px(height),
-                  px(cornerRadius)
-                )
-              paint(gp, allowFill = true)
+              casedPaint(gp, allowFill = true) {
+                if cornerRadius == 0.0 then
+                  stream.addRect(x(rectX), y(rectY + height), px(width), px(height))
+                else
+                  appendRoundedRect(
+                    stream,
+                    x(rectX),
+                    y(rectY + height),
+                    px(width),
+                    px(height),
+                    px(cornerRadius)
+                  )
+              }
             }
             vectorShapes += 1
             recordStyledPrimitive(name, RenderPrimitiveKind.Rectangle, gp)
@@ -413,34 +410,37 @@ object PdfRenderer:
       val allowFill = shape != PointShape.Cross
       if hasPaint(gp, allowFill) then
         withGraphics {
-          shape match
-            case PointShape.Circle =>
-              appendCircle(stream, x(point.x), y(point.y), px(radius))
-            case PointShape.Square =>
-              stream.addRect(
-                x(point.x - radius),
-                y(point.y + radius),
-                px(radius * 2.0),
-                px(radius * 2.0)
-              )
-            case PointShape.Triangle =>
-              stream.moveTo(x(point.x), y(point.y - radius))
-              stream.lineTo(x(point.x + radius), y(point.y + radius))
-              stream.lineTo(x(point.x - radius), y(point.y + radius))
-              stream.closePath()
-            case PointShape.Cross =>
-              stream.moveTo(x(point.x - radius), y(point.y))
-              stream.lineTo(x(point.x + radius), y(point.y))
-              stream.moveTo(x(point.x), y(point.y - radius))
-              stream.lineTo(x(point.x), y(point.y + radius))
-            case PointShape.Diamond =>
-              val half = PointShape.diamondHalfDiagonal(radius)
-              stream.moveTo(x(point.x), y(point.y - half))
-              stream.lineTo(x(point.x + half), y(point.y))
-              stream.lineTo(x(point.x), y(point.y + half))
-              stream.lineTo(x(point.x - half), y(point.y))
-              stream.closePath()
-          paint(gp, allowFill)
+          // A cross is one path of two bars, so its casing underlays both bars before either is
+          // stroked.
+          casedPaint(gp, allowFill) {
+            shape match
+              case PointShape.Circle =>
+                appendCircle(stream, x(point.x), y(point.y), px(radius))
+              case PointShape.Square =>
+                stream.addRect(
+                  x(point.x - radius),
+                  y(point.y + radius),
+                  px(radius * 2.0),
+                  px(radius * 2.0)
+                )
+              case PointShape.Triangle =>
+                stream.moveTo(x(point.x), y(point.y - radius))
+                stream.lineTo(x(point.x + radius), y(point.y + radius))
+                stream.lineTo(x(point.x - radius), y(point.y + radius))
+                stream.closePath()
+              case PointShape.Cross =>
+                stream.moveTo(x(point.x - radius), y(point.y))
+                stream.lineTo(x(point.x + radius), y(point.y))
+                stream.moveTo(x(point.x), y(point.y - radius))
+                stream.lineTo(x(point.x), y(point.y + radius))
+              case PointShape.Diamond =>
+                val half = PointShape.diamondHalfDiagonal(radius)
+                stream.moveTo(x(point.x), y(point.y - half))
+                stream.lineTo(x(point.x + half), y(point.y))
+                stream.lineTo(x(point.x), y(point.y + half))
+                stream.lineTo(x(point.x - half), y(point.y))
+                stream.closePath()
+          }
         }
         vectorShapes += 1
         true
@@ -505,6 +505,18 @@ object PdfRenderer:
       if hasFill && hasStroke then stream.fillAndStroke()
       else if hasFill then stream.fill()
       else stream.stroke()
+
+    /** Paint a path that `appendPath` describes: first its casing underlay when the style has a
+      * stroke to case, then its ordinary fill and stroke. The path is appended once per painting
+      * operator because PDF consumes the current path when it paints.
+      */
+    private def casedPaint(gp: GraphicParams, allowFill: Boolean)(appendPath: => Unit): Unit =
+      gp.casing.filter(_ => gp.stroke.nonEmpty).foreach { casing =>
+        appendPath
+        paintCasing(gp, casing)
+      }
+      appendPath
+      paint(gp, allowFill)
 
     private def paintCasing(gp: GraphicParams, casing: StrokeCasing): Unit =
       val width = casing.width match

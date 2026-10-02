@@ -53,6 +53,39 @@ class CasingPickingSuite extends munit.FunSuite:
         )
   }
 
+  test("point casing, as for paths, is paint: hits, distances and targets are unchanged") {
+    val hollow = GraphicParams.unsafe(lineWidth = 2)
+    val casedPoint =
+      hollow.withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(6)))
+    val rows = Vector((0.0, 0.0), (1.0, 1.0), (0.5, 0.25))
+    locally {
+      def compile(params: GraphicParams) =
+        val program = ok(plot(rows).aes(_._1, _._2).geomPoint(params = Some(params)).build)
+        val plan = ok(
+          InteractionCompiler.compile(
+            program.plot,
+            ok(KeySpace("points", KeyCodec.integer)),
+            ok(DataRevision("one")),
+            SemanticId.unsafe("points"),
+            ok(PlanRevision("one")),
+            program.compilerOptions
+          )(p => (p._1 * 4).toInt)
+        )
+        ok(Picking.compile(plan, context))
+      val plain = compile(hollow)
+      val cased = compile(casedPoint)
+      assertEquals(cased.targetCount, plain.targetCount)
+      var hit = 0
+      for x <- 0 to 200 by 2; y <- 0 to 100 by 2 do
+        def signature(hits: Vector[PickHit[Int]]) =
+          hits.map(h => (h.target.id, h.distanceDevicePx, h.drawOrder))
+        val expected = signature(ok(plain.hits(DevicePoint(x, y))))
+        if expected.nonEmpty then hit += 1
+        assertEquals(signature(ok(cased.hits(DevicePoint(x, y)))), expected, clue((x, y)))
+      assert(hit > 0, "the grid reaches the points")
+    }
+  }
+
   test("contour casing survives lowering with one target per original path") {
     val field = ok(
       ScalarField2D.tabulate(

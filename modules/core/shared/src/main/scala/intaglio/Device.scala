@@ -1039,7 +1039,23 @@ object DeviceScene:
       radius <- resolver.extent(points.size)
       resolved <- resolvePoints(points.points, resolver)
       gp <- resolver.graphicParams(points.gp)
-    yield resolved.flatMap(point => shapeMarks(points, point, radius, gp))
+    yield
+      // A cross lowers to two open bars. Each bar would paint its own casing immediately before
+      // its own stroke, so the second bar's casing would cut the first bar at the centre. A cased
+      // cross therefore lowers to one batch, whose backends underlay both bars before either.
+      if points.shape == PointShape.Cross && resolved.nonEmpty && gp.casing.nonEmpty &&
+        gp.stroke.nonEmpty
+      then
+        Vector(
+          DevicePrimitive.PointBatch(
+            resolved,
+            BatchColumn.Constant(radius),
+            BatchColumn.Constant(PointShape.Cross),
+            BatchColumn.Constant(gp),
+            points.name
+          )
+        )
+      else resolved.flatMap(point => shapeMarks(points, point, radius, gp))
 
   private def pointBatchMark(
       points: Grob.PointBatch,

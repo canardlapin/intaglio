@@ -43,6 +43,9 @@ The available entry points are:
   preserved by a host's own splitting or filtering, refused when misaligned;
 - `PointShapeLaws` for point marks centred on their point and the `Diamond`
   area-parity rule (a diamond covers the circle's area at the same size);
+- `StrokeCasingLaws` for cased point marks, batches and discs: the casing
+  survives lowering at its resolved device width, leaves the drawn geometry
+  where it was, and keeps a batch one primitive;
 - `CoordinateInvolutionLaws` for the native transpose involution across rows,
   grobs, annotations, and panel ranges;
 - `PlotLayoutLaws` for deterministic finite frames, root bounds, and measured

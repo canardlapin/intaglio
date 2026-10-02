@@ -260,6 +260,70 @@ class CanvasRendererSuite extends munit.FunSuite:
     assertEquals(context.miterLimit, 4.0)
   }
 
+  test("cased discs and batched marks stroke the underlay first, once for both cross bars") {
+    val calls = ArrayBuffer.empty[String]
+    def noArgs(label: String): js.Function0[Unit] =
+      () =>
+        calls += label
+        ()
+    val context = js.Dynamic
+      .literal(
+        save = noArgs("save"),
+        restore = noArgs("restore"),
+        beginPath = noArgs("beginPath"),
+        closePath = noArgs("closePath"),
+        fill = noArgs("fill"),
+        stroke = noArgs("stroke"),
+        moveTo = ((_: Double, _: Double) => calls += "moveTo"): js.Function2[Double, Double, Unit],
+        lineTo = ((_: Double, _: Double) => calls += "lineTo"): js.Function2[Double, Double, Unit],
+        rect = ((_: Double, _: Double, _: Double, _: Double) => calls += "rect"): js.Function4[
+          Double,
+          Double,
+          Double,
+          Double,
+          Unit
+        ],
+        arc = (
+            (_: Double, _: Double, _: Double, _: Double, _: Double, _: Boolean) => calls += "arc"
+        ): js.Function6[Double, Double, Double, Double, Double, Boolean, Unit],
+        setLineDash = ((_: js.Array[Double]) => ()): js.Function1[js.Array[Double], Unit],
+        strokeStyle = "",
+        fillStyle = "",
+        globalAlpha = 1.0,
+        lineWidth = 1.0,
+        lineCap = "",
+        lineJoin = ""
+      )
+    // Record the width each stroke is drawn at, so the underlay is distinguishable from the mark.
+    context.updateDynamic("stroke")(
+      (() => calls += s"stroke@${context.lineWidth}"): js.Function0[Unit]
+    )
+    val gp = GraphicParams
+      .unsafe(stroke = Some(Rgba.unsafe(10, 20, 30)), lineWidth = 2.0)
+      .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3.0)))
+    val batch = Grob
+      .pointBatch(
+        Vector(Point.npcUnsafe(0.3, 0.5), Point.npcUnsafe(0.7, 0.5)),
+        shapes = BatchColumn.Values(Vector(PointShape.Cross, PointShape.Circle)),
+        graphicParams = BatchColumn.Constant(gp)
+      )
+      .orThrow
+    val disc =
+      Grob.circle(Point.npcUnsafe(0.5, 0.5), ExtentExpr.pointsUnsafe(5), gp = gp).orThrow
+    val program = CanvasRenderer
+      .compile(Scene(Vector(batch, disc)), CanvasOptions.unsafe(width = 100, height = 80))
+      .fold(e => fail(e.message), identity)
+
+    CanvasRenderer.draw(program, context.asInstanceOf[CanvasRenderingContext2D])
+
+    assertEquals(
+      calls.filter(_.startsWith("stroke")).toVector,
+      Vector("stroke@6", "stroke@2", "stroke@2", "stroke@6", "stroke@2", "stroke@6", "stroke@2")
+    )
+    val underlay = calls.takeWhile(_ != "stroke@6").toVector
+    assertEquals(underlay.count(_ == "moveTo"), 2, "both cross bars share the first underlay")
+  }
+
   test("pattern resources are reused across every fill-bearing primitive") {
     var tileCreates = 0
     given CanvasRasterFactory with

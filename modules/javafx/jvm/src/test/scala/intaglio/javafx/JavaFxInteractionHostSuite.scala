@@ -441,6 +441,96 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
     }
   }
 
+  test("native canvas paints a cased hollow circle point with the cased path's casing band") {
+    val casedMark = GraphicParams
+      .unsafe(stroke = Some(Rgba.unsafe(24, 94, 180)), lineWidth = 2.0)
+      .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(4.0)))
+    def masks(grob: Grob): (Set[(Int, Int)], Set[(Int, Int)], Int) =
+      val program = JavaFxRenderer
+        .compile(Scene(Vector(grob)), JavaFxOptions.unsafe(width = 80, height = 80))
+        .fold(error => fail(error.message), identity)
+      fx {
+        val canvas = new Canvas(80, 80)
+        JavaFxRenderer.draw(program, new JavaFxCanvasContext(canvas.getGraphicsContext2D))
+        val parameters = new SnapshotParameters()
+        parameters.setFill(Color.BLACK)
+        val reader = canvas.snapshot(parameters, null).getPixelReader
+        val pixels =
+          for y <- 0 until 80; x <- 0 until 80 yield
+            val argb = reader.getArgb(x, y)
+            ((x, y), (argb >>> 16) & 255, (argb >>> 8) & 255, argb & 255)
+        val casing = pixels.collect { case (p, r, g, b) if r > 200 && g > 200 && b > 200 => p }
+        val stroke = pixels.collect { case (p, r, _, b) if b > 140 && r < 120 => p }
+        (casing.toSet, stroke.toSet, reader.getArgb(40, 40) & 0xffffff)
+      }
+    val point = ok(
+      Grob.points(
+        Vector(Point.npcUnsafe(0.5, 0.5)),
+        size = ExtentExpr.npcUnsafe(0.25),
+        gp = casedMark
+      )
+    )
+    val ring = (0 until 720).toVector.map { index =>
+      val angle = index * 2.0 * math.Pi / 720.0
+      Point.npcUnsafe(0.5 + 0.25 * math.cos(angle), 0.5 + 0.25 * math.sin(angle))
+    }
+    // Round joins: a mitred many-segment ring spikes outward at sub-pixel segments, which is a
+    // property of the polygon oracle, not of casing.
+    val path = ok(
+      Grob.polygon(
+        ring,
+        gp = GraphicParams
+          .unsafe(
+            stroke = Some(Rgba.unsafe(24, 94, 180)),
+            lineWidth = 2.0,
+            lineJoin = LineJoin.Round
+          )
+          .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(4.0)))
+      )
+    )
+    // Radius 20 px, stroke 2 px, casing 8 px: casing band 16..24 px from the centre, stroke band
+    // 19..21 px. The cased point and the cased path must both realise it to a device pixel.
+    def distance(p: (Int, Int)) = math.hypot(p._1 + 0.5 - 40.0, p._2 + 0.5 - 40.0)
+    val pixels = for y <- 0 until 80; x <- 0 until 80 yield (x, y)
+    for (label, grob) <- Vector("point" -> point, "path" -> path) do
+      val (casing, stroke, centre) = masks(grob)
+      assert(casing.size > 300, s"$label native casing band visible: ${casing.size} pixels")
+      assertEquals(
+        casing.filter(p => distance(p) < 15.0 || distance(p) > 25.0),
+        Set.empty[(Int, Int)],
+        clue(label)
+      )
+      assertEquals(
+        stroke.filter(p => math.abs(distance(p) - 20.0) > 2.0),
+        Set.empty[(Int, Int)],
+        clue(label)
+      )
+      assertEquals(
+        pixels.filter { p =>
+          val d = distance(p)
+          ((d >= 17.0 && d <= 18.0) || (d >= 22.0 && d <= 23.0)) && !casing.contains(p)
+        }.toVector,
+        Vector.empty,
+        clue(label)
+      )
+      assertEquals(
+        pixels.filter(p => math.abs(distance(p) - 20.0) <= 0.3 && !stroke.contains(p)).toVector,
+        Vector.empty,
+        clue(label)
+      )
+      assertEquals(centre, 0x000000, s"$label stays hollow")
+    val (plainCasing, _, _) = masks(
+      ok(
+        Grob.points(
+          Vector(Point.npcUnsafe(0.5, 0.5)),
+          size = ExtentExpr.npcUnsafe(0.25),
+          gp = casedMark.withoutCasing
+        )
+      )
+    )
+    assertEquals(plainCasing, Set.empty[(Int, Int)])
+  }
+
   test("focus outline is painted last over an overlapping hovered target") {
     val view = prepared(count = 2, positions = Some(Vector((0d, 0d), (0d, 0d))))
     fx {

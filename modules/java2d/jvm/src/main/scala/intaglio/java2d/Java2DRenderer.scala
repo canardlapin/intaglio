@@ -910,13 +910,29 @@ object Java2DRenderer:
         path.closePath()
         paintShape(graphics, path, paint, true, patterns, accumulator, renderingHints)
       case PointShape.Cross =>
+        // Both bars' casing is one underlay painted before either bar, so the second bar's casing
+        // cannot cut through the first bar where they cross.
+        paint.stroke.foreach { _ =>
+          paint.casing.foreach { casing =>
+            val bars = new Path2D.Double()
+            bars.moveTo(point.x - radius, point.y)
+            bars.lineTo(point.x + radius, point.y)
+            bars.moveTo(point.x, point.y - radius)
+            bars.lineTo(point.x, point.y + radius)
+            withCopy(graphics) { copy =>
+              renderingHints.configure(copy)
+              paintCasing(copy, bars, paint, casing)
+            }
+          }
+        }
+        val uncased = paint.copy(casing = None)
         paintPointLine(
           graphics,
           point.x - radius,
           point.y,
           point.x + radius,
           point.y,
-          paint,
+          uncased,
           patterns,
           accumulator,
           renderingHints
@@ -927,7 +943,7 @@ object Java2DRenderer:
           point.y - radius,
           point.x,
           point.y + radius,
-          paint,
+          uncased,
           patterns,
           accumulator,
           renderingHints
@@ -974,18 +990,24 @@ object Java2DRenderer:
               copy.fill(shape)
             }
       paint.stroke.foreach { color =>
-        paint.casing.foreach { casing =>
-          copy.setComposite(AlphaComposite.SrcOver)
-          copy.setColor(casing.color.awt(paint.opacity * casing.alpha))
-          copy.setStroke(stroke(casing.lineWidth, casing.dash, paint.lineCap, paint.lineJoin))
-          copy.draw(shape)
-        }
+        paint.casing.foreach(paintCasing(copy, shape, paint, _))
         copy.setComposite(AlphaComposite.SrcOver)
         copy.setColor(color.awt(paint.opacity))
         copy.setStroke(stroke(paint.lineWidth, paint.dash, paint.lineCap, paint.lineJoin))
         copy.draw(shape)
       }
     }
+
+  private def paintCasing(
+      graphics: Graphics2D,
+      shape: Shape,
+      paint: Java2DPaint,
+      casing: Java2DCasing
+  ): Unit =
+    graphics.setComposite(AlphaComposite.SrcOver)
+    graphics.setColor(casing.color.awt(paint.opacity * casing.alpha))
+    graphics.setStroke(stroke(casing.lineWidth, casing.dash, paint.lineCap, paint.lineJoin))
+    graphics.draw(shape)
 
   private def resolvePattern(
       paint: PatternPaint,
