@@ -12,6 +12,7 @@ import java.awt.{
   TexturePaint
 }
 import java.awt.geom.{AffineTransform, Ellipse2D, Path2D, Rectangle2D, RoundRectangle2D}
+import java.awt.font.TextLayout
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
 import scala.collection.mutable
@@ -926,10 +927,19 @@ object Java2DRenderer:
             case VJust.Center => y - (bounds.getY + bounds.getHeight / 2.0)
             case VJust.Bottom => y - (bounds.getY + bounds.getHeight)
           if rotation != 0.0 then copy.rotate(rotation * math.Pi / 180.0, x, y)
-          // The plate is measured from the font this backend resolved, fallback included: the
-          // same logical bounds that place the glyphs above.
+          // Keep the logical bounds for anchoring, but include the resolved glyphs' visual
+          // bounds in the plate. Italics and combining marks can overhang the advance box.
           paint.textPlate.foreach { plate =>
-            val box = plate.around(drawX, baseline + bounds.getY, bounds.getWidth, bounds.getHeight)
+            val plateBounds =
+              if label.isEmpty then bounds
+              else
+                bounds.createUnion(new TextLayout(label, font, copy.getFontRenderContext).getBounds)
+            val box = plate.around(
+              drawX + plateBounds.getX,
+              baseline + plateBounds.getY,
+              plateBounds.getWidth,
+              plateBounds.getHeight
+            )
             copy.setComposite(AlphaComposite.SrcOver)
             copy.setColor(Java2DColor.fromRgba(plate.fill).awt(paint.opacity))
             copy.fill(
