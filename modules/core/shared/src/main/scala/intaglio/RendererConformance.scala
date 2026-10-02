@@ -572,7 +572,6 @@ object RendererConformance:
       )
     )
 
-
   /** A point batch whose marks carry [[BatchMarks]] names, titles and an SVG data attribute.
     * Identity never changes geometry or paint, so every backend must draw the batch exactly as an
     * unidentified one: its marker, disc primitive and style survive the wrapper.
