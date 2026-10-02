@@ -1,0 +1,1 @@
+{"actor":"claude-intaglio-motes","entity":"bd-01M20KHQ11W425M83J49GS0JFH","kind":"note","note_kind":"progress","op":"20261002T202425.578008Z-p63036-c0000-r3a86-hf87cdf","text":"Landed: PR #12 merged to main (48ad7fe), CI green on 3.3.8/3.9.0 x JDK 17/21, docs and compatibility. Closing.","ts":"2026-10-02T20:24:25.578008Z","v":1}
