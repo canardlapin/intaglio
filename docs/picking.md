@@ -48,3 +48,39 @@ oversized pattern tile is a typed `JavaFxRenderError`, not a drawing failure. Fo
 The JavaFX suite `JavaFxResolvedSceneSuite` records the cost for 11,520 named marks at device scale
 2: two lowerings per draw-and-pick through the separate entry points, one through the resolved
 scene. The timings it writes are measurements on one machine, not a guarantee.
+
+## Hit the inside of hollow marks
+
+By default only painted ink is a target, so a stroked, unfilled circle is hit on its outline and a
+click at its centre misses. `PickPolicy.withHollow` changes that without faking a fill:
+
+```scala mdoc:silent
+val outlined = GraphicParams.unsafe(stroke = Some(Rgba.Black), fill = None, lineWidth = 2)
+val hollowScene = Scene(
+  Vector(
+    Grob.circleUnsafe(Point.npcUnsafe(0.5, 0.5), ExtentExpr.pointsUnsafe(10), outlined,
+      name = Some(GraphicsName.unsafe("ring")))
+  )
+)
+val centre = DevicePoint(200, 150)
+val outlineOnly = NamedPicking.compile(hollowScene, context)
+val withInside = NamedPicking.compile(
+  hollowScene,
+  context,
+  PickPolicy.default.withHollow(HollowPicking.Interior)
+)
+```
+
+```scala mdoc
+outlineOnly.map(_.hits(centre).map(_.map(_.name.value)))
+withInside.map(_.hits(centre).map(_.map(_.name.value)))
+```
+
+`HollowPicking.Interior` applies to every closed hollow mark: circles, rectangles, closed paths and
+polygons, and the circle, square, triangle and diamond point shapes. A cross or an open path has no
+inside, and a mark with neither visible stroke nor visible fill is still not a target.
+`HollowPicking.InteriorOf(names)` limits it to marks whose innermost enclosing `GraphicsName` is
+listed. With the inside included, a hollow mark picks exactly as the same mark filled would:
+overlapping hollow marks are ordered by distance and then by draw order, so a point inside two of
+them reports the later-drawn one first. Area selection uses the same regions. Rendering is
+unchanged. The policy applies to plot picking (`Picking.compile`) as well as named picking.

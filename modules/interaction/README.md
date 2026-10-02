@@ -65,7 +65,10 @@ polygons use nonzero winding, matching the renderers.
 Queries account for group rotations, nested clipping, point-batch indices,
 fill, stroke, line caps and joins, and rounded corners. Transparent paint is
 excluded unless `PickPolicy.includeTransparent` is enabled; absent paint
-remains absent. Text uses measured, rotated bounds supplied by `TextMetrics`.
+remains absent. Stroked, unfilled closed marks are hit on their outline
+unless `PickPolicy.withHollow(HollowPicking.Interior)` (or `InteriorOf` for
+chosen names) includes their inside; a hollow mark then picks exactly as if
+filled. Text uses measured, rotated bounds supplied by `TextMetrics`.
 Ordinary images use their rectangle and overall opacity. Raster target routes
 also exclude transparent source cells unless `includeTransparent` is enabled.
 

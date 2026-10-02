@@ -28,11 +28,46 @@ enum DashPicking:
 enum AreaRule:
   case CenterInside, FullyContained, Intersecting
 
+/** Whether the inside of a closed, stroked but unfilled mark is part of its hit region.
+  *
+  * Closed marks are circles, rectangles (rounded or not), closed polylines and polygons, and the
+  * circle, square, triangle and diamond point shapes; a cross and an open path have no inside. A
+  * mark with neither visible stroke nor visible fill is never a target. With the inside included, a
+  * hollow mark picks exactly as if it were filled: its inside is one more part at the mark's own
+  * draw order, so the ordinary rule — smaller distance first, then the later-drawn target — orders
+  * overlapping hollow marks, and a point inside two of them reports the upper one first. Rendering
+  * is unchanged.
+  */
+enum HollowPicking:
+  /** Only painted ink is hit; a hollow mark is hit on its outline. The default. */
+  case Outline
+
+  /** The inside of every closed hollow mark is hit. */
+  case Interior
+
+  /** The inside is hit only for marks whose innermost enclosing name — the primitive's own name,
+    * else its nearest named group, as in [[NamedPicking]] — is one of `names`.
+    */
+  case InteriorOf(names: Set[GraphicsName])
+
+  private[interaction] def includes(name: Option[GraphicsName]): Boolean = this match
+    case Outline           => false
+    case Interior          => true
+    case InteriorOf(names) => name.exists(names.contains)
+
 final class PickPolicy private (
     val includeTransparent: Boolean,
     val dashes: DashPicking,
-    val miterLimit: Double
-)
+    val miterLimit: Double,
+    val hollow: HollowPicking
+):
+  private def this(includeTransparent: Boolean, dashes: DashPicking, miterLimit: Double) =
+    this(includeTransparent, dashes, miterLimit, HollowPicking.Outline)
+
+  /** The same policy with `value` deciding whether hollow marks are hit inside. */
+  def withHollow(value: HollowPicking): PickPolicy =
+    new PickPolicy(includeTransparent, dashes, miterLimit, value)
+
 object PickPolicy:
   val default: PickPolicy = new PickPolicy(false, DashPicking.Continuous, 4.0)
   def apply(
@@ -403,13 +438,14 @@ object Picking:
           index: Int,
           primitive: DevicePrimitive,
           transform: Rigid,
-          clips: Vector[Region]
+          clips: Vector[Region],
+          name: Option[GraphicsName]
       ): Unit =
         if failure.isEmpty then
           group.at(index) match
             case Left(_)     => failure = Some(PickingError.InvalidRoute(group.name.value))
             case Right(info) =>
-              primitiveRegions(primitive, context, policy) match
+              primitiveRegions(primitive, context, policy, name) match
                 case Left(error)    => failure = Some(error)
                 case Right(regions) =>
                   val parts = regions.map(region => PickPart(region.transform(transform), clips))
@@ -431,29 +467,30 @@ object Picking:
           elements: Vector[DeviceElement],
           current: Option[TargetGroup[A]],
           transform: Rigid,
-          clips: Vector[Region]
+          clips: Vector[Region],
+          name: Option[GraphicsName]
       ): Unit =
         elements.foreach {
-          case _ if failure.nonEmpty                            => ()
-          case DeviceElement.Group(_, clip, rotation, children) =>
+          case _ if failure.nonEmpty                                    => ()
+          case DeviceElement.Group(groupName, clip, rotation, children) =>
             val next = rotation.fold(transform)(r =>
               transform.compose(Rigid.rotation(r.degrees, P(r.pivotX, r.pivotY)))
             )
             val allClips = clips ++ clip.map(c =>
               Region.rectangle(Box(c.x, c.y, c.x + c.width, c.y + c.height)).transform(next)
             )
-            walk(children, current, next, allClips)
+            walk(children, current, next, allClips, groupName.orElse(name))
           case DeviceElement.Annotated(meta, children) =>
             meta.data.collect {
               case (key, value) if key == InteractionCompiler.targetAttribute => value
             } match
-              case Vector()     => walk(children, current, transform, clips)
-              case Vector(name) =>
-                routes.get(name) match
-                  case None        => failure = Some(PickingError.UnknownRoute(name))
+              case Vector()      => walk(children, current, transform, clips, name)
+              case Vector(route) =>
+                routes.get(route) match
+                  case None        => failure = Some(PickingError.UnknownRoute(route))
                   case Some(group) =>
-                    seen += name
-                    walk(children, Some(group), transform, clips)
+                    seen += route
+                    walk(children, Some(group), transform, clips, name)
               case _ => failure = Some(PickingError.InvalidInput("duplicate routing attributes"))
           case DeviceElement.Mark(batch: DevicePrimitive.PointBatch) =>
             current match
@@ -482,7 +519,8 @@ object Picking:
                             if group.size == 1 then 0 else index,
                             primitive,
                             transform,
-                            clips
+                            clips,
+                            batch.name.orElse(name)
                           )
                       }
                   }
@@ -510,14 +548,15 @@ object Picking:
               case None        => order += 1
               case Some(group) =>
                 if group.size != 1 then failure = Some(PickingError.InvalidRoute(group.name.value))
-                else add(group, 0, primitive, transform, clips)
+                else add(group, 0, primitive, transform, clips, nameOf(primitive).orElse(name))
         }
 
       walk(
         scene.elements,
         None,
         Rigid(),
-        Vector(Region.rectangle(Box(0, 0, scene.width, scene.height)))
+        Vector(Region.rectangle(Box(0, 0, scene.width, scene.height))),
+        None
       )
       failure match
         case Some(error)                   => Left(error)
@@ -577,10 +616,23 @@ object Picking:
           )
         )
 
+  /** The innermost name a primitive carries itself. */
+  private[interaction] def nameOf(primitive: DevicePrimitive): Option[GraphicsName] =
+    primitive match
+      case p: DevicePrimitive.Disc            => p.name
+      case p: DevicePrimitive.PointBatch      => p.name
+      case p: DevicePrimitive.Polyline        => p.name
+      case p: DevicePrimitive.CompoundPolygon => p.name
+      case p: DevicePrimitive.RectShape       => p.name
+      case p: DevicePrimitive.TextRun         => p.name
+      case p: DevicePrimitive.Image           => p.name
+
+  /** `name` is the innermost name enclosing the primitive, which `policy.hollow` consults. */
   private[interaction] def primitiveRegions(
       primitive: DevicePrimitive,
       context: RenderContext,
-      policy: PickPolicy
+      policy: PickPolicy,
+      name: Option[GraphicsName] = None
   ): Either[PickingError, Vector[Region]] =
     def visible(alpha: Double) = policy.includeTransparent || alpha > 0
     def filled(gp: GraphicParams) = visible(gp.alpha) &&
@@ -589,6 +641,10 @@ object Picking:
       ))
     def stroked(gp: GraphicParams) =
       gp.lineWidth > 0 && visible(gp.alpha) && gp.stroke.exists(color => visible(color.alpha))
+    val hollowInside = policy.hollow.includes(name)
+    // A closed mark's inside is hit when it is filled, or when it is outlined and the policy
+    // treats hollow insides as hit.
+    def inside(gp: GraphicParams) = filled(gp) || (hollowInside && stroked(gp))
     def numbers(values: Double*) = values.forall(_.isFinite)
     def linear(
         points: Vector[P],
@@ -614,7 +670,7 @@ object Picking:
           )
         else
           Right(
-            (if closed && filled(gp) && points.size >= 3 then
+            (if closed && inside(gp) && points.size >= 3 then
                Vector(Region.polygon(Vector(points), evenOdd = false))
              else Vector.empty) ++
               (if stroked(gp) then
@@ -636,7 +692,7 @@ object Picking:
         then Left(PickingError.Unsupported("painted dashes on circular outlines"))
         else
           Right(
-            (if filled(gp) then Vector(Region.disc(P(x, y), radius)) else Vector.empty) ++
+            (if inside(gp) then Vector(Region.disc(P(x, y), radius)) else Vector.empty) ++
               (if stroked(gp) then
                  Vector(
                    Region.annulus(
@@ -671,7 +727,7 @@ object Picking:
           )
         else
           val fill =
-            if filled(gp) then Vector(Region.polygon(points, evenOdd = false)) else Vector.empty
+            if inside(gp) then Vector(Region.polygon(points, evenOdd = false)) else Vector.empty
           val stroke = if stroked(gp) then
             points.flatMap(ring =>
               PickStroke(ring, true, gp, policy.dashes == DashPicking.Painted, policy.miterLimit)
@@ -693,7 +749,7 @@ object Picking:
         else
           val box = Box(x, y, x + width, y + height)
           val fill =
-            if filled(gp) then Vector(Region.roundedRectangle(box, radius)) else Vector.empty
+            if inside(gp) then Vector(Region.roundedRectangle(box, radius)) else Vector.empty
           val h = gp.lineWidth / 2
           val stroke = if !stroked(gp) then Vector.empty
           else

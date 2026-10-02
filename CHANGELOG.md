@@ -89,6 +89,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   offsets are still refused at construction. `InvalidExtent`'s message now
   reads "extent must be non-negative".
 
+- **Pick the inside of hollow marks.** `PickPolicy.withHollow` takes a
+  `HollowPicking`: `Outline` (the default and the previous behaviour),
+  `Interior` for every closed, stroked, unfilled mark, or `InteriorOf(names)`
+  for marks under chosen `GraphicsName`s. A hollow mark then picks as if it
+  were filled, keeping the distance-then-draw-order rule; rendering is
+  unchanged.
+
 - **Resolve a hand-built scene once for drawing and picking.**
   `NamedPicking.fromResolved` and `JavaFxProgram.fromResolved` accept a
   `DeviceScene` the host has already resolved, so drawing, named picking and

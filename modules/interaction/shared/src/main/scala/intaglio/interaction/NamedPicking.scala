@@ -156,7 +156,7 @@ object NamedPicking:
           clips: Vector[Region]
       ): Unit =
         if failure.isEmpty then
-          Picking.primitiveRegions(primitive, context, policy) match
+          Picking.primitiveRegions(primitive, context, policy, Some(name)) match
             case Left(error)    => failure = Some(error)
             case Right(regions) =>
               val parts = regions.map(region => PickPart(region.transform(transform), clips))
@@ -216,7 +216,7 @@ object NamedPicking:
                         .foreach(primitive => add(name, primitive, transform, clips))
                   }
           case DeviceElement.Mark(primitive) =>
-            nameOf(primitive).orElse(current) match
+            Picking.nameOf(primitive).orElse(current) match
               case None       => order += 1
               case Some(name) => add(name, primitive, transform, clips)
         }
@@ -228,12 +228,3 @@ object NamedPicking:
         Vector(Region.rectangle(Box(0, 0, scene.width, scene.height)))
       )
       failure.toLeft(new NamedPickingPlan(targets.values.toVector))
-
-  private def nameOf(primitive: DevicePrimitive): Option[GraphicsName] = primitive match
-    case p: DevicePrimitive.Disc            => p.name
-    case p: DevicePrimitive.PointBatch      => p.name
-    case p: DevicePrimitive.Polyline        => p.name
-    case p: DevicePrimitive.CompoundPolygon => p.name
-    case p: DevicePrimitive.RectShape       => p.name
-    case p: DevicePrimitive.TextRun         => p.name
-    case p: DevicePrimitive.Image           => p.name
