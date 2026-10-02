@@ -251,7 +251,24 @@ object SvgRenderer:
       case (result, (key, value)) =>
         result.flatMap(_ => validateXml(s"annotation ${key.attributeName}", value))
     }
-    title.flatMap(_ => description).flatMap(_ => duplicate).flatMap(_ => values)
+    val markTitles = meta.marks
+      .flatMap(_.titles)
+      .getOrElse(Vector.empty)
+      .foldLeft[Either[SvgRenderError, Unit]](Right(())) { (result, text) =>
+        result.flatMap(_ => validateXml("mark title", text))
+      }
+    val markNames = meta.marks
+      .filter(_.dataAttribute.nonEmpty)
+      .fold(Vector.empty[GraphicsName])(_.names)
+      .foldLeft[Either[SvgRenderError, Unit]](Right(())) { (result, name) =>
+        result.flatMap(_ => validateXml("mark name", name.value))
+      }
+    title
+      .flatMap(_ => description)
+      .flatMap(_ => duplicate)
+      .flatMap(_ => values)
+      .flatMap(_ => markTitles)
+      .flatMap(_ => markNames)
 
   private def validatePrimitive(primitive: DevicePrimitive): Either[SvgRenderError, Unit] =
     primitive match
@@ -312,9 +329,38 @@ object SvgRenderer:
       out: StringBuilder,
       indent: Int,
       clips: ClipRegistry,
-      patterns: PatternRegistry
+      patterns: PatternRegistry,
+      marks: Option[BatchMarks.Cursor] = None
   ): Unit =
     element match
+      case DeviceElement.Mark(batch: DevicePrimitive.PointBatch) if marks.nonEmpty =>
+        val cursor = marks.get
+        var index = 0
+        while index < batch.points.length do
+          val identity = cursor.at(index)
+          val attribute = for
+            key <- cursor.marks.dataAttribute
+            (name, _) <- identity
+          yield s""" ${key.attributeName}="${escapeAttr(name.value)}""""
+          val title = identity.flatMap(_._2)
+          val wrapped = attribute.nonEmpty || title.nonEmpty
+          // A mark is wrapped so its identity and title cover every element it is drawn with.
+          if wrapped then
+            line(out, indent, s"<g${attribute.getOrElse("")}>")
+            title.foreach(text => line(out, indent + 1, s"<title>${escapeText(text)}</title>"))
+          writePointMark(
+            batch.points(index),
+            batch.radii.valueAt(index),
+            batch.shapes.valueAt(index),
+            batch.graphicParams.valueAt(index),
+            batch.name,
+            out,
+            if wrapped then indent + 1 else indent,
+            patterns
+          )
+          if wrapped then line(out, indent, "</g>")
+          index += 1
+        cursor.advance(batch.points.length)
       case DeviceElement.Mark(primitive) =>
         writePrimitive(primitive, out, indent, patterns)
       case DeviceElement.Group(name, clip, rotation, children) =>
@@ -326,7 +372,7 @@ object SvgRenderer:
           )
           .getOrElse("")
         line(out, indent, s"<g$nameAttr$clipAttr$rotateAttr>")
-        children.foreach(writeElement(_, out, indent + 1, clips, patterns))
+        children.foreach(writeElement(_, out, indent + 1, clips, patterns, marks))
         line(out, indent, "</g>")
       case DeviceElement.Annotated(meta, children) =>
         val classAttr =
@@ -339,7 +385,8 @@ object SvgRenderer:
         meta.description.foreach(description =>
           line(out, indent + 1, s"<desc>${escapeText(description)}</desc>")
         )
-        children.foreach(writeElement(_, out, indent + 1, clips, patterns))
+        val nested = meta.marks.map(new BatchMarks.Cursor(_)).orElse(marks)
+        children.foreach(writeElement(_, out, indent + 1, clips, patterns, nested))
         line(out, indent, "</g>")
 
   private def writePrimitive(

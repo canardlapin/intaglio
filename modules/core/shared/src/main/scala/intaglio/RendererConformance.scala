@@ -185,6 +185,7 @@ object RendererConformance:
       boldText <- boldTextCase
       shapes <- shapeCase
       annotated <- annotatedCase
+      markedBatch <- markedBatchCase
       steps <- stepLineCase
       rectAndCircle <- rectCircleCase
       roundedRect <- roundedRectCase
@@ -233,6 +234,7 @@ object RendererConformance:
       boldText,
       shapes,
       annotated,
+      markedBatch,
       steps,
       rectAndCircle,
       roundedRect,
@@ -485,6 +487,47 @@ object RendererConformance:
         RenderRequirement.Primitive(
           GraphicsName.unsafe("conformance-diamond"),
           RenderPrimitiveKind.Polygon
+        )
+      )
+    )
+
+  /** A point batch whose marks carry [[BatchMarks]] names, titles and an SVG data attribute.
+    * Identity never changes geometry or paint, so every backend must draw the batch exactly as an
+    * unidentified one: its marker, disc primitive and style survive the wrapper.
+    */
+  def markedBatchCase: Either[GraphicsError, ConformanceCase] =
+    val name = GraphicsName.unsafe("conformance-marked-batch")
+    for
+      batch <- Grob.pointBatch(
+        Vector(Point.npcUnsafe(0.3, 0.4), Point.npcUnsafe(0.5, 0.6), Point.npcUnsafe(0.7, 0.4)),
+        sizes = BatchColumn.Constant(ExtentExpr.pointsUnsafe(5.0)),
+        graphicParams = BatchColumn.Constant(
+          GraphicParams.unsafe(
+            stroke = Some(Rgba.unsafe(40, 70, 100)),
+            fill = Some(Rgba.unsafe(210, 225, 240))
+          )
+        ),
+        name = Some(name)
+      )
+      names <- BatchMarks(Vector("trial-1", "trial-2", "trial-3").map(GraphicsName.unsafe(_)))
+      titled <- names.withTitles(Vector("Trial 1 & <first>", "Trial 2", "Trial 3"))
+      key <- DataKey("mark")
+    yield ConformanceCase(
+      GraphicsName.unsafe("marked-batch"),
+      ConformanceGroup.Primitive,
+      Scene(Vector(Grob.annotated(batch, GrobMeta.marks(titled.withDataAttribute(key))))),
+      Vector(name),
+      Vector(
+        RenderRequirement.Primitive(name, RenderPrimitiveKind.Disc),
+        RenderRequirement.Style(
+          name,
+          Some(Rgba.unsafe(40, 70, 100)),
+          Some(Rgba.unsafe(210, 225, 240)),
+          1.0,
+          LineType.Solid,
+          LineCap.Butt,
+          LineJoin.Miter,
+          1.0
         )
       )
     )

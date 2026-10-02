@@ -182,3 +182,9 @@ to `private[intaglio]` so the JavaFX module can apply it to a resolved scene; it
 from a consumer package, but its JVM method becomes public and is recorded in
 [`interaction-additions.txt`](../compatibility/interaction-additions.txt). The shared interaction
 module has no published baseline yet and is not part of this court.
+
+Per-mark batch identity adds `BatchMarks` and `MarkedPoint` and gives `GrobMeta` a trailing
+optional `marks` field. As with earlier trailing fields, the pre-identity constructor, companion
+`apply` and `copy` descriptors are kept as explicit bridges, and positional extractor patterns over
+all of `GrobMeta`'s fields are the known source caveat. `DevicePrimitive.PointBatch` and every
+other backend-facing primitive are unchanged, so existing backends need no edit.

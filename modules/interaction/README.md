@@ -132,6 +132,11 @@ fully transparent paint, which `pointer-events: visiblePainted` would hit, and
 text is picked by its measured box. Area selection scans every named target
 rather than the grid.
 
+A point batch annotated with `BatchMarks` (`Grob.annotated(batch,
+GrobMeta.marks(marks))`) is one target per mark, named by its mark name, and
+`accessibleText(name)` returns the mark's title. Without marks a named batch
+stays one target.
+
 A host that also draws the scene can resolve it once with
 `DeviceScene.fromScene(scene, context)` and pass that value to
 `NamedPicking.fromResolved` and to `JavaFxProgram.fromResolved`; the plan and

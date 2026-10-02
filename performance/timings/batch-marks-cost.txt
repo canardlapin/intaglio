@@ -1,0 +1,10 @@
+machine=Mac OS X aarch64 14.3
+java=25.0.1
+marks=10000 point batch, device 1000x1000; medians after 15 discarded warm-up runs
+lower_plain_ms=0.37 lower_plain_kib=3017
+lower_marked_ms=0.67 lower_marked_kib=3065
+lower_plain_again_ms=0.41 lower_plain_again_kib=3017
+named_picking_plain_ms=6.73 named_picking_plain_kib=35396 targets=1
+named_picking_marked_ms=6.42 named_picking_marked_kib=38317 targets=10000
+hits_200_plain_ms=230.88 (one target spanning the batch)
+hits_200_marked_ms=0.25 (one target per mark)

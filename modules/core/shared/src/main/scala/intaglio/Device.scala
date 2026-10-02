@@ -628,8 +628,21 @@ object DeviceScene:
             )
           case None => Right(())
         clipResult.flatMap(_ => rotationResult).flatMap(_ => validateElements(children))
-      case DeviceElement.Annotated(_, children) =>
-        validateElements(children)
+      case DeviceElement.Annotated(meta, children) =>
+        val marks = meta.marks match
+          case Some(value) =>
+            val count = BatchMarks.markCount(children)
+            if count == value.size.toLong then Right(())
+            else
+              Left(
+                GraphicsError.BatchColumnLengthMismatch(
+                  "mark names",
+                  math.min(count, Int.MaxValue.toLong).toInt,
+                  value.size
+                )
+              )
+          case None => Right(())
+        marks.flatMap(_ => validateElements(children))
 
   private def validatePrimitive(primitive: DevicePrimitive): Either[GraphicsError, Unit] =
     primitive match

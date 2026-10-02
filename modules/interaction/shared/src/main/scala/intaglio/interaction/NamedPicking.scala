@@ -45,13 +45,21 @@ private[interaction] final case class NamedTarget(
   * targets tie-break by what is actually drawn there. Geometry, paint visibility, clipping,
   * rotation and dash handling are those of [[PickingPlan]]; like it, the default policy ignores
   * fully transparent paint, which a browser's `visiblePainted` hit test would still hit.
+  *
+  * A mark of a point batch identified by [[intaglio.BatchMarks]] has its mark name as its innermost
+  * name, so it is a target of its own; in SVG that name is the mark's configured `data-*` attribute
+  * rather than `data-name`, which keeps the batch's name.
   */
 final class NamedPickingPlan private[interaction] (
-    private[interaction] val targets: Vector[NamedTarget]
+    private[interaction] val targets: Vector[NamedTarget],
+    titles: Map[GraphicsName, String] = Map.empty
 ):
   private val index: PickIndex = PickIndex.build(targets.map(_.bounds))
 
   def targetCount: Int = targets.size
+
+  /** The accessible text a [[BatchMarks]] title gives the mark named `name`, if any. */
+  def accessibleText(name: GraphicsName): Option[String] = titles.get(name)
 
   /** Every named target, in draw order. */
   def names: Vector[GraphicsName] = targets.sortBy(_.drawOrder).map(_.name)
@@ -159,6 +167,7 @@ object NamedPicking:
       Left(PickingError.InvalidInput("scene dimensions"))
     else
       val targets = scala.collection.mutable.LinkedHashMap.empty[GraphicsName, NamedTarget]
+      val titles = scala.collection.mutable.HashMap.empty[GraphicsName, String]
       var order = 0
       var failure: Option[PickingError] = None
 
@@ -190,7 +199,8 @@ object NamedPicking:
           elements: Vector[DeviceElement],
           current: Option[GraphicsName],
           transform: Rigid,
-          clips: Vector[Region]
+          clips: Vector[Region],
+          marks: Option[BatchMarks.Cursor]
       ): Unit =
         elements.foreach {
           case _ if failure.nonEmpty                               => ()
@@ -201,26 +211,40 @@ object NamedPicking:
             val allClips = clips ++ clip.map(c =>
               Region.rectangle(Box(c.x, c.y, c.x + c.width, c.y + c.height)).transform(next)
             )
-            walk(children, name.orElse(current), next, allClips)
-          case DeviceElement.Annotated(_, children) => walk(children, current, transform, clips)
+            walk(children, name.orElse(current), next, allClips, marks)
+          case DeviceElement.Annotated(meta, children) =>
+            walk(
+              children,
+              current,
+              transform,
+              clips,
+              meta.marks.map(new BatchMarks.Cursor(_)).orElse(marks)
+            )
           case DeviceElement.Mark(batch: DevicePrimitive.PointBatch) =>
-            batch.name.orElse(current) match
-              case None       => order += batch.points.size
-              case Some(name) =>
-                if Vector(
-                    batch.radii.valueCount,
-                    batch.shapes.valueCount,
-                    batch.graphicParams.valueCount
-                  ).flatten.exists(_ != batch.points.size)
-                then failure = Some(PickingError.InvalidInput("point batch columns"))
+            val enclosing = batch.name.orElse(current)
+            if enclosing.isEmpty && marks.isEmpty then order += batch.points.size
+            else if Vector(
+                batch.radii.valueCount,
+                batch.shapes.valueCount,
+                batch.graphicParams.valueCount
+              ).flatten.exists(_ != batch.points.size)
+            then failure = Some(PickingError.InvalidInput("point batch columns"))
+            else
+              batch.points.indices.foreach { index =>
+                // A mark's own name, when the batch is identified, is its innermost name.
+                val identity = marks.flatMap(_.at(index))
+                if marks.nonEmpty && identity.isEmpty then
+                  failure = Some(PickingError.InvalidInput("batch mark names"))
+                identity.foreach { case (name, title) => title.foreach(titles.update(name, _)) }
+                val p = batch.points(index)
+                val r = batch.radii.valueAt(index)
+                if failure.nonEmpty then ()
+                else if !r.isFinite || r < 0 then
+                  failure = Some(PickingError.InvalidInput("point batch radius"))
                 else
-                  batch.points.indices.foreach { index =>
-                    val p = batch.points(index)
-                    val r = batch.radii.valueAt(index)
-                    if failure.nonEmpty then ()
-                    else if !r.isFinite || r < 0 then
-                      failure = Some(PickingError.InvalidInput("point batch radius"))
-                    else
+                  identity.map(_._1).orElse(enclosing) match
+                    case None       => order += 1
+                    case Some(name) =>
                       Picking
                         .pointPrimitives(
                           P(p.x, p.y),
@@ -229,7 +253,8 @@ object NamedPicking:
                           batch.graphicParams.valueAt(index)
                         )
                         .foreach(primitive => add(name, primitive, transform, clips))
-                  }
+              }
+              marks.foreach(_.advance(batch.points.size))
           case DeviceElement.Mark(primitive) =>
             Picking.nameOf(primitive).orElse(current) match
               case None       => order += 1
@@ -240,6 +265,7 @@ object NamedPicking:
         scene.elements,
         None,
         Rigid(),
-        Vector(Region.rectangle(Box(0, 0, scene.width, scene.height)))
+        Vector(Region.rectangle(Box(0, 0, scene.width, scene.height))),
+        None
       )
-      failure.toLeft(new NamedPickingPlan(targets.values.toVector))
+      failure.toLeft(new NamedPickingPlan(targets.values.toVector, titles.toMap))

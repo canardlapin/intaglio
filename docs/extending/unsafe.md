@@ -51,6 +51,7 @@ are omitted because they are not reachable from a consumer package.
 | Names and identity | `Aesthetic.unsafe[A](label)` | `IllegalArgumentException` | `Aesthetic.apply[A]` |
 | Names and identity | `SemanticId.unsafe(value)` | `IllegalArgumentException` | `SemanticId.apply` |
 | Names and identity | `CssClass.unsafe(value)`, `DataKey.unsafe(value)` | `IllegalArgumentException` | `CssClass.apply`, `DataKey.apply` |
+| Names and identity | `BatchMarks.unsafe(names)` | `IllegalArgumentException` (`EmptyGeometry` for no names) | `BatchMarks.apply` |
 | Scene geometry | `Length.unsafe`, `Length.npcUnsafe`, `Length.nativeUnsafe`, `Length.pointsUnsafe`, `Length.linesUnsafe` | `IllegalArgumentException` | `Length.apply`, `.npc`, `.native`, `.points`, `.lines` |
 | Scene geometry | `LengthExpr.npcUnsafe`, `LengthExpr.nativeUnsafe`, `LengthExpr.linesUnsafe` | `IllegalArgumentException` | `LengthExpr.npc`, `.native`, `.lines` |
 | Scene geometry | `ExtentExpr.unsafe(expr)`, `ExtentExpr.unsafe(length)`, `ExtentExpr.npcUnsafe`, `.nativeUnsafe`, `.pointsUnsafe`, `.linesUnsafe` | `IllegalArgumentException` (`InvalidExtent` when non-negativity is not provable) | `ExtentExpr.fromExpr`, `ExtentExpr.apply`, `.npc`, `.native`, `.points`, `.lines` |

@@ -74,15 +74,40 @@ object DataKey:
   * Text is free-form; XML-illegal characters are refused at the SVG boundary, and every value is
   * escaped on output. `data` keeps insertion order; a duplicate key is refused at the SVG boundary
   * because an element cannot carry one attribute twice.
+  *
+  * `marks`, when present, names the individual marks of the point batches beneath the annotation;
+  * see [[BatchMarks]].
   */
 final case class GrobMeta(
     title: Option[String] = None,
     description: Option[String] = None,
     cssClass: Option[CssClass] = None,
-    data: Vector[(DataKey, String)] = Vector.empty
+    data: Vector[(DataKey, String)] = Vector.empty,
+    marks: Option[BatchMarks] = None
 ):
+  /** Binary-compatible constructor from before per-mark identity. */
+  def this(
+      title: Option[String],
+      description: Option[String],
+      cssClass: Option[CssClass],
+      data: Vector[(DataKey, String)]
+  ) = this(title, description, cssClass, data, None)
+
+  /** Binary-compatible copy shape from before per-mark identity. */
+  def copy(
+      title: Option[String],
+      description: Option[String],
+      cssClass: Option[CssClass],
+      data: Vector[(DataKey, String)]
+  ): GrobMeta =
+    new GrobMeta(title, description, cssClass, data, marks)
+
   def isEmpty: Boolean =
-    title.isEmpty && description.isEmpty && cssClass.isEmpty && data.isEmpty
+    title.isEmpty && description.isEmpty && cssClass.isEmpty && data.isEmpty && marks.isEmpty
+
+  /** The same metadata, naming the marks of the point batches beneath it. */
+  def withMarks(value: BatchMarks): GrobMeta =
+    copy(marks = Some(value))
 
   def withTitle(value: String): GrobMeta =
     copy(title = Some(value))
@@ -104,6 +129,19 @@ final case class GrobMeta(
 object GrobMeta:
   val empty: GrobMeta =
     GrobMeta()
+
+  /** Binary-compatible factory from before per-mark identity. */
+  def apply(
+      title: Option[String],
+      description: Option[String],
+      cssClass: Option[CssClass],
+      data: Vector[(DataKey, String)]
+  ): GrobMeta =
+    new GrobMeta(title, description, cssClass, data, None)
+
+  /** Metadata that only names the marks of the point batches beneath it. */
+  def marks(value: BatchMarks): GrobMeta =
+    GrobMeta(marks = Some(value))
 
   def title(value: String): GrobMeta =
     GrobMeta(title = Some(value))

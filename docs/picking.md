@@ -112,3 +112,50 @@ Each name is one target, addressed in draw order and carrying its name as an ent
 named plan. `NavigationPlan.next` and `previous` step through targets in that stable order, reaching
 marks that directional `nearest` cannot. `interaction.domain` feeds `InteractionState.initial`; its
 `plans` is empty because no plot was compiled.
+
+## Name the marks of a point batch
+
+A point batch draws many marks as one primitive, so a name on the batch makes the whole batch one
+target. `BatchMarks` gives each mark its own `GraphicsName`, and optionally accessible text, without
+a side table from batch index to the host's key:
+
+```scala mdoc:silent
+val trials = Vector(0.2, 0.4, 0.6, 0.8)
+val trialBatch = Grob.pointBatchUnsafe(
+  trials.map(x => Point.npcUnsafe(x, 0.5)),
+  sizes = BatchColumn.Constant(ExtentExpr.pointsUnsafe(5)),
+  graphicParams = BatchColumn.Constant(ink),
+  name = Some(GraphicsName.unsafe("trials"))
+)
+val trialMarks = for
+  named <- BatchMarks(trials.indices.toVector.map(i => GraphicsName.unsafe(s"trial-${i + 1}")))
+  titled <- named.withTitles(trials.indices.toVector.map(i => s"Trial ${i + 1}"))
+  key <- DataKey("trial")
+yield titled.withDataAttribute(key)
+
+val trialPicking = for
+  marks <- trialMarks
+  plan <- NamedPicking.compile(Scene(Vector(Grob.annotated(trialBatch, GrobMeta.marks(marks)))), context)
+yield plan
+```
+
+```scala mdoc
+trialPicking.map(plan => plan.nearest(DevicePoint(240, 150), 4).map(_.map(_.name.value)))
+trialPicking.map(_.accessibleText(GraphicsName.unsafe("trial-3")))
+```
+
+The names run, in draw order, over the marks of every point batch beneath the annotation, so one
+`BatchMarks` can span a batch the host draws in several chunks; a nearer annotation with its own
+marks names its batches instead. Lowering refuses a count mismatch as
+`GraphicsError.BatchColumnLengthMismatch("mark names", ...)`. A host that filters or splits a batch
+itself slices the names with the points (`BatchMarks.slice`); `BatchMarkLaws` in `intaglio-laws`
+checks such a splitter. Picking treats each mark as a target named by its mark name, inside the
+batch's own name, so clipping, hit order and hollow interiors work exactly as for named grobs.
+
+Identity never changes what is drawn: every backend draws the batch as before, and the renderer
+conformance contract includes an identified batch. The SVG backend writes each mark's text as a
+`<title>` and, when `withDataAttribute` is set, its name as that attribute
+(`<g data-trial="trial-3"><title>Trial 3</title><circle data-name="trials" .../></g>`); the mark's
+elements keep `data-name` for the batch. `BatchMarks.marksOf(deviceScene)` lists every identified
+mark with its device position. A batch without marks is lowered, drawn and picked exactly as
+before; `performance/timings/batch-marks-cost.txt` records the cost on one machine.

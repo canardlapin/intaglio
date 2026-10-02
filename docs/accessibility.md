@@ -224,6 +224,15 @@ case. XML-illegal characters in any annotation text and a repeated data key are 
 as if the wrapper were absent; the renderer conformance contract includes an annotated case so
 every backend proves that.
 
+### Individual marks of a point batch
+
+A point batch draws many marks as one primitive, so per-grob metadata names the whole batch.
+`BatchMarks` names each mark instead, with optional per-mark accessible text, through the same
+wrapper (`Grob.annotated(batch, GrobMeta.marks(marks))`). The SVG backend writes each mark's text
+as a `<title>`, and its name as a `data-*` attribute when `withDataAttribute` is set; named picking
+answers with the mark's name and exposes its text through `accessibleText`. See
+[Picking a hand-built scene](picking.md#name-the-marks-of-a-point-batch).
+
 ## SVG output
 
 Rendering a compiled plot through `intaglio-svg` emits a root `id`, `role="img"`, ARIA

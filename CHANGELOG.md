@@ -89,6 +89,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   offsets are still refused at construction. `InvalidExtent`'s message now
   reads "extent must be non-negative".
 
+- **Per-mark identity inside point batches.** `BatchMarks` gives each mark of
+  the point batches beneath a `GrobMeta.marks` annotation its own
+  `GraphicsName` and optional accessible text. Named picking answers with the
+  mark's name (`accessibleText` returns its text), the SVG backend writes
+  per-mark `<title>`s and, with `withDataAttribute`, a `data-*` name, and
+  every backend draws the batch unchanged. `GrobMeta` gained a trailing
+  `marks` field with constructor, factory and copy bridges. `BatchMarkLaws`
+  checks a host's splitting or filtering of identified batches.
+
 - **Themeable, geometry-following interaction overlay.** The JavaFX host draws
   selection, hover and focus from a `JavaFxOverlayStyle` (colours, widths,
   casings, offsets) set with `setOverlayStyle`; the default is the previous

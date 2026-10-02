@@ -245,6 +245,7 @@ class SvgAnnotationSuite extends munit.FunSuite:
   private val postPinCases: Set[String] =
     Set(
       "annotated",
+      "marked-batch",
       "step-lines",
       "rounded-rect",
       "custom-dash",
@@ -268,4 +269,62 @@ class SvgAnnotationSuite extends munit.FunSuite:
         s"${conformance.name.value} rendered with digest $digest, not one of ${preAnnotationDigests(conformance.name.value)}"
       )
     }
+  }
+
+  private def markedBatch(marks: BatchMarks): Scene =
+    Scene(
+      Vector(
+        Grob.annotated(
+          Grob.pointBatchUnsafe(
+            Vector(Point.npcUnsafe(0.25, 0.5), Point.npcUnsafe(0.75, 0.5)),
+            shapes = BatchColumn.Values(Vector(PointShape.Circle, PointShape.Cross)),
+            name = Some(GraphicsName.unsafe("batch"))
+          ),
+          GrobMeta.marks(marks)
+        )
+      )
+    )
+  private val twoMarks =
+    BatchMarks.unsafe(Vector(GraphicsName.unsafe("trial-1"), GraphicsName.unsafe("trial-2")))
+
+  test("batch mark names become a configured data attribute and titles name each mark") {
+    val marks = twoMarks
+      .withTitles(Vector("Trial 1 & <first>", "Trial 2"))
+      .fold(e => fail(e.message), identity)
+      .withDataAttribute(DataKey.unsafe("mark"))
+    val lines = rendered(markedBatch(marks)).linesIterator.map(_.trim).toVector
+    val first = lines.indexOf("""<g data-mark="trial-1">""")
+    assert(first >= 0, lines.mkString("\n"))
+    assertEquals(lines(first + 1), "<title>Trial 1 &amp; &lt;first&gt;</title>")
+    assert(lines(first + 2).startsWith("""<circle data-name="batch""""), lines(first + 2))
+    assertEquals(lines(first + 3), "</g>")
+    val second = lines.indexOf("""<g data-mark="trial-2">""")
+    // The cross is two polylines; the mark's group covers both.
+    assertEquals(
+      lines.slice(second + 2, second + 4).map(_.take(9)),
+      Vector("<polyline", "<polyline")
+    )
+    assertEquals(lines(second + 4), "</g>")
+  }
+
+  test("names alone, without an attribute or titles, leave each mark's elements unchanged") {
+    val batch = markedBatch(twoMarks).grobs.head.children.head
+    val bare = Scene(Vector(Grob.annotated(batch, GrobMeta.empty)))
+    assertEquals(rendered(markedBatch(twoMarks)), rendered(bare))
+  }
+
+  test("XML-illegal mark titles and attribute names are typed errors") {
+    val badTitle =
+      twoMarks.withTitles(Vector("ok", "bad\u0001")).fold(e => fail(e.message), identity)
+    assertEquals(
+      render(markedBatch(badTitle)),
+      Left(SvgRenderError.InvalidXmlCharacter("mark title", 1))
+    )
+    val badName = BatchMarks
+      .unsafe(Vector(GraphicsName.unsafe("ok"), GraphicsName.unsafe("ba\u0002d")))
+      .withDataAttribute(DataKey.unsafe("mark"))
+    assertEquals(
+      render(markedBatch(badName)),
+      Left(SvgRenderError.InvalidXmlCharacter("mark name", 2))
+    )
   }

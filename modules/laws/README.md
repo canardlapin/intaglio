@@ -39,6 +39,8 @@ The available entry points are:
   dodge, signed stack, and explicit stack-order preservation;
 - `SceneDeviceLaws` for scene identity/associativity, ordered depth-first
   traversal, and deterministic numeric lowering;
+- `BatchMarkLaws` for per-mark batch identity: transparent to lowering,
+  preserved by a host's own splitting or filtering, refused when misaligned;
 - `PointShapeLaws` for point marks centred on their point and the `Diamond`
   area-parity rule (a diamond covers the circle's area at the same size);
 - `CoordinateInvolutionLaws` for the native transpose involution across rows,
