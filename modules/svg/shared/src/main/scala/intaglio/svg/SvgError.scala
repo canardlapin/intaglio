@@ -7,6 +7,7 @@ enum SvgRenderError extends IntaglioError:
   case InvalidXmlCharacter(field: String, codePoint: Int)
   case DuplicateDataKey(key: String)
   case Graphics(error: GraphicsError)
+  case InvalidIdPrefix(value: String)
 
   def message: String =
     this match
@@ -18,6 +19,8 @@ enum SvgRenderError extends IntaglioError:
         s"SVG annotation repeats data attribute 'data-$key'; an element carries each attribute once"
       case Graphics(error) =>
         error.message
+      case InvalidIdPrefix(value) =>
+        s"SVG id prefix must start with an ASCII letter and contain only letters, digits, '-' or '_': '$value'"
 
 object SvgRenderError:
   extension [A](either: Either[SvgRenderError, A])

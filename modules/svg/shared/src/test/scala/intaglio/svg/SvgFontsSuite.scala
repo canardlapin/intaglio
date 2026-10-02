@@ -72,6 +72,18 @@ class SvgFontsSuite extends munit.FunSuite:
       )
   }
 
+  test(
+    "embedded families are CSS strings in text attributes, including numeric words and generics"
+  ) {
+    for family <- Vector("Studio Sans 123", "serif", "Studio, Sans") do
+      val fonts = SvgFonts(SvgFontFace(family, woff2).orThrow).orThrow
+      val scene = Scene(Vector(label(Some(family))))
+      val svg = SvgRenderer.render(scene, options, fonts).orThrow.value
+      assert(svg.contains(s"font-family=\"&quot;$family&quot;\""), svg)
+      val plain = SvgRenderer.render(scene, options).orThrow.value
+      assert(plain.contains(s"font-family=\"$family\""), "legacy non-embedded output is unchanged")
+  }
+
   test("formats are recognised from the file signature") {
     assertEquals(SvgFontFace("A", woff2).map(_.format), Right(SvgFontFormat.Woff2))
     val woff = "wOFF".getBytes("US-ASCII") ++ new Array[Byte](20)
@@ -108,6 +120,27 @@ class SvgFontsSuite extends munit.FunSuite:
     val bold = SvgFontFace("Studio Sans", woff2, FontWeight.Bold).orThrow
     assertEquals(SvgFonts(regular, again), Left(SvgFontError.DuplicateFace("STUDIO SANS", 400)))
     assertEquals(SvgFonts(regular, bold).map(_.faces), Right(Vector(regular, bold)))
+  }
+
+  test("unreadable OS/2 offsets cannot overflow the embedding-permission bounds check") {
+    // These are unsigned file offsets. The last positive values overflow when 10 is added;
+    // negative Int representations cover the upper half of the unsigned range.
+    val offsets = Vector(31, 40, Int.MaxValue - 9, Int.MaxValue, Int.MinValue, -1)
+    for
+      signature <- Vector(0x00010000, 0x4f54544f)
+      offset <- offsets
+    do
+      val bytes = sfnt(0x0002, signature)
+      (0 until 4).foreach(i => bytes(20 + i) = (offset >>> (24 - 8 * i)).toByte)
+      // As for other unreadable OS/2 tables, the importer does not infer a restriction.
+      // This is signature recognition, not a claim that the font will render.
+      assert(SvgFontFace("A", bytes).isRight, s"offset=$offset signature=$signature")
+
+    // The last readable two-byte fsType still participates in the permission check.
+    val boundary = sfnt(0)
+    boundary(23) = 30
+    boundary(39) = 2
+    assertEquals(SvgFontFace("A", boundary), Left(SvgFontError.EmbeddingRestricted("A")))
   }
 
   test("a face keeps its own copy of the bytes") {

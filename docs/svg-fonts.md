@@ -47,6 +47,9 @@ The overloads without it are unchanged and embed nothing.
   Supplying a face costs nothing in a document that does not use it, and a document without
   matching text is byte-identical to one rendered without fonts.
 - The bytes exactly as given. The output is deterministic and identical on the JVM and Scala.js.
+- Text that uses an embedded face names it as a quoted CSS family, including names with numeric
+  words or punctuation and names that would otherwise select a generic family such as `serif`.
+  Rendering without supplied faces keeps its existing font-family output.
 
 ## What is checked
 
@@ -61,3 +64,27 @@ repeats a weight.
 
 The face is embedded whole; there is no glyph subsetting, so prefer WOFF2 and a face cut to the
 scripts you need. [ADR 0009](adr/0009-svg-fonts-are-caller-supplied.md) records why.
+
+## Browser verification
+
+The browser fixture exercises the real exporter with a caller-supplied, licensed regular font.
+It uses an unusual family alias containing a numeric word to detect CSS parsing and fallback
+errors. Choose a face with different metrics from Chromium's default serif fallback; Liberation
+Sans Regular is suitable. The output directory must not already exist.
+
+```bash
+sbt 'svgJVM/Test/runMain intaglio.svg.SvgFontBrowserFixture /path/to/font.ttf /tmp/font-proof'
+node tools/check-svg-font-browser.cjs /tmp/font-proof
+```
+
+The script requires Playwright and its Chromium installation. A separately installed Playwright
+Chromium binary can be selected with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; do not point it at a
+user browser or profile. Follow the repository browser-ownership audit procedure before and after
+running it. Pages, contexts, and the browser are closed even if an assertion fails.
+
+The court opens the exported SVG as a standalone document, verifies its embedded face loads,
+and compares text width against the original bytes loaded independently through `FontFace` and
+Canvas. A second export without font bytes must fall back and have a different width. HTTP requests
+are blocked and asserted absent. Screenshots and `browser-report.json` retain the browser version,
+input hashes, loaded faces, and measured widths. This checks the selected font in Chromium;
+it does not certify every font format, viewer, weight, or script.

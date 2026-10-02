@@ -134,7 +134,8 @@ object SvgFontFace:
       .find(record => tag(bytes, record) == 0x4f532f32) // "OS/2"
     os2.exists { record =>
       val offset = tag(bytes, record + 8)
-      offset >= 0 && offset + 10 <= bytes.length && (u16(bytes, offset + 8) & 0x000f) == 0x0002
+      // Compare before adding: an untrusted unsigned table offset can overflow an Int.
+      offset >= 0 && offset <= bytes.length - 10 && (u16(bytes, offset + 8) & 0x000f) == 0x0002
     }
 
 /** The faces an SVG document may embed. A face is written only when some text run in the document

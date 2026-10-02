@@ -8,10 +8,36 @@ final case class SvgOptions private (
     title: Option[String],
     pixelsPerInch: Double,
     deviceScale: Double,
-    description: Option[String]
+    description: Option[String],
+    idPrefix: Option[String]
 ):
   def logicalWidth: Double = width.toDouble / deviceScale
   def logicalHeight: Double = height.toDouble / deviceScale
+
+  /** Binary bridge for the constructor from before id prefixes. */
+  private def this(
+      width: Int,
+      height: Int,
+      title: Option[String],
+      pixelsPerInch: Double,
+      deviceScale: Double,
+      description: Option[String]
+  ) = this(width, height, title, pixelsPerInch, deviceScale, description, None)
+
+  /** Prefix every id the document defines or references (clip paths, patterns, the accessible title
+    * and description) with `prefix-`, so several SVG documents inlined in one HTML page never share
+    * an id. Without a prefix the output is unchanged.
+    */
+  def withIdPrefix(prefix: String): Either[SvgRenderError, SvgOptions] =
+    if SvgOptions.validIdPrefix(prefix) then
+      Right(
+        new SvgOptions(width, height, title, pixelsPerInch, deviceScale, description, Some(prefix))
+      )
+    else Left(SvgRenderError.InvalidIdPrefix(prefix))
+
+  /** The document-local id `local`, namespaced by the prefix when one is set. */
+  private[svg] def scopedId(local: String): String =
+    idPrefix.fold(local)(prefix => s"$prefix-$local")
 
 object SvgOptions:
   val default: SvgOptions =
@@ -29,7 +55,9 @@ object SvgOptions:
     else
       RenderContext(width, height, pixelsPerInch, deviceScale = deviceScale).left
         .map(SvgRenderError.Graphics(_))
-        .map(_ => new SvgOptions(width, height, title, pixelsPerInch, deviceScale, description))
+        .map(_ =>
+          new SvgOptions(width, height, title, pixelsPerInch, deviceScale, description, None)
+        )
 
   def unsafe(
       width: Int = 640,
@@ -40,6 +68,10 @@ object SvgOptions:
       description: Option[String] = None
   ): SvgOptions =
     apply(width, height, title, pixelsPerInch, deviceScale, description).orThrow
+
+  private def validIdPrefix(value: String): Boolean =
+    value.nonEmpty && value.head.isLetter && value.head < 128 &&
+      value.forall(c => c < 128 && (c.isLetterOrDigit || c == '-' || c == '_'))
 
 final case class SvgDocument(
     value: String,
@@ -73,14 +105,34 @@ object SvgRenderer:
       title: Option[String],
       fonts: SvgFonts
   ): Either[SvgRenderError, SvgDocument] =
+    renderPlan(plan, title, fonts, None)
+
+  /** [[render]] with every document id namespaced by `idPrefix` (see [[SvgOptions.withIdPrefix]]),
+    * for several plots inlined in one HTML page.
+    */
+  def render(
+      plan: RenderPlan,
+      title: Option[String],
+      fonts: SvgFonts,
+      idPrefix: String
+  ): Either[SvgRenderError, SvgDocument] =
+    renderPlan(plan, title, fonts, Some(idPrefix))
+
+  private def renderPlan(
+      plan: RenderPlan,
+      title: Option[String],
+      fonts: SvgFonts,
+      idPrefix: Option[String]
+  ): Either[SvgRenderError, SvgDocument] =
     for
-      options <- SvgOptions(
+      unscoped <- SvgOptions(
         plan.context.width,
         plan.context.height,
         title,
         plan.context.pixelsPerInch,
         plan.context.deviceScale
       )
+      options <- idPrefix.fold(Right(unscoped))(unscoped.withIdPrefix)
       deviceScene <- plan.deviceScene.left.map(SvgRenderError.Graphics(_))
       serialized <- serialize(deviceScene, options, plan.context.textMetrics, fonts)
     yield SvgDocument(
@@ -125,32 +177,34 @@ object SvgRenderer:
       options.logicalHeight
     )
 
-  private final class ClipRegistry:
+  private final class ClipRegistry(options: SvgOptions):
     private val builder = Vector.newBuilder[DeviceClip]
     private var count = 0
 
     def register(clip: DeviceClip): String =
-      val id = s"clip-$count"
+      val id = options.scopedId(s"clip-$count")
       builder += clip
       count += 1
       id
 
     def defs: Vector[(String, DeviceClip)] =
-      builder.result().zipWithIndex.map { case (clip, idx) => (s"clip-$idx", clip) }
+      builder.result().zipWithIndex.map { case (clip, idx) =>
+        (options.scopedId(s"clip-$idx"), clip)
+      }
 
-  private final class PatternRegistry:
+  private final class PatternRegistry(options: SvgOptions):
     private var paints = Vector.empty[PatternPaint]
 
     def register(paint: PatternPaint): String =
       val existing = paints.indexOf(paint)
-      if existing >= 0 then s"pattern-$existing"
+      if existing >= 0 then options.scopedId(s"pattern-$existing")
       else
-        val id = s"pattern-${paints.length}"
+        val id = options.scopedId(s"pattern-${paints.length}")
         paints = paints :+ paint
         id
 
     def defs: Vector[(String, PatternPaint)] =
-      paints.zipWithIndex.map { case (paint, idx) => (s"pattern-$idx", paint) }
+      paints.zipWithIndex.map { case (paint, idx) => (options.scopedId(s"pattern-$idx"), paint) }
 
   private final case class DocumentAccessibility(
       id: String,
@@ -168,7 +222,11 @@ object SvgRenderer:
       serializeValidated(
         scene,
         options,
-        PlateMetrics(textMetrics, options.pixelsPerInch / 72.0),
+        PlateMetrics(
+          textMetrics,
+          options.pixelsPerInch / 72.0,
+          fonts.faces.map(face => SvgFonts.familyKey(face.family)).toSet
+        ),
         fonts
       )
     )
@@ -206,7 +264,11 @@ object SvgRenderer:
   /** An SVG renderer cannot see the viewer's font, so its own text measure is the render context's
     * `TextMetrics`: the same measure layout and picking use for this target.
     */
-  private final case class PlateMetrics(metrics: TextMetrics, pixelsPerPoint: Double)
+  private final case class PlateMetrics(
+      metrics: TextMetrics,
+      pixelsPerPoint: Double,
+      embeddedFamilies: Set[String]
+  )
 
   private def serializeValidated(
       scene: DeviceScene,
@@ -215,8 +277,8 @@ object SvgRenderer:
       fonts: SvgFonts
   ): String =
     val out = new StringBuilder
-    val clips = new ClipRegistry
-    val patterns = new PatternRegistry
+    val clips = new ClipRegistry(options)
+    val patterns = new PatternRegistry(options)
     val accessibility = documentAccessibility(scene, options)
     val accessibilityAttrs = accessibility.fold("") { metadata =>
       val labelledBy = metadata.title.fold("")(_ => s" aria-labelledby=\"${metadata.id}-title\"")
@@ -286,7 +348,7 @@ object SvgRenderer:
   ): Option[DocumentAccessibility] =
     Option.when(!scene.semantics.isEmpty || options.description.nonEmpty) {
       DocumentAccessibility(
-        scene.semantics.documentId.map(_.value).getOrElse("intaglio-svg"),
+        options.scopedId(scene.semantics.documentId.map(_.value).getOrElse("intaglio-svg")),
         options.title.orElse(scene.semantics.accessibleTitle),
         options.description.orElse(scene.semantics.accessibleDescription)
       )
@@ -545,6 +607,11 @@ object SvgRenderer:
             gp,
             name
           ) =>
+        // A supplied face names one CSS string, not an unquoted identifier list or generic family.
+        val cssFamily = fontFamily.map { family =>
+          if plates.embeddedFamilies.contains(SvgFonts.familyKey(family)) then s"\"$family\""
+          else family
+        }
         val rotation =
           if rotationDegrees == 0.0 then ""
           else s""" transform="rotate(${format(rotationDegrees)} ${format(x)} ${format(y)})""""
@@ -580,7 +647,7 @@ object SvgRenderer:
         line(
           out,
           indent,
-          s"""<text${textAttrs(name, gp, fontSizePx, fontFamily)} x="${format(x)}" y="${format(
+          s"""<text${textAttrs(name, gp, fontSizePx, cssFamily)} x="${format(x)}" y="${format(
               y
             )}" text-anchor="${textAnchor(horizontal)}" dominant-baseline="${dominantBaseline(
               vertical
