@@ -11,7 +11,7 @@ object AutomaticDisplayWindowProfile:
       AutomaticWindowConfig(p, 0.98, DisplaySampleDomain.FiniteNonzero, 262144)
     )
     def separate() = configs.map(c => AutomaticDisplayWindow.estimate(values.iterator, c))
-    def batch() = AutomaticDisplayWindow.estimateMany(values.iterator, configs)
+    def batch() = AutomaticDisplayWindow.estimateMany(values.iterator, configs).toOption.get
     val expected = separate()
     require(batch() == expected)
     for _ <- 0 until 5 do

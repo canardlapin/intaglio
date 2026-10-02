@@ -944,28 +944,13 @@ private[intaglio] object ScalePhase:
               val (companion, _) = raw.head
               Left(GraphicsError.UnsupportedGeomAesthetic(plan.layer.geom.label, companion.label))
             case Some(scale) =>
-              val out = Vector.newBuilder[ScaleObservation]
-              var result: Either[GraphicsError, Unit] = Right(())
-              raw.foreach { (companion, evaluate) =>
-                var rowIndex = 0
-                while rowIndex < plan.data.length && result.isRight do
-                  evaluate(plan.data(rowIndex)) match
-                    case Right(input) =>
-                      if input.isFinite then scale.observation(input).foreach(out += _)
-                    case Left((contract, failure)) =>
-                      result = Left(
-                        GraphicsError.MappingEvaluationFailed(
-                          "scale training",
-                          Some(plan.layerIndex),
-                          companion.label,
-                          rowIndex,
-                          contract,
-                          failure
-                        )
-                      )
-                  rowIndex += 1
-              }
-              result.map(_ => out.result())
+              // A row whose companion cannot be evaluated trains nothing here; row resolution
+              // drops it with a typed reason, exactly as it did before companions were scaled.
+              Right(raw.flatMap { (_, evaluate) =>
+                plan.data.flatMap { row =>
+                  evaluate(row).toOption.filter(_.isFinite).flatMap(scale.observation)
+                }
+              })
 
   private def compatibleFacetCopy(
       first: Contribution,

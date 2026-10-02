@@ -1,6 +1,12 @@
 package intaglio
 
 class AutomaticDisplayWindowSuite extends munit.FunSuite:
+  private def batch(
+      values: IterableOnce[Double],
+      configs: Vector[AutomaticWindowConfig]
+  ): Vector[Either[AutomaticWindowError, AutomaticWindowEstimate]] =
+    AutomaticDisplayWindow.estimateMany(values, configs).fold(e => fail(e.message), identity)
+
   private def estimate(
       values: IterableOnce[Double],
       config: AutomaticWindowConfig = AutomaticWindowConfig()
@@ -83,8 +89,7 @@ class AutomaticDisplayWindowSuite extends munit.FunSuite:
         iterators += 1
         require(iterators == 1, "Input was traversed twice")
         (1 to 206000).iterator.map { i => visits += 1; i.toDouble }
-    val results = AutomaticDisplayWindow
-      .estimateMany(input, configs)
+    val results = batch(input, configs)
       .map(_.fold(e => fail(e.message), identity))
     assertEquals((iterators, visits), (1, 206000))
     // Independent order statistics of the consecutive integers, using r = p * (n-1).
@@ -121,8 +126,7 @@ class AutomaticDisplayWindowSuite extends munit.FunSuite:
         BigDecimal(ordered(math.min(lower + 1, capacity - 1))) * fraction).toDouble
     def input: Iterator[Double] =
       (0 until count).iterator.flatMap(i => Iterator(value(i), Double.NaN))
-    val results = AutomaticDisplayWindow
-      .estimateMany(input, configs)
+    val results = batch(input, configs)
       .map(_.fold(e => fail(e.message), identity))
     results.zip(configs).foreach { (result, config) =>
       assertEqualsDouble(result.window.lower, oracle(config.lowerProbability), 1e-5)
@@ -135,16 +139,15 @@ class AutomaticDisplayWindowSuite extends munit.FunSuite:
     }
     assertEquals(results, configs.map(c => estimate(input, c)))
     assertEquals(
-      AutomaticDisplayWindow.estimateMany(input, configs),
-      AutomaticDisplayWindow.estimateMany(input, configs)
+      batch(input, configs),
+      batch(input, configs)
     )
   }
 
   test("batch keeps independent constant expansion, signed extremes, refusals and request order") {
     val configs = Vector(AutomaticWindowConfig(0, 0.5), AutomaticWindowConfig(0.5, 1))
     val values = Vector(0.0, 0.0, 0.0, 10.0)
-    val results = AutomaticDisplayWindow
-      .estimateMany(values, configs)
+    val results = batch(values, configs)
       .map(_.fold(e => fail(e.message), identity))
     assertEquals(
       (results(0).window.lower, results(0).window.upper, results(0).expandedConstant),
@@ -161,27 +164,26 @@ class AutomaticDisplayWindowSuite extends munit.FunSuite:
       AutomaticWindowConfig(0, 1),
       AutomaticWindowConfig(0.25, 0.75)
     )
-    val accepted = AutomaticDisplayWindow.estimateMany(extremes, mixed)
+    val accepted = batch(extremes, mixed)
     assert(accepted(0).isRight)
     assert(accepted(1).isLeft)
     assertEquals(accepted(0), accepted(2))
     assertEquals(accepted, mixed.map(c => AutomaticDisplayWindow.estimate(extremes, c)))
-    assert(AutomaticDisplayWindow.estimateMany(Vector(Double.MaxValue), configs).forall(_.isLeft))
+    assert(batch(Vector(Double.MaxValue), configs).forall(_.isLeft))
   }
 
   test("batch preserves zero-domain counts and no-eligible refusal for every request") {
     val configs =
       Vector(0.5, 0.9).map(p => AutomaticWindowConfig(p, 0.98, DisplaySampleDomain.FiniteNonzero))
     val values = Vector(0.0, -0.0, Double.NaN, Double.NegativeInfinity, -3.0, 5.0, 7.0)
-    val results = AutomaticDisplayWindow
-      .estimateMany(values, configs)
+    val results = batch(values, configs)
       .map(_.fold(e => fail(e.message), identity))
     results.foreach(r =>
       assertEquals((r.observed, r.nonFinite, r.excludedZero, r.eligible), (7L, 2L, 2L, 3L))
     )
     assertEquals(results, configs.map(c => estimate(values, c)))
     assertEquals(
-      AutomaticDisplayWindow.estimateMany(values.take(4), configs),
+      batch(values.take(4), configs),
       Vector.fill(2)(Left(AutomaticWindowError.NoEligibleValues))
     )
   }
@@ -190,14 +192,18 @@ class AutomaticDisplayWindowSuite extends munit.FunSuite:
     val input = new IterableOnce[Double]:
       def iterator: Iterator[Double] = fail("Invalid batch consumed input")
     val base = AutomaticWindowConfig()
-    intercept[IllegalArgumentException](AutomaticDisplayWindow.estimateMany(input, Vector.empty))
+    assertEquals(
+      AutomaticDisplayWindow.estimateMany(input, Vector.empty).left.toOption,
+      Some(AutomaticWindowError.EmptyBatch)
+    )
     Vector(
       base.copy(domain = DisplaySampleDomain.FiniteNonzero),
       base.copy(seed = 1),
       base.copy(maxSamples = 20)
     ).foreach { other =>
-      intercept[IllegalArgumentException](
-        AutomaticDisplayWindow.estimateMany(input, Vector(base, other))
+      assertEquals(
+        AutomaticDisplayWindow.estimateMany(input, Vector(base, other)).left.toOption,
+        Some(AutomaticWindowError.IncompatibleBatchSampling)
       )
     }
   }

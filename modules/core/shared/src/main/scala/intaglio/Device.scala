@@ -841,10 +841,12 @@ object DeviceScene:
             val rotation =
               if viewport.angleDegrees == 0.0 then None
               else
+                // The viewport's origin, which is the extent's corner even when an aspect mode
+                // places the content elsewhere inside it.
                 val pivotY = frame.yDirection match
-                  case YDirection.Up   => child.y + child.height
-                  case YDirection.Down => child.y
-                Some(DeviceRotation(deviceDegrees(viewport.angleDegrees, frame), child.x, pivotY))
+                  case YDirection.Up   => extent.y + extent.height
+                  case YDirection.Down => extent.y
+                Some(DeviceRotation(deviceDegrees(viewport.angleDegrees, frame), extent.x, pivotY))
             val childAncestors = grob.name.fold(namedAncestors)(namedAncestors :+ _)
             grob.name.foreach { name =>
               frames += ResolvedViewportFrame(

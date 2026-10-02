@@ -61,12 +61,15 @@ final class ClassedColorScaleSpec private (
           // A class with no values in this plot has no domain, so it draws nothing and has no bar.
           case None         => Right(done :+ None)
           case Some(values) =>
-            colorClass.spec.trainSpec(values, theme, facetLocal).flatMap {
-              case scale: ContinuousScale[?] =>
+            colorClass.spec.trainSpec(values, theme, facetLocal) match
+              case Right(scale: ContinuousScale[?]) =>
                 Right(done :+ Some(scale.asInstanceOf[ContinuousScale[Rgba]]))
-              case _ =>
+              // Every value masked, non-finite, or outside the class's transform domain: the same
+              // as a class with no cells, rather than a failure of the whole plot.
+              case Left(GraphicsError.EmptyContinuousRange) => Right(done :+ None)
+              case Left(error)                              => Left(error)
+              case Right(_)                                 =>
                 Left(GraphicsError.InvalidStatResult("classed colour", "untrained class scale"))
-            }
       }
     }
     trained.map(scales => ClassedColorScale(name, classes.map(_.label), scales))
@@ -107,7 +110,8 @@ final case class ClassedColorScale private[intaglio] (
   override def mapValueResult(value: ClassedValue): Either[ScaleMapFailure, Rgba] =
     scales.lift(value.classIndex).flatten match
       case Some(scale) => scale.mapValueResult(value.value)
-      case None        => Left(ScaleMapFailure.OutOfDomain(name.value, value.toString))
+      case None        =>
+        Left(ScaleMapFailure.OutOfDomain(name.value, s"class ${value.classIndex}"))
 
   private[intaglio] override def observation(value: ClassedValue): Option[ScaleObservation] =
     Option.when(scales.indices.contains(value.classIndex))(

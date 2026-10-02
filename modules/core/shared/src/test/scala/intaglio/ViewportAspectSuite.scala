@@ -108,6 +108,25 @@ class ViewportAspectSuite extends munit.FunSuite:
     }
   }
 
+  test("a rotated aspect viewport pivots on its origin, not on the fitted content corner") {
+    def rotation(viewport: Viewport): Option[DeviceRotation] =
+      val grob = ok(
+        Grob.image(
+          raster,
+          Point.npcUnsafe(0.5, 0.5),
+          Size.npcUnsafe(1.0, 1.0),
+          viewport = Some(viewport),
+          name = Some(name)
+        )
+      )
+      val device = ok(DeviceScene.fromScene(Scene(Vector(grob)), RenderContext.unsafe(400, 300)))
+      device.elements.collectFirst { case DeviceElement.Group(_, _, r, _) => r }.flatten
+    val plain = Viewport.unsafe(angleDegrees = 30.0)
+    val fitted = plain.withAspect(ViewportAspect.unsafe(widescreen))
+    assertEquals(rotation(fitted), rotation(plain))
+    assertEquals(rotation(plain).map(r => (r.pivotX, r.pivotY)), Some((0.0, 300.0)))
+  }
+
   test("an aspect from equal native units uses the scale ranges") {
     val aspect = ok(ViewportAspect.ofScales(Interval.unsafe(0.0, 1920.0), Interval.unsafe(0, 1080)))
     assertEqualsDouble(aspect.ratio, widescreen, 1e-15)

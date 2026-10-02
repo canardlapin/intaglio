@@ -106,6 +106,26 @@ class ClassedRasterSuite extends munit.FunSuite:
     assertEquals(titles.flatten, Vector("task"))
   }
 
+  test("a class whose cells are all masked or outside its transform draws nothing, not an error") {
+    val masked = ok(
+      plot(field)
+        .geomRasterByClass(classOf, classes, missing = cell => cell.xIndex >= 2)
+        .resolve(context)
+    )
+    val titles = masked.guides.map(_.spec).collect { case c: GuideSpec.Colorbar => c.title }
+    assertEquals(titles.flatten, Vector("task"))
+    // Task values span -3..3, so a log10 task class has no value in its transform's domain.
+    val logTask =
+      ColorClass.unsafe("task", Palette.gradient(blue, red), transform = Transform.log10)
+    val outOfDomain = plot(field)
+      .geomRasterByClass(
+        cell => if cell.xIndex < 2 && cell.value <= 0.0 then 0 else 1,
+        Vector(logTask, classes(1))
+      )
+      .resolve(context)
+    assert(outOfDomain.isRight, outOfDomain)
+  }
+
   test("masked cells and unknown classes take the missing colour") {
     val missing = Rgba.unsafe(255, 0, 255)
     val raster = image(

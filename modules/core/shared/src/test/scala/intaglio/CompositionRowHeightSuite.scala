@@ -130,6 +130,27 @@ class CompositionRowHeightSuite extends munit.FunSuite:
     assert(PlotComposition.column(mismatched, context).isRight)
   }
 
+  test("a shared x frame also requires the same x transform") {
+    final case class Dose(dose: Double, response: Double)
+    val doses = Vector(Dose(1.0, 0.0), Dose(10.0, 1.0), Dose(100.0, 2.0))
+    def dosePlot(transform: Transform) =
+      ok(
+        plot(doses)
+          .aes(_.dose, _.response)
+          .scaleXContinuous(transform = transform)
+          .geomPoint()
+          .resolve(context)
+      )
+    val linear = dosePlot(Transform.identity)
+    val logged = dosePlot(Transform.log10)
+    val options = CompositionOptions.default.withSharedXFrame(true)
+    assert(PlotComposition.column(Vector(linear, linear), context, options).isRight)
+    assert(PlotComposition.column(Vector(linear, logged), context, options).left.toOption.exists {
+      case GraphicsError.InvalidCompositionPanel(1, _) => true
+      case _                                           => false
+    })
+  }
+
   test("row height specifications are checked") {
     assert(RowHeight.points(0.0).isLeft)
     assert(RowHeight.weight(Double.NaN).isLeft)

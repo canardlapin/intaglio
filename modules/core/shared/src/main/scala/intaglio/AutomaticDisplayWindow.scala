@@ -26,8 +26,17 @@ final case class AutomaticWindowConfig(
 enum AutomaticWindowError extends IntaglioError:
   case NoEligibleValues
   case UnrepresentableWindow(lower: Double, upper: Double)
+
+  /** A batch request named no window. */
+  case EmptyBatch
+
+  /** Batched windows share one sample, so they must share its domain, size and seed. */
+  case IncompatibleBatchSampling
   def message: String = this match
-    case NoEligibleValues => "No finite values satisfy the display sampling domain"
+    case NoEligibleValues          => "No finite values satisfy the display sampling domain"
+    case EmptyBatch                => "Automatic window batch requires at least one configuration"
+    case IncompatibleBatchSampling =>
+      "Automatic window batch must share sampling domain, sample limit and seed"
     case UnrepresentableWindow(lower, upper) =>
       s"Automatic display window cannot represent finite width: [$lower,$upper]"
 
@@ -57,7 +66,7 @@ object AutomaticDisplayWindow:
       values: IterableOnce[Double],
       config: AutomaticWindowConfig = AutomaticWindowConfig()
   ): Either[AutomaticWindowError, AutomaticWindowEstimate] =
-    estimateMany(values, Vector(config)).head
+    estimateMany(values, Vector(config)).flatMap(_.head)
 
   /** Several windows from one traversal, one bounded reservoir and one sort. Configurations must
     * share their sampling domain, sample limit and seed; only their probabilities may differ.
@@ -65,21 +74,28 @@ object AutomaticDisplayWindow:
     * constant expansion or refusal. With the same ordered input each result equals a separate
     * [[estimate]] call, including sampled streams. The input is consumed exactly once.
     *
-    * An empty request or incompatible sampling configurations is a caller error, rejected before
-    * obtaining the input iterator. Sampling remains O(maxSamples) storage; output costs O(windows).
+    * An empty request or incompatible sampling configurations is refused as a typed error before
+    * obtaining the input iterator; otherwise each window succeeds or fails on its own. Sampling
+    * remains O(maxSamples) storage; output costs O(windows).
     */
   def estimateMany(
       values: IterableOnce[Double],
       configs: Vector[AutomaticWindowConfig]
+  ): Either[AutomaticWindowError, Vector[Either[AutomaticWindowError, AutomaticWindowEstimate]]] =
+    configs.headOption match
+      case None         => Left(AutomaticWindowError.EmptyBatch)
+      case Some(config) =>
+        if configs.forall(c =>
+            c.domain == config.domain && c.maxSamples == config.maxSamples && c.seed == config.seed
+          )
+        then Right(sampled(values, config, configs))
+        else Left(AutomaticWindowError.IncompatibleBatchSampling)
+
+  private def sampled(
+      values: IterableOnce[Double],
+      config: AutomaticWindowConfig,
+      configs: Vector[AutomaticWindowConfig]
   ): Vector[Either[AutomaticWindowError, AutomaticWindowEstimate]] =
-    require(configs.nonEmpty, "Automatic window batch requires at least one configuration")
-    val config = configs.head
-    require(
-      configs.forall(c =>
-        c.domain == config.domain && c.maxSamples == config.maxSamples && c.seed == config.seed
-      ),
-      "Automatic window batch must share sampling domain, sample limit and seed"
-    )
     val sample = new Array[Double](config.maxSamples)
     val random = new scala.util.Random(config.seed)
     var observed = 0L

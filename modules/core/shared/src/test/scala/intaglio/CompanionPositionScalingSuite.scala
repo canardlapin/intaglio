@@ -68,6 +68,21 @@ class CompanionPositionScalingSuite extends munit.FunSuite:
     }
   }
 
+  test("a companion that fails for one row drops that row, as before, instead of the plot") {
+    val trained = ok(
+      plot(events)
+        .aes(_.x, _.y)
+        .scaleXContinuous()
+        .geomSegment(
+          e => if e.x == 2.0 then throw new IllegalStateException("no end") else e.xEnd,
+          _.yEnd
+        )
+        .resolve(context)
+    )
+    assertEquals(layerRows(trained, Geom.Segment).length, events.length - 1)
+    assertEquals(trained.droppedRows.length, 1)
+  }
+
   test("a segment alone under an explicit y scale renders") {
     val built = plot(events)
       .aes(_.x, _.y)

@@ -32,7 +32,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   exhaustive: the compiler only warns, and one of the new cases reaching it
   throws `MatchError` at run time. See [MIGRATION.md](MIGRATION.md).
 
+- `Viewport` gained a trailing defaulted `aspect` field. Its constructor and
+  `copy` remain private and a bridge keeps the old constructor descriptor, but
+  a positional pattern `case Viewport(a, b, c, d, e, f, g, h)` must now name
+  the ninth field.
+
 ### Added
+
+- **Batched automatic display windows.** `AutomaticDisplayWindow.estimateMany`
+  estimates several windows from one traversal, one bounded reservoir and one
+  sort, with the same counts, seed determinism and per-window refusal as
+  `estimate`. An empty batch or configurations that disagree on sampling domain,
+  sample limit or seed are refused as `AutomaticWindowError.EmptyBatch` or
+  `IncompatibleBatchSampling` before the input is read.
 
 - **Rasters with a palette per class.** `geomRasterByClass(classOf, classes)`
   draws a scalar field as one image whose colour mapping is chosen per class:
@@ -41,8 +53,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ClassedColorScaleSpec` on the fill aesthetic. Derived guides give each class
   with values its own colorbar, identical to the one an ordinary `geomRaster` of
   that class's cells alone would draw. Masked cells and unknown class indices
-  take `missingColor`. The new `classed-raster` conformance case runs on every
-  backend.
+  take `missingColor`; a class whose cells are all masked, non-finite or
+  outside its transform's domain draws nothing and has no bar. The new
+  `classed-raster` conformance case runs on every backend.
 
 - **Composition row heights and a shared x frame.**
   `CompositionOptions.withRowHeights` sizes each row of a composition with
@@ -50,9 +63,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   what the fixed rows and gaps leave), so a short strip can sit over a tall
   matrix. Explicitly sized rows reserve only their own plots' top and bottom
   strips; left and right strips stay shared, so every column's panels have
-  identical edges. `withSharedXFrame(true)` refuses plots whose panel x range or
-  x scale domain differs from the first plot's, so aligned columns also mean
-  the same data. A wrong row count is the new
+  identical edges. `withSharedXFrame(true)` refuses plots whose panel x range,
+  x scale or x transform differs from the first plot's, so aligned columns also
+  mean the same data. A wrong row count is the new
   `GraphicsError.InvalidCompositionRowHeights`; fixed rows taller than the
   composition are `LayoutOverflow`. Without row heights, layout is unchanged.
 
@@ -64,9 +77,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   viewport's frame for its children, native scales and `ResolvedViewportFrame`,
   so picking and inverse mapping agree with the drawn image.
   `ViewportAspect.ofScales` takes the ratio from equal-unit native ranges. The
-  new `aspect-viewport` conformance case runs on every backend. `Viewport`
-  gained a trailing defaulted `aspect` field behind a constructor bridge; its
-  constructor and `copy` remain private.
+  new `aspect-viewport` conformance case runs on every backend. A rotated
+  viewport still pivots on its origin, the extent's corner.
 
 - **Difference extents.** `ExtentExpr.fromExpr` now admits a difference of
   two extents, such as `npc(1) - pt(12)` for a panel sized to the full extent
@@ -183,7 +195,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `xMin`, `xMax` (and their `y` counterparts) both train that scale and are
   mapped through it. A raw companion beside a temporal or discrete position
   scale is refused with `UnsupportedGeomAesthetic` naming the geom and
-  aesthetic, instead of being drawn in a different unit.
+  aesthetic, instead of being drawn in a different unit. A companion that
+  cannot be evaluated for a row still only drops that row.
+
+  Because a plot-level position scale used to be silently ignored by these
+  layers, applying it now has visible consequences. Its limits and
+  out-of-bounds policy apply to bounds as well as centres, so under `Censor` a
+  tile, rect or error bar whose edge lies outside explicit limits is dropped.
+  Its transform applies too: `geomArea` bounds include zero, so every area row
+  is dropped under a log scale, and a raster under a nonlinear position
+  transform is no longer uniformly spaced and is refused by the raster's grid
+  contract.
 
 - **Derived legend keys fit their rows.** The layout solver budgets
   `LayoutPolicy.legendKeyPt` as the side of each key's box, but placement

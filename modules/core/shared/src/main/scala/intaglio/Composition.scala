@@ -274,29 +274,50 @@ object PlotComposition:
         )
       )
 
-  /** Every panel of every plot must show the same x range under the same x scale domain. */
+  /** Every panel of every plot must show the same x range under the same x scale: the same
+    * descriptor (kind, domain, training) and, for a continuous scale, the same transform, since two
+    * transforms can share a raw domain and a normalized panel range yet place data apart.
+    */
   private def validateSharedXFrame(plots: Vector[TrainedPlot]): Either[GraphicsError, Unit] =
     def frames(plot: TrainedPlot): Vector[Interval] =
       if plot.facetPanels.nonEmpty then plot.facetPanels.map(_.layout.xScale)
       else plot.layout.map(_.xScale).toVector
-    def domain(plot: TrainedPlot): Option[ScaleDomain] =
-      plot.scaleRegistry.forAesthetic(Aesthetic.X).map(_.descriptor.domain)
-    val reference = plots.headOption.flatMap(frames(_).headOption)
-    val referenceDomain = plots.headOption.flatMap(domain)
-    plots.zipWithIndex
-      .collectFirst {
-        case (plot, index) if frames(plot).exists(frame => !reference.contains(frame)) =>
-          GraphicsError.InvalidCompositionPanel(
-            index,
-            s"x frame ${frames(plot).mkString(", ")} differs from plot 0's ${reference.mkString}"
-          )
-        case (plot, index) if domain(plot) != referenceDomain =>
-          GraphicsError.InvalidCompositionPanel(
-            index,
-            "x scale domain differs from plot 0's; a shared x frame needs one trained x scale"
-          )
+    def scale(plot: TrainedPlot): Option[(ScaleDescriptor, Option[String])] =
+      plot.scaleRegistry.forAesthetic(Aesthetic.X).map { trained =>
+        val transform = trained.scale match
+          case continuous: ContinuousScale[?] => Some(continuous.transform.name.value)
+          case _                              => None
+        (trained.descriptor, transform)
       }
-      .toLeft(())
+    def show(intervals: Vector[Interval]): String =
+      if intervals.isEmpty then "no panel"
+      else
+        intervals
+          .map { i =>
+            val Vector(lower, upper) = Labeler.default(Vector(i.lower, i.upper))
+            s"[$lower, $upper]"
+          }
+          .mkString(", ")
+    plots.headOption match
+      case None        => Right(())
+      case Some(first) =>
+        val reference = frames(first)
+        val referenceScale = scale(first)
+        plots.zipWithIndex
+          .collectFirst {
+            case (plot, index)
+                if reference.isEmpty || frames(plot).exists(!reference.contains(_)) =>
+              GraphicsError.InvalidCompositionPanel(
+                index,
+                s"x frame ${show(frames(plot))} differs from plot 0's ${show(reference)}"
+              )
+            case (plot, index) if scale(plot) != referenceScale =>
+              GraphicsError.InvalidCompositionPanel(
+                index,
+                "x scale differs from plot 0's; a shared x frame needs one x scale and transform"
+              )
+          }
+          .toLeft(())
 
   private final case class GuideLayout(
       content: NormalizedFrame,
@@ -559,15 +580,21 @@ object PlotComposition:
         else if available <= 0.0 || heights.exists(_ <= 0.0) then
           Left(GraphicsError.LayoutOverflow("composition cell height"))
         else
-          // Rows stack downward from the content's top edge, top row first.
-          val tops = heights.scanLeft(content.top)((top, h) => top - h - gapY)
+          // Rows stack downward from the content's top edge, top row first. Equal rows keep the
+          // original arithmetic so default compositions stay bit-identical.
+          val bottoms =
+            if options.rowHeights.isEmpty then
+              Vector.tabulate(rows)(row =>
+                content.y + (rows - row - 1).toDouble * (heights(row) + gapY)
+              )
+            else heights.scanLeft(content.top)((top, h) => top - h - gapY).zip(heights).map(_ - _)
           Right(
             Vector.tabulate(count) { index =>
               val row = index / columns
               val column = index % columns
               NormalizedFrame(
                 content.x + column.toDouble * (cellWidth + gapX),
-                tops(row) - heights(row),
+                bottoms(row),
                 cellWidth,
                 heights(row)
               )

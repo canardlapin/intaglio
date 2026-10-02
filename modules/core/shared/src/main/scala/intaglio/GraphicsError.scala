@@ -148,7 +148,6 @@ enum GraphicsError extends IntaglioError:
   case InvalidCompositionGrid(plotCount: Int, columns: Int)
   case InvalidCompositionGap(axis: String, value: Double)
   case InvalidCompositionPanel(index: Int, detail: String)
-  case InvalidCompositionRowHeights(detail: String)
   case InvalidInsetBounds(x: Double, y: Double, width: Double, height: Double)
   case InvalidDeviceSize(width: Double, height: Double)
   case InvalidDeviceResolution(pixelsPerInch: Double)
@@ -163,6 +162,7 @@ enum GraphicsError extends IntaglioError:
   case AxisLabelCountMismatch(values: Int, labels: Int)
   case InvalidCssClass(value: String, expectation: String)
   case InvalidDataKey(value: String, expectation: String)
+  case InvalidCompositionRowHeights(detail: String)
 
   def message: String =
     this match
