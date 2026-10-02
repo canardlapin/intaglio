@@ -244,6 +244,7 @@ lazy val svg =
       name := "intaglio-svg",
       description := "SVG renderer for Intaglio scenes."
     )
+    .jvmSettings(additiveCompatibilitySettings("svg-additions.txt"))
     .jsSettings(jsSettingsBase)
 
 lazy val svgJS = svg.js
@@ -453,7 +454,7 @@ addCommandAlias(
 
 addCommandAlias(
   "compatibilityCheck",
-  ";coreJVM/interactionCompatibilityCheck;lawsJVM/interactionCompatibilityCheck;java2dJVM/interactionCompatibilityCheck;javafxJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
+  ";coreJVM/interactionCompatibilityCheck;lawsJVM/interactionCompatibilityCheck;svgJVM/interactionCompatibilityCheck;java2dJVM/interactionCompatibilityCheck;javafxJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
 )
 
 addCommandAlias(

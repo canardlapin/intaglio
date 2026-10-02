@@ -1,0 +1,29 @@
+# Exact additive review for the SVG renderer since the baseline.
+# Forward MiMa only; no removals, signature changes, backward or TASTy findings are filtered.
+# See docs/compatibility.md for the API review.
+sha=3f3db55c92a49cf06489fd72c0e94e7383738314
+version=0.5.0
+
+MissingClassProblem intaglio.svg.SvgFontError
+MissingClassProblem intaglio.svg.SvgFontError$
+MissingClassProblem intaglio.svg.SvgFontError$DuplicateFace
+MissingClassProblem intaglio.svg.SvgFontError$DuplicateFace$
+MissingClassProblem intaglio.svg.SvgFontError$EmbeddingRestricted
+MissingClassProblem intaglio.svg.SvgFontError$EmbeddingRestricted$
+MissingClassProblem intaglio.svg.SvgFontError$Empty
+MissingClassProblem intaglio.svg.SvgFontError$Empty$
+MissingClassProblem intaglio.svg.SvgFontError$InvalidFamily
+MissingClassProblem intaglio.svg.SvgFontError$InvalidFamily$
+MissingClassProblem intaglio.svg.SvgFontError$TooLarge
+MissingClassProblem intaglio.svg.SvgFontError$TooLarge$
+MissingClassProblem intaglio.svg.SvgFontError$UnrecognisedFormat
+MissingClassProblem intaglio.svg.SvgFontError$UnrecognisedFormat$
+MissingClassProblem intaglio.svg.SvgFontFace
+MissingClassProblem intaglio.svg.SvgFontFace$
+MissingClassProblem intaglio.svg.SvgFontFormat
+MissingClassProblem intaglio.svg.SvgFontFormat$
+MissingClassProblem intaglio.svg.SvgFonts
+MissingClassProblem intaglio.svg.SvgFonts$
+MissingClassProblem intaglio.svg.SvgRenderer$PlateMetrics
+MissingClassProblem intaglio.svg.SvgRenderer$PlateMetrics$
+DirectMissingMethodProblem intaglio.svg.SvgRenderer.render

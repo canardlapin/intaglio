@@ -197,3 +197,17 @@ same pinned baseline by `lawsJVM/interactionCompatibilityCheck` and wired into
 `compatibilityCheck`. The first entry is `StrokeCasingLaws`; the stroke-casing conformance case
 `RendererConformance.casedMarksCase` is recorded with the core additions. Neither changes an
 existing signature.
+
+### SVG additions, and one record per module
+
+The SVG renderer's font-embedding API (`SvgFontFace`, `SvgFonts`, `SvgFontError` and the two new
+`SvgRenderer.render` overloads) made `intaglio-svg` the fifth module with additions since the
+baseline. [`svg-additions.txt`](../compatibility/svg-additions.txt) is its record, checked by
+`svgJVM/interactionCompatibilityCheck` and wired into `compatibilityCheck`.
+
+Each record lists exactly the forward-MiMa findings of its module against the pinned baseline:
+`interaction-additions.txt` (core), `laws-additions.txt`, `svg-additions.txt`,
+`java2d-additions.txt` and `javafx-additions.txt`. When several branches add API at once, regenerate
+the records from one gate run on the integrated head rather than merging hand-written lines; the
+check fails on a stale entry as well as on a missing one, and every finding must be one of the three
+addition-only kinds. Backward MiMa and TASTy checks still have no exclusions.

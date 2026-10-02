@@ -457,6 +457,12 @@ final case class PatternPaint(
     )
 
 object PatternPaint:
+  /** A synthesized case-class companion renders as its name. Declaring the companion for the bridge
+    * below stops that synthesis, so it is kept explicitly for the 0.5.0 TASTy member.
+    */
+  override def toString: String =
+    "PatternPaint"
+
   /** Binary bridge for the three-field apply descriptor. */
   def apply(recipe: PatternRecipe, ink: Rgba, background: Option[Rgba]): PatternPaint =
     new PatternPaint(recipe, ink, background, PaintLengthUnit.LayoutPixel)

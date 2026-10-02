@@ -1,21 +1,23 @@
-# Exact additive review for raster fields and stroke casing.
+# Exact additive review of every forward addition since the 0.5.0 baseline.
 # Forward MiMa only; no removals, signature changes, backward or TASTy findings are filtered.
 # See docs/compatibility.md for the API review and constructor bridges.
 sha=3f3db55c92a49cf06489fd72c0e94e7383738314
 version=0.5.0
 
-DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.<init>$default$10
-DirectMissingMethodProblem intaglio.javafx.JavaFxPaint._10
-DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.apply
-DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.casing
-DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy
-DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy$default$10
-DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.this
+MissingClassProblem intaglio.javafx.JavaFxCanvasContext$
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.DefaultCacheByteLimit
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.MaxRasterDimension
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.cacheByteLimit
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.cachedResourceBytes
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.cachedResourceCount
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.clearCaches
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.measureText
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.release
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.this
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.validateRaster
 MissingClassProblem intaglio.javafx.JavaFxCasing
 MissingClassProblem intaglio.javafx.JavaFxCasing$
-
-# Resolved viewport frames and minimal JavaFX host (Interaction 12a).
-DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.clearCaches
+DirectMissingMethodProblem intaglio.javafx.JavaFxGraphicsContext.measureText
 MissingClassProblem intaglio.javafx.JavaFxHostError
 MissingClassProblem intaglio.javafx.JavaFxHostError$
 MissingClassProblem intaglio.javafx.JavaFxHostProfile
@@ -24,38 +26,34 @@ MissingClassProblem intaglio.javafx.JavaFxInteractionHost
 MissingClassProblem intaglio.javafx.JavaFxInteractionHost$
 MissingClassProblem intaglio.javafx.JavaFxInteractionView
 MissingClassProblem intaglio.javafx.JavaFxInteractionView$
-
-# Bounded, releasable native-resource cache and typed raster size policy.
-# The original one-argument context constructor and clearCaches remain callable.
-DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.this
-DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.cacheByteLimit
-DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.cachedResourceBytes
-DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.cachedResourceCount
-DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.release
-DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.DefaultCacheByteLimit
-DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.MaxRasterDimension
-DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.validateRaster
-MissingClassProblem intaglio.javafx.JavaFxCanvasContext$
-MissingFieldProblem intaglio.javafx.JavaFxRenderError.RasterTooLarge
-MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge
-MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge$
-# One resolution shared by drawing and picking.
-DirectMissingMethodProblem intaglio.javafx.JavaFxProgram.fromResolved
-
-# Hand-built scenes in the JavaFX interaction host.
-DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.named
-DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.named$default$6
-DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.namedResolved
-DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.namedResolved$default$6
-
-# Themeable, geometry-following interaction overlay.
-DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionHost.overlayStyle
-DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionHost.setOverlayStyle
-MissingClassProblem intaglio.javafx.JavaFxOverlayStyle
-MissingClassProblem intaglio.javafx.JavaFxOverlayStyle$
-MissingClassProblem intaglio.javafx.OverlayStroke
-MissingClassProblem intaglio.javafx.OverlayStroke$
-MissingClassProblem intaglio.javafx.OverlayOutline
-MissingClassProblem intaglio.javafx.OverlayOutline$
 MissingClassProblem intaglio.javafx.JavaFxOverlayError
 MissingClassProblem intaglio.javafx.JavaFxOverlayError$
+MissingClassProblem intaglio.javafx.JavaFxOverlayError$CasingNotWider
+MissingClassProblem intaglio.javafx.JavaFxOverlayError$CasingNotWider$
+MissingClassProblem intaglio.javafx.JavaFxOverlayError$InvalidOffset
+MissingClassProblem intaglio.javafx.JavaFxOverlayError$InvalidOffset$
+MissingClassProblem intaglio.javafx.JavaFxOverlayError$InvalidWidth
+MissingClassProblem intaglio.javafx.JavaFxOverlayError$InvalidWidth$
+MissingClassProblem intaglio.javafx.JavaFxOverlayStyle
+MissingClassProblem intaglio.javafx.JavaFxOverlayStyle$
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.<init>$default$10
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.<init>$default$11
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint._10
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint._11
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.apply
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.casing
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy$default$10
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy$default$11
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.textPlate
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.this
+DirectMissingMethodProblem intaglio.javafx.JavaFxProgram.fromResolved
+MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge
+MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge$
+MissingFieldProblem intaglio.javafx.JavaFxRenderError.RasterTooLarge
+MissingClassProblem intaglio.javafx.JavaFxTextBox
+MissingClassProblem intaglio.javafx.JavaFxTextBox$
+MissingClassProblem intaglio.javafx.OverlayOutline
+MissingClassProblem intaglio.javafx.OverlayOutline$
+MissingClassProblem intaglio.javafx.OverlayStroke
+MissingClassProblem intaglio.javafx.OverlayStroke$
