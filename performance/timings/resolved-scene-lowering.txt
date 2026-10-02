@@ -1,0 +1,10 @@
+machine=Mac OS X aarch64 14.3
+java=25.0.1
+processors=14
+marks=11520 named circle grobs, device 1280x960 at scale 2
+runs=7 after 3 discarded warm-up runs; milliseconds
+lowerings_per_draw_and_pick_before=2 (JavaFxRenderer.compile + NamedPicking.compile)
+lowerings_per_draw_and_pick_after=1 (DeviceScene.fromScene, then fromResolved twice)
+draw_and_pick_before_ms min=23.2 median=27.6 max=39.2
+draw_and_pick_after_ms min=20.0 median=20.9 max=27.3
+one_lowering_ms min=2.9 median=3.2 max=3.7

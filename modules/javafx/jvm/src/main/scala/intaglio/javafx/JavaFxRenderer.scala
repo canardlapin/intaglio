@@ -328,6 +328,23 @@ final case class JavaFxProgram private (
 )
 
 object JavaFxProgram:
+
+  /** Compile a scene that the host has already resolved, so one `DeviceScene` can feed drawing,
+    * picking (`Picking.fromResolved`, `NamedPicking.fromResolved`) and overlays without lowering
+    * the scene again. `context` must be the render context the scene was resolved under. The scene
+    * is checked as `JavaFxRenderer.compile` checks a freshly lowered one: non-finite device values
+    * and oversized pattern tiles are typed errors. The program is identical to the one
+    * `JavaFxRenderer.compile(RenderPlan(scene, context))` builds from the source scene.
+    */
+  def fromResolved(
+      scene: DeviceScene,
+      context: RenderContext
+  ): Either[JavaFxRenderError, JavaFxProgram] =
+    for
+      checked <- DeviceScene.validate(scene).left.map(JavaFxRenderError.Graphics(_))
+      _ <- PatternTile.validate(checked).left.map(JavaFxRenderError.Graphics(_))
+    yield fromDevice(checked, context)
+
   private[javafx] def fromDevice(scene: DeviceScene, context: RenderContext): JavaFxProgram =
     val out = Vector.newBuilder[JavaFxCommand]
     scene.elements.foreach(appendElement(_, out))

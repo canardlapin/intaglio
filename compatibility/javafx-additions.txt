@@ -39,3 +39,5 @@ MissingClassProblem intaglio.javafx.JavaFxCanvasContext$
 MissingFieldProblem intaglio.javafx.JavaFxRenderError.RasterTooLarge
 MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge
 MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge$
+# One resolution shared by drawing and picking.
+DirectMissingMethodProblem intaglio.javafx.JavaFxProgram.fromResolved

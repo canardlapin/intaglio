@@ -37,6 +37,8 @@ one directly above it.
   tutorial 6.
 - [Interaction state and events](../modules/interaction/README.md) — source-only
   typed selection, input traces, subscriptions, and disposal on JVM and Scala.js.
+- [Picking a hand-built scene](picking.md) — named picking over grobs a host
+  draws itself, with one scene resolution shared by drawing and picking.
 - [Date/time scales and coordinate zoom](date-time-and-zoom.md).
 - [Common statistical layers](common-statistics.md).
 - [Style aesthetics](style-aesthetics.md) — which channels each geom accepts,

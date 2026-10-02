@@ -173,3 +173,12 @@ The JavaFX module now depends on the optional shared interaction module as well 
 owns the minimal input/overlay host. Core and shared interaction remain toolkit-free. The module-boundary
 test permits precisely this dependency edge; other renderer dependencies remain restricted to core.
 Monocle and the simulated scale-2 platform factory are test-only and are not runtime requirements.
+
+### Host-facing picking additions
+
+`JavaFxProgram.fromResolved` and `NamedPicking.fromResolved` let a host resolve a scene once and
+share it between drawing and picking. `DeviceScene`'s existing scene check is widened from `private`
+to `private[intaglio]` so the JavaFX module can apply it to a resolved scene; it is not reachable
+from a consumer package, but its JVM method becomes public and is recorded in
+[`interaction-additions.txt`](../compatibility/interaction-additions.txt). The shared interaction
+module has no published baseline yet and is not part of this court.

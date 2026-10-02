@@ -123,6 +123,12 @@ fully transparent paint, which `pointer-events: visiblePainted` would hit, and
 text is picked by its measured box. Area selection scans every named target
 rather than the grid.
 
+A host that also draws the scene can resolve it once with
+`DeviceScene.fromScene(scene, context)` and pass that value to
+`NamedPicking.fromResolved` and to `JavaFxProgram.fromResolved`; the plan and
+the program equal those built from the source scene. See
+[Picking a hand-built scene](../../docs/picking.md).
+
 ## State contracts
 
 - Select displayed targets and observation entities independently. Selecting

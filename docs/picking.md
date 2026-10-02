@@ -1,0 +1,50 @@
+# Picking a hand-built scene
+
+A host that draws its own grobs, rather than compiling a plot, identifies interactive marks by
+`GraphicsName` and queries them through `NamedPicking` (the plot path is described in the
+[interaction module README](../modules/interaction/README.md)). This page covers the entry points a
+desktop or canvas host needs to draw and pick one scene without doing the work twice.
+
+## Lower once, then draw and pick
+
+`NamedPicking.compile(scene, context)` and `JavaFxRenderer.compile(...)` each resolve the scene
+against the device before doing their own work. A host that draws, picks and overlays the same
+scene resolves it once with `DeviceScene.fromScene` and hands the result to both consumers:
+
+```scala mdoc:silent
+import intaglio.*
+import intaglio.interaction.*
+import intaglio.javafx.*
+
+val context = RenderContext.unsafe(width = 400, height = 300, pixelsPerInch = 192, deviceScale = 2)
+val ink = GraphicParams.unsafe(stroke = None, fill = Some(Rgba.Black))
+val scene = Scene(
+  Vector(
+    Grob.circleUnsafe(Point.npcUnsafe(0.25, 0.5), ExtentExpr.pointsUnsafe(6), ink,
+      name = Some(GraphicsName.unsafe("left"))),
+    Grob.circleUnsafe(Point.npcUnsafe(0.75, 0.5), ExtentExpr.pointsUnsafe(6), ink,
+      name = Some(GraphicsName.unsafe("right")))
+  )
+)
+
+val drawAndPick = for
+  resolved <- DeviceScene.fromScene(scene, context)
+  program <- JavaFxProgram.fromResolved(resolved, context)
+  picking <- NamedPicking.fromResolved(resolved, context)
+yield (program, picking)
+```
+
+```scala mdoc
+drawAndPick.map(_._2.nearest(DevicePoint(100, 150), 4).map(_.map(_.name.value)))
+```
+
+The program and the plan are identical to the ones the separate entry points build from the source
+scene; only the resolution is shared. `context` must be the one the scene was resolved under, since
+picking measures text with its metrics. `JavaFxProgram.fromResolved` checks the resolved scene as a
+fresh lowering is checked, so a hand-assembled `DeviceScene` with a non-finite coordinate or an
+oversized pattern tile is a typed `JavaFxRenderError`, not a drawing failure. For plots,
+`Picking.fromResolved` plays the same role.
+
+The JavaFX suite `JavaFxResolvedSceneSuite` records the cost for 11,520 named marks at device scale
+2: two lowerings per draw-and-pick through the separate entry points, one through the resolved
+scene. The timings it writes are measurements on one machine, not a guarantee.

@@ -89,6 +89,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   offsets are still refused at construction. `InvalidExtent`'s message now
   reads "extent must be non-negative".
 
+- **Resolve a hand-built scene once for drawing and picking.**
+  `NamedPicking.fromResolved` and `JavaFxProgram.fromResolved` accept a
+  `DeviceScene` the host has already resolved, so drawing, named picking and
+  overlays share one lowering. Both give the same result as the entry points
+  that resolve the source scene themselves; the JavaFX one returns a typed
+  error for a non-finite or oversized-pattern scene.
+
 - **Point ink framing.** `PanelFraming.markInk`, set with `.framing(...)` on a
   plot builder or `PlotCompilerOptions.framing`, widens a solved panel's derived
   ranges just enough that every point mark's shape, stroke and miter corners sit

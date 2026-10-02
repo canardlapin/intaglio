@@ -177,3 +177,47 @@ class NamedPickingSuite extends munit.FunSuite:
     assertEquals(plan.names.toSet, Set(n("mark-1"), n("own")))
     assertEquals(ok(plan.nearest(DevicePoint(40, 60), 2)).map(_.name), Some(n("mark-1")))
     assertEquals(ok(plan.nearest(DevicePoint(120, 60), 2)).map(_.name), Some(n("own")))
+
+  test("a scene resolved once picks exactly as the scene compiled from source"):
+    val stroke = GraphicParams.unsafe(stroke = Some(Rgba.Black), fill = None, lineWidth = 2)
+    val scene = Scene(
+      Vector(
+        Grob.group(
+          (0 until 24).toVector.map(i =>
+            Grob.circleUnsafe(
+              Point.npcUnsafe(0.05 + (i % 6) * 0.15, 0.2 + (i / 6) * 0.2),
+              ExtentExpr.pointsUnsafe(3 + i % 4),
+              if i % 3 == 0 then stroke else fill,
+              name = Some(n(s"m${i % 9}"))
+            )
+          ),
+          name = Some(n("layer"))
+        ),
+        Grob.rectUnsafe(
+          Point.npcUnsafe(0.5, 0.5),
+          Size.npcUnsafe(0.3, 0.1),
+          gp = stroke,
+          name = Some(n("box"))
+        ),
+        Grob.textUnsafe("label", Point.npcUnsafe(0.3, 0.9), name = Some(n("text")))
+      )
+    )
+    val resolved = ok(DeviceScene.fromScene(scene, context))
+    val once = ok(NamedPicking.fromResolved(resolved, context))
+    val separate = ok(NamedPicking.compile(scene, context))
+    assertEquals(once.names, separate.names)
+    assertEquals(once.targetCount, separate.targetCount)
+    for
+      x <- 0 to 200 by 5
+      y <- 0 to 200 by 5
+      tolerance <- Vector(0.0, 3.0)
+    do
+      val point = DevicePoint(x.toDouble, y.toDouble)
+      assertEquals(once.hits(point, tolerance), separate.hits(point, tolerance), point)
+    val area = ok(PickArea.rectangle(20, 20, 140, 140))
+    for rule <- AreaRule.values do
+      assertEquals(once.select(area, rule), separate.select(area, rule))
+    assert(
+      NamedPicking.fromResolved(DeviceScene(Double.NaN, 200, Vector.empty), context).isLeft,
+      "a resolved scene is still checked"
+    )

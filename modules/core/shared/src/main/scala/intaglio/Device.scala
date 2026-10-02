@@ -565,7 +565,7 @@ object DeviceScene:
       )
     yield resolved
 
-  private def validate(scene: DeviceScene): Either[GraphicsError, DeviceScene] =
+  private[intaglio] def validate(scene: DeviceScene): Either[GraphicsError, DeviceScene] =
     for
       _ <- DeviceValue.checked("width", scene.width)
       _ <- DeviceValue.checked("height", scene.height)

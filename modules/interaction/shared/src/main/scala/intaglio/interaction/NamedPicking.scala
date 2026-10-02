@@ -125,6 +125,18 @@ object NamedPicking:
   ): Either[IntaglioError, NamedPickingPlan] =
     DeviceScene.fromScene(scene, context).flatMap(fromDeviceScene(_, context, policy))
 
+  /** Build named picking from a scene the host has already resolved with
+    * `DeviceScene.fromScene(scene, context)`, so drawing, picking and overlays share one lowering.
+    * The plan is identical to `compile(scene, context, policy)` for the source scene. `context`
+    * must be the one the scene was resolved under: text is measured with its metrics.
+    */
+  def fromResolved(
+      scene: DeviceScene,
+      context: RenderContext,
+      policy: PickPolicy = PickPolicy.default
+  ): Either[PickingError, NamedPickingPlan] =
+    fromDeviceScene(scene, context, policy)
+
   private[interaction] def fromDeviceScene(
       scene: DeviceScene,
       context: RenderContext,
