@@ -14,8 +14,10 @@ final case class SvgOptions private (
   def logicalWidth: Double = width.toDouble / deviceScale
   def logicalHeight: Double = height.toDouble / deviceScale
 
-  /** Binary bridge for the constructor from before id prefixes. */
-  private def this(
+  /** Binary bridge for the constructor from before id prefixes. Package-private, not private, so
+    * the compiler keeps its descriptor in the class file for code compiled against 0.5.0.
+    */
+  private[svg] def this(
       width: Int,
       height: Int,
       title: Option[String],
@@ -178,6 +180,9 @@ object SvgRenderer:
     )
 
   private final class ClipRegistry(options: SvgOptions):
+    /** Bridge for the constructor descriptor from before id prefixes. */
+    def this() = this(SvgOptions.default)
+
     private val builder = Vector.newBuilder[DeviceClip]
     private var count = 0
 
@@ -193,6 +198,9 @@ object SvgRenderer:
       }
 
   private final class PatternRegistry(options: SvgOptions):
+    /** Bridge for the constructor descriptor from before id prefixes. */
+    def this() = this(SvgOptions.default)
+
     private var paints = Vector.empty[PatternPaint]
 
     def register(paint: PatternPaint): String =

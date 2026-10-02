@@ -37,6 +37,10 @@ one directly above it.
   tutorial 6.
 - [Interaction state and events](../modules/interaction/README.md) — source-only
   typed selection, input traces, subscriptions, and disposal on JVM and Scala.js.
+- [Interactive plots in the browser](browser-widget.md) — mount a compiled plot as an
+  accessible SVG widget with tooltips, selection, keyboard access and typed events.
+- [Interaction coverage](interaction-coverage.md) — how every built-in geom and plot part
+  becomes an interactive target.
 - [Picking a hand-built scene](picking.md) — named picking over grobs a host
   draws itself, with one scene resolution shared by drawing and picking.
 - [Date/time scales and coordinate zoom](date-time-and-zoom.md).

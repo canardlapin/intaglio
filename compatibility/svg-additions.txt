@@ -24,6 +24,15 @@ MissingClassProblem intaglio.svg.SvgFontFormat
 MissingClassProblem intaglio.svg.SvgFontFormat$
 MissingClassProblem intaglio.svg.SvgFonts
 MissingClassProblem intaglio.svg.SvgFonts$
+DirectMissingMethodProblem intaglio.svg.SvgOptions._7
+DirectMissingMethodProblem intaglio.svg.SvgOptions.idPrefix
+DirectMissingMethodProblem intaglio.svg.SvgOptions.this
+DirectMissingMethodProblem intaglio.svg.SvgOptions.withIdPrefix
+MissingClassProblem intaglio.svg.SvgRenderError$InvalidIdPrefix
+MissingClassProblem intaglio.svg.SvgRenderError$InvalidIdPrefix$
+MissingFieldProblem intaglio.svg.SvgRenderError.InvalidIdPrefix
+DirectMissingMethodProblem intaglio.svg.SvgRenderer#ClipRegistry.this
+DirectMissingMethodProblem intaglio.svg.SvgRenderer#PatternRegistry.this
 MissingClassProblem intaglio.svg.SvgRenderer$PlateMetrics
 MissingClassProblem intaglio.svg.SvgRenderer$PlateMetrics$
 DirectMissingMethodProblem intaglio.svg.SvgRenderer.render

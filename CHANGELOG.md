@@ -39,6 +39,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Interactive SVG widget (`intaglio-browser`, Scala.js).** `SvgWidget.mount`
+  turns a compiled interaction plan into an accessible widget: tooltips,
+  hover and selection rings, inverse emphasis in the marks' original paint,
+  typed activation and checked links, one tab stop with roving keyboard focus,
+  a live region and a text companion, typed plot-part events,
+  application-controlled selection, `update` with reconciliation by entity
+  key, and complete disposal. See [docs/browser-widget.md](docs/browser-widget.md).
+  Checked in Playwright-owned Chromium by `tools/check-widget-browser.cjs`.
+
+- **Host-neutral interaction behaviour and input.** `InteractionBehavior`
+  (tooltip `TargetContent`, `TargetLink`, placement, delay, hover rule, inverse
+  emphasis, selection mode), `HostInput` (pointer and key meanings to
+  interaction actions) and `TooltipLayout` are shared by every host.
+
+- **Typed plot parts and interaction coverage.** `PlotParts.of(trained)` lists
+  titles, facet strips, axes, legend entries and titles, colorbars and
+  reference-line annotations with the values they stand for; `PartPicking`
+  finds them under a point. `InteractionCoverage.entries` states every built-in
+  geom's target granularity, rendered in
+  [docs/interaction-coverage.md](docs/interaction-coverage.md) and enforced by
+  a test that compiles each one.
+
+- **SVG id prefixes.** `SvgOptions.withIdPrefix` and
+  `SvgRenderer.render(plan, title, fonts, idPrefix)` namespace every id a
+  document defines or references, so several plots can be inlined in one page.
+  Embedded font families are now quoted, so a family such as a numeric word
+  loads its embedded face.
+
 - **Batched automatic display windows.** `AutomaticDisplayWindow.estimateMany`
   estimates several windows from one traversal, one bounded reservoir and one
   sort, with the same counts, seed determinism and per-window refusal as
