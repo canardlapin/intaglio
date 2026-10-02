@@ -151,6 +151,135 @@ class CompositionRowHeightSuite extends munit.FunSuite:
     })
   }
 
+  private final case class NumericCell(x: Double, y: Double)
+  private val numericCells =
+    Vector(NumericCell(0.0, 0.0), NumericCell(0.25, 0.25), NumericCell(1.0, 1.0))
+
+  private def numericPanel(
+      xTransform: Transform = Transform.identity,
+      yTransform: Transform = Transform.identity,
+      xPalette: Palette[Double] = Palette.numeric,
+      coord: Coord = Coord.Cartesian()
+  ): TrainedPlot =
+    ok(
+      plot(numericCells)
+        .encode(Aesthetic.X, _.x, ok(ContinuousScaleSpec("x", xPalette, xTransform)))
+        .encode(Aesthetic.Y, _.y, ok(ContinuousScaleSpec.numeric("y", yTransform)))
+        .coord(coord)
+        .geomPoint()
+        .resolve(context)
+    )
+
+  private def sharedXResult(plots: TrainedPlot*) =
+    PlotComposition.column(
+      plots.toVector,
+      context,
+      CompositionOptions.default.withSharedXFrame(true)
+    )
+
+  private def assertMappingRefused(result: Either[GraphicsError, ComposedPlot]): Unit =
+    assert(result.left.toOption.exists {
+      case GraphicsError.InvalidCompositionPanel(1, _) => true
+      case _                                           => false
+    })
+
+  test("equal endpoint domains and transform names do not prove an equal interior mapping") {
+    val linear = ok(Transform("same-name", identity, identity))
+    val sqrt = ok(Transform("same-name", math.sqrt, value => value * value))
+    val first = numericPanel(xTransform = linear)
+    val second = numericPanel(xTransform = sqrt)
+    assertEquals(first.layout.map(_.xScale), second.layout.map(_.xScale))
+    assertEquals(
+      first.scaleRegistry.forAesthetic(Aesthetic.X).map(_.descriptor),
+      second.scaleRegistry.forAesthetic(Aesthetic.X).map(_.descriptor)
+    )
+    assertNotEquals(first.layers.head.rows.map(_.x), second.layers.head.rows.map(_.x))
+    assert(sharedXResult(first, numericPanel(xTransform = linear)).isRight)
+    assertMappingRefused(sharedXResult(first, second))
+  }
+
+  test("shared x frame checks position palettes as well as transforms") {
+    val ordinary = numericPanel()
+    val reversed = numericPanel(xPalette = value => 1.0 - value)
+    assertEquals(ordinary.layout.map(_.xScale), reversed.layout.map(_.xScale))
+    assertNotEquals(ordinary.layers.head.rows.map(_.x), reversed.layers.head.rows.map(_.x))
+    assertMappingRefused(sharedXResult(ordinary, reversed))
+  }
+
+  test("custom position scales need a shared mapping instance") {
+    def custom(mapping: Double => Double): Scale[Double, Double] =
+      new Scale[Double, Double]:
+        val name = GraphicsName.unsafe("custom-x")
+        def mapValue(value: Double): Option[Double] = Some(mapping(value))
+    def customPanel(scale: Scale[Double, Double]) =
+      ok(
+        plot(numericCells)
+          .encode(Aesthetic.X, _.x, scale)
+          .encode(Aesthetic.Y, _.y, ok(ContinuousScaleSpec.numeric("y")))
+          .geomPoint()
+          .resolve(context)
+      )
+    val linear = custom(identity)
+    val first = customPanel(linear)
+    assert(sharedXResult(first, customPanel(linear)).isRight)
+    assertMappingRefused(sharedXResult(first, customPanel(custom(value => 1.0 - value))))
+  }
+
+  test("a flipped shared x frame checks logical y and permits different vertical mappings") {
+    val ordinary = numericPanel(coord = Coord.Flipped())
+    val differentVertical = numericPanel(xTransform = Transform.sqrt, coord = Coord.Flipped())
+    val differentHorizontal = numericPanel(yTransform = Transform.sqrt, coord = Coord.Flipped())
+    assert(sharedXResult(ordinary, differentVertical).isRight)
+    assertMappingRefused(sharedXResult(ordinary, differentHorizontal))
+  }
+
+  test("shared categorical frames compare stable category identities rather than display labels") {
+    final case class Category(key: Int, label: String)
+    given CategoryIdentity[Category] = CategoryIdentity.by(_.key, _.label)
+    val a = Category(1, "A")
+    val b = Category(2, "B")
+    val data = Vector(a -> 0.0, b -> 1.0)
+    def categoryPanel(declared: Vector[Category]) =
+      ok(
+        plot(data)
+          .encode(Aesthetic.X, _._1, ok(BandScaleSpec("category", declared)))
+          .encode(Aesthetic.Y, _._2, ok(ContinuousScaleSpec.numeric("y")))
+          .geomPoint()
+          .resolve(context)
+      )
+    val first = categoryPanel(Vector(a, b))
+    val reversed = categoryPanel(Vector(Category(2, "A"), Category(1, "B")))
+    assertEquals(
+      first.scaleRegistry.forAesthetic(Aesthetic.X).map(_.descriptor),
+      reversed.scaleRegistry.forAesthetic(Aesthetic.X).map(_.descriptor)
+    )
+    assertNotEquals(first.layers.head.rows.map(_.x), reversed.layers.head.rows.map(_.x))
+    assertMappingRefused(sharedXResult(first, reversed))
+  }
+
+  test("large finite row weights preserve equal and unequal proportions") {
+    val plots = Vector.fill(3)(panel(xAxis = true))
+    def compose(weights: Vector[Double]) =
+      ok(
+        PlotComposition.column(
+          plots,
+          context,
+          CompositionOptions.default.withRowHeights(weights.map(RowHeight.weightUnsafe))
+        )
+      )
+    Vector(Vector(1.0, 1.0, 1.0), Vector(1.0, 2.0, 3.0)).foreach { weights =>
+      val ordinary = compose(weights).cells.map(cell => resolved(cell.panel))
+      val multiplier = 1.5e308 / weights.max
+      val large = compose(weights.map(_ * multiplier)).cells.map(cell => resolved(cell.panel))
+      ordinary.zip(large).foreach { (expected, actual) =>
+        assertEqualsDouble(actual._1, expected._1, 1e-9)
+        assertEqualsDouble(actual._2, expected._2, 1e-9)
+        assertEqualsDouble(actual._3, expected._3, 1e-9)
+        assertEqualsDouble(actual._4, expected._4, 1e-9)
+      }
+    }
+  }
+
   test("row height specifications are checked") {
     assert(RowHeight.points(0.0).isLeft)
     assert(RowHeight.weight(Double.NaN).isLeft)

@@ -47,7 +47,12 @@ Rows split the height equally unless `CompositionOptions.withRowHeights` sizes t
 rows and gaps leave. Explicitly sized rows reserve only their own plots' top and bottom strips, so a
 thin strip without an x axis is not charged its neighbour's axis. Left and right strips stay shared,
 so every row's panel has the same horizontal edges. `withSharedXFrame(true)` additionally refuses
-plots whose x range or x scale domain differs, so aligned columns also mean the same categories.
+plots whose x range or physical x scale mapping differs, so aligned columns also mean the same
+categories or data values. It checks the physical horizontal scale after coordinate flipping, and
+includes continuous transforms and palettes as well as categorical identities and ordering.
+Reuse the same transform and palette instances across rows; arbitrary functions and custom scale
+mappings cannot be proved equivalent from their endpoint domains or display names alone. Custom
+scales must share an instance. Faceted plots use each panel's trained horizontal scale.
 
 ```scala mdoc:silent
 import intaglio.*

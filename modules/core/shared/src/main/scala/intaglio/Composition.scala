@@ -39,8 +39,8 @@ object RowHeight:
   * `rowHeights`, when set, sizes each row explicitly (see [[RowHeight]]); otherwise rows split the
   * height equally. Explicitly sized rows reserve only their own plots' top and bottom strips, so a
   * short strip row is not charged a taller neighbour's x axis. `sharedXFrame` requires every plot
-  * to have the same panel x range and x scale domain, and refuses the composition otherwise, so the
-  * aligned column boundaries also mean the same data positions.
+  * to have the same panel x range and physical x scale mapping, and refuses the composition
+  * otherwise, so the aligned column boundaries also mean the same data positions.
   */
 final class CompositionOptions private (
     val guides: CompositionGuidePolicy,
@@ -52,6 +52,16 @@ final class CompositionOptions private (
     val rowHeights: Vector[RowHeight] = Vector.empty,
     val sharedXFrame: Boolean = false
 ):
+  /** Preserve the JVM constructor descriptor from before explicit row heights. */
+  private def this(
+      guides: CompositionGuidePolicy,
+      layoutPolicy: LayoutPolicy,
+      theme: Theme,
+      columnGapPt: Option[Double],
+      rowGapPt: Option[Double],
+      cellClip: Clip
+  ) = this(guides, layoutPolicy, theme, columnGapPt, rowGapPt, cellClip, Vector.empty, false)
+
   /** Size each row explicitly, top row first. The count must match the grid's rows. */
   def withRowHeights(heights: Vector[RowHeight]): CompositionOptions =
     new CompositionOptions(
@@ -274,21 +284,18 @@ object PlotComposition:
         )
       )
 
-  /** Every panel of every plot must show the same x range under the same x scale: the same
-    * descriptor (kind, domain, training) and, for a continuous scale, the same transform, since two
-    * transforms can share a raw domain and a normalized panel range yet place data apart.
+  /** Every panel must show the same x range under the same physical x scale mapping. Domain
+    * endpoints and transform names alone do not establish that two mappings agree.
     */
   private def validateSharedXFrame(plots: Vector[TrainedPlot]): Either[GraphicsError, Unit] =
     def frames(plot: TrainedPlot): Vector[Interval] =
       if plot.facetPanels.nonEmpty then plot.facetPanels.map(_.layout.xScale)
       else plot.layout.map(_.xScale).toVector
-    def scale(plot: TrainedPlot): Option[(ScaleDescriptor, Option[String])] =
-      plot.scaleRegistry.forAesthetic(Aesthetic.X).map { trained =>
-        val transform = trained.scale match
-          case continuous: ContinuousScale[?] => Some(continuous.transform.name.value)
-          case _                              => None
-        (trained.descriptor, transform)
-      }
+    def scales(plot: TrainedPlot): Vector[Option[TrainedScale]] =
+      val aesthetic = if plot.coordinateFlipped then Aesthetic.Y else Aesthetic.X
+      if plot.facetPanels.nonEmpty then
+        plot.facetPanels.map(_.scaleRegistry.forAesthetic(aesthetic))
+      else Vector(plot.scaleRegistry.forAesthetic(aesthetic))
     def show(intervals: Vector[Interval]): String =
       if intervals.isEmpty then "no panel"
       else
@@ -302,7 +309,7 @@ object PlotComposition:
       case None        => Right(())
       case Some(first) =>
         val reference = frames(first)
-        val referenceScale = scale(first)
+        val referenceScale = scales(first).headOption.flatten
         plots.zipWithIndex
           .collectFirst {
             case (plot, index)
@@ -311,13 +318,34 @@ object PlotComposition:
                 index,
                 s"x frame ${show(frames(plot))} differs from plot 0's ${show(reference)}"
               )
-            case (plot, index) if scale(plot) != referenceScale =>
+            case (plot, index)
+                if scales(plot).exists(scale => !samePositionScale(referenceScale, scale)) =>
               GraphicsError.InvalidCompositionPanel(
                 index,
-                "x scale differs from plot 0's; a shared x frame needs one x scale and transform"
+                "physical x scale mapping differs from plot 0's; a shared x frame needs one trained x scale mapping"
               )
           }
           .toLeft(())
+
+  private def samePositionScale(
+      reference: Option[TrainedScale],
+      candidate: Option[TrainedScale]
+  ): Boolean =
+    (reference, candidate) match
+      case (None, None)                                                     => true
+      case (Some(left), Some(right)) if left.descriptor == right.descriptor =>
+        (left.scale, right.scale) match
+          case (a: ContinuousScale[?], b: ContinuousScale[?]) =>
+            a.transform == b.transform && (a.palette eq b.palette) && a.oob == b.oob
+          case (a: BandScale[?], b: BandScale[?]) =>
+            a.domain == b.domain && a.padding == b.padding
+          case (a: DiscreteScale[?, ?], b: DiscreteScale[?, ?]) =>
+            a.domain == b.domain && (a.palette eq b.palette)
+          case (a: DateScale, b: DateScale)         => a.domain == b.domain && a.oob == b.oob
+          case (a: DateTimeScale, b: DateTimeScale) => a.domain == b.domain && a.oob == b.oob
+          // Open scales have no structural mapping contract; sharing the instance is the evidence.
+          case (a, b) => a eq b
+      case _ => false
 
   private final case class GuideLayout(
       content: NormalizedFrame,
@@ -615,14 +643,17 @@ object PlotComposition:
     if heights.isEmpty then Right(Vector.fill(rows)(available / rows.toDouble))
     else
       val fixed = heights.collect { case RowHeight.Points(pt) => pt * fractionPerPt }.sum
-      val totalWeight = heights.collect { case RowHeight.Weight(w) => w }.sum
+      val weights = heights.collect { case RowHeight.Weight(w) => w }
+      val maxWeight = weights.maxOption.getOrElse(1.0)
+      // Normalize before summing: individually finite weights can overflow their total.
+      val totalWeight = weights.map(_ / maxWeight).sum
       val remaining = available - fixed
       if remaining < 0.0 || (totalWeight > 0.0 && remaining <= 0.0) then
         Left(GraphicsError.LayoutOverflow("composition fixed row heights"))
       else
         Right(heights.map {
           case RowHeight.Points(pt) => pt * fractionPerPt
-          case RowHeight.Weight(w)  => remaining * w / totalWeight
+          case RowHeight.Weight(w)  => remaining * ((w / maxWeight) / totalWeight)
         })
 
   private def buildCells(
