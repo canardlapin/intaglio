@@ -217,6 +217,10 @@ enum GuideLayoutRequest:
 sealed trait GuidePlacement
 
 object GuidePlacement:
+  /** A measured legend. `xPt` is the key centre and title start, from the guide viewport's left
+    * edge; `labelOffsetPt` is measured from there to the label start; `markerSizePt` is half the
+    * key box, the radius budget a key glyph's ink must fit within.
+    */
   final case class Legend(
       xPt: Double,
       topPt: Double,
@@ -302,17 +306,21 @@ object GuideStackSolver:
           val firstRowOffset =
             if title.nonEmpty then titleBlock + rowHeight / 2.0
             else rowHeight / 2.0
+          // `legendKeyPt` is the side of each key's square box. Keys are centred in it, so the
+          // legend origin (where keys and title start) sits half a box in from the padding and
+          // the glyph gets the half box as its radius budget.
+          val keyHalf = policy.legendKeyPt / 2.0
           placements += GuidePlacement.Legend(
-            policy.legendPaddingPt,
+            policy.legendPaddingPt + keyHalf,
             nextTop,
             rowPitch,
             firstRowOffset,
-            policy.legendKeyPt + policy.legendGapPt / 2.0,
-            policy.legendKeyPt
+            keyHalf + policy.legendGapPt / 2.0,
+            keyHalf
           )
           val entryWidth =
             policy.legendKeyPt + policy.legendGapPt / 2.0 + request.extraKeyWidthPt + labelWidth
-          widest = math.max(widest, math.max(entryWidth, titleWidth))
+          widest = math.max(widest, math.max(entryWidth, keyHalf + titleWidth))
           titleBlock + rowsHeight
         case GuideLayoutRequest.Colorbar(_, _) =>
           val labelInset = textHeight / 2.0

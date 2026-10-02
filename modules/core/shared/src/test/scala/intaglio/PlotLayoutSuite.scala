@@ -101,8 +101,9 @@ class PlotLayoutSuite extends munit.FunSuite:
     val frames = PlotLayoutSolver.solve(policy, request).fold(e => fail(e.message), identity)
     val legend = frames.legend.getOrElse(fail("expected a legend frame"))
 
-    // Title width 9 chars * 10pt * 0.62 = 55.8pt dominates entries; plus 12pt padding.
-    val legendWidth = npcX(2.0 * 6.0 + 55.8)
+    // Title width 9 chars * 10pt * 0.62 = 55.8pt dominates entries. It starts at the key centre,
+    // half the 10pt key box in from the padding; plus 12pt padding.
+    val legendWidth = npcX(2.0 * 6.0 + 5.0 + 55.8)
     assertEqualsDouble(width(legend), legendWidth, tol)
     assertEqualsDouble(
       originX(legend),
