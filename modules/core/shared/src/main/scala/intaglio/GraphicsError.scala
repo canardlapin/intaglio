@@ -184,7 +184,7 @@ enum GraphicsError extends IntaglioError:
       case InvalidLength(value) =>
         s"length value must be finite: $value"
       case InvalidExtent(description) =>
-        s"extent must be provably non-negative: $description"
+        s"extent must be non-negative: $description"
       case InvalidColorChannel(channel, value) =>
         s"color channel '$channel' must be in [0, 255]: $value"
       case NonFiniteColorComponent(component, value) =>

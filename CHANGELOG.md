@@ -34,6 +34,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Difference extents.** `ExtentExpr.fromExpr` now admits a difference of
+  two extents, such as `npc(1) - pt(12)` for a panel sized to the full extent
+  minus a fixed margin. Its sign depends on the frame, so `LengthResolver`
+  checks it at resolution: a negative size is `GraphicsError.InvalidExtent`
+  naming the expression and its pixel value (`npc(1) - pt(12) resolved to -6
+  px`), never a clamp. Negative constants, negative factors and location
+  offsets are still refused at construction. `InvalidExtent`'s message now
+  reads "extent must be non-negative".
+
 - **Point ink framing.** `PanelFraming.markInk`, set with `.framing(...)` on a
   plot builder or `PlotCompilerOptions.framing`, widens a solved panel's derived
   ranges just enough that every point mark's shape, stroke and miter corners sit

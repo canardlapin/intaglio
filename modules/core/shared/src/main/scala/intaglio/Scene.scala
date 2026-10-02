@@ -117,9 +117,16 @@ object ExtentExpr:
   def apply(length: Length): Either[GraphicsError, ExtentExpr] =
     fromExpr(LengthExpr(length))
 
+  /** Accept an extent whose sign is either proved now or decided at resolution. Constants, sums,
+    * and non-negative multiples of non-negative extents are proved non-negative here. A difference
+    * of two extents, such as `npc(1) - pt(12)`, depends on the frame it is resolved against: it is
+    * accepted, and resolving it to a negative size is a typed [[GraphicsError.InvalidExtent]]
+    * naming the expression and its value, never a clamp. A negative constant, a negative factor, or
+    * a location offset is refused here as before.
+    */
   def fromExpr(expr: LengthExpr): Either[GraphicsError, ExtentExpr] =
-    if isProvablyNonNegative(expr) then Right(new ExtentExpr(expr))
-    else Left(GraphicsError.InvalidExtent(describe(expr)))
+    if sign(expr) == Sign.Refused then Left(GraphicsError.InvalidExtent(describe(expr)))
+    else Right(new ExtentExpr(expr))
 
   def unsafe(expr: LengthExpr): ExtentExpr =
     fromExpr(expr).orThrow
@@ -151,18 +158,56 @@ object ExtentExpr:
   def linesUnsafe(value: Double): ExtentExpr =
     lines(value).orThrow
 
-  private def isProvablyNonNegative(expr: LengthExpr): Boolean =
+  private enum Sign:
+    case NonNegative
+    case Resolved
+    case Refused
+
+  private def sign(expr: LengthExpr): Sign =
     expr match
       case LengthExpr.Const(length) =>
-        length.value >= 0.0
+        if length.value >= 0.0 then Sign.NonNegative else Sign.Refused
       case LengthExpr.Add(left, right) =>
-        isProvablyNonNegative(left) && isProvablyNonNegative(right)
-      case LengthExpr.Sub(_, _) =>
-        false
+        (sign(left), sign(right)) match
+          case (Sign.Refused, _) | (_, Sign.Refused) => Sign.Refused
+          case (Sign.NonNegative, Sign.NonNegative)  => Sign.NonNegative
+          case _                                     => Sign.Resolved
+      case LengthExpr.Sub(left, right) =>
+        if sign(left) == Sign.Refused || sign(right) == Sign.Refused then Sign.Refused
+        else Sign.Resolved
       case LengthExpr.Offset(_, _, _) =>
-        false
+        Sign.Refused
       case LengthExpr.Mul(factor, value) =>
-        factor >= 0.0 && isProvablyNonNegative(value)
+        if factor < 0.0 then Sign.Refused else sign(value)
+
+  /** Whether resolution must check this extent's sign: it contains a difference. */
+  private[intaglio] def signDecidedAtResolution(extent: ExtentExpr): Boolean =
+    sign(extent.expr) == Sign.Resolved
+
+  /** The expression in source-like form, with platform-identical number formatting. */
+  private[intaglio] def show(expr: LengthExpr): String =
+    def number(value: Double): String = Labeler.default(Vector(value)).head
+    def unit(value: LengthUnit): String =
+      value match
+        case LengthUnit.Npc    => "npc"
+        case LengthUnit.Native => "native"
+        case LengthUnit.Cm     => "cm"
+        case LengthUnit.Mm     => "mm"
+        case LengthUnit.Inch   => "in"
+        case LengthUnit.Point  => "pt"
+        case LengthUnit.Line   => "lines"
+    def operand(value: LengthExpr): String =
+      value match
+        case LengthExpr.Const(_) | LengthExpr.Mul(_, _) => show(value)
+        case _                                          => s"(${show(value)})"
+    expr match
+      case LengthExpr.Const(length)    => s"${unit(length.unit)}(${number(length.value)})"
+      case LengthExpr.Add(left, right) => s"${show(left)} + ${operand(right)}"
+      case LengthExpr.Sub(left, right) => s"${show(left)} - ${operand(right)}"
+      case LengthExpr.Offset(location, extent, direction) =>
+        val op = if direction < 0.0 then "-" else "+"
+        s"${show(location)} $op ${operand(extent.expr)}"
+      case LengthExpr.Mul(factor, value) => s"${number(factor)} * ${operand(value)}"
 
   private def describe(expr: LengthExpr): String =
     expr match

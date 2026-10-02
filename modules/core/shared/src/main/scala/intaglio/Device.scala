@@ -104,10 +104,10 @@ final class LengthResolver(
     eval(expr, horizontal = false, location = false).flatMap(checked)
 
   def width(extent: ExtentExpr): Either[GraphicsError, Double] =
-    width(extent.expr)
+    width(extent.expr).flatMap(nonNegative(extent, _))
 
   def height(extent: ExtentExpr): Either[GraphicsError, Double] =
-    height(extent.expr)
+    height(extent.expr).flatMap(nonNegative(extent, _))
 
   /** Axis-neutral extent (point sizes, circle radii): the smaller of the horizontal and vertical
     * resolutions, so relative units cannot distort marks on anisotropic frames.
@@ -170,6 +170,20 @@ final class LengthResolver(
         case YDirection.Down => originY
       DeviceFrame(originX, top, w, h, viewport.xScale, viewport.yScale, viewport.yDirection)
 
+  /** An extent whose sign could only be decided here (a difference) must not resolve negative.
+    * Rounding noise below a billionth of a pixel counts as zero, so `npc(1) - npc(1)` is empty
+    * rather than refused; anything larger is a typed error, never a clamp.
+    */
+  private def nonNegative(extent: ExtentExpr, value: Double): Either[GraphicsError, Double] =
+    if value >= 0.0 || !ExtentExpr.signDecidedAtResolution(extent) then Right(value)
+    else if value > -1.0e-9 then Right(0.0)
+    else
+      Left(
+        GraphicsError.InvalidExtent(
+          s"${ExtentExpr.show(extent.expr)} resolved to ${Labeler.default(Vector(value)).head} px"
+        )
+      )
+
   /** Resolved device coordinates must be finite and small enough to format exactly; anything else
     * is a degenerate scale or runaway expression.
     */
@@ -201,6 +215,7 @@ final class LengthResolver(
         for
           locationValue <- eval(base, horizontal, location = true)
           extentValue <- eval(extent.expr, horizontal, location = false)
+            .flatMap(nonNegative(extent, _))
         yield locationValue + direction * extentValue
       case LengthExpr.Mul(factor, value) =>
         eval(value, horizontal, location).map(factor * _)

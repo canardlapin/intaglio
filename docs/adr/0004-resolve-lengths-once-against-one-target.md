@@ -47,11 +47,14 @@ and `Native` font sizes are `GraphicsError.UnresolvableLength`, because a fracti
 a description of type.
 
 `Length` is one checked value with a unit. `LengthExpr` is the location algebra over it —
-`Const`, `Add`, `Sub`, `Mul`, and `Offset`. `ExtentExpr` is the provably non-negative subset:
-`fromExpr` admits a non-negative `Const`, an `Add` of two provably non-negative expressions, and a
-`Mul` by a non-negative factor, and refuses `Sub` and `Offset` outright rather than trying to prove
-anything about them. Sizes, radii, and corner radii take `ExtentExpr`, so a negative extent cannot
-enter a grob through a checked constructor.
+`Const`, `Add`, `Sub`, `Mul`, and `Offset`. `ExtentExpr` is the non-negative subset:
+`fromExpr` proves a non-negative `Const`, an `Add` of two proved expressions, and a `Mul` by a
+non-negative factor, and refuses a negative constant, a negative factor, and `Offset` outright.
+A `Sub` of two extents that are not themselves refused, such as `npc(1) - pt(12)`, is admitted with
+its sign deferred: it depends on the frame, so the `LengthResolver` checks it there and a negative
+resolution is `GraphicsError.InvalidExtent` naming the expression and its pixel value, never a clamp.
+Sizes, radii, and corner radii take `ExtentExpr`, so a negative extent cannot enter a grob through a
+checked constructor or leave the resolver as a size.
 
 The two are not interchangeable, and `LengthExpr.+(that: ExtentExpr)` exists precisely because they
 are not. Adding two `LengthExpr` values in `Native` units adds two *coordinates* in the frame's
@@ -104,10 +107,10 @@ takes the context, and `RenderPlan` retains it.
 that does not match its own output. The contract is stated in the trait's scaladoc and is the
 caller's to keep.
 
-`ExtentExpr`'s proof is conservative rather than complete. `ExtentExpr.fromExpr` refuses
-`a - b` even when `a >= b` is obvious to the author, because deciding that requires resolution and
-resolution has not happened yet. The workaround is to build the extent directly rather than as a
-difference.
+`ExtentExpr`'s static proof is conservative rather than complete. A difference `a - b` cannot be
+proved before resolution, so its sign is the one check that happens at resolution time; the
+alternative was refusing every inset such as "the full width minus a fixed margin", which hosts with
+fixed chrome need. Expressions without a difference keep the construction-time proof.
 
 ## Alternatives considered
 
