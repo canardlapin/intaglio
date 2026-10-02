@@ -53,6 +53,9 @@ async function main() {
   try {
     const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 1 });
     const tab = await context.newPage();
+    const consoleErrors = [];
+    tab.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+    tab.on('pageerror', error => consoleErrors.push(String(error)));
     await tab.addInitScript(instrument);
     await tab.goto(pathToFileURL(page).href);
     await tab.waitForFunction(() => window.intaglioFixture && window.intaglioFixture.ready);
@@ -127,9 +130,41 @@ async function main() {
       return { selected, both };
     });
 
+    await check('after a click, moving to empty space hides the hover tooltip', async () => {
+      const [x, y] = await point('left', 5);
+      await tab.mouse.move(x, y);
+      await tab.waitForTimeout(450);
+      await tab.mouse.click(x, y);
+      assert.equal((await tooltipBox('left')).hidden, false);
+      const corner = await fx(() => {
+        const r = document.querySelector('[data-intaglio-widget=left] svg.intaglio-base').getBoundingClientRect();
+        return [r.left + 4, r.bottom - 4];
+      });
+      await tab.mouse.move(corner[0], corner[1]);
+      await tab.waitForTimeout(450);
+      assert.equal((await tooltipBox('left')).hidden, true);
+      return {};
+    });
+
+    await check('a press released outside the plot does not leave a gesture open', async () => {
+      const [x, y] = await point('left', 2);
+      await tab.mouse.move(x, y);
+      await tab.mouse.down();
+      await tab.mouse.move(1100, 850);
+      await tab.mouse.up();
+      await tab.mouse.move(x, y);
+      await tab.mouse.down();
+      await tab.mouse.up();
+      const ended = (await last('left')).filter(e => e.startsWith('Gesture'));
+      assert.equal(ended[ended.length - 1], 'GestureEnded:Pointer', ended.join(' / '));
+      assert.deepEqual(consoleErrors, []);
+      return { ended };
+    });
+
     await check('keyboard roves focus with a visible ring, announces it, chooses and clears', async () => {
-      await tab.mouse.move(5, 5);
-      await fx(() => document.activeElement && document.activeElement.blur());
+      // Reset the sequential focus starting point to the page top, as a reader clicking the page
+      // background would; Tab then reaches the first widget's plot.
+      await tab.mouse.click(5, 5);
       await tab.keyboard.press('Tab');
       const focused = await fx(() => document.activeElement.closest('[data-intaglio-widget]')?.dataset.intaglioWidget);
       assert.equal(focused, 'left');
@@ -139,9 +174,11 @@ async function main() {
       const state = await fx(() => ({
         ring: document.querySelectorAll('[data-intaglio-widget=left] .intaglio-ring-focus').length,
         live: document.querySelector('[data-intaglio-widget=left] .intaglio-live').textContent,
-        tooltip: !document.querySelector('[data-intaglio-widget=left] .intaglio-tooltip').hidden
+        tooltip: !document.querySelector('[data-intaglio-widget=left] .intaglio-tooltip').hidden,
+        active: document.activeElement.className,
+        rings: [...document.querySelectorAll('[data-intaglio-widget=left] .intaglio-overlay > path')].map(p => p.getAttribute('class'))
       }));
-      assert.equal(state.ring, 1);
+      assert.equal(state.ring, 1, JSON.stringify({ state, events: await last('left') }));
       assert.match(state.live, /Trial t\d+/);
       assert.ok(state.tooltip, 'focus shows the tooltip without a pointer');
       assert.ok((await last('left')).some(e => /^focus:t\d+:Keyboard$/.test(e)));
@@ -188,6 +225,13 @@ async function main() {
       return { parts };
     });
 
+    await check('a resize with the same revision keeps the selection', async () => {
+      await fx(() => window.intaglioFixture.setSelection(['t3']));
+      assert.equal(await fx(() => window.intaglioFixture.resize()), 'ok');
+      assert.deepEqual(await fx(() => window.intaglioFixture.selected('left')), ['t3']);
+      return {};
+    });
+
     await check('update reconciles the selection by entity key', async () => {
       await fx(() => window.intaglioFixture.setSelection(['t1', 't2', 't9']));
       assert.equal(await fx(() => window.intaglioFixture.update()), 'ok');
@@ -219,6 +263,7 @@ async function main() {
       assert.ok(after.listeners < base.listeners && after.observers === base.observers - 1, JSON.stringify({ base, after }));
       return { base, cycled, after };
     });
+    assert.deepEqual(consoleErrors, [], 'no console errors during the run');
     await context.close();
 
     const hidpi = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 2 });

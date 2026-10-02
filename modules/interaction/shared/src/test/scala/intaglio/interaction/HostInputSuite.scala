@@ -91,6 +91,16 @@ class HostInputSuite extends munit.FunSuite:
     assertEquals(toggledOff.selection.entities.size, 1)
   }
 
+  test("a cancelled pointer ends its gesture, and a new press is accepted") {
+    val host = input()
+    val pressed = apply(initial(), ok(host.pointer(initial(), PointerInput.Press)))
+    assert(pressed.gesture.nonEmpty)
+    val cancelled = apply(pressed, ok(host.pointer(pressed, PointerInput.Cancel)))
+    assert(cancelled.gesture.isEmpty)
+    assertEquals(ok(host.pointer(cancelled, PointerInput.Cancel)), Vector.empty)
+    assert(apply(cancelled, ok(host.pointer(cancelled, PointerInput.Press))).gesture.nonEmpty)
+  }
+
   test("disabled selection still activates") {
     val host = input()
     val (x, y) = anchors.head

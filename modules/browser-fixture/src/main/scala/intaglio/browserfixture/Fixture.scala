@@ -34,8 +34,10 @@ object Fixture:
   private def scatterView(
       prefix: String,
       revision: String,
-      rows: Vector[Trial]
+      rows: Vector[Trial],
+      at: RenderContext = context
   ): SvgWidgetView[String] =
+    val options = PlotCompilerOptions(renderContext = Some(at), guides = GuidePolicy.Derived())
     val plan = orThrow(
       InteractionCompiler.compile(
         orThrow(
@@ -55,7 +57,7 @@ object Fixture:
         options
       )(_.id)
     )
-    orThrow(SvgWidgetView.compile(plan, context, prefix, Some("Response time and accuracy")))
+    orThrow(SvgWidgetView.compile(plan, at, prefix, Some("Response time and accuracy")))
 
   private def histogramView(prefix: String): SvgWidgetView[String] =
     val plan = orThrow(
@@ -164,6 +166,12 @@ object Fixture:
       views += "left" -> next
       widgets("left").update(next).fold(_.message, _ => "ok")
 
+    /** The same data (same revision) at a larger size: the state must stand. */
+    def resize(): String =
+      val next = scatterView("left", "s1", trials, RenderContext.unsafe(560, 360))
+      views += "left" -> next
+      widgets("left").update(next).fold(_.message, _ => "ok")
+
     def setSelection(ids: js.Array[String]): String =
       widgets("left")
         .setSelection(Selection(ids.toVector.map(id => orThrow(space.entity(id))).toSet))
@@ -185,6 +193,7 @@ object Fixture:
       markCount = (slot: String) => markCount(slot),
       remount = (times: Int) => remount(times),
       update = () => update(),
+      resize = () => resize(),
       setSelection = (ids: js.Array[String]) => setSelection(ids),
       dispose = (slot: String) => dispose(slot),
       selected = (slot: String) => selected(slot),

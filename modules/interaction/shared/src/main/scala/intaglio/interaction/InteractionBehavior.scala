@@ -59,7 +59,9 @@ object TargetContent:
       case None => Right(value)
 
 /** Where activating a target leads. A link is a checked URL value, never a script string: only
-  * `http`, `https` and `mailto` schemes, or a scheme-less relative reference, are accepted.
+  * `http`, `https` and `mailto` schemes, or a same-site relative reference, are accepted. A
+  * scheme-relative (`//host`) or backslashed reference is refused because browsers send it to
+  * another host.
   */
 final case class TargetLink private (url: String, newContext: Boolean)
 
@@ -73,6 +75,12 @@ object TargetLink:
     if trimmed.isEmpty then Left(InteractionError.InvalidValue("link", "empty URL"))
     else if trimmed.exists(c => c.isControl || c.isWhitespace) then
       Left(InteractionError.InvalidValue("link", "URL contains whitespace or control characters"))
+    else if trimmed.startsWith("//") || trimmed.contains('\\') then
+      // A scheme-relative or backslashed reference resolves to another host in browsers.
+      Left(
+        InteractionError
+          .InvalidValue("link", "scheme-relative and backslashed URLs are not allowed")
+      )
     else if hasScheme && !allowedSchemes.contains(scheme.toLowerCase) then
       Left(InteractionError.InvalidValue("link", s"scheme '$scheme' is not allowed"))
     else Right(new TargetLink(trimmed, newContext))

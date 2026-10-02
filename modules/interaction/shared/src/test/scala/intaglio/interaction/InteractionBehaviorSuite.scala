@@ -25,7 +25,11 @@ class InteractionBehaviorSuite extends munit.FunSuite:
       "file:///etc/passwd",
       "",
       "https://exa mple.org",
-      "https://example.org/\nx"
+      "https://example.org/\nx",
+      "//evil.example/x",
+      "\\\\evil.example",
+      "/\\evil.example",
+      "details\\x"
     ).foreach(url => assert(TargetLink(url).isLeft, url))
   }
 

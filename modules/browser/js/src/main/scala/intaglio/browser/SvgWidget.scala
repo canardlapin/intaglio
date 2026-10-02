@@ -61,6 +61,11 @@ final class SvgWidget[A] private (
   private var resizeObserver: Option[js.Dynamic] = None
   private var pointer: Option[(Double, Double)] = None
   private var hoveredPart: Option[PartTarget] = None
+
+  /** What the visible (or pending) tooltip describes, so each source hides only its own tooltip. */
+  private enum TooltipSource:
+    case Hover, Focus, Part
+  private var tooltipSource: Option[TooltipSource] = None
   private var input: HostInput[A] = HostInput(view.picking, view.navigation, unitViewport, behavior)
 
   private val root = element("div")
@@ -101,7 +106,9 @@ final class SvgWidget[A] private (
     result
 
   /** Show a new view of the same plot (new data or a new render size). Selection is reconciled by
-    * entity key; entities that no longer exist are dropped and reported in a `Reconciled` event.
+    * entity key; entities that no longer exist are dropped and reported in a `Reconciled` event. A
+    * view whose plan has the current revision (a resize or restyle of the same data) keeps the
+    * state as it is.
     */
   def update(next: SvgWidgetView[A]): Either[IntaglioError, Unit] =
     if disposed then Left(ControllerError.Disposed)
@@ -109,11 +116,18 @@ final class SvgWidget[A] private (
       for
         domain <- InteractionDomain(Vector(next.plan), next.plan.revision)
         current <- controller.state
-        _ <- controller.replaceDomain(
-          stamp(current, InputCause.Programmatic),
-          domain,
-          MissingEntityPolicy.Drop
-        )
+        // The same plan revision is the same data at another size or look: target identities are
+        // unchanged, so the state stands. A new revision is new data and is reconciled.
+        _ <-
+          if current.domain.revision == domain.revision then Right(())
+          else
+            controller
+              .replaceDomain(
+                stamp(current, InputCause.Programmatic),
+                domain,
+                MissingEntityPolicy.Drop
+              )
+              .map(_ => ())
       yield
         view = next
         input = HostInput(view.picking, view.navigation, unitViewport, behavior)
@@ -240,7 +254,17 @@ final class SvgWidget[A] private (
     listeners.on(plotHost, "pointerdown") { event =>
       if event.button.asInstanceOf[Int] == 0 then
         plotHost.focus(js.Dynamic.literal(preventScroll = true))
+        // Capture so the release reaches the plot even outside it; otherwise a gesture could
+        // stay open and refuse every later press.
+        try plotHost.setPointerCapture(event.pointerId)
+        catch case NonFatal(_) => ()
         withInput(input.pointer(_, PointerInput.Press))
+    }
+    listeners.on(plotHost, "pointercancel") { _ =>
+      withInput(input.pointer(_, PointerInput.Cancel))
+    }
+    listeners.on(plotHost, "lostpointercapture") { _ =>
+      withInput(input.pointer(_, PointerInput.Cancel))
     }
     listeners.on(plotHost, "pointerup") { event =>
       if event.button.asInstanceOf[Int] == 0 then withInput(input.pointer(_, PointerInput.Release))
@@ -366,8 +390,14 @@ final class SvgWidget[A] private (
       emitPart(PartEvent.Hovered(part.map(_.part)))
       part match
         case Some(p) =>
-          showTooltip(TargetContent.Text(p.part.describe), pointer, partAnchor(p), immediate = true)
-        case None => if controller.state.toOption.forall(_.hover.isEmpty) then hideTooltip()
+          showTooltip(
+            TargetContent.Text(p.part.describe),
+            pointer,
+            partAnchor(p),
+            immediate = true,
+            TooltipSource.Part
+          )
+        case None => hideTooltip(TooltipSource.Part)
       scheduleRedraw()
 
   private def partAnchor(part: PartTarget): (Double, Double) =
@@ -390,16 +420,21 @@ final class SvgWidget[A] private (
   private def react(record: EventRecord[A]): Unit =
     record.event match
       case InteractionEvent.HoverChanged(Some(target)) =>
+        // A new hover replaces any hover or part tooltip, including one still pending.
+        hideTooltip(TooltipSource.Hover)
+        hideTooltip(TooltipSource.Part)
         behavior.tooltip(target).foreach { content =>
-          showTooltip(content, pointer, anchorOf(target), immediate = false)
+          showTooltip(content, pointer, anchorOf(target), immediate = false, TooltipSource.Hover)
         }
       case InteractionEvent.HoverChanged(None) =>
-        if hoveredPart.isEmpty && !focusShowsTooltip then hideTooltip()
+        hideTooltip(TooltipSource.Hover)
       case InteractionEvent.FocusChanged(Some(target)) =>
         live.textContent = view.describe(target, behavior)
         if record.stamp.cause == InputCause.Keyboard then
           hideTooltip()
-          behavior.tooltip(target).foreach(showTooltip(_, None, anchorOf(target), immediate = true))
+          behavior
+            .tooltip(target)
+            .foreach(showTooltip(_, None, anchorOf(target), immediate = true, TooltipSource.Focus))
       case InteractionEvent.FocusChanged(None) => ()
       case InteractionEvent.Activated(target)  =>
         if record.stamp.cause == InputCause.Pointer || record.stamp.cause == InputCause.Keyboard
@@ -410,9 +445,6 @@ final class SvgWidget[A] private (
           }
       case _ => ()
     scheduleRedraw()
-
-  private def focusShowsTooltip: Boolean =
-    document.activeElement == plotHost && controller.state.toOption.exists(_.focus.nonEmpty)
 
   private def anchorOf(target: TargetInfo[A]): (Double, Double) =
     input
@@ -433,10 +465,12 @@ final class SvgWidget[A] private (
       content: TargetContent,
       at: Option[(Double, Double)],
       anchor: (Double, Double),
-      immediate: Boolean
+      immediate: Boolean,
+      source: TooltipSource
   ): Unit =
     tooltipTimer.foreach(handle => g.clearTimeout(handle))
     tooltipTimer = None
+    tooltipSource = Some(source)
     def show(): Unit =
       tooltipTimer = None
       if !disposed then
@@ -481,10 +515,16 @@ final class SvgWidget[A] private (
       val callback: js.Function0[Unit] = () => show()
       tooltipTimer = Some(g.setTimeout(callback, behavior.tooltipDelayMs))
 
+  /** Hide the tooltip and cancel a pending one, whatever it shows. */
   private def hideTooltip(): Unit =
     tooltipTimer.foreach(handle => g.clearTimeout(handle))
     tooltipTimer = None
+    tooltipSource = None
     tooltip.hidden = true
+
+  /** Hide the tooltip only if `source` put it there. */
+  private def hideTooltip(source: TooltipSource): Unit =
+    if tooltipSource.contains(source) then hideTooltip()
 
   private def scheduleRedraw(): Unit =
     if !disposed && frame.isEmpty then
@@ -620,7 +660,7 @@ object SvgWidget:
       |  outline-offset:2px}
       |.intaglio-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
       |  overflow:visible}
-      |.intaglio-overlay path{fill:none;vector-effect:non-scaling-stroke}
+      |.intaglio-overlay>path{fill:none;vector-effect:non-scaling-stroke}
       |.intaglio-ring-hover{stroke:var(--intaglio-hover);stroke-width:2}
       |.intaglio-ring-selected{stroke:var(--intaglio-selected);stroke-width:2.5}
       |.intaglio-ring-focus-halo{stroke:var(--intaglio-focus-halo);stroke-width:5}

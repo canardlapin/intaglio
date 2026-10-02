@@ -10,6 +10,9 @@ enum PointerInput:
   case Leave
   case Press
   case Release
+
+  /** The toolkit took the pointer away (cancelled touch, lost capture): end any gesture. */
+  case Cancel
   case Click(clientX: Double, clientY: Double, additive: Boolean)
 
 /** Keyboard input by meaning rather than key code, so every host maps its own keys once. */
@@ -80,6 +83,11 @@ final class HostInput[A](
         Right(
           if state.gesture.isEmpty then Vector.empty
           else Vector(act(InteractionAction.EndGesture(false)))
+        )
+      case PointerInput.Cancel =>
+        Right(
+          if state.gesture.isEmpty then Vector.empty
+          else Vector(act(InteractionAction.EndGesture(true)))
         )
       case PointerInput.Click(x, y, additive) =>
         targetAt(x, y).map {
