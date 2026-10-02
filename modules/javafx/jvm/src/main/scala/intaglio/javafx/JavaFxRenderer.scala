@@ -83,8 +83,63 @@ final case class JavaFxPaint(
     opacity: Double,
     fillPattern: Option[PatternPaint] = None,
     fontWeight: Option[FontWeight] = None,
-    casing: Option[JavaFxCasing] = None
+    casing: Option[JavaFxCasing] = None,
+    textPlate: Option[TextPlate] = None
 ):
+  /** Binary bridge for the casing-era constructor descriptor. */
+  def this(
+      stroke: Option[JavaFxColor],
+      fill: Option[JavaFxColor],
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[JavaFxCasing]
+  ) =
+    this(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing,
+      None
+    )
+
+  /** Binary bridge for the casing-era copy descriptor. */
+  def copy(
+      stroke: Option[JavaFxColor],
+      fill: Option[JavaFxColor],
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[JavaFxCasing]
+  ): JavaFxPaint =
+    new JavaFxPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing,
+      textPlate
+    )
+
   /** Binary bridge for callers compiled before pattern fills were added. */
   def this(
       stroke: Option[JavaFxColor],
@@ -198,9 +253,36 @@ object JavaFxPaint:
       gp.casing.map(JavaFxCasing.fromStrokeCasing)
     )
 
+  /** Binary bridge for the casing-era apply descriptor. */
+  def apply(
+      stroke: Option[JavaFxColor],
+      fill: Option[JavaFxColor],
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[JavaFxCasing]
+  ): JavaFxPaint =
+    new JavaFxPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing,
+      None
+    )
+
   def text(gp: GraphicParams): JavaFxPaint =
     val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
-    JavaFxPaint(
+    new JavaFxPaint(
       None,
       Some(JavaFxColor.fromRgba(color)),
       0.0,
@@ -209,7 +291,9 @@ object JavaFxPaint:
       gp.lineJoin,
       gp.alpha,
       None,
-      gp.fontWeight
+      gp.fontWeight,
+      None,
+      gp.textPlate
     )
 
 final case class JavaFxCasing(
@@ -535,6 +619,25 @@ trait JavaFxGraphicsContext:
   def setImageSmoothing(enabled: Boolean): Unit
   def drawImage(image: RasterImage, x: Double, y: Double, width: Double, height: Double): Unit
 
+  /** The box `fillText` would cover for `label` in this face, size and weight under the given
+    * alignment and baseline, relative to the text anchor; `None` when this context cannot measure.
+    * Text plates are sized from it. The default cannot measure, and the renderer then sizes a plate
+    * with the shared deterministic estimate; [[JavaFxCanvasContext]] measures with JavaFX's own
+    * text layout, so its plates fit the face JavaFX actually resolved, fallback included.
+    */
+  def measureText(
+      label: String,
+      family: Option[String],
+      sizePx: Double,
+      weight: Option[FontWeight],
+      horizontal: HJust,
+      vertical: VJust
+  ): Option[JavaFxTextBox] =
+    None
+
+/** A measured text box relative to its anchor: `left` and `top` offsets, then extent. */
+final case class JavaFxTextBox(left: Double, top: Double, width: Double, height: Double)
+
 /** The one rounded-rectangle outline every path-based backend traces: start on the top edge past
   * the corner, then four `arcTo` corners. `arcTo` is defined identically by the HTML canvas and
   * JavaFX, so this recipe produces the circular corners SVG's `rx`/`ry` describe.
@@ -713,11 +816,34 @@ object JavaFxRenderer:
           context.setFont(fontFamily, fontSize, paint.fontWeight)
           context.setTextAlign(horizontal)
           context.setTextBaseline(vertical)
-          if rotation == 0.0 then context.fillText(label, x, y)
-          else
-            context.translate(x, y)
-            context.rotateDegrees(rotation)
-            context.fillText(label, 0.0, 0.0)
+          val (drawX, drawY) =
+            if rotation == 0.0 then (x, y)
+            else
+              context.translate(x, y)
+              context.rotateDegrees(rotation)
+              (0.0, 0.0)
+          paint.textPlate.foreach { plate =>
+            val box = context
+              .measureText(label, fontFamily, fontSize, paint.fontWeight, horizontal, vertical)
+              .getOrElse(estimatedTextBox(label, fontSize, horizontal, vertical))
+            val placed = plate.around(drawX + box.left, drawY + box.top, box.width, box.height)
+            context.setFill(JavaFxColor.fromRgba(plate.fill).combined(paint.opacity))
+            context.beginPath()
+            if placed.cornerRadius == 0.0 then
+              context.rect(placed.x, placed.y, placed.width, placed.height)
+            else
+              RoundedRectPath.append(
+                context,
+                placed.x,
+                placed.y,
+                placed.width,
+                placed.height,
+                placed.cornerRadius
+              )
+            context.fillPath()
+            context.setFill(color.combined(paint.opacity))
+          }
+          context.fillText(label, drawX, drawY)
         }
       case JavaFxCommand.Image(image, x, y, width, height, interpolation, alpha, _) =>
         withSaved(context) {
@@ -801,6 +927,25 @@ object JavaFxRenderer:
   /** A disc through JavaFX's oval primitives: fill, then the casing underlay when the paint has a
     * stroke to case, then the stroke, in the order [[paintPath]] uses for every other shape.
     */
+  /** The shared deterministic estimate, for a drawing context that cannot measure text. */
+  private def estimatedTextBox(
+      label: String,
+      sizePx: Double,
+      horizontal: HJust,
+      vertical: VJust
+  ): JavaFxTextBox =
+    val width = TextMetrics.estimate.widthPt(label, sizePx)
+    val height = TextMetrics.estimate.heightPt(sizePx)
+    val left = horizontal match
+      case HJust.Left   => 0.0
+      case HJust.Center => -width / 2.0
+      case HJust.Right  => -width
+    val top = vertical match
+      case VJust.Top    => 0.0
+      case VJust.Center => -height / 2.0
+      case VJust.Bottom => -height
+    JavaFxTextBox(left, top, width, height)
+
   private def drawOval(
       centerX: Double,
       centerY: Double,

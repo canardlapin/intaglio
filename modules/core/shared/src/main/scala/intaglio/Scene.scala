@@ -554,6 +554,43 @@ object StrokeCasing:
   ): StrokeCasing =
     checked(color, width, alpha, lineType).orThrow
 
+/** A background plate behind a text run: a filled, optionally rounded rectangle that bounds the
+  * text the backend actually draws, plus `padding` on every side.
+  *
+  * The plate is sized at draw time from the backend's own measurement of the run (the face it
+  * resolved, including a fallback face), so a host does not have to guess a label's width. It is
+  * paint for the text, not a second primitive: it is drawn immediately before the glyphs, carries
+  * no name, and is excluded from picking unless `pickable`, in which case the text's hit region
+  * grows to the padded plate. `fill`'s alpha multiplies [[GraphicParams.alpha]]. Padding and corner
+  * radius keep their unit until device lowering; the radius is clamped to half the plate's shorter
+  * side.
+  */
+final case class TextPlate(
+    fill: Rgba,
+    padding: StrokeWidth = StrokeWidth.pointsUnsafe(2.0),
+    cornerRadius: StrokeWidth = StrokeWidth.pointsUnsafe(0.0),
+    pickable: Boolean = false
+):
+  /** The plate around a text box measured by a backend: `x`, `y`, `width` and `height` describe the
+    * text in the backend's own frame, in device pixels, and `padding`/`cornerRadius` must already
+    * be device pixels (as they are on a lowered style). Every backend places its plate through
+    * here.
+    */
+  def around(x: Double, y: Double, width: Double, height: Double): TextPlateBounds =
+    val pad = padding.value
+    val w = width + 2.0 * pad
+    val h = height + 2.0 * pad
+    TextPlateBounds(x - pad, y - pad, w, h, math.min(cornerRadius.value, math.min(w, h) / 2.0))
+
+/** A placed text plate in device pixels, in the frame of the text it bounds. */
+final case class TextPlateBounds(
+    x: Double,
+    y: Double,
+    width: Double,
+    height: Double,
+    cornerRadius: Double
+)
+
 final case class GraphicParams private (
     stroke: Option[Rgba] = Some(Rgba.Black),
     fill: Option[Rgba] = None,
@@ -567,8 +604,42 @@ final case class GraphicParams private (
     fillPattern: Option[PatternPaint] = None,
     lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel,
     fontWeight: Option[FontWeight] = None,
-    casing: Option[StrokeCasing] = None
+    casing: Option[StrokeCasing] = None,
+    textPlate: Option[TextPlate] = None
 ):
+  /** Retains the casing-era constructor descriptor while adding a text plate. */
+  private[intaglio] def this(
+      stroke: Option[Rgba],
+      fill: Option[Rgba],
+      lineWidth: Double,
+      lineType: LineType,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      alpha: Double,
+      fontFamily: Option[String],
+      fontSize: Length,
+      fillPattern: Option[PatternPaint],
+      lineWidthUnit: StrokeUnit,
+      fontWeight: Option[FontWeight],
+      casing: Option[StrokeCasing]
+  ) =
+    this(
+      stroke,
+      fill,
+      lineWidth,
+      lineType,
+      lineCap,
+      lineJoin,
+      alpha,
+      fontFamily,
+      fontSize,
+      fillPattern,
+      lineWidthUnit,
+      fontWeight,
+      casing,
+      None
+    )
+
   /** Retains the stroke-unit-era constructor descriptor while adding a typographic weight. */
   private[intaglio] def this(
       stroke: Option[Rgba],
@@ -747,6 +818,14 @@ final case class GraphicParams private (
 
   private[intaglio] def withResolvedCasing(value: Option[StrokeCasing]): GraphicParams =
     copy(casing = value)
+
+  /** Draw a background plate behind text drawn with these parameters. Other primitives ignore it.
+    */
+  def withTextPlate(value: TextPlate): GraphicParams =
+    copy(textPlate = Some(value))
+
+  def withoutTextPlate: GraphicParams =
+    copy(textPlate = None)
 
   private[intaglio] def withResolvedPaintLengths(
       resolvedLineType: LineType,

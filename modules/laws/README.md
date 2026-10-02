@@ -46,6 +46,8 @@ The available entry points are:
 - `StrokeCasingLaws` for cased point marks, batches and discs: the casing
   survives lowering at its resolved device width, leaves the drawn geometry
   where it was, and keeps a batch one primitive;
+- `TextPlateLaws` for text-plate placement: the measured box plus exactly the
+  padding on every side, with a clamped corner radius;
 - `PaintLengthLaws` for dash rhythms and fill-pattern geometry: a physical
   unit keeps one physical size at every density, a layout-pixel value at 96 ppi
   lowers to itself, and an explicit device-pixel value never scales;

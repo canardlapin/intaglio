@@ -246,6 +246,40 @@ final class JavaFxCanvasContext(context: GraphicsContext, val cacheByteLimit: Lo
     )
     output
 
+  /** Measures with JavaFX's own text layout in the face `Font.font` resolves (a fallback face when
+    * the family is not installed), using the same vertical origin `fillText` uses.
+    */
+  override def measureText(
+      label: String,
+      family: Option[String],
+      sizePx: Double,
+      weight: Option[FontWeight],
+      horizontal: HJust,
+      vertical: VJust
+  ): Option[JavaFxTextBox] =
+    val face = weight.map(value => FxFontWeight.findByWeight(value.value))
+    val node = new _root_.javafx.scene.text.Text(label)
+    node.setFont(
+      (family, face) match
+        case (Some(name), Some(bold)) => Font.font(name, bold, sizePx)
+        case (Some(name), None)       => Font.font(name, sizePx)
+        case (None, Some(bold))       => Font.font(null, bold, sizePx)
+        case (None, None)             => Font.font(sizePx)
+    )
+    node.setTextOrigin(
+      vertical match
+        case VJust.Top    => VPos.TOP
+        case VJust.Center => VPos.CENTER
+        case VJust.Bottom => VPos.BOTTOM
+    )
+    val bounds = node.getLayoutBounds
+    val width = bounds.getWidth
+    val left = horizontal match
+      case HJust.Left   => 0.0
+      case HJust.Center => -width / 2.0
+      case HJust.Right  => -width
+    Some(JavaFxTextBox(left, bounds.getMinY, width, bounds.getHeight))
+
 object JavaFxCanvasContext:
   val DefaultCacheByteLimit: Long = 64L * 1024L * 1024L
 

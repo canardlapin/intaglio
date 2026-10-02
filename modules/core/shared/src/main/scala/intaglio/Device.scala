@@ -157,10 +157,25 @@ final class LengthResolver(
       pattern <- gp.fillPattern match
         case None        => Right(None)
         case Some(paint) => patternPaint(paint).map(Some(_))
-    yield gp
-      .withStrokeWidth(StrokeWidth.devicePixelsUnsafe(lineWidth))
-      .withResolvedCasing(casing)
-      .withResolvedPaintLengths(line, pattern)
+      plate <- gp.textPlate match
+        case None        => Right(None)
+        case Some(value) =>
+          for
+            padding <- strokeLength("text plate padding", value.padding)
+            radius <- strokeLength("text plate corner radius", value.cornerRadius)
+          yield Some(value.copy(padding = padding, cornerRadius = radius))
+    yield
+      val resolved = gp
+        .withStrokeWidth(StrokeWidth.devicePixelsUnsafe(lineWidth))
+        .withResolvedCasing(casing)
+        .withResolvedPaintLengths(line, pattern)
+      plate.fold(resolved)(resolved.withTextPlate)
+
+  private def strokeLength(field: String, value: StrokeWidth): Either[GraphicsError, StrokeWidth] =
+    val pixels = value.unit match
+      case StrokeUnit.DevicePixel => value.value
+      case StrokeUnit.Point       => value.value * device.pixelsPerInch / 72.0
+    DeviceValue.checked(field, pixels).flatMap(StrokeWidth.devicePixels)
 
   /** A dash rhythm resolved to device pixels. A rhythm whose device size already equals its given
     * size (layout pixels at 96 ppi, points at 72 ppi, any device-pixel rhythm) is returned as

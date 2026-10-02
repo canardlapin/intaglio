@@ -260,6 +260,54 @@ class CanvasRendererSuite extends munit.FunSuite:
     assertEquals(context.miterLimit, 4.0)
   }
 
+  test("a text plate is sized from the context's measureText and filled before the glyphs") {
+    val calls = ArrayBuffer.empty[String]
+    def noArgs(label: String): js.Function0[Unit] =
+      () =>
+        calls += label
+        ()
+    val context = js.Dynamic.literal(
+      save = noArgs("save"),
+      restore = noArgs("restore"),
+      beginPath = noArgs("beginPath"),
+      closePath = noArgs("closePath"),
+      fill = noArgs("fill"),
+      rect = (
+          (x: Double, y: Double, w: Double, h: Double) => calls += s"rect:$x,$y,$w,$h"
+      ): js.Function4[Double, Double, Double, Double, Unit],
+      fillText = (
+          (label: String, _: Double, _: Double) => calls += s"fillText:$label"
+      ): js.Function3[String, Double, Double, Unit],
+      measureText = ((label: String) =>
+        calls += s"measure:$label"
+        js.Dynamic.literal(width = 40.0, fontBoundingBoxAscent = 10.0, fontBoundingBoxDescent = 4.0)
+      ): js.Function1[String, js.Any],
+      fillStyle = "",
+      globalAlpha = 1.0,
+      font = "",
+      textAlign = "start",
+      textBaseline = "alphabetic"
+    )
+    val gp = GraphicParams
+      .unsafe(stroke = None, fill = Some(Rgba.Black))
+      .withTextPlate(TextPlate(Rgba.unsafe(0, 200, 0), StrokeWidth.devicePixelsUnsafe(3.0)))
+    val text = Grob
+      .text("label", Point.npcUnsafe(0.5, 0.5), anchor = Anchor(HJust.Right, VJust.Center), gp = gp)
+      .orThrow
+    val program = CanvasRenderer
+      .compile(Scene(Vector(text)), CanvasOptions.unsafe(width = 100, height = 80))
+      .fold(e => fail(e.message), identity)
+
+    CanvasRenderer.draw(program, context.asInstanceOf[CanvasRenderingContext2D])
+
+    // Right-aligned at (50, 40): advance 40 to the left; font box 10 above and 4 below; pad 3.
+    assertEquals(
+      calls.filter(c => c.startsWith("rect") || c == "fill" || c.startsWith("fillText")).toVector,
+      Vector("rect:7,27,46,20", "fill", "fillText:label")
+    )
+    assertEquals(context.fillStyle.asInstanceOf[String], CanvasColor.fromRgba(Rgba.Black).css)
+  }
+
   test("cased discs and batched marks stroke the underlay first, once for both cross bars") {
     val calls = ArrayBuffer.empty[String]
     def noArgs(label: String): js.Function0[Unit] =

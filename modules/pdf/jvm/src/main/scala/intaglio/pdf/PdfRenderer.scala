@@ -599,6 +599,33 @@ object PdfRenderer:
       val baselineY = anchorY + sine * offsetX + cosine * offsetY
       val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
 
+      // The plate bounds the embedded face's own advance and ascent-to-descent box, in the
+      // run's rotated text frame, so it is exactly the box the glyphs are placed against.
+      gp.textPlate.foreach { plate =>
+        val inPoints = plate.copy(
+          padding = StrokeWidth.devicePixelsUnsafe(px(plate.padding.value).toDouble),
+          cornerRadius = StrokeWidth.devicePixelsUnsafe(px(plate.cornerRadius.value).toDouble)
+        )
+        val box = inPoints.around(offsetX, offsetY + descent, width, ascent - descent)
+        withGraphics {
+          stream.transform(new Matrix(cosine, sine, -sine, cosine, anchorX, anchorY))
+          setNonStrokingColor(plate.fill)
+          setAlpha(1.0, plate.fill.alpha * gp.alpha)
+          if box.cornerRadius == 0.0 then
+            stream.addRect(box.x.toFloat, box.y.toFloat, box.width.toFloat, box.height.toFloat)
+          else
+            appendRoundedRect(
+              stream,
+              box.x.toFloat,
+              box.y.toFloat,
+              box.width.toFloat,
+              box.height.toFloat,
+              box.cornerRadius.toFloat
+            )
+          stream.fill()
+        }
+      }
+
       withGraphics {
         setNonStrokingColor(color)
         setAlpha(1.0, color.alpha * gp.alpha)

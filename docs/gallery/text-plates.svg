@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="360" viewBox="0 0 560 360">
+  <image data-pixel-width="4" data-pixel-height="1" x="0" y="0" width="560" height="360" preserveAspectRatio="none" image-rendering="pixelated" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAABCAYAAAD5PA/NAAAAHElEQVR4AQERAO7/AOzo3P94lqr/KEZf/wwUIP9dGwlyc9ISYQAAAABJRU5ErkJggg==" />
+  <rect fill="#101828" fill-opacity="0.78" stroke="none" x="65.2267" y="109" width="149.5467" height="34" rx="5.3333" ry="5.3333" pointer-events="none" />
+  <text fill="#ffffff" stroke="none" font-size="18.6667" x="140" y="126" text-anchor="middle" dominant-baseline="middle">Light ground</text>
+  <rect fill="#101828" fill-opacity="0.78" stroke="none" x="351.0133" y="217" width="137.9733" height="34" rx="5.3333" ry="5.3333" pointer-events="none" />
+  <text fill="#ffffff" stroke="none" font-size="18.6667" x="420" y="234" text-anchor="middle" dominant-baseline="middle">Dark ground</text>
+  <rect fill="#101828" fill-opacity="0.78" stroke="none" x="234.16" y="163" width="91.68" height="34" transform="rotate(20 280 180)" pointer-events="none" />
+  <text fill="#ffffff" stroke="none" font-size="18.6667" x="280" y="180" text-anchor="middle" dominant-baseline="middle" transform="rotate(20 280 180)">Rotated</text>
+</svg>

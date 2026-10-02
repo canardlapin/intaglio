@@ -862,10 +862,13 @@ object Picking:
                 case VJust.Top    => y
                 case VJust.Center => y - height / 2
                 case VJust.Bottom => y - height
+              // A plate is paint for its text and does not widen the hit box unless the plate
+              // asks to be picked; then the padded plate is the target.
+              val pad = gp.textPlate.filter(_.pickable).fold(0.0)(_.padding.value)
               Right(
                 Vector(
                   Region
-                    .rectangle(Box(left, top, left + width, top + height))
+                    .rectangle(Box(left - pad, top - pad, left + width + pad, top + height + pad))
                     .transform(Rigid.rotation(rotation, P(x, y)))
                 )
               )

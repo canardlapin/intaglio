@@ -531,6 +531,44 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
     assertEquals(plainCasing, Set.empty[(Int, Int)])
   }
 
+  test("native canvas sizes a text plate from JavaFX's own layout, fallback face included") {
+    for
+      family <- Vector(None, Some("Intaglio No Such Face"))
+      anchor <- Vector(Anchor.Center, Anchor.BottomLeft)
+    do
+      val gp = GraphicParams
+        .unsafe(stroke = None, fill = Some(Rgba.Black), fontFamily = family)
+        .withTextPlate(TextPlate(Rgba.unsafe(0, 160, 0), StrokeWidth.devicePixelsUnsafe(4.0)))
+      val text = ok(Grob.text("Plate Wg", Point.npcUnsafe(0.5, 0.5), anchor = anchor, gp = gp))
+      val program = JavaFxRenderer
+        .compile(Scene(Vector(text)), JavaFxOptions.unsafe(width = 240, height = 80))
+        .fold(error => fail(error.message), identity)
+      val (plate, ink) = fx {
+        val canvas = new Canvas(240, 80)
+        JavaFxRenderer.draw(program, new JavaFxCanvasContext(canvas.getGraphicsContext2D))
+        val parameters = new SnapshotParameters()
+        parameters.setFill(Color.TRANSPARENT)
+        val reader = canvas.snapshot(parameters, null).getPixelReader
+        val pixels = for y <- 0 until 80; x <- 0 until 240 yield (x, y, reader.getArgb(x, y))
+        (
+          pixels.collect { case (x, y, argb) if (argb >>> 24) > 0 => (x, y) },
+          pixels.collect {
+            case (x, y, argb) if (argb >>> 24) == 0xff && ((argb >>> 8) & 0xff) < 100 => (x, y)
+          }
+        )
+      }
+      def bounds(points: Seq[(Int, Int)]) =
+        (points.map(_._1).min, points.map(_._2).min, points.map(_._1).max, points.map(_._2).max)
+      assert(ink.nonEmpty, clue((family, anchor)))
+      val (pl, pt, pr, pb) = bounds(plate)
+      val (il, it, ir, ib) = bounds(ink)
+      assert(
+        il - pl >= 3 && pr - ir >= 3 && it - pt >= 3 && pb - ib >= 3,
+        ((family, anchor), (pl, pt, pr, pb), (il, it, ir, ib))
+      )
+      assert(il - pl <= 8 && pr - ir <= 8, ((family, anchor), (pl, pr), (il, ir)))
+  }
+
   test("focus outline is painted last over an overlapping hovered target") {
     val view = prepared(count = 2, positions = Some(Vector((0d, 0d), (0d, 0d))))
     fx {

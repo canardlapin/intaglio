@@ -32,7 +32,22 @@ final class RecordingFxContext extends JavaFxGraphicsContext:
   override def moveTo(x: Double, y: Double): Unit = calls += "moveTo"
   override def lineTo(x: Double, y: Double): Unit = calls += "lineTo"
   override def closePath(): Unit = calls += "closePath"
-  override def rect(x: Double, y: Double, width: Double, height: Double): Unit = calls += "rect"
+  var lastRect: Vector[Double] = Vector.empty
+  var measured: Option[JavaFxTextBox] = None
+  var measureRequests: Vector[(String, Option[String], Double, HJust, VJust)] = Vector.empty
+  override def rect(x: Double, y: Double, width: Double, height: Double): Unit =
+    calls += "rect"
+    lastRect = Vector(x, y, width, height)
+  override def measureText(
+      label: String,
+      family: Option[String],
+      sizePx: Double,
+      weight: Option[FontWeight],
+      horizontal: HJust,
+      vertical: VJust
+  ): Option[JavaFxTextBox] =
+    measureRequests :+= ((label, family, sizePx, horizontal, vertical))
+    measured
   override def arcTo(x1: Double, y1: Double, x2: Double, y2: Double, radius: Double): Unit =
     calls += "arcTo"
   override def clip(): Unit = calls += "clip"
@@ -106,6 +121,43 @@ class JavaFxRendererSuite extends munit.FunSuite:
     val context = new RecordingFxContext
     JavaFxRenderer.draw(program, context)
     context
+
+  test("a text plate is sized from the context's own measurement and filled before the glyphs") {
+    val gp = GraphicParams
+      .unsafe(stroke = None, fill = Some(Rgba.Black), fontFamily = Some("Missing Face"))
+      .withTextPlate(TextPlate(Rgba.unsafe(0, 200, 0), StrokeWidth.devicePixelsUnsafe(3.0)))
+    val text = Grob.text("label", Point.npcUnsafe(0.5, 0.5), gp = gp).orThrow
+    val context = new RecordingFxContext
+    context.measured = Some(JavaFxTextBox(-21.0, -8.0, 42.0, 16.0))
+    val program = JavaFxRenderer
+      .compile(Scene(Vector(text)), JavaFxOptions.unsafe(width = 100, height = 60))
+      .fold(error => fail(error.message), identity)
+    JavaFxRenderer.draw(program, context)
+    assertEquals(context.measureRequests.map(_._1), Vector("label"))
+    assertEquals(context.measureRequests.head._2, Some("Missing Face"))
+    // Anchor (50, 30) plus the measured offsets, padded by 3 on every side.
+    assertEquals(context.lastRect, Vector(26.0, 19.0, 48.0, 22.0))
+    val sequence = context.calls.filter(c => c == "rect" || c == "fillPath" || c == "fillText")
+    assertEquals(sequence.toVector, Vector("rect", "fillPath", "fillText"))
+    assertEquals(
+      context.lastFill.map(_.green),
+      Some(0),
+      "the glyph fill is restored after the plate"
+    )
+
+    val plain = new RecordingFxContext
+    JavaFxRenderer.draw(
+      JavaFxRenderer
+        .compile(
+          Scene(Vector(Grob.text("label", Point.npcUnsafe(0.5, 0.5)).orThrow)),
+          JavaFxOptions.unsafe(width = 100, height = 60)
+        )
+        .fold(error => fail(error.message), identity),
+      plain
+    )
+    assertEquals(plain.measureRequests, Vector.empty)
+    assert(!plain.calls.contains("rect"))
+  }
 
   test("a cased hollow circle point and circle grob stroke the oval casing first") {
     val point = Grob.points(Vector(Point.npcUnsafe(0.5, 0.5)), gp = casedMark).orThrow

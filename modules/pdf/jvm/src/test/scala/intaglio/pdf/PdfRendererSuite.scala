@@ -395,6 +395,50 @@ class PdfRendererSuite extends munit.FunSuite:
     )
   }
 
+  test("a text plate bounds the embedded face's own advance and ascent-to-descent box") {
+    val catalog = PdfFontCatalog.from(conformanceSans).fold(e => fail(e.message), identity)
+    val gp = GraphicParams
+      .unsafe(stroke = None, fill = Some(Rgba.Black), fontFamily = Some("Conformance Sans"))
+      .withTextPlate(TextPlate(Rgba.unsafe(0, 200, 0), StrokeWidth.pointsUnsafe(3.0)))
+    val text = Grob
+      .text("Plate Wg", Point.npcUnsafe(0.5, 0.5), anchor = Anchor.BottomLeft, gp = gp)
+      .orThrow
+    // 72 ppi makes device pixels PDF points.
+    val context = RenderContext.unsafe(
+      width = 200,
+      height = 100,
+      pixelsPerInch = 72.0,
+      fontRegistry = catalog.fontRegistry
+    )
+    val output = render(Scene(Vector(text)), context, catalog)
+    load(output) { parsed =>
+      val tokens = new PDFStreamParser(parsed.getPage(0)).parse().asScala.toVector
+      val names = tokens.collect { case op: Operator => op.getName }
+      val re = tokens.indexWhere {
+        case op: Operator => op.getName == "re"
+        case _            => false
+      }
+      assert(re >= 4, names)
+      val operands = tokens.slice(re - 4, re).map {
+        case number: org.apache.pdfbox.cos.COSNumber => number.floatValue.toDouble
+        case other                                   => fail(s"rect operand $other")
+      }
+      val (x, y, w, h) = (operands(0), operands(1), operands(2), operands(3))
+      assert(names.indexOf("f") < names.indexOf("BT"), names)
+      val font =
+        PDType0Font.load(new PDDocument(), new java.io.ByteArrayInputStream(bundledFontBytes()))
+      val size = 12.0
+      val advance = font.getStringWidth("Plate Wg") / 1000.0 * size
+      val ascent = font.getFontDescriptor.getAscent / 1000.0 * size
+      val descent = font.getFontDescriptor.getDescent / 1000.0 * size
+      // Bottom-left anchor: the run's descent sits on the anchor, in the rotated text frame.
+      assertEqualsDouble(w, advance + 6.0, 1.0e-3)
+      assertEqualsDouble(h, ascent - descent + 6.0, 1.0e-3)
+      assertEqualsDouble(x, -3.0, 1.0e-3)
+      assertEqualsDouble(y, -3.0, 1.0e-3)
+    }
+  }
+
   test("a layout-unit dash exports at one physical size whatever the target density") {
     def dashArrays(pixelsPerInch: Double, lineType: LineType): Vector[Vector[Float]] =
       val line = Grob

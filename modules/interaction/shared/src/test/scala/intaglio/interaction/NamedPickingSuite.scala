@@ -221,3 +221,29 @@ class NamedPickingSuite extends munit.FunSuite:
       NamedPicking.fromResolved(DeviceScene(Double.NaN, 200, Vector.empty), context).isLeft,
       "a resolved scene is still checked"
     )
+
+  test("a text plate is excluded from picking unless it asks to be picked"):
+    def label(plate: TextPlate) =
+      DeviceElement.Mark(
+        DevicePrimitive.TextRun(
+          "label",
+          100,
+          100,
+          HJust.Center,
+          VJust.Center,
+          0,
+          16,
+          None,
+          fill.withTextPlate(plate),
+          Some(n("label"))
+        )
+      )
+    val padded = TextPlate(Rgba.White, StrokeWidth.devicePixelsUnsafe(10))
+    val inert = compile(label(padded))
+    val pickable = compile(label(padded.copy(pickable = true)))
+    // Inside the text box, both plans hit; in the padding only, only the pickable plate does.
+    assertEquals(at(inert, 100, 100), Vector(n("label")))
+    assertEquals(at(pickable, 100, 100), Vector(n("label")))
+    val inPadding = 100.0 - context.textMetrics.heightPt(TextStyle(None, 12.0)) * 2.0 / 3.0 - 5
+    assertEquals(at(inert, 100, inPadding), Vector.empty)
+    assertEquals(at(pickable, 100, inPadding), Vector(n("label")))

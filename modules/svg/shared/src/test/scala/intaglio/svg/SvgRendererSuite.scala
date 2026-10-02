@@ -101,6 +101,38 @@ class SvgRendererSuite extends munit.FunSuite:
     assertEquals(geometry(lines(3)), geometry(lines(5)))
   }
 
+  test("a text plate is an unnamed, unpickable rect sized by the context's text measure") {
+    val plate = TextPlate(
+      Rgba.unsafe(10, 20, 30, 0.5),
+      padding = StrokeWidth.pointsUnsafe(2.0),
+      cornerRadius = StrokeWidth.pointsUnsafe(3.0)
+    )
+    def labelled(gp: GraphicParams) =
+      Grob.text("label", Point.npcUnsafe(0.5, 0.5), gp = gp, name = Some(GraphicsName.unsafe("t")))
+    val options = SvgOptions.unsafe(width = 100, height = 100, pixelsPerInch = 72.0)
+    val svg =
+      render(Scene(Vector(labelled(GraphicParams.unsafe().withTextPlate(plate)).orThrow)), options)
+    val lines = svg.linesIterator.map(_.trim).toVector
+    val rect = lines.indexWhere(_.startsWith("<rect"))
+    val text = lines.indexWhere(_.startsWith("<text"))
+    assert(rect >= 0 && rect + 1 == text, svg)
+    // The estimate measures "label" at 12 pt as 37.2 x 15 pt, centred on (50, 50) at 72 ppi.
+    assertEquals(
+      lines(rect),
+      """<rect fill="#0a141e" fill-opacity="0.5" stroke="none" x="29.4" y="40.5" width="41.2" height="19" rx="3" ry="3" pointer-events="none" />"""
+    )
+    assertEquals(occurrences(svg, "data-name=\"t\""), 1)
+    val pickable = render(
+      Scene(
+        Vector(labelled(GraphicParams.unsafe().withTextPlate(plate.copy(pickable = true))).orThrow)
+      ),
+      options
+    )
+    assert(!pickable.contains("pointer-events"), pickable)
+    val plain = render(Scene(Vector(labelled(GraphicParams.unsafe()).orThrow)), options)
+    assert(!plain.contains("<rect"), plain)
+  }
+
   test("layout-unit dashes and hatches export at one physical size at 1x and 2x") {
     val hatch = PatternPaint(PatternRecipe.angledHatch(45.0, 12.0, 1.5).orThrow, Rgba.Black)
     val scene = Scene(

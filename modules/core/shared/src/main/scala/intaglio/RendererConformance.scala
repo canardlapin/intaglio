@@ -229,7 +229,9 @@ object RendererConformance:
       bandGeoms <- bandGeomsCase
       casedMarks <- casedMarksCase
       paintUnits <- paintLengthUnitsCase
+      plates <- textPlateCase
     yield Vector(
+      plates,
       paintUnits,
       casedMarks,
       point,
@@ -1141,6 +1143,51 @@ object RendererConformance:
           RenderRequirement.PatternFill(hatch, paint.inDevicePixels(targetPixelsPerInch), 1.0)
         )
       )
+
+  /** Two plated labels: one rotated with a rounded plate, one bottom-left anchored with a square
+    * plate. A plate is paint for its text: each backend must still draw the one named text run with
+    * its own anchor and style. Backend suites pin the plate geometry against each backend's own
+    * text measure, including a fallback face.
+    */
+  def textPlateCase: Either[GraphicsError, ConformanceCase] =
+    val rounded = GraphicsName.unsafe("conformance-plated-text")
+    val fallback = GraphicsName.unsafe("conformance-square-plate")
+    val ink = Rgba.unsafe(250, 250, 250)
+    val plate = TextPlate(
+      Rgba.unsafe(20, 30, 45, 0.8),
+      padding = StrokeWidth.pointsUnsafe(2.0),
+      cornerRadius = StrokeWidth.pointsUnsafe(3.0)
+    )
+    val style = GraphicParams
+      .unsafe(stroke = None, fill = Some(ink), fontFamily = Some("Conformance Sans"))
+      .withTextPlate(plate)
+    for
+      roundedGrob <- Grob.text(
+        "Plate",
+        Point.npcUnsafe(0.35, 0.5),
+        rotationDegrees = 30.0,
+        gp = style,
+        name = Some(rounded)
+      )
+      fallbackGrob <- Grob.text(
+        "Square",
+        Point.npcUnsafe(0.7, 0.3),
+        anchor = Anchor.BottomLeft,
+        gp = style.withTextPlate(plate.copy(cornerRadius = StrokeWidth.pointsUnsafe(0.0))),
+        name = Some(fallback)
+      )
+    yield ConformanceCase(
+      GraphicsName.unsafe("text-plates"),
+      ConformanceGroup.Primitive,
+      Scene(Vector(roundedGrob, fallbackGrob)),
+      Vector(rounded, fallback),
+      Vector(
+        RenderRequirement.Primitive(rounded, RenderPrimitiveKind.Text),
+        RenderRequirement.Text(rounded, HJust.Center, VJust.Center, rotated = true),
+        RenderRequirement.Text(fallback, HJust.Left, VJust.Bottom, rotated = false),
+        RenderRequirement.TextStyle(rounded, ink, 16.0, Some("Conformance Sans"), 1.0)
+      )
+    )
 
   // --- Guide cases ---------------------------------------------------------
 

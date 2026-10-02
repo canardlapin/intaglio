@@ -71,7 +71,7 @@ object SvgRenderer:
         plan.context.deviceScale
       )
       deviceScene <- plan.deviceScene.left.map(SvgRenderError.Graphics(_))
-      serialized <- serialize(deviceScene, options)
+      serialized <- serialize(deviceScene, options, plan.context.textMetrics)
     yield SvgDocument(
       serialized,
       plan.context.width,
@@ -95,7 +95,7 @@ object SvgRenderer:
       ).left
         .map(SvgRenderError.Graphics(_))
       deviceScene <- DeviceScene.fromScene(scene, context).left.map(SvgRenderError.Graphics(_))
-      serialized <- serialize(deviceScene, options)
+      serialized <- serialize(deviceScene, options, context.textMetrics)
     yield SvgDocument(
       serialized,
       options.width,
@@ -139,10 +139,25 @@ object SvgRenderer:
       description: Option[String]
   )
 
-  private def serialize(scene: DeviceScene, options: SvgOptions): Either[SvgRenderError, String] =
-    validateDocument(scene, options).map(_ => serializeValidated(scene, options))
+  private def serialize(
+      scene: DeviceScene,
+      options: SvgOptions,
+      textMetrics: TextMetrics
+  ): Either[SvgRenderError, String] =
+    validateDocument(scene, options).map(_ =>
+      serializeValidated(scene, options, PlateMetrics(textMetrics, options.pixelsPerInch / 72.0))
+    )
 
-  private def serializeValidated(scene: DeviceScene, options: SvgOptions): String =
+  /** An SVG renderer cannot see the viewer's font, so its own text measure is the render context's
+    * `TextMetrics`: the same measure layout and picking use for this target.
+    */
+  private final case class PlateMetrics(metrics: TextMetrics, pixelsPerPoint: Double)
+
+  private def serializeValidated(
+      scene: DeviceScene,
+      options: SvgOptions,
+      plates: PlateMetrics
+  ): String =
     val out = new StringBuilder
     val clips = new ClipRegistry
     val patterns = new PatternRegistry
@@ -172,7 +187,7 @@ object SvgRenderer:
         )
       case None =>
         options.title.foreach(title => line(out, 1, s"<title>${escapeText(title)}</title>"))
-    scene.elements.foreach(writeElement(_, out, 1, clips, patterns))
+    scene.elements.foreach(writeElement(_, out, 1, clips, patterns, plates))
     val clipDefs = clips.defs
     val patternDefs = patterns.defs
     if clipDefs.nonEmpty || patternDefs.nonEmpty then
@@ -330,6 +345,7 @@ object SvgRenderer:
       indent: Int,
       clips: ClipRegistry,
       patterns: PatternRegistry,
+      plates: PlateMetrics,
       marks: Option[BatchMarks.Cursor] = None
   ): Unit =
     element match
@@ -362,7 +378,7 @@ object SvgRenderer:
           index += 1
         cursor.advance(batch.points.length)
       case DeviceElement.Mark(primitive) =>
-        writePrimitive(primitive, out, indent, patterns)
+        writePrimitive(primitive, out, indent, patterns, plates)
       case DeviceElement.Group(name, clip, rotation, children) =>
         val nameAttr = name.map(n => s""" data-name="${escapeAttr(n.value)}"""").getOrElse("")
         val clipAttr = clip.map(c => s""" clip-path="url(#${clips.register(c)})"""").getOrElse("")
@@ -372,7 +388,7 @@ object SvgRenderer:
           )
           .getOrElse("")
         line(out, indent, s"<g$nameAttr$clipAttr$rotateAttr>")
-        children.foreach(writeElement(_, out, indent + 1, clips, patterns, marks))
+        children.foreach(writeElement(_, out, indent + 1, clips, patterns, plates, marks))
         line(out, indent, "</g>")
       case DeviceElement.Annotated(meta, children) =>
         val classAttr =
@@ -386,14 +402,15 @@ object SvgRenderer:
           line(out, indent + 1, s"<desc>${escapeText(description)}</desc>")
         )
         val nested = meta.marks.map(new BatchMarks.Cursor(_)).orElse(marks)
-        children.foreach(writeElement(_, out, indent + 1, clips, patterns, nested))
+        children.foreach(writeElement(_, out, indent + 1, clips, patterns, plates, nested))
         line(out, indent, "</g>")
 
   private def writePrimitive(
       primitive: DevicePrimitive,
       out: StringBuilder,
       indent: Int,
-      patterns: PatternRegistry
+      patterns: PatternRegistry,
+      plates: PlateMetrics
   ): Unit =
     primitive match
       case DevicePrimitive.Disc(cx, cy, radius, gp, name) =>
@@ -474,6 +491,35 @@ object SvgRenderer:
         val rotation =
           if rotationDegrees == 0.0 then ""
           else s""" transform="rotate(${format(rotationDegrees)} ${format(x)} ${format(y)})""""
+        gp.textPlate.foreach { plate =>
+          val style = TextStyle(fontFamily, fontSizePx / plates.pixelsPerPoint, gp.fontWeight)
+          val width = plates.metrics.widthPt(label, style) * plates.pixelsPerPoint
+          val height = plates.metrics.heightPt(style) * plates.pixelsPerPoint
+          val left = horizontal match
+            case HJust.Left   => x
+            case HJust.Center => x - width / 2.0
+            case HJust.Right  => x - width
+          val top = vertical match
+            case VJust.Top    => y
+            case VJust.Center => y - height / 2.0
+            case VJust.Bottom => y - height
+          val box = plate.around(left, top, width, height)
+          val attrs = new StringBuilder
+          appendPaint(attrs, "fill", Some(plate.fill))
+          attrs.append(""" stroke="none"""")
+          if gp.alpha != 1.0 then attrs.append(s""" opacity="${format(gp.alpha)}"""")
+          val corners =
+            if box.cornerRadius == 0.0 then ""
+            else s""" rx="${format(box.cornerRadius)}" ry="${format(box.cornerRadius)}""""
+          val events = if plate.pickable then "" else """ pointer-events="none""""
+          line(
+            out,
+            indent,
+            s"""<rect${attrs.result()} x="${format(box.x)}" y="${format(box.y)}" width="${format(
+                box.width
+              )}" height="${format(box.height)}"$corners$rotation$events />"""
+          )
+        }
         line(
           out,
           indent,

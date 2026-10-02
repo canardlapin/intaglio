@@ -318,6 +318,53 @@ The same `GraphicParams.withCasing` style works with `geomLine`, `geomSegment`, 
 println(intaglio.docs.Gallery.plate("stroke-casing", Right(RendererConformance.casedRasterScene)))
 ```
 
+## Labels on plates
+
+A `TextPlate` gives a label over imagery a background sized by the backend's own text measure;
+see [text plates](text-plates.md).
+
+```scala mdoc:silent
+val platedLabels =
+  val backdrop = RasterImage.unsafeRgba(
+    RasterDimensions.unsafe(4, 1),
+    Vector(
+      Rgba.unsafe(236, 232, 220),
+      Rgba.unsafe(120, 150, 170),
+      Rgba.unsafe(40, 70, 95),
+      Rgba.unsafe(12, 20, 32)
+    )
+  )
+  val plate = TextPlate(
+    Rgba.unsafe(16, 24, 40, alpha = 0.78),
+    padding = StrokeWidth.pointsUnsafe(4.0),
+    cornerRadius = StrokeWidth.pointsUnsafe(4.0)
+  )
+  val style = GraphicParams
+    .unsafe(stroke = None, fill = Some(Rgba.White), fontSize = Length.pointsUnsafe(14.0))
+    .withTextPlate(plate)
+  for
+    first <- Grob.text("Light ground", Point.npcUnsafe(0.25, 0.65), gp = style)
+    second <- Grob.text("Dark ground", Point.npcUnsafe(0.75, 0.35), gp = style)
+    tilted <- Grob.text(
+      "Rotated",
+      Point.npcUnsafe(0.5, 0.5),
+      rotationDegrees = -20.0,
+      gp = style.withTextPlate(plate.copy(cornerRadius = StrokeWidth.pointsUnsafe(0.0)))
+    )
+  yield Scene(
+    Vector(
+      Grob.imageUnsafe(backdrop, Point.npcUnsafe(0.5, 0.5), Size.npcUnsafe(1.0, 1.0)),
+      first,
+      second,
+      tilted
+    )
+  )
+```
+
+```scala mdoc:passthrough
+println(intaglio.docs.Gallery.plate("text-plates", platedLabels))
+```
+
 ## Contour lines
 
 ```scala mdoc:silent

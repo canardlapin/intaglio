@@ -131,8 +131,63 @@ final case class CanvasPaint(
     opacity: Double,
     fillPattern: Option[PatternPaint] = None,
     fontWeight: Option[FontWeight] = None,
-    casing: Option[CanvasCasing] = None
+    casing: Option[CanvasCasing] = None,
+    textPlate: Option[TextPlate] = None
 ):
+  /** Binary bridge for the casing-era constructor descriptor. */
+  def this(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[CanvasCasing]
+  ) =
+    this(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing,
+      None
+    )
+
+  /** Binary bridge for the casing-era copy descriptor. */
+  def copy(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[CanvasCasing]
+  ): CanvasPaint =
+    new CanvasPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing,
+      textPlate
+    )
+
   /** Binary bridge for callers compiled before pattern fills were added. */
   def this(
       stroke: Option[CanvasColor],
@@ -246,9 +301,36 @@ object CanvasPaint:
       gp.casing.map(CanvasCasing.fromStrokeCasing)
     )
 
+  /** Binary bridge for the casing-era apply descriptor. */
+  def apply(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[CanvasCasing]
+  ): CanvasPaint =
+    new CanvasPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing,
+      None
+    )
+
   def text(gp: GraphicParams): CanvasPaint =
     val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
-    CanvasPaint(
+    new CanvasPaint(
       None,
       Some(CanvasColor.fromRgba(color)),
       0.0,
@@ -257,7 +339,9 @@ object CanvasPaint:
       gp.lineJoin,
       gp.alpha,
       None,
-      gp.fontWeight
+      gp.fontWeight,
+      None,
+      gp.textPlate
     )
 
 final case class CanvasCasing(
@@ -967,11 +1051,18 @@ object CanvasRenderer:
             CanvasFont.shorthand(paint.fontWeight, fontSize, canvasFontFamily(fontFamily))
           context.textAlign = textAlign(horizontal)
           context.textBaseline = textBaseline(vertical)
-          if rotation == 0.0 then context.fillText(label, x, y)
-          else
-            context.translate(x, y)
-            context.rotate(rotation * math.Pi / 180.0)
-            context.fillText(label, 0.0, 0.0)
+          val (drawX, drawY) =
+            if rotation == 0.0 then (x, y)
+            else
+              context.translate(x, y)
+              context.rotate(rotation * math.Pi / 180.0)
+              (0.0, 0.0)
+          paint.textPlate.foreach { plate =>
+            drawPlate(context, plate, label, drawX, drawY, horizontal, paint.opacity)
+            context.fillStyle = color.css
+            context.globalAlpha = paint.opacity * color.alpha
+          }
+          context.fillText(label, drawX, drawY)
         }
         Right(())
       case CanvasCommand.Image(image, x, y, width, height, interpolation, alpha, _) =>
@@ -1126,6 +1217,50 @@ object CanvasRenderer:
         )
       }
     }
+
+  /** A text plate sized by this context's own `measureText`: the advance width placed by the text
+    * alignment, and the font bounding box above and below the current text baseline (the ink box
+    * where a browser does not report the font box).
+    */
+  private def drawPlate(
+      context: CanvasRenderingContext2D,
+      plate: TextPlate,
+      label: String,
+      x: Double,
+      y: Double,
+      horizontal: HJust,
+      opacity: Double
+  ): Unit =
+    val metrics = context.measureText(label).asInstanceOf[js.Dynamic]
+    def number(field: String): Option[Double] =
+      val value = metrics.selectDynamic(field)
+      if js.isUndefined(value) || value == null then None
+      else Some(value.asInstanceOf[Double]).filter(_.isFinite)
+    val width = number("width").getOrElse(0.0)
+    val ascent =
+      number("fontBoundingBoxAscent").orElse(number("actualBoundingBoxAscent")).getOrElse(0.0)
+    val descent =
+      number("fontBoundingBoxDescent").orElse(number("actualBoundingBoxDescent")).getOrElse(0.0)
+    val left = horizontal match
+      case HJust.Left   => x
+      case HJust.Center => x - width / 2.0
+      case HJust.Right  => x - width
+    val box = plate.around(left, y - ascent, width, ascent + descent)
+    context.fillStyle = CanvasColor.fromRgba(plate.fill).css
+    context.globalAlpha = opacity * plate.fill.alpha
+    context.beginPath()
+    if box.cornerRadius == 0.0 then context.rect(box.x, box.y, box.width, box.height)
+    else
+      val r = box.cornerRadius
+      val right = box.x + box.width
+      val bottom = box.y + box.height
+      context.moveTo(box.x + r, box.y)
+      context.arcTo(right, box.y, right, bottom, r)
+      context.arcTo(right, bottom, box.x, bottom, r)
+      context.arcTo(box.x, bottom, box.x, box.y, r)
+      context.arcTo(box.x, box.y, right, box.y, r)
+      context.closePath()
+    context.fill()
 
   private def strokeCasing(
       context: CanvasRenderingContext2D,

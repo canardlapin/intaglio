@@ -127,6 +127,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   that resolve the source scene themselves; the JavaFX one returns a typed
   error for a non-finite or oversized-pattern scene.
 
+- **Text plates.** `GraphicParams.withTextPlate(TextPlate(fill, padding,
+  cornerRadius, pickable))` draws a background plate behind a text run, sized
+  at draw time by each backend's own text measure (Java2D and JavaFX from the
+  face they resolved, fallback included; Canvas from `measureText`; PDF from
+  the embedded face; SVG from the render context's `TextMetrics`). Plates are
+  excluded from picking unless `pickable`. `GraphicParams`, `Java2DPaint`,
+  `JavaFxPaint` and `CanvasPaint` gain a trailing defaulted `textPlate` field
+  with constructor/apply/copy bridges, and `JavaFxGraphicsContext` gains a
+  defaulted `measureText`. `TextPlateLaws`, `RendererConformance.textPlateCase`
+  and the "Labels on plates" gallery plate. See
+  [docs/text-plates.md](docs/text-plates.md).
+
 - **Point ink framing.** `PanelFraming.markInk`, set with `.framing(...)` on a
   plot builder or `PlotCompilerOptions.framing`, widens a solved panel's derived
   ranges just enough that every point mark's shape, stroke and miter corners sit

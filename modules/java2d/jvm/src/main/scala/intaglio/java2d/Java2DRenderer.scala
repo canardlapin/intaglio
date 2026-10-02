@@ -192,8 +192,63 @@ final case class Java2DPaint(
     opacity: Double,
     fillPattern: Option[PatternPaint] = None,
     fontWeight: Option[FontWeight] = None,
-    casing: Option[Java2DCasing] = None
+    casing: Option[Java2DCasing] = None,
+    textPlate: Option[TextPlate] = None
 ):
+  /** Binary bridge for the casing-era constructor descriptor. */
+  def this(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[Java2DCasing]
+  ) =
+    this(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing,
+      None
+    )
+
+  /** Binary bridge for the casing-era copy descriptor. */
+  def copy(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[Java2DCasing]
+  ): Java2DPaint =
+    new Java2DPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing,
+      textPlate
+    )
+
   /** Binary bridge for callers compiled before pattern fills were added. */
   def this(
       stroke: Option[Java2DColor],
@@ -307,9 +362,36 @@ object Java2DPaint:
       gp.casing.map(Java2DCasing.fromStrokeCasing)
     )
 
+  /** Binary bridge for the casing-era apply descriptor. */
+  def apply(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[Java2DCasing]
+  ): Java2DPaint =
+    new Java2DPaint(
+      stroke,
+      fill,
+      lineWidth,
+      dash,
+      lineCap,
+      lineJoin,
+      opacity,
+      fillPattern,
+      fontWeight,
+      casing,
+      None
+    )
+
   def text(gp: GraphicParams): Java2DPaint =
     val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
-    Java2DPaint(
+    new Java2DPaint(
       None,
       Some(Java2DColor.fromRgba(color)),
       0.0,
@@ -318,7 +400,9 @@ object Java2DPaint:
       gp.lineJoin,
       gp.alpha,
       None,
-      gp.fontWeight
+      gp.fontWeight,
+      None,
+      gp.textPlate
     )
 
 final case class Java2DCasing(
@@ -842,6 +926,26 @@ object Java2DRenderer:
             case VJust.Center => y - (bounds.getY + bounds.getHeight / 2.0)
             case VJust.Bottom => y - (bounds.getY + bounds.getHeight)
           if rotation != 0.0 then copy.rotate(rotation * math.Pi / 180.0, x, y)
+          // The plate is measured from the font this backend resolved, fallback included: the
+          // same logical bounds that place the glyphs above.
+          paint.textPlate.foreach { plate =>
+            val box = plate.around(drawX, baseline + bounds.getY, bounds.getWidth, bounds.getHeight)
+            copy.setComposite(AlphaComposite.SrcOver)
+            copy.setColor(Java2DColor.fromRgba(plate.fill).awt(paint.opacity))
+            copy.fill(
+              if box.cornerRadius == 0.0 then
+                new Rectangle2D.Double(box.x, box.y, box.width, box.height)
+              else
+                new RoundRectangle2D.Double(
+                  box.x,
+                  box.y,
+                  box.width,
+                  box.height,
+                  box.cornerRadius * 2.0,
+                  box.cornerRadius * 2.0
+                )
+            )
+          }
           val color = paint.fill.getOrElse(Java2DColor.fromRgba(Rgba.Black))
           copy.setColor(color.awt(paint.opacity))
           copy.drawString(label, drawX.toFloat, baseline.toFloat)
