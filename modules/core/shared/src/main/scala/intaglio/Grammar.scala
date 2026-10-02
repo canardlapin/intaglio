@@ -194,6 +194,22 @@ object AesValue:
   def direct[Row, A](value: Row => A): AesValue[Row, A] =
     Direct(value)
 
+  /** The continuous scale behind a scaled position binding. Its input is the raw `Double` that a
+    * direct position or a companion such as `xEnd` produces, so those values can be trained on and
+    * mapped through it. Temporal, discrete, and generic scales take other inputs and yield `None`.
+    */
+  private[intaglio] def continuousPositionScale[Row](
+      value: AesValue[Row, Double]
+  ): Option[ScaleValue[Double, Double]] =
+    value match
+      case scaled: Scaled[Row, ?, Double] @unchecked =>
+        scaled.scale match
+          case scale: ContinuousScale[?]    => Some(scale.asInstanceOf[ContinuousScale[Double]])
+          case spec: ContinuousScaleSpec[?] => Some(spec.asInstanceOf[ContinuousScaleSpec[Double]])
+          case _                            => None
+      case _ =>
+        None
+
   def total[Row, A](value: Row => A): AesValue[Row, A] =
     Direct(RowMapping.total(value))
 
@@ -496,6 +512,21 @@ final class AesSpec[Row] private (val aesthetics: AestheticMap[Row]):
     */
   def inherit(parent: AesSpec[Row]): AesSpec[Row] =
     new AesSpec(aesthetics.inherit(parent.aesthetics))
+
+  /** Bind direct `x` and `y` through the matching continuous position scale of `plot`. A layer that
+    * sets its own positions instead of inheriting the plot mapping still draws in the plot's
+    * coordinates, so its positions must share that scale rather than stay raw beside it. Only a
+    * continuous scale is adopted, because only its input is the raw `Double` a direct position
+    * produces; scaled, constant, and absent positions are left as they are.
+    */
+  private[intaglio] def adoptPositionScales[PlotRow](plot: AesSpec[PlotRow]): AesSpec[Row] =
+    Vector(Aesthetic.X, Aesthetic.Y).foldLeft(this) { (spec, aesthetic) =>
+      (spec.get(aesthetic), plot.get(aesthetic).flatMap(AesValue.continuousPositionScale)) match
+        case (Some(AesValue.Direct(value)), Some(scale)) =>
+          spec.updated(aesthetic, AesValue.Scaled(value, scale))
+        case _ =>
+          spec
+    }
 
   /** Scaled bindings in declaration order, each registered exactly once. */
   def scaledEntries: Vector[RegisteredScale[Row]] =
@@ -1370,8 +1401,13 @@ final case class Layer[Row] private (
     annotation: Option[ReferenceLine] = None,
     semanticId: Option[SemanticId] = None
 ):
+  /** A layer that does not inherit the plot mapping still draws in the plot's coordinates: its
+    * direct `x`/`y` adopt a plot-level continuous position scale (see
+    * [[AesSpec.adoptPositionScales]]).
+    */
   def effectiveMapping(plotMapping: AesSpec[Row]): AesSpec[Row] =
-    if inheritMapping then mapping.inherit(plotMapping) else mapping
+    if inheritMapping then mapping.inherit(plotMapping)
+    else mapping.adoptPositionScales(plotMapping)
 
   def effectiveData(plotData: Vector[Row]): Vector[Row] =
     if annotation.nonEmpty then Vector.empty else data.getOrElse(plotData)
@@ -1875,7 +1911,7 @@ object PlotLayer:
       data
 
     private[intaglio] def effectiveMapping(plotMapping: AesSpec[PlotRow]): AesSpec[Row] =
-      layer.mapping
+      layer.mapping.adoptPositionScales(plotMapping)
 
     private[intaglio] def facetSeedData(plotData: Vector[PlotRow]): Vector[PlotRow] =
       Vector.empty

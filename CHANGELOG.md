@@ -130,6 +130,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Explicit position scales reach segment ends and tile bounds.** A layer that
+  sets its own positions (`geomSegment`, `geomTile`, `geomRect`,
+  `geomErrorBar`, `geomRibbon`, `geomArea`, and independent layers) did not see
+  a plot-level `scaleXContinuous`/`scaleYContinuous`. A segment then failed with
+  `MixedPositionScaling`, and a tile rendered with the scale's breaks and
+  labeler ignored. Such a layer's direct `x`/`y` now adopt the plot's continuous
+  position scale wherever it is declared, and the companion positions `xEnd`,
+  `xMin`, `xMax` (and their `y` counterparts) both train that scale and are
+  mapped through it. A raw companion beside a temporal or discrete position
+  scale is refused with `UnsupportedGeomAesthetic` naming the geom and
+  aesthetic, instead of being drawn in a different unit.
+
 - **Derived legend keys fit their rows.** The layout solver budgets
   `LayoutPolicy.legendKeyPt` as the side of each key's box, but placement
   handed that value to the key glyph as its size, which a point glyph reads as

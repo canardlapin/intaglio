@@ -135,6 +135,24 @@ private[intaglio] object PackedStatPlan:
   ): AesSpec[Row] =
     source.get(aesthetic).fold(target)(target.updated(aesthetic, _))
 
+/** The secondary position aesthetics that share a primary's coordinates and therefore its scale. */
+private[intaglio] object PositionCompanions:
+  private val table: Vector[(Aesthetic[Double], Vector[Aesthetic[Double]])] =
+    Vector(
+      Aesthetic.X -> Vector(Aesthetic.XEnd, Aesthetic.XMin, Aesthetic.XMax),
+      Aesthetic.Y -> Vector(Aesthetic.YEnd, Aesthetic.YMin, Aesthetic.YMax)
+    )
+
+  def of(aesthetic: Aesthetic[?]): Option[(Aesthetic[Double], Vector[Aesthetic[Double]])] =
+    table.find(_._1 eq aesthetic)
+
+  /** The raw-input evaluator of an unscaled companion binding; a scaled one has none. */
+  def raw[Row](value: AesValue[Row, Double]): Option[Row => Either[RowMapping.Problem, Double]] =
+    value match
+      case AesValue.Direct(f)    => Some(row => RowMapping.evaluateFunction(f, row))
+      case AesValue.Constant(v)  => Some(_ => Right(v))
+      case AesValue.Scaled(_, _) => None
+
 /** Phase 1 — mapping resolution: merge layer and plot mappings, validate the input contract, and
   * reject unsupported geoms before any row is evaluated.
   */
@@ -899,9 +917,55 @@ private[intaglio] object ScalePhase:
       case None =>
         Right(None)
       case Some(entry) =>
-        entry
-          .observations(plan.data, plan.layerIndex)
-          .map(observations => Some(Contribution(plan.layerIndex, entry, observations)))
+        for
+          observations <- entry.observations(plan.data, plan.layerIndex)
+          companions <- companionObservations(plan, aesthetic)
+        yield Some(Contribution(plan.layerIndex, entry, observations ++ companions))
+
+  /** Raw companion positions (`xEnd`, `xMin`, `xMax` for `x`; likewise for `y`) are drawn through
+    * their primary's continuous scale, so they train it too: a segment's far end and a tile's outer
+    * edges lie inside the domain. A companion beside a temporal or discrete primary has no raw
+    * `Double` input to that scale and is refused rather than drawn in a different unit.
+    */
+  private def companionObservations[Row, Output <: StatRow[Row]](
+      plan: StatPlan[Row, Output],
+      aesthetic: Aesthetic[?]
+  ): Either[GraphicsError, Vector[ScaleObservation]] =
+    PositionCompanions.of(aesthetic) match
+      case None                        => Right(Vector.empty)
+      case Some((primary, companions)) =>
+        val raw = companions.flatMap { companion =>
+          plan.mapping.get(companion).flatMap(PositionCompanions.raw).map(companion -> _)
+        }
+        if raw.isEmpty then Right(Vector.empty)
+        else
+          plan.mapping.get(primary).flatMap(AesValue.continuousPositionScale) match
+            case None =>
+              val (companion, _) = raw.head
+              Left(GraphicsError.UnsupportedGeomAesthetic(plan.layer.geom.label, companion.label))
+            case Some(scale) =>
+              val out = Vector.newBuilder[ScaleObservation]
+              var result: Either[GraphicsError, Unit] = Right(())
+              raw.foreach { (companion, evaluate) =>
+                var rowIndex = 0
+                while rowIndex < plan.data.length && result.isRight do
+                  evaluate(plan.data(rowIndex)) match
+                    case Right(input) =>
+                      if input.isFinite then scale.observation(input).foreach(out += _)
+                    case Left((contract, failure)) =>
+                      result = Left(
+                        GraphicsError.MappingEvaluationFailed(
+                          "scale training",
+                          Some(plan.layerIndex),
+                          companion.label,
+                          rowIndex,
+                          contract,
+                          failure
+                        )
+                      )
+                  rowIndex += 1
+              }
+              result.map(_ => out.result())
 
   private def compatibleFacetCopy(
       first: Contribution,
@@ -1111,12 +1175,12 @@ private[intaglio] object RowPhase:
         _ <- finitePosition(x, y)
         xBand = xValue.band
         yBand = yValue.band
-        xEnd <- optionalFiniteAes(Aesthetic.XEnd, mapping.get(Aesthetic.XEnd), source, rowIndex)
-        yEnd <- optionalFiniteAes(Aesthetic.YEnd, mapping.get(Aesthetic.YEnd), source, rowIndex)
-        xMin <- optionalFiniteAes(Aesthetic.XMin, mapping.get(Aesthetic.XMin), source, rowIndex)
-        xMax <- optionalFiniteAes(Aesthetic.XMax, mapping.get(Aesthetic.XMax), source, rowIndex)
-        yMin <- optionalFiniteAes(Aesthetic.YMin, mapping.get(Aesthetic.YMin), source, rowIndex)
-        yMax <- optionalFiniteAes(Aesthetic.YMax, mapping.get(Aesthetic.YMax), source, rowIndex)
+        xEnd <- companionAes(Aesthetic.X, Aesthetic.XEnd, mapping, source, rowIndex)
+        yEnd <- companionAes(Aesthetic.Y, Aesthetic.YEnd, mapping, source, rowIndex)
+        xMin <- companionAes(Aesthetic.X, Aesthetic.XMin, mapping, source, rowIndex)
+        xMax <- companionAes(Aesthetic.X, Aesthetic.XMax, mapping, source, rowIndex)
+        yMin <- companionAes(Aesthetic.Y, Aesthetic.YMin, mapping, source, rowIndex)
+        yMax <- companionAes(Aesthetic.Y, Aesthetic.YMax, mapping, source, rowIndex)
         _ <- validBounds(Aesthetic.X.label, xMin, xMax)
         _ <- validBounds(Aesthetic.Y.label, yMin, yMax)
         text <- labelValue(layer.geom, mapping, source, rowIndex)
@@ -1338,6 +1402,35 @@ private[intaglio] object RowPhase:
         Left(PlotDropReason.NonFiniteAesthetic(aesthetic.label, resolved))
       case resolved =>
         Right(resolved)
+    }
+
+  /** A raw companion position is drawn in its primary's coordinates: under a continuous position
+    * scale it is mapped through the same trained scale, and dropped for the same reasons.
+    */
+  private def companionAes[Row](
+      primary: Aesthetic[Double],
+      companion: Aesthetic[Double],
+      mapping: AesSpec[Row],
+      row: Row,
+      rowIndex: Int
+  ): Either[PlotDropReason, Option[Double]] =
+    val value = mapping.get(companion)
+    val scale =
+      if value.exists(_.isScaled) then None
+      else mapping.get(primary).flatMap(AesValue.continuousPositionScale)
+    optionalFiniteAes(companion, value, row, rowIndex).flatMap { raw =>
+      (raw, scale) match
+        case (Some(input), Some(positionScale)) =>
+          positionScale
+            .mapDeclaredValueResult(input)
+            .left
+            .map(toDropReason(companion, _))
+            .flatMap { mapped =>
+              if mapped.isFinite then Right(Some(mapped))
+              else Left(PlotDropReason.NonFiniteAesthetic(companion.label, mapped))
+            }
+        case _ =>
+          Right(raw)
     }
 
   private def validBounds(
