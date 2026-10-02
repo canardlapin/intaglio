@@ -6,28 +6,83 @@ import javafx.scene.image.{Image, PixelFormat, WritableImage}
 import javafx.scene.paint.{Color, ImagePattern}
 import javafx.scene.shape.{StrokeLineCap, StrokeLineJoin}
 import javafx.scene.text.{Font, FontWeight as FxFontWeight, TextAlignment}
+import java.lang.ref.WeakReference
 import scala.collection.mutable
 import intaglio.*
 
 /** Adapter from the toolkit-free [[JavaFxGraphicsContext]] contract onto a live JavaFX
   * `GraphicsContext`. Construction has no toolkit side effects; drawing must happen on the JavaFX
-  * application thread like any other `Canvas` access. Raster images are materialized once per
-  * adapter as cached ARGB `WritableImage` values.
+  * application thread like any other `Canvas` access. Raster images are materialized per adapter as
+  * cached ARGB `WritableImage` values, within a shared byte-accounted LRU budget.
   */
-final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphicsContext:
-  private val images = mutable.HashMap.empty[RasterImage, Image]
-  private val patterns = mutable.HashMap.empty[PatternPaint, ImagePattern]
+final class JavaFxCanvasContext(context: GraphicsContext, val cacheByteLimit: Long)
+    extends JavaFxGraphicsContext:
+  /** Retains the original constructor descriptor. */
+  def this(context: GraphicsContext) = this(context, JavaFxCanvasContext.DefaultCacheByteLimit)
 
-  /** Release native resources when the owning host detaches. FX application thread only. */
-  def clearCaches(): Unit =
+  require(cacheByteLimit >= 0, "cache byte limit must be non-negative")
+
+  private type CacheKey = Either[RasterImage, PatternPaint]
+  private val images = mutable.HashMap.empty[RasterImage, (Image, CacheKey)]
+  private val patterns = mutable.HashMap.empty[PatternPaint, (ImagePattern, CacheKey)]
+  private val order = mutable.LinkedHashMap.empty[Either[RasterImage, PatternPaint], Long]
+  private var retainedBytes = 0L
+  private var lastPattern = new WeakReference[ImagePattern](null)
+  private var savedPatterns = List.empty[WeakReference[ImagePattern]]
+
+  /** Accounted pixel storage plus an entry allowance; excludes toolkit/driver overhead. */
+  def cachedResourceBytes: Long = retainedBytes
+  def cachedResourceCount: Int = order.size
+
+  private[javafx] def cachedNativeImages: Vector[Image] =
+    images.valuesIterator.map(_._1).toVector ++
+      patterns.valuesIterator.map(_._1.getImage).toVector
+
+  /** Drop adapter-owned references after balanced drawing; FX application thread only. The adapter
+    * remains reusable. JavaFX reclaims images after pending Canvas operations finish.
+    */
+  def release(): Unit =
+    val paint = lastPattern.get()
+    if paint != null && (context.getFill eq paint) then context.setFill(Color.BLACK)
+    lastPattern.clear()
+    savedPatterns = Nil
     images.clear()
     patterns.clear()
+    order.clear()
+    retainedBytes = 0L
+
+  /** Compatibility alias used by existing hosts. */
+  def clearCaches(): Unit =
+    release()
+
+  private def touch(key: Either[RasterImage, PatternPaint]): Unit =
+    order.remove(key).foreach(bytes => order.put(key, bytes))
+
+  private def retain(key: Either[RasterImage, PatternPaint], bytes: Long): Boolean =
+    if bytes > cacheByteLimit then false
+    else
+      while retainedBytes > cacheByteLimit - bytes do
+        val (oldest, size) = order.head
+        order.remove(oldest)
+        oldest match
+          case Left(image)    => images.remove(image)
+          case Right(pattern) => patterns.remove(pattern)
+        retainedBytes -= size
+      order.put(key, bytes)
+      retainedBytes += bytes
+      true
 
   override def save(): Unit =
     context.save()
+    savedPatterns = lastPattern :: savedPatterns
 
   override def restore(): Unit =
     context.restore()
+    savedPatterns match
+      case previous :: rest =>
+        lastPattern = previous
+        savedPatterns = rest
+      case Nil => ()
 
   override def translate(x: Double, y: Double): Unit =
     context.translate(x, y)
@@ -72,10 +127,20 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
     context.setFill(fx(color))
 
   override def setPatternFill(pattern: PatternPaint): Boolean =
-    val hit = patterns.contains(pattern)
-    val resource = patterns.getOrElseUpdate(pattern, imagePattern(pattern))
+    val cached = patterns.get(pattern)
+    val resource = cached match
+      case Some((value, key)) =>
+        touch(key)
+        value
+      case None =>
+        val value = imagePattern(pattern)
+        val bytes = 256L + value.getImage.getWidth.toLong * value.getImage.getHeight.toLong * 4L
+        val key = Right(pattern)
+        if retain(key, bytes) then patterns.put(pattern, (value, key))
+        value
     context.setFill(resource)
-    hit
+    lastPattern = new WeakReference(resource)
+    cached.nonEmpty
 
   override def setStroke(color: JavaFxColor): Unit =
     context.setStroke(fx(color))
@@ -144,7 +209,17 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
       width: Double,
       height: Double
   ): Unit =
-    val source = images.getOrElseUpdate(image, writable(image))
+    val source = images.get(image) match
+      case Some((value, key)) =>
+        touch(key)
+        value
+      case None =>
+        val value = writable(image)
+        // The key retains the packed source pixels as well as the native ARGB image.
+        val bytes = 256L + image.dimensions.pixelCount.toLong * 8L
+        val key = Left(image)
+        if retain(key, bytes) then images.put(image, (value, key))
+        value
     context.drawImage(source, x, y, width, height)
 
   private def fx(color: JavaFxColor): Color =
@@ -157,6 +232,7 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
     new ImagePattern(writable(tile.image), 0.0, 0.0, tile.width, tile.height, false)
 
   private def writable(image: RasterImage): WritableImage =
+    JavaFxCanvasContext.validateRaster(image).orThrow
     val output = new WritableImage(image.width, image.height)
     output.getPixelWriter.setPixels(
       0,
@@ -169,3 +245,13 @@ final class JavaFxCanvasContext(context: GraphicsContext) extends JavaFxGraphics
       image.width
     )
     output
+
+object JavaFxCanvasContext:
+  val DefaultCacheByteLimit: Long = 64L * 1024L * 1024L
+
+  /** Conservative backend policy, independent of the active Prism driver. */
+  val MaxRasterDimension: Int = 4096
+
+  private[javafx] def validateRaster(image: RasterImage): Either[JavaFxRenderError, Unit] =
+    if image.width <= MaxRasterDimension && image.height <= MaxRasterDimension then Right(())
+    else Left(JavaFxRenderError.RasterTooLarge(image.width, image.height, MaxRasterDimension))

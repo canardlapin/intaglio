@@ -24,3 +24,18 @@ MissingClassProblem intaglio.javafx.JavaFxInteractionHost
 MissingClassProblem intaglio.javafx.JavaFxInteractionHost$
 MissingClassProblem intaglio.javafx.JavaFxInteractionView
 MissingClassProblem intaglio.javafx.JavaFxInteractionView$
+
+# Bounded, releasable native-resource cache and typed raster size policy.
+# The original one-argument context constructor and clearCaches remain callable.
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.this
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.cacheByteLimit
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.cachedResourceBytes
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.cachedResourceCount
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.release
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.DefaultCacheByteLimit
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.MaxRasterDimension
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.validateRaster
+MissingClassProblem intaglio.javafx.JavaFxCanvasContext$
+MissingFieldProblem intaglio.javafx.JavaFxRenderError.RasterTooLarge
+MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge
+MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge$

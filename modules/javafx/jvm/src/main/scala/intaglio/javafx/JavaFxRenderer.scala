@@ -39,11 +39,14 @@ object JavaFxOptions:
 enum JavaFxRenderError extends IntaglioError:
   case InvalidCanvasSize(width: Int, height: Int)
   case Graphics(error: GraphicsError)
+  case RasterTooLarge(width: Int, height: Int, maxDimension: Int)
 
   def message: String =
     this match
       case InvalidCanvasSize(width, height) =>
         s"JavaFX canvas size must be positive: ${width}x$height"
+      case RasterTooLarge(width, height, maxDimension) =>
+        s"JavaFX raster ${width}x$height exceeds the maximum dimension $maxDimension"
       case Graphics(error) =>
         error.message
 
@@ -551,7 +554,17 @@ object JavaFxRenderer:
     for
       resolved <- plan.deviceScene.left.map(JavaFxRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(JavaFxRenderError.Graphics(_))
-    yield JavaFxProgram.fromDevice(resolved, plan.context)
+      program = JavaFxProgram.fromDevice(resolved, plan.context)
+      _ <- program.commands.foldLeft[Either[JavaFxRenderError, Unit]](Right(())) {
+        (result, command) =>
+          result.flatMap { _ =>
+            command match
+              case JavaFxCommand.Image(image, _, _, _, _, _, _, _) =>
+                JavaFxCanvasContext.validateRaster(image)
+              case _ => Right(())
+          }
+      }
+    yield program
 
   def compile(
       scene: Scene,

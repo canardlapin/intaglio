@@ -35,9 +35,34 @@ JavaFX applications that want installed-font-aware layout can also depend on
 measurement is a caller-selected JVM capability; the JavaFX renderer itself
 does not change the deterministic shared `TextMetrics.estimate` default.
 
-Shared raster images are converted once per adapter into cached ARGB
+Shared raster images are converted per adapter into cached ARGB
 `WritableImage` values and drawn with explicit nearest-neighbor or bilinear
 smoothing plus grob-level alpha.
+
+Images and pattern tiles share a least-recently-used cache with a default
+64 MiB budget. `new JavaFxCanvasContext(graphics, cacheByteLimit)` selects a
+non-negative byte budget; zero disables retention. `cachedResourceBytes` and
+`cachedResourceCount` expose current accounting. Raster entries count eight
+bytes per pixel (packed source plus native ARGB), pattern entries four, with a
+256-byte allowance per entry. Toolkit objects, pending Canvas commands, and
+driver textures are outside this accounting. Resources larger than the budget
+are drawn without being cached.
+
+Call `release()` (or the compatible `clearCaches()`) on the FX application
+thread after balanced drawing when detaching a controller. It drops cached
+references and clears an adapter-owned current pattern fill; the adapter can
+then be reused. The interaction host calls this hook during `dispose()`.
+JavaFX controls reclamation after pending drawing completes; its
+[Image API](https://openjfx.io/javadoc/21/javafx.graphics/javafx/scene/image/Image.html)
+has no explicit image disposal operation. Saved graphics states and resources
+retained by application code must also be released by their owners.
+
+Raster sources have a conservative maximum of 4,096 pixels on each axis,
+published as `JavaFxCanvasContext.MaxRasterDimension`. This is a backend policy,
+not a query of the active driver's texture limit. Both `compile` and `render`
+reject larger sources with `JavaFxRenderError.RasterTooLarge`, carrying the
+requested width, height, and limit. Low-level `drawImage` assumes validated
+input and throws for a source beyond this limit before allocating a native image.
 
 Pattern fills use that same shared deterministic RGBA tile as an absolute
 `ImagePattern`. A `JavaFxCanvasContext` caches one native resource per complete

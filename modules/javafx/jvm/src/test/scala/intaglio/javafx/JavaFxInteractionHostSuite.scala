@@ -28,6 +28,166 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
 
   override def afterAll(): Unit = Platform.exit()
 
+  private def raster(color: Int, width: Int = 8, height: Int = 8): RasterImage =
+    RasterImage.solid(
+      RasterDimensions.unsafe(width, height),
+      Rgba32.unsafe(color & 255, (color >>> 8) & 255, (color >>> 16) & 255)
+    )
+
+  private def pattern(color: Rgba): PatternPaint =
+    PatternPaint(ok(PatternRecipe.stipple(8.0, 2.0)), color)
+
+  test("1000 changing rasters stay within the shared byte budget") {
+    fx {
+      val canvas = new Canvas(8, 8)
+      val adapter = new JavaFxCanvasContext(canvas.getGraphicsContext2D, 2048L)
+      (0 until 1000).foreach { index =>
+        adapter.drawImage(raster(index), 0, 0, 8, 8)
+        assert(adapter.cachedResourceBytes <= adapter.cacheByteLimit)
+        assert(adapter.cachedResourceCount <= 2)
+      }
+      assertEquals(adapter.cachedResourceBytes, 1536L)
+      assertEquals(adapter.cachedResourceCount, 2)
+      val output = canvas.snapshot(null, null)
+      assertEquals(output.getPixelReader.getArgb(4, 4), 0xffe70300)
+      adapter.release()
+    }
+  }
+
+  test("raster hits refresh LRU order and patterns compete for the same budget") {
+    fx {
+      val canvas = new Canvas(8, 8)
+      val adapter = new JavaFxCanvasContext(canvas.getGraphicsContext2D, 1536L)
+      val first = raster(1)
+      val second = raster(2)
+      adapter.drawImage(first, 0, 0, 8, 8)
+      val firstNative = adapter.cachedNativeImages.head
+      adapter.drawImage(second, 0, 0, 8, 8)
+      val secondNative = adapter.cachedNativeImages.find(_ ne firstNative).get
+      adapter.drawImage(first, 0, 0, 8, 8)
+      adapter.drawImage(raster(3), 0, 0, 8, 8)
+      assert(adapter.cachedNativeImages.exists(_ eq firstNative))
+      assert(!adapter.cachedNativeImages.exists(_ eq secondNative))
+
+      val hatch = pattern(Rgba.Black)
+      assert(!adapter.setPatternFill(hatch))
+      assert(!adapter.cachedNativeImages.exists(_ eq firstNative))
+      assertEquals(adapter.cachedResourceBytes, 1280L)
+      assert(adapter.setPatternFill(hatch))
+      assertEquals(adapter.cachedResourceCount, 2)
+      canvas.snapshot(null, null)
+      adapter.clearCaches()
+    }
+  }
+
+  test("zero or undersized budgets draw correctly without retaining large resources") {
+    fx {
+      Vector(0L, 512L).foreach { budget =>
+        val canvas = new Canvas(8, 8)
+        val adapter = new JavaFxCanvasContext(canvas.getGraphicsContext2D, budget)
+        adapter.drawImage(raster(255), 0, 0, 8, 8)
+        assertEquals(adapter.cachedResourceCount, 0)
+        assertEquals(adapter.cachedResourceBytes, 0L)
+        assertEquals(canvas.snapshot(null, null).getPixelReader.getArgb(4, 4), 0xffff0000)
+        adapter.release()
+      }
+      intercept[IllegalArgumentException] {
+        new JavaFxCanvasContext(new Canvas(8, 8).getGraphicsContext2D, -1L)
+      }
+    }
+  }
+
+  test("release makes native images collectible while the adapter and Canvas remain alive") {
+    val (adapter, canvas, references) = fx {
+      val canvas = new Canvas(8, 8)
+      val adapter = new JavaFxCanvasContext(canvas.getGraphicsContext2D)
+      adapter.drawImage(raster(255), 0, 0, 8, 8)
+      adapter.setPatternFill(pattern(Rgba.Black))
+      adapter.rect(0, 0, 8, 8)
+      adapter.fillPath()
+      canvas.snapshot(null, null)
+      val references = adapter.cachedNativeImages.map(image => new WeakReference(image))
+      assertEquals(references.size, 2)
+      adapter.release()
+      adapter.release()
+      assertEquals(adapter.cachedResourceBytes, 0L)
+      assertEquals(adapter.cachedResourceCount, 0)
+      assertEquals(canvas.getGraphicsContext2D.getFill, Color.BLACK)
+      canvas.snapshot(null, null)
+      (adapter, canvas, references)
+    }
+    var attempts = 0
+    while references.exists(_.get() != null) && attempts < 20 do
+      System.gc()
+      Thread.sleep(25)
+      fx(())
+      attempts += 1
+    assert(references.forall(_.get() == null), "released native images must be collectible")
+    fx {
+      adapter.drawImage(raster(1), 0, 0, 8, 8)
+      assertEquals(adapter.cachedResourceCount, 1)
+      canvas.snapshot(null, null)
+      adapter.clearCaches()
+      assertEquals(adapter.cachedResourceBytes, 0L)
+    }
+  }
+
+  test("release clears an evicted pattern restored by balanced save and restore") {
+    fx {
+      val canvas = new Canvas(8, 8)
+      val graphics = canvas.getGraphicsContext2D
+      val adapter = new JavaFxCanvasContext(graphics, 512L)
+      val first = pattern(Rgba.Black)
+      adapter.setPatternFill(first)
+      val restored = graphics.getFill match
+        case value: _root_.javafx.scene.paint.ImagePattern => value
+        case other => fail(s"expected a pattern, received $other")
+      adapter.save()
+      adapter.setPatternFill(pattern(Rgba.White))
+      adapter.restore()
+      assert(graphics.getFill eq restored)
+      assert(!adapter.cachedNativeImages.exists(_ eq restored.getImage))
+      adapter.release()
+      assertEquals(graphics.getFill, Color.BLACK)
+      // Application-owned paint remains the application's responsibility.
+      graphics.setFill(restored)
+      adapter.release()
+      assert(graphics.getFill eq restored)
+      graphics.setFill(Color.BLACK)
+    }
+  }
+
+  test("over-limit rasters return dimensions through compile and render without drawing") {
+    val limit = JavaFxCanvasContext.MaxRasterDimension
+    Vector((limit + 1, 1), (1, limit + 1)).foreach { (width, height) =>
+      val image = Grob.imageUnsafe(
+        raster(1, width, height),
+        Point.npcUnsafe(0.5, 0.5),
+        Size.npcUnsafe(1, 1)
+      )
+      val scene = Scene(Vector(image))
+      val expected = JavaFxRenderError.RasterTooLarge(width, height, limit)
+      assertEquals(JavaFxRenderer.compile(scene).left.toOption, Some(expected))
+      val recording = new RecordingFxContext
+      assertEquals(JavaFxRenderer.render(scene, recording).left.toOption, Some(expected))
+      assert(recording.calls.isEmpty)
+      assert(expected.message.contains(s"${width}x$height"))
+    }
+    val boundary = Grob.imageUnsafe(
+      raster(1, limit, 1),
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(1, 1)
+    )
+    assert(JavaFxRenderer.compile(Scene(Vector(boundary))).isRight)
+    fx {
+      val adapter = new JavaFxCanvasContext(new Canvas(8, 8).getGraphicsContext2D)
+      intercept[IllegalArgumentException] {
+        adapter.drawImage(raster(1, limit + 1, 1), 0, 0, 8, 8)
+      }
+      assertEquals(adapter.cachedResourceCount, 0)
+    }
+  }
+
   test("native context sets the shared miter limit instead of inheriting toolkit defaults") {
     fx {
       val context = new Canvas(100, 100).getGraphicsContext2D
