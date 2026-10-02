@@ -1,0 +1,248 @@
+// Real-browser evidence for the Intaglio SVG widget (Interaction 04).
+//
+// Usage: node tools/check-widget-browser.cjs <fixture main.js> <output dir>
+// Build the fixture first: sbt browserFixture/fastLinkJS
+// Runs Playwright's own Chromium headless; never a system browser or profile. Audit browser
+// ownership before and after invoking this script (see AGENTS.md).
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { chromium } = require('playwright');
+
+// Counts net DOM listener registrations and live ResizeObservers, installed before any page script.
+const instrument = () => {
+  window.__listeners = 0;
+  window.__observers = 0;
+  const add = EventTarget.prototype.addEventListener;
+  const remove = EventTarget.prototype.removeEventListener;
+  const seen = new WeakMap();
+  EventTarget.prototype.addEventListener = function (type, fn, options) {
+    let types = seen.get(this);
+    if (!types) { types = new Map(); seen.set(this, types); }
+    let fns = types.get(type);
+    if (!fns) { fns = new Set(); types.set(type, fns); }
+    if (fn && !fns.has(fn)) { fns.add(fn); window.__listeners++; }
+    return add.call(this, type, fn, options);
+  };
+  EventTarget.prototype.removeEventListener = function (type, fn, options) {
+    const fns = seen.get(this)?.get(type);
+    if (fns && fns.delete(fn)) window.__listeners--;
+    return remove.call(this, type, fn, options);
+  };
+  const Native = window.ResizeObserver;
+  window.ResizeObserver = class extends Native {
+    constructor(cb) { super(cb); window.__observers++; this.__live = true; }
+    disconnect() { if (this.__live) { this.__live = false; window.__observers--; } super.disconnect(); }
+  };
+};
+
+async function main() {
+  assert.equal(process.argv.length, 4, 'Pass the fixture main.js and an output directory');
+  const script = path.resolve(process.argv[2]);
+  const out = path.resolve(process.argv[3]);
+  await fs.mkdir(out, { recursive: true });
+  const template = await fs.readFile(path.join(__dirname, 'browser', 'widget.html'), 'utf8');
+  const page = path.join(out, 'widget.html');
+  await fs.writeFile(page, template.replace('FIXTURE_SCRIPT', pathToFileURL(script).href));
+
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+  const report = { browser: browser.version(), checks: [] };
+  const check = (name, fn) => fn().then(detail => report.checks.push({ name, ok: true, detail }));
+  try {
+    const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 1 });
+    const tab = await context.newPage();
+    await tab.addInitScript(instrument);
+    await tab.goto(pathToFileURL(page).href);
+    await tab.waitForFunction(() => window.intaglioFixture && window.intaglioFixture.ready);
+    const fx = (body, ...args) => tab.evaluate(body, ...args);
+    const last = slot => fx(s => window.intaglioFixture.events[s].slice(-6), slot);
+    const point = (slot, i) => fx(([s, n]) => window.intaglioFixture.markPoint(s, n), [slot, i]);
+    const tooltipBox = slot => fx(s => {
+      const root = document.querySelector(`[data-intaglio-widget=${s}]`);
+      const tip = root.querySelector('.intaglio-tooltip');
+      const r = root.getBoundingClientRect(); const t = tip.getBoundingClientRect();
+      return { hidden: tip.hidden, text: tip.textContent, markup: tip.querySelectorAll('b').length,
+        inside: t.left >= r.left - 0.5 && t.right <= r.right + 0.5 && t.top >= r.top - 0.5 && t.bottom <= r.bottom + 0.5 };
+    }, slot);
+
+    await check('two widgets, no duplicate ids, one tab stop per plot', async () => {
+      const ids = await fx(() => [...document.querySelectorAll('[id]')].map(e => e.id));
+      assert.equal(new Set(ids).size, ids.length, `duplicate ids: ${ids}`);
+      const stops = await fx(() => ['left', 'right'].map(s =>
+        [...document.querySelectorAll(`[data-intaglio-widget=${s}] [tabindex="0"], [data-intaglio-widget=${s}] summary`)].length));
+      assert.deepEqual(stops, [2, 2], 'plot plus the companion toggle, not one stop per mark');
+      return { ids: ids.length, stops };
+    });
+
+    const marks = await fx(() => window.intaglioFixture.markCount('left'));
+    await check('pointer hover shows a delayed, escaped tooltip and inverse emphasis', async () => {
+      const [x, y] = await point('left', 3);
+      await tab.mouse.move(x, y);
+      await tab.waitForTimeout(450);
+      const box = await tooltipBox('left');
+      assert.equal(box.hidden, false);
+      assert.match(box.text, /Trial t\d+/);
+      assert.match(box.text, /<b>not markup<\/b>/, 'content is text');
+      assert.equal(box.markup, 0, 'no element was parsed from content');
+      assert.ok(box.inside);
+      const emphasis = await fx(() => ({
+        dimmed: document.querySelector('[data-intaglio-widget=left] .intaglio-plot').classList.contains('intaglio-dimmed'),
+        clipped: !!document.querySelector('[data-intaglio-widget=left] .intaglio-emphasis[clip-path]'),
+        hover: document.querySelectorAll('[data-intaglio-widget=left] .intaglio-ring-hover').length
+      }));
+      assert.deepEqual(emphasis, { dimmed: true, clipped: true, hover: 1 });
+      assert.ok((await last('left')).some(e => /^hover:t\d+:Pointer$/.test(e)));
+      await tab.screenshot({ path: path.join(out, 'hover.png') });
+      return { marks, tooltip: box.text };
+    });
+
+    await check('click selects and activates; a link follows only real input', async () => {
+      const [x, y] = await point('left', 3);
+      await tab.mouse.click(x, y);
+      const events = await last('left');
+      const selected = events.find(e => e.startsWith('select:'));
+      assert.match(selected, /^select:t\d+\|0:Pointer$/);
+      assert.ok(events.some(e => /^activate:t\d+:Pointer$/.test(e)));
+      const hash = await fx(() => location.hash);
+      assert.match(hash, /^#trial-t\d+$/);
+      const [x2, y2] = await point('left', 7);
+      // mouse.click has no modifier option; hold Shift on the keyboard instead.
+      await tab.keyboard.down('Shift');
+      await tab.mouse.click(x2, y2);
+      await tab.keyboard.up('Shift');
+      assert.equal(await fx(() => String(window.getSelection())), '', 'additive clicks select no text');
+      const both = (await last('left')).filter(e => e.startsWith('select:')).pop();
+      assert.equal(both.split('|')[0].split(':')[1].split(',').length, 2, both);
+      // Application-controlled selection changes state and overlay, emits nothing, never navigates.
+      await fx(() => { location.hash = ''; });
+      const count = await fx(() => window.intaglioFixture.events.left.length);
+      assert.equal(await fx(() => window.intaglioFixture.setSelection(['t2'])), 'ok');
+      await tab.waitForTimeout(50);
+      assert.deepEqual(await fx(() => window.intaglioFixture.selected('left')), ['t2']);
+      assert.equal(await fx(() => window.intaglioFixture.events.left.length), count, 'no echo event');
+      assert.equal(await fx(() => document.querySelectorAll('[data-intaglio-widget=left] .intaglio-ring-selected').length), 1);
+      assert.equal(await fx(() => location.hash), '');
+      return { selected, both };
+    });
+
+    await check('keyboard roves focus with a visible ring, announces it, chooses and clears', async () => {
+      await tab.mouse.move(5, 5);
+      await fx(() => document.activeElement && document.activeElement.blur());
+      await tab.keyboard.press('Tab');
+      const focused = await fx(() => document.activeElement.closest('[data-intaglio-widget]')?.dataset.intaglioWidget);
+      assert.equal(focused, 'left');
+      await tab.keyboard.press('ArrowRight');
+      await tab.keyboard.press('End');
+      await tab.waitForTimeout(50);
+      const state = await fx(() => ({
+        ring: document.querySelectorAll('[data-intaglio-widget=left] .intaglio-ring-focus').length,
+        live: document.querySelector('[data-intaglio-widget=left] .intaglio-live').textContent,
+        tooltip: !document.querySelector('[data-intaglio-widget=left] .intaglio-tooltip').hidden
+      }));
+      assert.equal(state.ring, 1);
+      assert.match(state.live, /Trial t\d+/);
+      assert.ok(state.tooltip, 'focus shows the tooltip without a pointer');
+      assert.ok((await last('left')).some(e => /^focus:t\d+:Keyboard$/.test(e)));
+      await tab.screenshot({ path: path.join(out, 'keyboard-focus.png') });
+      await tab.keyboard.press('Enter');
+      assert.ok((await last('left')).some(e => /^select:t\d+\|0:Keyboard$/.test(e)));
+      await tab.keyboard.press('Escape');
+      assert.ok((await last('left')).pop().startsWith('select:|0:Keyboard'));
+      return state;
+    });
+
+    await check('a tooltip at the right edge stays inside the widget', async () => {
+      const points = [];
+      for (let i = 0; i < marks; i++) points.push(await point('left', i));
+      const edge = points.reduce((a, b) => (b[0] > a[0] ? b : a));
+      await tab.mouse.move(edge[0], edge[1]);
+      await tab.waitForTimeout(450);
+      const box = await tooltipBox('left');
+      assert.equal(box.hidden, false);
+      assert.ok(box.inside);
+      await tab.screenshot({ path: path.join(out, 'edge-tooltip.png') });
+      return { edge };
+    });
+
+    await check('histogram bins are selected as bins, not as member observations', async () => {
+      const [x, y] = await point('right', 0);
+      await tab.mouse.click(x, y);
+      const selected = (await last('right')).find(e => e.startsWith('select:'));
+      assert.equal(selected, 'select:|1:Pointer');
+      assert.deepEqual(await fx(() => window.intaglioFixture.events.left.filter(e => e.includes('right'))), []);
+      return { selected };
+    });
+
+    await check('a legend entry is a typed part under the pointer', async () => {
+      const centre = await fx(() => {
+        const key = document.querySelector('[data-intaglio-widget=left] [data-name="block-legend-entry-0-key"]');
+        const r = key.getBoundingClientRect();
+        return [r.left + r.width / 2, r.top + r.height / 2];
+      });
+      await tab.mouse.move(centre[0], centre[1]);
+      await tab.waitForTimeout(50);
+      const parts = await fx(() => window.intaglioFixture.parts.slice(-3));
+      assert.ok(parts.includes('hover:block: A'), parts.join(' / '));
+      return { parts };
+    });
+
+    await check('update reconciles the selection by entity key', async () => {
+      await fx(() => window.intaglioFixture.setSelection(['t1', 't2', 't9']));
+      assert.equal(await fx(() => window.intaglioFixture.update()), 'ok');
+      const events = await last('left');
+      assert.ok(events.some(e => e.startsWith('Reconciled')), events.join(' / '));
+      return { events };
+    });
+
+    await check('reduced motion removes the emphasis transition', async () => {
+      const before = await fx(() => getComputedStyle(document.querySelector('[data-intaglio-widget=left] svg.intaglio-base')).transitionDuration);
+      await tab.emulateMedia({ reducedMotion: 'reduce' });
+      const after = await fx(() => getComputedStyle(document.querySelector('[data-intaglio-widget=left] svg.intaglio-base')).transitionDuration);
+      assert.notEqual(before, '0s');
+      assert.equal(after, '0s');
+      return { before, after };
+    });
+
+    await check('repeated mount and dispose retain no listeners, observers or nodes', async () => {
+      const base = await fx(() => ({ listeners: window.__listeners, observers: window.__observers }));
+      await fx(() => window.intaglioFixture.remount(25));
+      const cycled = await fx(() => ({ listeners: window.__listeners, observers: window.__observers,
+        widgets: document.querySelectorAll('[data-intaglio-widget=left]').length }));
+      assert.deepEqual(cycled, { ...base, widgets: 1 });
+      const remaining = await fx(() => window.intaglioFixture.dispose('left'));
+      const after = await fx(() => ({ listeners: window.__listeners, observers: window.__observers,
+        widgets: document.querySelectorAll('[data-intaglio-widget=left]').length }));
+      assert.equal(remaining, 0);
+      assert.equal(after.widgets, 0);
+      assert.ok(after.listeners < base.listeners && after.observers === base.observers - 1, JSON.stringify({ base, after }));
+      return { base, cycled, after };
+    });
+    await context.close();
+
+    const hidpi = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 2 });
+    const tab2 = await hidpi.newPage();
+    await tab2.goto(pathToFileURL(page).href);
+    await tab2.waitForFunction(() => window.intaglioFixture && window.intaglioFixture.ready);
+    await check('at device scale 2 the pointer still hits the drawn mark', async () => {
+      const [x, y] = await tab2.evaluate(() => window.intaglioFixture.markPoint('left', 5));
+      await tab2.mouse.move(x, y);
+      await tab2.waitForTimeout(450);
+      const events = await tab2.evaluate(() => window.intaglioFixture.events.left.slice(-3));
+      assert.ok(events.some(e => /^hover:t\d+:Pointer$/.test(e)), events.join(' / '));
+      await tab2.screenshot({ path: path.join(out, 'hover-2x.png') });
+      return { events };
+    });
+    await hidpi.close();
+  } finally {
+    await browser.close();
+  }
+  await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
+  console.log(JSON.stringify(report, null, 2));
+}
+
+main().catch(error => {
+  console.error(error);
+  process.exit(1);
+});

@@ -293,6 +293,43 @@ lazy val canvas =
 
 lazy val canvasJS = canvas.js
 
+/** Browser interaction host: mounts an interactive SVG widget over the shared interaction plan,
+  * state, picking and behaviour contracts. Scala.js only; DOM access goes through hand-written
+  * dynamic facades, so it adds no library dependency.
+  */
+lazy val browser =
+  crossProject(JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/browser"))
+    .dependsOn(interaction, svg)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-browser",
+      description := "Interactive SVG widget for Intaglio plots in the browser (Scala.js).",
+      // This new artifact has no historical baseline yet.
+      mimaPreviousArtifacts := Set.empty,
+      tastyMiMaPreviousArtifacts := Set.empty
+    )
+    .jsSettings(jsSettingsBase)
+
+lazy val browserJS = browser.js
+
+/** A linked page application used only by tools/check-widget-browser.cjs for real-browser evidence.
+  * Not published and not part of the aggregate.
+  */
+lazy val browserFixture =
+  project
+    .in(file("modules/browser-fixture"))
+    .enablePlugins(ScalaJSPlugin)
+    .dependsOn(browserJS)
+    .settings(
+      scalaVersion := scalaLts,
+      scalacOptions ++= Seq("-deprecation", "-feature", "-unchecked", "-Wconf:id=E029:e"),
+      scalaJSUseMainModuleInitializer := true,
+      scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.NoModule)),
+      publish / skip := true
+    )
+
 lazy val java2d =
   crossProject(JVMPlatform)
     .crossType(CrossType.Full)
@@ -428,6 +465,7 @@ lazy val root =
       performanceJS,
       performanceJVM,
       canvasJS,
+      browserJS,
       java2dJVM,
       pdfJVM,
       javafxJVM
@@ -444,17 +482,17 @@ addCommandAlias(
 
 addCommandAlias(
   "compileAll",
-  ";coreJVM/compile;coreJS/compile;interactionJVM/compile;interactionJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile"
+  ";coreJVM/compile;coreJS/compile;interactionJVM/compile;interactionJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;browserJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile"
 )
 
 addCommandAlias(
   "testAll",
-  ";coreJVM/test;coreJS/test;interactionJVM/test;interactionJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test"
+  ";coreJVM/test;coreJS/test;interactionJVM/test;interactionJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;browserJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test"
 )
 
 addCommandAlias(
   "compatibilityCheck",
-  ";coreJVM/interactionCompatibilityCheck;lawsJVM/interactionCompatibilityCheck;svgJVM/interactionCompatibilityCheck;java2dJVM/interactionCompatibilityCheck;javafxJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
+  ";coreJVM/interactionCompatibilityCheck;lawsJVM/interactionCompatibilityCheck;svgJVM/interactionCompatibilityCheck;java2dJVM/interactionCompatibilityCheck;javafxJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;browserJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
 )
 
 addCommandAlias(
