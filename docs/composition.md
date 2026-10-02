@@ -40,6 +40,58 @@ val options = CompositionOptions.unsafe(
 val grid = PlotComposition.grid(plots, columns = 2, context, options).orThrow
 ```
 
+## Rows of unequal height
+
+Rows split the height equally unless `CompositionOptions.withRowHeights` sizes them. A
+`RowHeight.points` row takes a fixed physical height; `RowHeight.weight` rows share what the fixed
+rows and gaps leave. Explicitly sized rows reserve only their own plots' top and bottom strips, so a
+thin strip without an x axis is not charged its neighbour's axis. Left and right strips stay shared,
+so every row's panel has the same horizontal edges. `withSharedXFrame(true)` additionally refuses
+plots whose x range or x scale domain differs, so aligned columns also mean the same categories.
+
+```scala mdoc:silent
+import intaglio.*
+
+final case class Effect(contrast: String, value: Double)
+val effects = Vector("A", "B", "C", "D").zipWithIndex.map((c, i) => Effect(c, i - 1.5))
+val stackContext = RenderContext.unsafe(width = 480, height = 600)
+
+def stripPlot(xAxis: Boolean) =
+  for
+    x <- BandScaleSpec("contrast", Vector("A", "B", "C", "D"), BandPadding.unsafe(0.1))
+    y <- ContinuousScaleSpec("effect", Palette.numeric)
+    trained <- plot(effects)
+      .encode(Aesthetic.X, _.contrast, x)
+      .encode(Aesthetic.Y, _.value, y)
+      .geomPoint()
+      .guides(
+        if xAxis then GuidePolicy.Derived()
+        else GuidePolicy.Explicit(Vector(GuideSpec.Axis(AxisSide.Left)))
+      )
+      .resolve(stackContext)
+  yield trained
+
+val stacked =
+  for
+    strip <- stripPlot(xAxis = false)
+    matrix <- stripPlot(xAxis = false)
+    contrasts <- stripPlot(xAxis = true)
+    top <- RowHeight.points(45.0)
+    middle <- RowHeight.weight(1.0)
+    bottom <- RowHeight.points(90.0)
+    composed <- PlotComposition.column(
+      Vector(strip, matrix, contrasts),
+      stackContext,
+      CompositionOptions.default
+        .withRowHeights(Vector(top, middle, bottom))
+        .withSharedXFrame(true)
+    )
+  yield composed
+```
+
+A wrong number of row heights is `GraphicsError.InvalidCompositionRowHeights`; fixed rows taller
+than the composition are a `LayoutOverflow`, as is a row too short for its own plot's strips.
+
 ## Collect guides
 
 `CompositionGuidePolicy.CollectCompatible` leaves position axes with their own panels and moves

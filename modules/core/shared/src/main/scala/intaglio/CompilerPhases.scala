@@ -3150,20 +3150,23 @@ private[intaglio] object GuidePhase:
               ()
             }
           case classed: ClassedColorScale =>
-            // One colorbar per class that had values, titled and named by its class.
-            classed.classScales.foreach { (label, scale) =>
-              if result.isRight then
-                result = colorbarFor(scale).map { colorbar =>
-                  colorbar.foreach { spec =>
-                    out += spec.copy(
-                      title = Some(label),
-                      name = Some(
-                        GraphicsName.unsafe(s"${classed.name.value}-${scale.name.value}-colorbar")
+            // One colorbar per class that had values, titled by its label. The label is free
+            // text, so the stable name uses the class index instead.
+            classed.labels.indices.foreach { index =>
+              classed.scales(index).foreach { scale =>
+                if result.isRight then
+                  result = colorbarFor(scale).map { colorbar =>
+                    colorbar.foreach { spec =>
+                      out += spec.copy(
+                        title = Some(classed.labels(index)),
+                        name = Some(
+                          GraphicsName.unsafe(s"${classed.name.value}-class-$index-colorbar")
+                        )
                       )
-                    )
+                    }
+                    ()
                   }
-                  ()
-                }
+              }
             }
           case _ =>
             ()

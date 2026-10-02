@@ -50,3 +50,37 @@ duplicate name instead of selecting one silently, so a host should give custom n
 identities. Compositions retain the child names and expose their nesting through
 `ResolvedViewportFrame.path`; use `frame(Vector(compositionCellName, panelName))` when several child
 plots each contain `plot-panel`.
+
+## Aspect-preserving viewports
+
+An image or a screen-sized frame must keep its aspect ratio at any host size. Give its viewport a
+`ViewportAspect`: `AspectMode.Fit` letterboxes the whole content at the requested alignment, and
+`AspectMode.Fill` covers the extent and clips the overflow to it. The fitted rectangle is the
+viewport's frame, so `deviceScene.frame(name)` and its inverse mapping describe the drawn content,
+not the extent around it.
+
+```scala mdoc:silent
+val frameImage = RasterImage.solid(RasterDimensions.unsafe(16, 9), Rgba32.unsafe(20, 30, 45))
+val letterboxed =
+  for
+    aspect <- ViewportAspect(16.0 / 9.0, AspectMode.Fit, vertical = VJust.Top)
+    viewport <- Viewport.checked(xScale = Interval.unsafe(0.0, 1920.0))
+    grob <- Grob.image(
+      frameImage,
+      Point.npcUnsafe(0.5, 0.5),
+      Size.npcUnsafe(1.0, 1.0),
+      viewport = Some(viewport.withAspect(aspect)),
+      name = Some(GraphicsName.unsafe("screen"))
+    )
+    device <- DeviceScene.fromScene(Scene(Vector(grob)), RenderContext.unsafe(800, 600))
+  yield device
+val screenFrame = letterboxed.toOption.flatMap(_.frame(GraphicsName.unsafe("screen")).toOption)
+```
+
+At 800 × 600 the screen frame is 800 × 450 at the top of the extent. `ViewportAspect.ofScales`
+takes the ratio from native ranges measured in equal units, such as pixel coordinates.
+
+An inset extent can be stated as a difference, such as the full width less a fixed margin:
+`ExtentExpr.fromExpr(LengthExpr.npcUnsafe(1.0) - LengthExpr(Length.pointsUnsafe(12.0)))`. Its sign
+depends on the frame, so it is checked when it is resolved; a negative size is
+`GraphicsError.InvalidExtent` naming the expression and its pixel value, never clamped to zero.

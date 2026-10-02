@@ -268,6 +268,46 @@ Transparent cells follow `PickPolicy.includeTransparent`. Smooth display interpo
 not change which source cell is picked. Point queries compute nearby cells directly; area
 queries visit cells on demand.
 
+## Raster with a palette per class
+
+One matrix can mix quantities that need different colour mappings, such as signed task effects
+beside non-negative nuisance terms. `geomRasterByClass` keeps them in one image: each
+`ColorClass` trains its own domain from its own cells and maps through its own palette, and each
+class gets its own colorbar.
+
+```scala mdoc:silent
+val classedRaster =
+  for
+    x <- RegularGridAxis.cellCentered(0, 12, 12)
+    y <- RegularGridAxis.cellCentered(0, 8, 8)
+    field <- ScalarField2D.tabulate(x, y) { (x, y) =>
+      if x < 8 then math.sin(x * 0.8) * math.cos(y * 0.6) else 40.0 + 6.0 * x + y
+    }
+    task <- ColorClass(
+      "task effect",
+      Palette.oklabGradient(Rgba.unsafe(33, 102, 172), Rgba.unsafe(178, 24, 43))
+    )
+    nuisance <- ColorClass(
+      "nuisance",
+      Palette.gradient(Rgba.unsafe(70, 70, 70), Rgba.unsafe(225, 225, 225))
+    )
+    program <- plot(field)
+      .geomRasterByClass(cell => if cell.xIndex < 8 then 0 else 1, Vector(task, nuisance))
+      .title("Two palettes, one image")
+      .axisTitles("regressor", "voxel")
+      .compilerOptions(plateOptions.copy(policy = Some(LayoutPolicy(colorbarHeightPt = 50.0))))
+      .build
+  yield program
+```
+
+The colorbars stack in one guide column. Each defaults to 120 pt, so a small figure with several
+classes shortens them through `LayoutPolicy.colorbarHeightPt`. The stack must fit the panel's height; one that does not is a
+typed layout error rather than overlapping bars.
+
+```scala mdoc:passthrough
+println(intaglio.docs.Gallery.plot("classed-raster", classedRaster))
+```
+
 ## Cased strokes over imagery
 
 A casing adds contrast beneath the stroke without a second plot layer or picking target.

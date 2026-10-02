@@ -71,6 +71,10 @@ class ClassedRasterSuite extends munit.FunSuite:
     val trained = ok(builder.resolve(context))
     val colorbars = trained.guides.map(_.spec).collect { case c: GuideSpec.Colorbar => c }
     assertEquals(colorbars.flatMap(_.title), Vector("task", "nuisance"))
+    assertEquals(
+      colorbars.flatMap(_.name).map(_.value),
+      Vector("design-class-0-colorbar", "design-class-1-colorbar")
+    )
     // Each class's bar is exactly the bar an ordinary raster of that class's columns alone draws.
     def ordinary(columns: Range, palette: Palette[Rgba]): GuideSpec.Colorbar =
       val sub = ok(
