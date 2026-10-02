@@ -123,6 +123,25 @@ enum NavigationDirection:
 
 /** Materialized visible target geometry used by keyboard and other directional navigation. */
 final class NavigationPlan[A] private[interaction] (val targets: Vector[TargetGeometry[A]]):
+
+  /** The target after `from` in the stable order of `targets`, or none at the end. Sequential
+    * traversal reaches every target, including any that directional `nearest` cannot.
+    */
+  def next(from: VisualTargetId): Either[PickingError, Option[TargetGeometry[A]]] =
+    step(from, 1)
+
+  /** The target before `from` in the stable order of `targets`, or none at the start. */
+  def previous(from: VisualTargetId): Either[PickingError, Option[TargetGeometry[A]]] =
+    step(from, -1)
+
+  private def step(
+      from: VisualTargetId,
+      offset: Int
+  ): Either[PickingError, Option[TargetGeometry[A]]] =
+    val index = targets.indexWhere(_.target.id == from)
+    if index < 0 then Left(PickingError.UnknownTarget(from))
+    else Right(targets.lift(index + offset))
+
   def nearest(
       from: VisualTargetId,
       direction: NavigationDirection

@@ -286,7 +286,7 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
     ok(JavaFxInteractionView.compile(plan, context))
 
   private def mouse(
-      host: JavaFxInteractionHost[Int],
+      host: JavaFxInteractionHost[?],
       kind: _root_.javafx.event.EventType[MouseEvent],
       x: Double,
       y: Double
@@ -315,13 +315,13 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
       )
     )
 
-  private def key(host: JavaFxInteractionHost[Int], code: KeyCode): Unit =
+  private def key(host: JavaFxInteractionHost[?], code: KeyCode): Unit =
     Event.fireEvent(
       host.node,
       new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, false, false, false, false)
     )
 
-  private def ink(host: JavaFxInteractionHost[Int]): Int =
+  private def ink(host: JavaFxInteractionHost[?]): Int =
     val canvas = host.node.getChildren.get(1).asInstanceOf[Canvas]
     val parameters = new SnapshotParameters()
     parameters.setFill(Color.TRANSPARENT)
@@ -490,6 +490,97 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
       0,
       "nodes must not retain disposed hosts through listeners"
     )
+  }
+
+  private def namedScene: Scene =
+    val ink = GraphicParams.unsafe(stroke = None, fill = Some(Rgba.Black))
+    Scene(
+      Grob
+        .rectUnsafe(Point.npcUnsafe(0.5, 0.5), Size.npcUnsafe(1, 1), gp = GraphicParams.unsafe()) +:
+        (0 until 6).toVector.map { i =>
+          Grob.circleUnsafe(
+            Point.npcUnsafe(0.2 + (i % 3) * 0.3, 0.3 + (i / 3) * 0.4),
+            ExtentExpr.pointsUnsafe(8),
+            ink,
+            name = Some(GraphicsName.unsafe(s"mark-$i"))
+          )
+        }
+    )
+
+  test("a hand-built scene is hosted with the names NamedPicking reports, at 1x and 2x") {
+    for scale <- Vector(1, 2) do
+      val context = RenderContext.unsafe(
+        400 * scale,
+        300 * scale,
+        pixelsPerInch = 96.0 * scale,
+        deviceScale = scale.toDouble
+      )
+      val keys = ok(NamedInteraction.keySpace("marks"))
+      val view = ok(
+        JavaFxInteractionView.named(
+          namedScene,
+          context,
+          keys,
+          SemanticId.unsafe("hand-built"),
+          ok(PlanRevision("one"))
+        )
+      )
+      val names = ok(NamedPicking.compile(namedScene, context))
+      def nameOf(id: Option[VisualTargetId]): Option[GraphicsName] =
+        id.flatMap(i => view.navigation.targets.find(_.target.id == i))
+          .flatMap(_.target.entity)
+          .map(_.value)
+      fx {
+        val host = ok(JavaFxInteractionHost.attach(view))
+        var events = Vector.empty[EventRecord[GraphicsName]]
+        ok(host.subscribe(e => events :+= e))
+        assertEquals(view.navigation.targets.size, 6)
+        view.navigation.targets.foreach { g =>
+          mouse(host, MouseEvent.MOUSE_MOVED, g.anchor.x / scale, g.anchor.y / scale)
+          assertEquals(
+            nameOf(ok(host.state).hover),
+            ok(names.nearest(g.anchor, 4.0 * scale)).map(_.name),
+            g.anchor
+          )
+        }
+        val third = view.navigation.targets(2)
+        mouse(host, MouseEvent.MOUSE_CLICKED, third.anchor.x / scale, third.anchor.y / scale)
+        assertEquals(
+          ok(host.state).selection.entities.map(_.value),
+          Set(GraphicsName.unsafe("mark-2"))
+        )
+        assert(events.exists(_.event.isInstanceOf[InteractionEvent.Activated[?]]))
+        mouse(host, MouseEvent.MOUSE_MOVED, 1, 1)
+        assertEquals(ok(host.state).hover, None, "the unnamed backdrop is not a target")
+
+        key(host, KeyCode.HOME)
+        var visited = Vector(nameOf(ok(host.state).focus))
+        for _ <- 1 until 6 do
+          key(host, KeyCode.PAGE_DOWN)
+          visited :+= nameOf(ok(host.state).focus)
+        assertEquals(visited.flatten, names.names)
+        key(host, KeyCode.HOME)
+        key(host, KeyCode.RIGHT)
+        val first = view.navigation.targets.head.target.id
+        assertEquals(
+          nameOf(ok(host.state).focus),
+          ok(view.navigation.nearest(first, NavigationDirection.Right))
+            .flatMap(_.target.entity)
+            .map(_.value)
+        )
+        assertEquals(nameOf(ok(host.state).focus), Some(GraphicsName.unsafe("mark-1")))
+        // Row 0 is drawn lower on the device (npc y runs upward), so mark-4 is above mark-1.
+        key(host, KeyCode.UP)
+        assertEquals(nameOf(ok(host.state).focus), Some(GraphicsName.unsafe("mark-4")))
+        key(host, KeyCode.ENTER)
+        assertEquals(
+          ok(host.state).selection.entities.map(_.value),
+          Set(GraphicsName.unsafe("mark-4"))
+        )
+        assertEquals(host.node.getAccessibleText, "marks: mark-4")
+        assert(ink(host) > 0)
+        ok(host.dispose())
+      }
   }
 
   test("record 10000-mark pointer-to-highlight and overlay snapshot latency") {

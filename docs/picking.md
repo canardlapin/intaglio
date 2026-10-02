@@ -84,3 +84,31 @@ listed. With the inside included, a hollow mark picks exactly as the same mark f
 overlapping hollow marks are ordered by distance and then by draw order, so a point inside two of
 them reports the later-drawn one first. Area selection uses the same regions. Rendering is
 unchanged. The policy applies to plot picking (`Picking.compile`) as well as named picking.
+
+## Keyboard navigation and interaction state
+
+`NamedInteraction` binds a `NamedPickingPlan` to the identities the shared interaction state uses,
+so focus, selection, keyboard navigation and hosts work over names:
+
+```scala mdoc:silent
+val marks = NamedInteraction.keySpace("marks").toOption.get
+val bound = for
+  plan <- NamedPicking.compile(scene, context)
+  revision <- PlanRevision("view-1")
+  interaction <- NamedInteraction(plan, marks, SemanticId.unsafe("canvas"), revision)
+yield interaction
+```
+
+```scala mdoc
+bound.map { interaction =>
+  val navigation = interaction.prepareNavigation()
+  val left = interaction.target(GraphicsName.unsafe("left")).get.id
+  navigation.nearest(left, NavigationDirection.Right).map(_.flatMap(_.target.entity).map(_.value))
+}
+```
+
+Each name is one target, addressed in draw order and carrying its name as an entity, so
+`interaction.picking` answers every query with the same hits, distances and draw orders as the
+named plan. `NavigationPlan.next` and `previous` step through targets in that stable order, reaching
+marks that directional `nearest` cannot. `interaction.domain` feeds `InteractionState.initial`; its
+`plans` is empty because no plot was compiled.

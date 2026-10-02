@@ -89,6 +89,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   offsets are still refused at construction. `InvalidExtent`'s message now
   reads "extent must be non-negative".
 
+- **Interaction over hand-built scenes.** `NamedInteraction` binds a
+  `NamedPickingPlan` to typed targets whose entities are the names, giving the
+  shared `PickingPlan`, `NavigationPlan` and `InteractionDomain`;
+  `JavaFxInteractionView.named` and `namedResolved` host such a scene with the
+  same pointer, keyboard and overlay behaviour as compiled plots.
+  `NavigationPlan.next` and `previous` traverse targets in stable order.
+
 - **Pick the inside of hollow marks.** `PickPolicy.withHollow` takes a
   `HollowPicking`: `Outline` (the default and the previous behaviour),
   `Interior` for every closed, stroked, unfilled mark, or `InteriorOf(names)`

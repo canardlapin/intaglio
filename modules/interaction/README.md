@@ -79,6 +79,8 @@ returns a `NavigationPlan`. Its `nearest(id, direction)` uses strict directional
 half-planes, then Euclidean distance and stable target addressing for ties.
 Coincident targets advance or retreat in stable address order before leaving the
 stack through that direction, avoiding a keyboard-focus trap on stacked marks.
+`next(id)` and `previous(id)` step through the same targets in their stable
+order, reaching every target.
 
 `DashPicking.Continuous`, the default, treats dashed strokes as continuous
 interaction corridors. `Painted` respects dash gaps on linear outlines and
@@ -131,6 +133,12 @@ A host that also draws the scene can resolve it once with
 `NamedPicking.fromResolved` and to `JavaFxProgram.fromResolved`; the plan and
 the program equal those built from the source scene. See
 [Picking a hand-built scene](../../docs/picking.md).
+
+`NamedInteraction(plan, keys, planId, revision)` gives each name a typed
+target whose entity is the name (`NamedInteraction.keySpace` builds the key
+space), so a hand-built scene gets the same `PickingPlan`, `NavigationPlan`
+and `InteractionDomain` a compiled plot gets, and hits identical to the named
+plan's.
 
 ## State contracts
 

@@ -77,12 +77,16 @@ object PanelViewport:
       Right(new PanelViewport(xMin, xMax, yMin, yMax))
     else Left(InteractionError.InvalidValue("viewport", "bounds must be finite and increasing"))
 
-/** A compiled domain retains compact target groups and the source keys, including undrawn rows. */
+/** A compiled domain retains compact target groups and the source keys, including undrawn rows. A
+  * domain bound from a [[NamedInteraction]] has no compiled plot plans: `plans` is empty and its
+  * targets and entities are the scene's names.
+  */
 final class InteractionDomain[A] private (
     val revision: PlanRevision,
     val plans: Vector[InteractionPlan[A]],
     val entities: Set[EntityKey[A]],
-    private val groups: Map[(SemanticId, SemanticId), TargetGroup[A]]
+    private val groups: Map[(SemanticId, SemanticId), TargetGroup[A]],
+    private val spaces: Vector[KeySpace[A]]
 ):
   def target(id: VisualTargetId): Either[StateError, TargetInfo[A]] =
     groups.get((id.plan, id.scope)) match
@@ -91,7 +95,7 @@ final class InteractionDomain[A] private (
       case _ => Left(StateError.UnknownTarget(id))
 
   private[interaction] def accepts(key: EntityKey[A]): Boolean =
-    plans.exists(_.spaces.exists(_ eq key.space))
+    spaces.exists(_ eq key.space)
 
 object InteractionDomain:
   def apply[A](
@@ -108,9 +112,25 @@ object InteractionDomain:
           revision,
           plans,
           plans.flatMap(_.sourceEntities).toSet,
-          addresses.zip(groups).toMap
+          addresses.zip(groups).toMap,
+          plans.flatMap(_.spaces)
         )
       )
+
+  /** One group of named targets over one key space, with no compiled plot behind it. */
+  private[interaction] def named[A](
+      revision: PlanRevision,
+      group: TargetGroup[A],
+      space: KeySpace[A],
+      entities: Set[EntityKey[A]]
+  ): InteractionDomain[A] =
+    new InteractionDomain(
+      revision,
+      Vector.empty,
+      entities,
+      Map((group.series.plan, group.series.scope) -> group),
+      Vector(space)
+    )
 
 enum StateError extends IntaglioError:
   case InvalidInput(reason: String)

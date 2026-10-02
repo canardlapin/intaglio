@@ -41,3 +41,9 @@ MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge
 MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge$
 # One resolution shared by drawing and picking.
 DirectMissingMethodProblem intaglio.javafx.JavaFxProgram.fromResolved
+
+# Hand-built scenes in the JavaFX interaction host.
+DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.named
+DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.named$default$6
+DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.namedResolved
+DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.namedResolved$default$6

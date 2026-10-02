@@ -46,7 +46,9 @@ private[interaction] final case class NamedTarget(
   * rotation and dash handling are those of [[PickingPlan]]; like it, the default policy ignores
   * fully transparent paint, which a browser's `visiblePainted` hit test would still hit.
   */
-final class NamedPickingPlan private[interaction] (private val targets: Vector[NamedTarget]):
+final class NamedPickingPlan private[interaction] (
+    private[interaction] val targets: Vector[NamedTarget]
+):
   private val index: PickIndex = PickIndex.build(targets.map(_.bounds))
 
   def targetCount: Int = targets.size

@@ -29,6 +29,43 @@ def selectFromApplication(host: JavaFxInteractionHost[Int]): Either[IntaglioErro
   keys.entity(2).flatMap(key => host.setSelection(Selection(Set(key))))
 ```
 
+## Hand-built scenes
+
+A host that draws its own grobs and names its interactive marks with `GraphicsName` uses the same
+host. `JavaFxInteractionView.named` resolves the scene once, draws it, and binds each name to a
+typed target through `NamedInteraction`; the entity of every target is its name, in a key space of
+names:
+
+```scala mdoc:silent
+val names = NamedInteraction.keySpace("marks").toOption.get
+val ink = GraphicParams.unsafe(stroke = None, fill = Some(Rgba.Black))
+val handBuilt = Scene(
+  Vector("left" -> 0.25, "right" -> 0.75).map { case (name, x) =>
+    Grob.circleUnsafe(Point.npcUnsafe(x, 0.5), ExtentExpr.pointsUnsafe(8), ink,
+      name = Some(GraphicsName.unsafe(name)))
+  }
+)
+val namedView = JavaFxInteractionView
+  .named(handBuilt, context, names, SemanticId.unsafe("canvas"), PlanRevision("view-1").toOption.get)
+  .toOption.get
+
+def attachNamed(): Either[IntaglioError, JavaFxInteractionHost[GraphicsName]] =
+  JavaFxInteractionHost.attach(namedView)
+```
+
+```scala mdoc
+namedView.navigation.targets.flatMap(_.target.entity).map(_.value)
+```
+
+Pointer hits and keyboard focus reach the name `NamedPicking` reports at the same point, and
+`setSelection` takes the same name keys (`names.entity(name)`). Targets are ordered by draw order,
+which is the Page Up/Down order. `JavaFxInteractionView.namedResolved` accepts a scene already
+resolved with `DeviceScene.fromScene`. Without JavaFX, `NamedInteraction(plan, keys, planId,
+revision)` gives the same typed `PickingPlan`, `InteractionDomain` and `NavigationPlan` for a
+`NamedPickingPlan`; see [Picking a hand-built scene](picking.md).
+
+## Input and overlays
+
 The node is one keyboard focus stop. Arrow keys move to the nearest visible mark in that direction;
 coincident marks follow a stable forward/backward order before navigation leaves the stack. Home/End jump to the first/last mark; Page Up/Down traverse every visible mark in stable order,
 including marks that directional nearest alone cannot reach. Enter or Space selects and activates the focused mark; Escape clears selection and cancels an active

@@ -40,6 +40,45 @@ object JavaFxInteractionView:
       context
     )
 
+  /** Host a scene drawn directly from grobs, whose interactive marks carry a `GraphicsName`. The
+    * scene is resolved once for drawing and picking. Targets, hits and keyboard navigation are
+    * those of `NamedInteraction(NamedPicking.fromResolved(...), keys, planId, revision)`: a pointer
+    * or key reaches the same name `NamedPicking` reports, as the target's entity value.
+    */
+  def named(
+      scene: Scene,
+      context: RenderContext,
+      keys: KeySpace[GraphicsName],
+      planId: SemanticId,
+      revision: PlanRevision,
+      policy: PickPolicy = PickPolicy.default
+  ): Either[IntaglioError, JavaFxInteractionView[GraphicsName]] =
+    DeviceScene
+      .fromScene(scene, context)
+      .flatMap(namedResolved(_, context, keys, planId, revision, policy))
+
+  /** As [[named]], for a scene the host has already resolved under `context`. */
+  def namedResolved(
+      scene: DeviceScene,
+      context: RenderContext,
+      keys: KeySpace[GraphicsName],
+      planId: SemanticId,
+      revision: PlanRevision,
+      policy: PickPolicy = PickPolicy.default
+  ): Either[IntaglioError, JavaFxInteractionView[GraphicsName]] =
+    for
+      program <- JavaFxProgram.fromResolved(scene, context)
+      names <- NamedPicking.fromResolved(scene, context, policy)
+      bound <- NamedInteraction(names, keys, planId, revision)
+    yield new JavaFxInteractionView(
+      scene,
+      bound.picking,
+      bound.prepareNavigation(),
+      bound.domain,
+      program,
+      context
+    )
+
 enum JavaFxHostError extends IntaglioError:
   case WrongThread, Disposed
   case InvalidTolerance
