@@ -89,6 +89,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   offsets are still refused at construction. `InvalidExtent`'s message now
   reads "extent must be non-negative".
 
+- **Themeable, geometry-following interaction overlay.** The JavaFX host draws
+  selection, hover and focus from a `JavaFxOverlayStyle` (colours, widths,
+  casings, offsets) set with `setOverlayStyle`; the default is the previous
+  overlay. `OverlayOutline.Geometry` outlines circles, diamonds and closed
+  paths along their own shape, from the new `PickingPlan.outline` and
+  `NamedPickingPlan.outline`. `focusContrast` reports a style's WCAG 2
+  contrast against a background.
+
 - **Interaction over hand-built scenes.** `NamedInteraction` binds a
   `NamedPickingPlan` to typed targets whose entities are the names, giving the
   shared `PickingPlan`, `NavigationPlan` and `InteractionDomain`;

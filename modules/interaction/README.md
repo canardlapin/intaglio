@@ -73,7 +73,11 @@ Ordinary images use their rectangle and overall opacity. Raster target routes
 also exclude transparent source cells unless `includeTransparent` is enabled.
 
 `PickingPlan.geometry(id)` returns a target's visible clipped device bounds and
-an anchor inside that geometry. It does not materialize unrelated raster cells.
+an anchor inside that geometry. `PickingPlan.outline(id, offset)` returns closed rings that
+follow the target's marks at a distance outside their ink — circles, rounded
+rectangles, and polygons offset with round corners; open paths, text, images
+and raster cells use their bounding rectangle — for hosts that draw focus and
+selection outlines. It does not materialize unrelated raster cells.
 `prepareNavigation()` explicitly materializes all visible target geometry and
 returns a `NavigationPlan`. Its `nearest(id, direction)` uses strict directional
 half-planes, then Euclidean distance and stable target addressing for ties.

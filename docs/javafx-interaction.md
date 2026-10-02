@@ -80,6 +80,40 @@ keyboard focus has an independent opaque black/white outline. External plot styl
 base canvas and cannot suppress the focus outline. The shared `InteractionAppearance` resolver
 specifies the precedence.
 
+### Overlay style
+
+The overlay is drawn from a `JavaFxOverlayStyle` value. `JavaFxOverlayStyle.default` is the outline
+described above; a host with its own design tokens builds another and installs it with
+`host.setOverlayStyle`, which redraws only the overlay, so a theme switch costs no base redraw.
+Widths and offsets are JavaFX logical pixels. `OverlayOutline.Geometry` makes outlines follow each
+mark — circles stay circles, diamonds and closed paths are offset edge by edge with round corners —
+instead of the bounding rectangle:
+
+```scala mdoc:silent
+val accent = Rgba.unsafe(0x7c, 0x3a, 0xed)
+val themed = for
+  selection <- OverlayStroke(accent, 2)
+  hover <- OverlayStroke(Rgba.unsafe(0xd9, 0x77, 0x06), 2)
+  focus <- OverlayStroke.cased(Rgba.unsafe(255, 230, 0), 2, Rgba.Black, 5)
+  style <- JavaFxOverlayStyle(selection, hover, focus, outline = OverlayOutline.Geometry)
+yield style
+
+def applyTheme(host: JavaFxInteractionHost[Int]): Either[IntaglioError, Unit] =
+  themed.flatMap(host.setOverlayStyle)
+```
+
+A focus ring on a contrasting casing stays visible on any background. `focusContrast` reports the
+better WCAG 2 contrast ratio of the ring or its casing against a background, so a host can check the
+3:1 that focus-appearance guidance asks for against both its light and dark surfaces:
+
+```scala mdoc
+themed.map(style => (style.focusContrast(Rgba.White), style.focusContrast(Rgba.unsafe(18, 18, 18))))
+```
+
+The geometry comes from `PickingPlan.outline(id, offsetDevicePx)` (and `NamedPickingPlan.outline`),
+which any host can use: closed rings in device pixels at the given distance outside the mark's ink.
+Open paths, text and images have no closed silhouette and keep a bounding rectangle.
+
 Both canvases and pointer queries use the same aspect-preserving `PickViewport` mapping. Canvas
 coordinates are JavaFX logical pixels; compiled device dimensions already include device scale.
 JavaFX applies the window output scale. Do not multiply input coordinates by that scale again.

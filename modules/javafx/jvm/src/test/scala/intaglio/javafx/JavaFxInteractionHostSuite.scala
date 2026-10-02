@@ -583,6 +583,126 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
       }
   }
 
+  private def overlayArgb(host: JavaFxInteractionHost[?], x: Double, y: Double): Int =
+    val parameters = new SnapshotParameters()
+    parameters.setFill(Color.TRANSPARENT)
+    val image = host.node.getChildren.get(1).asInstanceOf[Canvas].snapshot(parameters, null)
+    image.getPixelReader.getArgb(math.round(x).toInt, math.round(y).toInt)
+
+  test("the default overlay style draws the original selection colour around the bounds") {
+    val view = prepared()
+    fx {
+      val host = ok(JavaFxInteractionHost.attach(view))
+      assert(host.overlayStyle eq JavaFxOverlayStyle.default)
+      val mark = view.navigation.targets.head
+      ok(host.setSelection(Selection(mark.target.entity.toSet)))
+      val argb = overlayArgb(host, mark.right + 3, mark.anchor.y)
+      assertEquals(
+        (argb >>> 24, (argb >>> 16) & 255, (argb >>> 8) & 255, argb & 255),
+        (255, 0x00, 0x72, 0xb2)
+      )
+      val before = host.profile
+      val rebuilt = ok(
+        JavaFxOverlayStyle(
+          ok(OverlayStroke(Rgba.unsafe(0x00, 0x72, 0xb2), 2)),
+          ok(OverlayStroke(Rgba.unsafe(0xd5, 0x5e, 0x00), 2)),
+          ok(OverlayStroke.cased(Rgba.Black, 2, Rgba.White, 5))
+        )
+      )
+      val parameters = new SnapshotParameters()
+      parameters.setFill(Color.TRANSPARENT)
+      def pixels(): Vector[Int] =
+        val image = host.node.getChildren.get(1).asInstanceOf[Canvas].snapshot(parameters, null)
+        (for
+          y <- 0 until image.getHeight.toInt
+          x <- 0 until image.getWidth.toInt
+        yield image.getPixelReader.getArgb(x, y)).toVector
+      key(host, KeyCode.HOME)
+      val original = pixels()
+      ok(host.setOverlayStyle(rebuilt))
+      assertEquals(pixels(), original, "an explicitly built default draws identical pixels")
+      assertEquals(host.profile.baseDraws, before.baseDraws)
+      val themed = ok(
+        JavaFxOverlayStyle(
+          ok(OverlayStroke(Rgba.unsafe(200, 0, 120), 4)),
+          ok(OverlayStroke(Rgba.unsafe(0xd5, 0x5e, 0x00), 2)),
+          ok(OverlayStroke.cased(Rgba.Black, 2, Rgba.White, 5))
+        )
+      )
+      // Focus stays on the first mark; select an unfocused one so its ring is not covered.
+      val other = view.navigation.targets.last
+      ok(host.setSelection(Selection(other.target.entity.toSet)))
+      ok(host.setOverlayStyle(themed))
+      val recoloured = overlayArgb(host, other.right + 3, other.anchor.y)
+      assertEquals(((recoloured >>> 16) & 255, (recoloured >>> 8) & 255), (200, 0))
+      ok(host.dispose())
+      assertEquals(host.setOverlayStyle(themed).left.toOption, Some(JavaFxHostError.Disposed))
+    }
+  }
+
+  test("geometry outlines follow circle and diamond marks at the offset, at 1x and 2x") {
+    for scale <- Vector(1, 2) do
+      val context = RenderContext.unsafe(
+        400 * scale,
+        300 * scale,
+        pixelsPerInch = 96.0 * scale,
+        deviceScale = scale.toDouble
+      )
+      val ink = GraphicParams.unsafe(stroke = None, fill = Some(Rgba.Black))
+      val scene = Scene(
+        Vector(
+          Grob.circleUnsafe(
+            Point.npcUnsafe(0.3, 0.5),
+            ExtentExpr.pointsUnsafe(20),
+            ink,
+            name = Some(GraphicsName.unsafe("circle"))
+          ),
+          Grob.pointBatchUnsafe(
+            Vector(Point.npcUnsafe(0.7, 0.5)),
+            sizes = BatchColumn.Constant(ExtentExpr.pointsUnsafe(20)),
+            shapes = BatchColumn.Constant(PointShape.Diamond),
+            graphicParams = BatchColumn.Constant(ink),
+            name = Some(GraphicsName.unsafe("diamond"))
+          )
+        )
+      )
+      val view = ok(
+        JavaFxInteractionView.named(
+          scene,
+          context,
+          ok(NamedInteraction.keySpace("marks")),
+          SemanticId.unsafe("outlines"),
+          ok(PlanRevision("one"))
+        )
+      )
+      fx {
+        val host = ok(JavaFxInteractionHost.attach(view))
+        val geometry = host.overlayStyle.withOutline(OverlayOutline.Geometry)
+        for g <- view.navigation.targets do
+          ok(host.setOverlayStyle(JavaFxOverlayStyle.default))
+          ok(host.setHover(None))
+          // Focus the target through the keyboard, then look at the focus ring 5 logical px out.
+          key(host, KeyCode.HOME)
+          while ok(host.state).focus != Some(g.target.id) do key(host, KeyCode.PAGE_DOWN)
+          val offset = 5.0 * scale
+          val cx = (g.left + g.right) / 2
+          val cy = (g.top + g.bottom) / 2
+          val half = (g.right - g.left) / 2
+          val corner = ((g.left - offset) / scale, (g.top - offset) / scale)
+          assert((overlayArgb(host, corner._1, corner._2) >>> 24) > 0, s"bounds corner $g")
+          ok(host.setOverlayStyle(geometry))
+          assertEquals(overlayArgb(host, corner._1, corner._2) >>> 24, 0, s"no box corner $g")
+          // On the outline: 45 degrees out on the circle; straight right of the diamond's vertex.
+          val (x, y) =
+            if g.target.entity.exists(_.value == GraphicsName.unsafe("circle")) then
+              val r = half + offset
+              (cx + r * math.sqrt(0.5), cy + r * math.sqrt(0.5))
+            else (g.right + offset, cy)
+          assert((overlayArgb(host, x / scale, y / scale) >>> 24) == 255, s"ring at $x,$y")
+        ok(host.dispose())
+      }
+  }
+
   test("record 10000-mark pointer-to-highlight and overlay snapshot latency") {
     val view = prepared(count = 10000)
     fx {

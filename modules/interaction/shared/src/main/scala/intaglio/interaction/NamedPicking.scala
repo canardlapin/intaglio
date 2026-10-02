@@ -80,6 +80,17 @@ final class NamedPickingPlan private[interaction] (
   ): Either[PickingError, Option[NamedHit]] =
     hits(point, maximumDistanceDevicePx).map(_.headOption)
 
+  /** Rings that follow `name`'s marks `offsetDevicePx` outside their ink, as
+    * [[PickingPlan.outline]]; `None` when no painted part carries the name.
+    */
+  def outline(
+      name: GraphicsName,
+      offsetDevicePx: Double
+  ): Either[PickingError, Option[TargetOutline]] =
+    if !offsetDevicePx.isFinite || offsetDevicePx < 0 then
+      Left(PickingError.InvalidInput("outline offset"))
+    else Right(targets.find(_.name == name).map(t => TargetOutline.of(t.parts, offsetDevicePx)))
+
   /** Area selection with the same rules as [[PickingPlan.select]], in draw order. */
   def select(area: PickArea, rule: AreaRule): Vector[GraphicsName] =
     targets
@@ -161,7 +172,9 @@ object NamedPicking:
           Picking.primitiveRegions(primitive, context, policy, Some(name)) match
             case Left(error)    => failure = Some(error)
             case Right(regions) =>
-              val parts = regions.map(region => PickPart(region.transform(transform), clips))
+              val mark = Some(MarkSource(primitive, transform))
+              val parts =
+                regions.map(region => PickPart(region.transform(transform), clips, mark))
               if parts.nonEmpty then
                 val (previous, orders) =
                   targets

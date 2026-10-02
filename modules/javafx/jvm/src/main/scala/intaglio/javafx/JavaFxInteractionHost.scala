@@ -112,6 +112,9 @@ final class JavaFxInteractionHost[A] private (
   private var baseDraws = 0L
   private var overlayDraws = 0L
   private var failure = Option.empty[IntaglioError]
+  private var style = JavaFxOverlayStyle.default
+  private val outlines =
+    scala.collection.mutable.HashMap.empty[(VisualTargetId, Double), Vector[Vector[DevicePoint]]]
   private var geometries = initialView.navigation.targets.map(g => g.target.id -> g).toMap
   private var entities = initialView.navigation.targets
     .flatMap(g => g.target.entity.map(_ -> g))
@@ -144,6 +147,17 @@ final class JavaFxInteractionHost[A] private (
   resize()
 
   def profile: JavaFxHostProfile = JavaFxHostProfile(baseDraws, overlayDraws)
+
+  /** The style the overlay is drawn with; `JavaFxOverlayStyle.default` until replaced. */
+  def overlayStyle: JavaFxOverlayStyle = style
+
+  /** Replace the overlay style, for example on a theme change, and redraw the overlay only. */
+  def setOverlayStyle(value: JavaFxOverlayStyle): Either[IntaglioError, Unit] =
+    checked.map { _ =>
+      style = value
+      outlines.clear()
+      redrawOverlay()
+    }
   def lastError: Option[IntaglioError] = failure
   def isDisposed: Boolean = view.isEmpty
 
@@ -201,6 +215,7 @@ final class JavaFxInteractionHost[A] private (
         overlay.setHeight(0)
         geometries = Map.empty
         entities = Map.empty
+        outlines.clear()
         view = None
         viewport = None
       Right(())
@@ -276,26 +291,26 @@ final class JavaFxInteractionHost[A] private (
             current.selection.entities.flatMap(key => entities.getOrElse(key, Vector.empty))
           val selectedIds = selected.map(_.target.id)
           val active = selectedIds ++ current.hover ++ current.focus
-          val styles = AppearanceStyles(
-            Color.TRANSPARENT,
-            Color.BLACK,
-            selection = Some(Color.web("#0072B2")),
-            hover = Some(Color.web("#D55E00"))
+          val styles = AppearanceStyles[Option[OverlayStroke]](
+            None,
+            None,
+            selection = Some(Some(style.selection)),
+            hover = Some(Some(style.hover))
           )
           active.flatMap(geometries.get).foreach { g =>
-            val appearance = InteractionAppearance.resolve(
-              styles,
-              selectedIds.contains(g.target.id),
-              current.hover.contains(g.target.id),
-              current.focus.contains(g.target.id)
-            )
-            if appearance.style != Color.TRANSPARENT then
-              outline(gc, mapping, g, appearance.style, 2, 3)
+            InteractionAppearance
+              .resolve(
+                styles,
+                selectedIds.contains(g.target.id),
+                current.hover.contains(g.target.id),
+                current.focus.contains(g.target.id)
+              )
+              .style
+              .foreach(stroke => outline(gc, mapping, g, stroke, style.highlightOffsetLogicalPx))
           }
           // Focus is the final overlay pass, even when other targets overlap it.
           current.focus.flatMap(geometries.get).foreach { g =>
-            outline(gc, mapping, g, Color.WHITE, 5, 5)
-            outline(gc, mapping, g, Color.BLACK, 2, 5)
+            outline(gc, mapping, g, style.focus, style.focusOffsetLogicalPx)
           }
         }
         current.focus
@@ -307,16 +322,47 @@ final class JavaFxInteractionHost[A] private (
       gc: GraphicsContext,
       mapping: PickViewport,
       geometry: TargetGeometry[A],
-      color: Color,
+      stroke: OverlayStroke,
+      offset: Double
+  ): Unit =
+    for
+      color <- stroke.casingColor
+      width <- stroke.casingWidthLogicalPx
+    do trace(gc, mapping, geometry, color, width, offset)
+    trace(gc, mapping, geometry, stroke.color, stroke.widthLogicalPx, offset)
+
+  private def trace(
+      gc: GraphicsContext,
+      mapping: PickViewport,
+      geometry: TargetGeometry[A],
+      color: Rgba,
       width: Double,
       padding: Double
   ): Unit =
     val scale = mapping.cssPixelsPerDevicePixel
     val inset = padding / scale
     gc.setGlobalAlpha(1)
-    gc.setStroke(color)
+    gc.setStroke(Color.rgb(color.red, color.green, color.blue, color.alpha))
     gc.setLineWidth(width / scale)
     gc.setLineDashes()
+    style.outline match
+      case OverlayOutline.Bounds   => bounds(gc, geometry, inset)
+      case OverlayOutline.Geometry =>
+        val rings = outlines.getOrElseUpdate(
+          (geometry.target.id, inset),
+          view
+            .fold[Either[IntaglioError, TargetOutline]](Left(JavaFxHostError.Disposed))(
+              _.picking.outline(geometry.target.id, inset)
+            )
+            .fold(_ => Vector.empty, _.rings)
+        )
+        if rings.isEmpty then bounds(gc, geometry, inset)
+        else
+          rings.foreach { ring =>
+            gc.strokePolygon(ring.map(_.x).toArray, ring.map(_.y).toArray, ring.size)
+          }
+
+  private def bounds(gc: GraphicsContext, geometry: TargetGeometry[A], inset: Double): Unit =
     gc.strokeRect(
       geometry.left - inset,
       geometry.top - inset,

@@ -76,3 +76,5 @@ The [minimal interaction host](../../docs/javafx-interaction.md) adds pointer an
 projected selection, cached overlay redraw and explicit disposal using `intaglio-interaction`.
 Compile a `JavaFxInteractionView` from a typed interaction plan, then call
 `JavaFxInteractionHost.attach` on the FX application thread and mount its `node`.
+Its overlay colours, widths, casings and offsets come from a `JavaFxOverlayStyle` the host can
+replace at run time, and outlines can follow each mark's geometry instead of its bounds.

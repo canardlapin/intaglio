@@ -47,3 +47,15 @@ DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.named
 DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.named$default$6
 DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.namedResolved
 DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionView.namedResolved$default$6
+
+# Themeable, geometry-following interaction overlay.
+DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionHost.overlayStyle
+DirectMissingMethodProblem intaglio.javafx.JavaFxInteractionHost.setOverlayStyle
+MissingClassProblem intaglio.javafx.JavaFxOverlayStyle
+MissingClassProblem intaglio.javafx.JavaFxOverlayStyle$
+MissingClassProblem intaglio.javafx.OverlayStroke
+MissingClassProblem intaglio.javafx.OverlayStroke$
+MissingClassProblem intaglio.javafx.OverlayOutline
+MissingClassProblem intaglio.javafx.OverlayOutline$
+MissingClassProblem intaglio.javafx.JavaFxOverlayError
+MissingClassProblem intaglio.javafx.JavaFxOverlayError$

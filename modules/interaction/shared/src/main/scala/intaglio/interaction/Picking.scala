@@ -185,7 +185,16 @@ final class NavigationPlan[A] private[interaction] (val targets: Vector[TargetGe
       }.headOption)
     }
 
-private[interaction] final case class PickPart(source: Region, clips: Vector[Region]):
+/** The device primitive a part was cut from, under the rigid transform it was drawn with. Parts of
+  * one primitive share one source, which outlines use to follow the mark's own geometry.
+  */
+private[interaction] final case class MarkSource(primitive: DevicePrimitive, transform: Rigid)
+
+private[interaction] final case class PickPart(
+    source: Region,
+    clips: Vector[Region],
+    mark: Option[MarkSource] = None
+):
   val visible: Clipped = new Clipped(source +: clips)
 
 private[interaction] final case class PickTarget[A](
@@ -303,6 +312,30 @@ final class PickingPlan[A] private[interaction] (
           case Some(raster) =>
             Right(raster.cell(id.ordinal - raster.group.series.first).flatMap(geometryOf))
           case None => Left(PickingError.UnknownTarget(id))
+
+  /** Rings that follow `id`'s mark `offsetDevicePx` outside its ink; see [[TargetOutline]]. A
+    * raster cell is outlined by its rectangle.
+    */
+  def outline(id: VisualTargetId, offsetDevicePx: Double): Either[PickingError, TargetOutline] =
+    if !offsetDevicePx.isFinite || offsetDevicePx < 0 then
+      Left(PickingError.InvalidInput("outline offset"))
+    else
+      targets.find(_.info.id == id) match
+        case Some(target) => Right(TargetOutline.of(target.parts, offsetDevicePx))
+        case None         =>
+          rasters.find { raster =>
+            val series = raster.group.series
+            id.plan == series.plan && id.revision == series.revision && id.scope == series.scope &&
+            id.ordinal >= series.first && id.ordinal.toLong < series.first.toLong + series.size
+          } match
+            case Some(raster) =>
+              Right(
+                TargetOutline.of(
+                  raster.cell(id.ordinal - raster.group.series.first).toVector.flatMap(_.parts),
+                  offsetDevicePx
+                )
+              )
+            case None => Left(PickingError.UnknownTarget(id))
 
   /** Materialize visible geometry once when a host needs directional navigation. */
   def prepareNavigation(): NavigationPlan[A] =
@@ -467,7 +500,9 @@ object Picking:
               primitiveRegions(primitive, context, policy, name) match
                 case Left(error)    => failure = Some(error)
                 case Right(regions) =>
-                  val parts = regions.map(region => PickPart(region.transform(transform), clips))
+                  val mark = Some(MarkSource(primitive, transform))
+                  val parts =
+                    regions.map(region => PickPart(region.transform(transform), clips, mark))
                   if parts.nonEmpty then
                     val previous = targets.get(info.id)
                     val oldParts = previous.fold(Vector.empty[PickPart])(_.parts)
