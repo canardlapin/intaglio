@@ -62,6 +62,17 @@ object SvgRenderer:
     render(plan, None)
 
   def render(plan: RenderPlan, title: Option[String]): Either[SvgRenderError, SvgDocument] =
+    render(plan, title, SvgFonts.empty)
+
+  /** Render with caller-supplied faces embedded as `@font-face` data URIs, so the document draws
+    * those faces on a viewer that does not have them installed. A face is embedded only when a text
+    * run names its family; see [[SvgFonts]].
+    */
+  def render(
+      plan: RenderPlan,
+      title: Option[String],
+      fonts: SvgFonts
+  ): Either[SvgRenderError, SvgDocument] =
     for
       options <- SvgOptions(
         plan.context.width,
@@ -71,7 +82,7 @@ object SvgRenderer:
         plan.context.deviceScale
       )
       deviceScene <- plan.deviceScene.left.map(SvgRenderError.Graphics(_))
-      serialized <- serialize(deviceScene, options, plan.context.textMetrics)
+      serialized <- serialize(deviceScene, options, plan.context.textMetrics, fonts)
     yield SvgDocument(
       serialized,
       plan.context.width,
@@ -86,6 +97,14 @@ object SvgRenderer:
       scene: Scene,
       options: SvgOptions = SvgOptions.default
   ): Either[SvgRenderError, SvgDocument] =
+    render(scene, options, SvgFonts.empty)
+
+  /** [[render]] with caller-supplied faces embedded; see the plan overload. */
+  def render(
+      scene: Scene,
+      options: SvgOptions,
+      fonts: SvgFonts
+  ): Either[SvgRenderError, SvgDocument] =
     for
       context <- RenderContext(
         options.width,
@@ -95,7 +114,7 @@ object SvgRenderer:
       ).left
         .map(SvgRenderError.Graphics(_))
       deviceScene <- DeviceScene.fromScene(scene, context).left.map(SvgRenderError.Graphics(_))
-      serialized <- serialize(deviceScene, options, context.textMetrics)
+      serialized <- serialize(deviceScene, options, context.textMetrics, fonts)
     yield SvgDocument(
       serialized,
       options.width,
@@ -142,11 +161,47 @@ object SvgRenderer:
   private def serialize(
       scene: DeviceScene,
       options: SvgOptions,
-      textMetrics: TextMetrics
+      textMetrics: TextMetrics,
+      fonts: SvgFonts
   ): Either[SvgRenderError, String] =
     validateDocument(scene, options).map(_ =>
-      serializeValidated(scene, options, PlateMetrics(textMetrics, options.pixelsPerInch / 72.0))
+      serializeValidated(
+        scene,
+        options,
+        PlateMetrics(textMetrics, options.pixelsPerInch / 72.0),
+        fonts
+      )
     )
+
+  /** Families named by any text run, lower-cased as CSS compares them. */
+  private def usedFamilies(elements: Vector[DeviceElement]): Set[String] =
+    elements.iterator.flatMap {
+      case DeviceElement.Mark(run: DevicePrimitive.TextRun) =>
+        run.fontFamily.map(SvgFonts.familyKey).iterator
+      case DeviceElement.Mark(_)                  => Iterator.empty
+      case DeviceElement.Group(_, _, _, children) => usedFamilies(children).iterator
+      case DeviceElement.Annotated(_, children)   => usedFamilies(children).iterator
+    }.toSet
+
+  private def writeFontFaces(
+      scene: DeviceScene,
+      fonts: SvgFonts,
+      out: StringBuilder
+  ): Unit =
+    if fonts.faces.nonEmpty then
+      val used = usedFamilies(scene.elements)
+      val faces =
+        fonts.faces.filter(face => used.contains(SvgFonts.familyKey(face.family)))
+      if faces.nonEmpty then
+        line(out, 1, "<style>")
+        faces.foreach { face =>
+          line(
+            out,
+            2,
+            s"""@font-face { font-family: "${face.family}"; font-weight: ${face.weight.value}; src: url(${face.dataUri}) format("${face.format.cssFormat}"); }"""
+          )
+        }
+        line(out, 1, "</style>")
 
   /** An SVG renderer cannot see the viewer's font, so its own text measure is the render context's
     * `TextMetrics`: the same measure layout and picking use for this target.
@@ -156,7 +211,8 @@ object SvgRenderer:
   private def serializeValidated(
       scene: DeviceScene,
       options: SvgOptions,
-      plates: PlateMetrics
+      plates: PlateMetrics,
+      fonts: SvgFonts
   ): String =
     val out = new StringBuilder
     val clips = new ClipRegistry
@@ -187,6 +243,7 @@ object SvgRenderer:
         )
       case None =>
         options.title.foreach(title => line(out, 1, s"<title>${escapeText(title)}</title>"))
+    writeFontFaces(scene, fonts, out)
     scene.elements.foreach(writeElement(_, out, 1, clips, patterns, plates))
     val clipDefs = clips.defs
     val patternDefs = patterns.defs

@@ -27,6 +27,7 @@ are omitted because they are not reachable from a consumer package.
 | Escape hatch | `intaglio.GraphicsError.orThrow` on `Either[GraphicsError, A]` | `IllegalArgumentException(error.message)` | Keep the `Either`; `fold`, `getOrElse`, or `for` |
 | Escape hatch | `intaglio.DisplayError.orThrow` on `Either[DisplayError, A]` | `IllegalArgumentException` | Keep the `Either` |
 | Escape hatch | `intaglio.svg.SvgRenderError.orThrow` | `IllegalArgumentException` | Keep the `Either` |
+| Escape hatch | `intaglio.svg.SvgFontError.orThrow`; `SvgFontFace.unsafe(family, bytes, weight)` | `IllegalArgumentException` | `SvgFontFace.apply`, `SvgFonts.apply` |
 | Escape hatch | `intaglio.java2d.Java2DRenderError.orThrow` | `IllegalArgumentException` | Keep the `Either` |
 | Escape hatch | `intaglio.javafx.JavaFxRenderError.orThrow` | `IllegalArgumentException` | Keep the `Either` |
 | Escape hatch | `intaglio.pdf.PdfRenderError.orThrow` | `IllegalArgumentException` | Keep the `Either` |

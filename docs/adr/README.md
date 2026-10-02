@@ -19,3 +19,4 @@ the old one, and the superseded record keeps its number.
 | [0006](0006-columnar-marks-stay-one-grob.md) | Columnar marks stay one grob | Accepted |
 | [0007](0007-provenance-is-a-compiler-policy.md) | Provenance is a compiler policy | Accepted |
 | [0008](0008-signed-color-is-a-primitive.md) | Signed colour is a primitive, and mixing happens in Oklab | Accepted |
+| [0009](0009-svg-fonts-are-caller-supplied.md) | SVG fonts are caller-supplied and embedded whole | Accepted |

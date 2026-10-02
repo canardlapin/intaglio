@@ -23,6 +23,27 @@ class SvgXmlSuite extends munit.FunSuite:
     }
   }
 
+  test("an embedded font face parses as XML and its data URI decodes to the supplied bytes") {
+    val bytes = "wOF2".getBytes("US-ASCII") ++ Array.tabulate[Byte](300)(i => (i * 13).toByte)
+    val fonts = SvgFontFace("Studio Sans", bytes)
+      .flatMap(SvgFonts(_))
+      .fold(error => fail(error.message), identity)
+    val text = Grob.textUnsafe(
+      "Embedded",
+      Point.npcUnsafe(0.5, 0.5),
+      gp = GraphicParams.unsafe(fontFamily = Some("Studio Sans"))
+    )
+    val document = SvgRenderer
+      .render(Scene(Vector(text)), SvgOptions.unsafe(width = 100, height = 40), fonts)
+      .fold(error => fail(error.message), identity)
+    val parsed = parse(document.value)
+    val style = parsed.getElementsByTagNameNS("http://www.w3.org/2000/svg", "style")
+    assertEquals(style.getLength, 1)
+    val css = style.item(0).getTextContent
+    val payload = css.substring(css.indexOf("base64,") + 7, css.indexOf(")"))
+    assertEquals(Base64.getDecoder.decode(payload).toVector, bytes.toVector)
+  }
+
   test("pattern resources parse as XML without semantic mark names") {
     val recipe =
       PatternRecipe.crossHatch(35.0, 8.0, 1.25).fold(error => fail(error.message), identity)

@@ -15,7 +15,10 @@ Current scope:
 - resolved device-space groups with clip paths and optional rotation;
 - deterministic embedded RGBA PNG images with explicit nearest/smooth
   interpolation policy;
-- renderer-neutral `Axis` output: baselines, tick marks, and labels.
+- renderer-neutral `Axis` output: baselines, tick marks, and labels;
+- opt-in embedding of caller-supplied font faces as `@font-face` data URIs
+  (`SvgFontFace`, `SvgFonts`; see [embedding fonts](../../docs/svg-fonts.md)).
+  No face is bundled and faces are embedded whole, not subset.
 
 Unsupported units, oversized device attributes, and XML-illegal text return
 typed `SvgRenderError` values.

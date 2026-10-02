@@ -127,6 +127,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   that resolve the source scene themselves; the JavaFX one returns a typed
   error for a non-finite or oversized-pattern scene.
 
+- **Font embedding in SVG export.** `SvgRenderer.render(scene, options,
+  fonts)` and `render(plan, title, fonts)` embed caller-supplied faces
+  (`SvgFontFace(family, bytes, weight)`, collected in `SvgFonts`) as
+  `@font-face` data URIs, so an export draws its face on a machine without it.
+  Only faces a text run names are written. Formats are recognised from the
+  file signature; a TrueType/OpenType face whose OS/2 `fsType` restricts
+  embedding is a typed `SvgFontError`. Intaglio bundles no face and does not
+  subset ([ADR 0009](docs/adr/0009-svg-fonts-are-caller-supplied.md),
+  [docs/svg-fonts.md](docs/svg-fonts.md)). Existing overloads are unchanged.
+
 - **Text plates.** `GraphicParams.withTextPlate(TextPlate(fill, padding,
   cornerRadius, pickable))` draws a background plate behind a text run, sized
   at draw time by each backend's own text measure (Java2D and JavaFX from the

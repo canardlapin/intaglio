@@ -136,7 +136,7 @@ private[svg] object PngEncoder:
       bit += 1
     crc
 
-  private def base64(bytes: Array[Byte]): String =
+  private[svg] def base64(bytes: Array[Byte]): String =
     val output = new StringBuilder(((bytes.length + 2) / 3) * 4)
     var idx = 0
     while idx < bytes.length do
