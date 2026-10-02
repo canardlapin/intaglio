@@ -146,19 +146,57 @@ enum LineInterpolation:
       case StepAfter  => StepBefore
       case StepBefore => StepAfter
 
-/** A stroke dash rhythm: alternating on and off lengths, in device pixels.
+/** The unit of a dash rhythm's segments or a fill pattern's spacing, line width and radius until
+  * device lowering resolves them, through the same resolver as stroke widths and font sizes.
   *
-  * Lengths are device pixels rather than points, which is what the named rhythms of [[LineType]]
-  * have always meant. A stroke measured in points therefore scales with the device while its dash
-  * does not; that is a pre-existing property of `Dashed` and `Dotted`, not something this type
-  * introduces, and it is recorded in `docs/limits.md`.
+  * `LayoutPixel`, the default, is the CSS reference pixel: 1/96 inch. At 96 pixels per inch (the
+  * default 1x target) it is exactly one device pixel, so existing output there is unchanged; at a
+  * 2x target (192 pixels per inch) it is two, so a dash or a hatch keeps its physical size on a
+  * HiDPI screen and in SVG and PDF export alike. `Point` (1/72 inch) and `Millimetre` are the other
+  * physical units. `DevicePixel` is the explicit opt-in to a literal device pixel that does not
+  * scale with the target, which is what every rhythm and pattern meant before this unit existed.
+  */
+enum PaintLengthUnit:
+  case LayoutPixel
+  case Point
+  case Millimetre
+  case DevicePixel
+
+object PaintLengthUnit:
+  /** Device pixels per unit at `pixelsPerInch`. */
+  def devicePixels(unit: PaintLengthUnit, pixelsPerInch: Double): Double =
+    unit match
+      case LayoutPixel => pixelsPerInch / 96.0
+      case Point       => pixelsPerInch / 72.0
+      case Millimetre  => pixelsPerInch / 25.4
+      case DevicePixel => 1.0
+
+/** A stroke dash rhythm: alternating on and off lengths, in a [[PaintLengthUnit]].
+  *
+  * Lengths default to layout pixels (1/96 inch), which equal device pixels at the default 96 ppi
+  * target and scale with the target's density, so a dash keeps its physical size at 2x and in
+  * export. [[DashPattern.withUnit]] chooses points, millimetres or, as an explicit opt-in, literal
+  * device pixels. Device lowering resolves the rhythm once; a backend always receives device
+  * pixels.
   *
   * The constructor refuses a pattern no backend could draw: empty, longer than
   * [[DashPattern.MaximumSegments]], non-finite, negative, or all zero. The last is not pedantry —
   * `java.awt.BasicStroke` throws on an all-zero dash array, so an unchecked value would render on
   * three backends and fail on the fourth.
   */
-final case class DashPattern private (segments: Vector[Double])
+final case class DashPattern private (segments: Vector[Double], unit: PaintLengthUnit):
+  /** Binary bridge for the single-field constructor from before dash units existed. */
+  private[intaglio] def this(segments: Vector[Double]) =
+    this(segments, PaintLengthUnit.LayoutPixel)
+
+  /** The same rhythm measured in `value`. */
+  def withUnit(value: PaintLengthUnit): DashPattern =
+    new DashPattern(segments, value)
+
+  /** This rhythm in device pixels at `pixelsPerInch`, marked as such. */
+  private[intaglio] def inDevicePixels(pixelsPerInch: Double): DashPattern =
+    val factor = PaintLengthUnit.devicePixels(unit, pixelsPerInch)
+    new DashPattern(segments.map(_ * factor), PaintLengthUnit.DevicePixel)
 
 object DashPattern:
   /** Enough rhythms to distinguish any categorical encoding a reader could follow, and few enough
@@ -167,6 +205,9 @@ object DashPattern:
   val MaximumSegments: Int = 32
 
   def apply(segments: Vector[Double]): Either[GraphicsError, DashPattern] =
+    apply(segments, PaintLengthUnit.LayoutPixel)
+
+  def apply(segments: Vector[Double], unit: PaintLengthUnit): Either[GraphicsError, DashPattern] =
     if segments.isEmpty then Left(GraphicsError.InvalidDashPattern("at least one segment", "empty"))
     else if segments.lengthCompare(MaximumSegments) > 0 then
       Left(
@@ -191,7 +232,7 @@ object DashPattern:
             Left(
               GraphicsError.InvalidDashPattern("one segment above zero", "every segment is zero")
             )
-          else Right(new DashPattern(segments))
+          else Right(new DashPattern(segments, unit))
 
   def unsafe(segments: Double*): DashPattern =
     apply(segments.toVector).orThrow

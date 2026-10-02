@@ -252,7 +252,8 @@ class SvgAnnotationSuite extends munit.FunSuite:
       "bold-text",
       "aspect-viewport",
       "classed-raster",
-      "cased-marks"
+      "cased-marks",
+      "paint-length-units"
     )
 
   test("scenes without annotation render byte-identically to the pre-annotation renderer") {

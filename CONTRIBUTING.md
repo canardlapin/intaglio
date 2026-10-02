@@ -29,7 +29,7 @@ it. Never weaken a test to make it pass.
 **A law, where there is an invariant.** `modules/laws` holds the kits that
 ecosystem authors run against their own extensions: `ScaleLaws`, `StatLaws`,
 `GeomLaws`, `CoordLaws`, `PlotRecipeLaws`, `BackendLaws`, `PointShapeLaws`,
-`RectCornerLaws`, `LineInterpolationLaws`, `StrokeCasingLaws`, and the scene, layout, transform and
+`RectCornerLaws`, `LineInterpolationLaws`, `StrokeCasingLaws`, `PaintLengthLaws`, and the scene, layout, transform and
 position kits. A geometric or numerical invariant belongs in a kit, expressed
 through the public API, with a negative test proving the kit detects breakage.
 The suites live in package `external.laws` deliberately: they must work without

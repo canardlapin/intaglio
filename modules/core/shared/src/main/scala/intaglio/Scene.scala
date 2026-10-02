@@ -308,11 +308,12 @@ enum RuleOrientation:
 
 /** A finite, backend-neutral recipe for a repeated fill pattern.
   *
-  * Spacing, line width, and radius are measured in device pixels. Hatch angles are clockwise
-  * degrees from a vertical rule in the device's y-down coordinate system. Tiles start at `(0, 0)`
-  * in the current device coordinate system, repeat without shape-local re-anchoring, and follow
-  * enclosing viewport transforms. These semantics intentionally do not admit backend objects,
-  * callbacks, CSS, or raw SVG.
+  * Spacing, line width, and radius are measured in the [[PaintLengthUnit]] of the [[PatternPaint]]
+  * that carries the recipe (layout pixels unless chosen otherwise); device lowering resolves them
+  * to device pixels once. Hatch angles are clockwise degrees from a vertical rule in the device's
+  * y-down coordinate system. Tiles start at `(0, 0)` in the current device coordinate system,
+  * repeat without shape-local re-anchoring, and follow enclosing viewport transforms. These
+  * semantics intentionally do not admit backend objects, callbacks, CSS, or raw SVG.
   */
 sealed trait PatternRecipe:
   def spacing: Double
@@ -340,6 +341,21 @@ object PatternRecipe:
       spacing: Double,
       radius: Double
   ) extends PatternRecipe
+
+  /** Every length of `recipe` scaled by `factor`; angles and orientation are unchanged. A positive
+    * finite factor preserves each constructor's invariants, including the stipple's radius bound.
+    * It lives here rather than on the trait so the sealed trait's interface is unchanged.
+    */
+  private[intaglio] def scaled(recipe: PatternRecipe, factor: Double): PatternRecipe =
+    recipe match
+      case value: AngledHatch =>
+        new AngledHatch(value.angleDegrees, value.spacing * factor, value.lineWidth * factor)
+      case value: CrossHatch =>
+        new CrossHatch(value.angleDegrees, value.spacing * factor, value.lineWidth * factor)
+      case value: ParallelRules =>
+        new ParallelRules(value.orientation, value.spacing * factor, value.lineWidth * factor)
+      case value: Stipple =>
+        new Stipple(value.spacing * factor, value.radius * factor)
 
   def angledHatch(
       angleDegrees: Double,
@@ -406,14 +422,44 @@ object PatternRecipe:
   *
   * Ink and optional background retain their own RGBA values. A mark's [[GraphicParams.alpha]] is
   * applied once to the composited pattern, so it multiplies the final ink/background result rather
-  * than replacing either channel alpha. Equality covers the full recipe and both colors, which lets
-  * renderers reuse resources without relying on object identity.
+  * than replacing either channel alpha. Equality covers the full recipe, both colors and the unit,
+  * which lets renderers reuse resources without relying on object identity.
+  *
+  * `unit` measures the recipe's spacing, line width and radius; it defaults to layout pixels, so a
+  * hatch keeps its physical spacing at 2x and in export. Device lowering resolves it, so the paint
+  * a backend receives is always in device pixels.
   */
 final case class PatternPaint(
     recipe: PatternRecipe,
     ink: Rgba,
-    background: Option[Rgba] = None
-)
+    background: Option[Rgba] = None,
+    unit: PaintLengthUnit = PaintLengthUnit.LayoutPixel
+):
+  /** Binary bridge for the three-field constructor from before pattern units existed. */
+  def this(recipe: PatternRecipe, ink: Rgba, background: Option[Rgba]) =
+    this(recipe, ink, background, PaintLengthUnit.LayoutPixel)
+
+  /** Binary bridge for the three-field copy descriptor. */
+  def copy(recipe: PatternRecipe, ink: Rgba, background: Option[Rgba]): PatternPaint =
+    new PatternPaint(recipe, ink, background, unit)
+
+  /** The same paint with its lengths measured in `value`. */
+  def withUnit(value: PaintLengthUnit): PatternPaint =
+    new PatternPaint(recipe, ink, background, value)
+
+  /** This paint in device pixels at `pixelsPerInch`, marked as such. */
+  private[intaglio] def inDevicePixels(pixelsPerInch: Double): PatternPaint =
+    new PatternPaint(
+      PatternRecipe.scaled(recipe, PaintLengthUnit.devicePixels(unit, pixelsPerInch)),
+      ink,
+      background,
+      PaintLengthUnit.DevicePixel
+    )
+
+object PatternPaint:
+  /** Binary bridge for the three-field apply descriptor. */
+  def apply(recipe: PatternRecipe, ink: Rgba, background: Option[Rgba]): PatternPaint =
+    new PatternPaint(recipe, ink, background, PaintLengthUnit.LayoutPixel)
 
 /** Unit carried by a stroke width until device lowering. */
 enum StrokeUnit:
@@ -481,6 +527,9 @@ final case class StrokeCasing private (
 
   private[intaglio] def withWidth(value: CasingWidth): StrokeCasing =
     new StrokeCasing(color, value, alpha, lineType)
+
+  private[intaglio] def withLineType(value: LineType): StrokeCasing =
+    new StrokeCasing(color, width, alpha, value)
 
 object StrokeCasing:
   def checked(
@@ -698,6 +747,12 @@ final case class GraphicParams private (
 
   private[intaglio] def withResolvedCasing(value: Option[StrokeCasing]): GraphicParams =
     copy(casing = value)
+
+  private[intaglio] def withResolvedPaintLengths(
+      resolvedLineType: LineType,
+      resolvedPattern: Option[PatternPaint]
+  ): GraphicParams =
+    copy(lineType = resolvedLineType, fillPattern = resolvedPattern)
 
   /** Replace the solid fill channel with a validated pattern paint. */
   def withPatternFill(pattern: PatternPaint): GraphicParams =

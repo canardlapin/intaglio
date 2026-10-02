@@ -395,6 +395,38 @@ class PdfRendererSuite extends munit.FunSuite:
     )
   }
 
+  test("a layout-unit dash exports at one physical size whatever the target density") {
+    def dashArrays(pixelsPerInch: Double, lineType: LineType): Vector[Vector[Float]] =
+      val line = Grob
+        .lines(
+          Vector(Point.npcUnsafe(0.1, 0.5), Point.npcUnsafe(0.9, 0.5)),
+          gp = GraphicParams.unsafe(lineType = lineType)
+        )
+        .orThrow
+      val context = RenderContext.unsafe(width = 200, height = 100, pixelsPerInch = pixelsPerInch)
+      var found = Vector.empty[Vector[Float]]
+      load(render(Scene(Vector(line)), context)) { parsed =>
+        val parser = new PDFStreamParser(parsed.getPage(0))
+        val tokens = parser.parse().asScala.toVector
+        found = tokens.indices.collect {
+          case index
+              if tokens(index).isInstanceOf[Operator] &&
+                tokens(index).asInstanceOf[Operator].getName == "d" =>
+            tokens(index - 2) match
+              case array: org.apache.pdfbox.cos.COSArray =>
+                array.toFloatArray.toVector
+              case other => fail(s"dash operand $other")
+        }.toVector
+      }
+      found.filter(_.nonEmpty)
+    // `Dashed` is 6 4 layout pixels: 1/16 and 1/24 inch, 4.5 and 3 points at any density.
+    for ppi <- Vector(96.0, 192.0, 300.0) do
+      assertEquals(dashArrays(ppi, LineType.Dashed), Vector(Vector(4.5f, 3.0f)), clue(ppi))
+    // The explicit device-pixel opt-in is 6 device pixels, so it shrinks physically at 192 ppi.
+    val literal = LineType.Custom(DashPattern.Dashed.withUnit(PaintLengthUnit.DevicePixel))
+    assertEquals(dashArrays(192.0, literal), Vector(Vector(2.25f, 1.5f)))
+  }
+
   test("cased hollow discs, rectangles and batched marks stroke an underlay before each mark") {
     val gp = GraphicParams
       .unsafe(stroke = Some(Rgba.unsafe(20, 80, 180)), lineWidth = 2.0)

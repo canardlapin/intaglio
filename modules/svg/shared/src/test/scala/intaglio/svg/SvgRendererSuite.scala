@@ -101,6 +101,38 @@ class SvgRendererSuite extends munit.FunSuite:
     assertEquals(geometry(lines(3)), geometry(lines(5)))
   }
 
+  test("layout-unit dashes and hatches export at one physical size at 1x and 2x") {
+    val hatch = PatternPaint(PatternRecipe.angledHatch(45.0, 12.0, 1.5).orThrow, Rgba.Black)
+    val scene = Scene(
+      Vector(
+        Grob
+          .rect(
+            Point.npcUnsafe(0.5, 0.5),
+            Size.npcUnsafe(0.5, 0.5),
+            gp = GraphicParams.unsafe(lineType = LineType.Dashed).withPatternFill(hatch)
+          )
+          .orThrow
+      )
+    )
+    def svgAt(scale: Int) = render(
+      scene,
+      SvgOptions.unsafe(
+        width = 100 * scale,
+        height = 100 * scale,
+        pixelsPerInch = 96.0 * scale,
+        deviceScale = scale.toDouble
+      )
+    )
+    val one = svgAt(1)
+    val two = svgAt(2)
+    assert(one.contains("""stroke-dasharray="6 4""""), one)
+    assert(one.contains("""width="12" height="12" patternUnits="userSpaceOnUse""""), one)
+    assert(one.contains("""stroke-width="1.5" />"""), one)
+    assert(two.contains("""stroke-dasharray="12 8""""), two)
+    assert(two.contains("""width="24" height="24" patternUnits="userSpaceOnUse""""), two)
+    assert(two.contains("""stroke-width="3" />"""), two)
+  }
+
   test("cased segments emit an unnamed solid underlay immediately before the named dashed stroke") {
     val gp = GraphicParams
       .unsafe(

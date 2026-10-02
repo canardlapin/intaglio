@@ -228,7 +228,9 @@ object RendererConformance:
       segmentGeoms <- segmentGeomsCase
       bandGeoms <- bandGeomsCase
       casedMarks <- casedMarksCase
+      paintUnits <- paintLengthUnitsCase
     yield Vector(
+      paintUnits,
       casedMarks,
       point,
       line,
@@ -1093,6 +1095,52 @@ object RendererConformance:
         RenderRequirement.Image(name, dimensions, RasterInterpolation.Nearest, alpha = 1.0)
       )
     )
+
+  /** A dash measured in points and a hatch measured in millimetres. At the 96 ppi target neither is
+    * one device pixel per unit, so a backend that drew the given numbers as device pixels would
+    * draw the wrong rhythm and spacing; every backend must receive and draw the resolved ones.
+    */
+  def paintLengthUnitsCase: Either[GraphicsError, ConformanceCase] =
+    val line = GraphicsName.unsafe("conformance-point-dash")
+    val hatch = GraphicsName.unsafe("conformance-millimetre-hatch")
+    val stroke = Rgba.unsafe(70, 40, 120)
+    for
+      rhythm <- DashPattern(Vector(4.5, 3.0), PaintLengthUnit.Point)
+      recipe <- PatternRecipe.angledHatch(45.0, 3.0, 0.5)
+      paint = PatternPaint(recipe, Rgba.unsafe(30, 60, 90), Some(Rgba.White))
+        .withUnit(PaintLengthUnit.Millimetre)
+      lineGrob <- Grob.lines(
+        Vector(Point.npcUnsafe(0.1, 0.8), Point.npcUnsafe(0.9, 0.8)),
+        gp = GraphicParams.unsafe(stroke = Some(stroke), lineType = LineType.Custom(rhythm)),
+        name = Some(line)
+      )
+      hatchGrob <- Grob.rect(
+        Point.npcUnsafe(0.5, 0.4),
+        Size.npcUnsafe(0.6, 0.4),
+        gp = GraphicParams.unsafe(stroke = None).withPatternFill(paint),
+        name = Some(hatch)
+      )
+    yield
+      val resolvedRhythm = LineType.Custom(rhythm.inDevicePixels(targetPixelsPerInch))
+      ConformanceCase(
+        GraphicsName.unsafe("paint-length-units"),
+        ConformanceGroup.Primitive,
+        Scene(Vector(hatchGrob, lineGrob)),
+        Vector(line, hatch),
+        Vector(
+          RenderRequirement.Style(
+            line,
+            Some(stroke),
+            None,
+            1.0,
+            resolvedRhythm,
+            LineCap.Butt,
+            LineJoin.Miter,
+            1.0
+          ),
+          RenderRequirement.PatternFill(hatch, paint.inDevicePixels(targetPixelsPerInch), 1.0)
+        )
+      )
 
   // --- Guide cases ---------------------------------------------------------
 

@@ -245,6 +245,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   transform is no longer uniformly spaced and is refused by the raster's grid
   contract.
 
+- **Dashes and hatches keep their physical size at 2x.** Dash rhythms and
+  fill-pattern spacing, line width and radius were device pixels, so at output
+  scale 2 they drew at half their physical size, and differently on screen and
+  in export. They are now `PaintLengthUnit` lengths resolved at lowering: layout
+  pixels (1/96 inch) by default, or `Point` or `Millimetre`;
+  `PaintLengthUnit.DevicePixel` is the explicit opt-in to the old meaning
+  (`DashPattern.withUnit`, `PatternPaint.withUnit` or the new trailing
+  `PatternPaint.unit`). Output at 96 ppi is byte-identical. **Output at any
+  other density changes**: a `Dashed` line at 192 ppi now draws `12 8`, and a
+  lowered style there carries the resolved rhythm as `LineType.Custom` in
+  device pixels. `PaintLengthLaws` and
+  `RendererConformance.paintLengthUnitsCase` pin the rules.
+
 - **Stroke casing on point marks and discs.** A `StrokeCasing` on a point mark,
   point batch or circle grob was dropped by SVG and PDF (and by JavaFX for
   circles), and on a cross the second bar's casing was painted over the first

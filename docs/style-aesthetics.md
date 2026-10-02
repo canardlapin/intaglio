@@ -51,8 +51,34 @@ val embedded = LineType.Custom(DashPattern.unsafe(8.0, 2.0, 1.0, 2.0))
 
 `LineType.dash` resolves any of the four to an `Option[DashPattern]`, and every backend goes through
 it, so the two named rhythms have one definition rather than one per renderer. Segments are
-alternating on and off lengths in device pixels; `DashPattern` refuses a rhythm no backend could
-draw, and [limits](limits.md) records the bound and why an all-zero rhythm is rejected.
+alternating on and off lengths; `DashPattern` refuses a rhythm no backend could draw, and
+[limits](limits.md) records the bound and why an all-zero rhythm is rejected.
+
+## Dash and hatch units
+
+A dash rhythm and a fill pattern's spacing, line width and radius are lengths in a
+`PaintLengthUnit`, resolved once at device lowering through the same density as stroke widths and
+font sizes. The default is the layout pixel, 1/96 inch: exactly one device pixel at the default
+96 ppi target, so output there is unchanged, and two device pixels at a 2x (192 ppi) target, so a
+dash and a hatch keep their physical size on a HiDPI screen and in SVG and PDF export alike.
+Points and millimetres are the other physical units. A literal device pixel that does not scale is
+available only by asking for it:
+
+```scala mdoc:silent
+val printDash = LineType.Custom(DashPattern(Vector(3.0, 1.5), PaintLengthUnit.Millimetre).orThrow)
+val pointDash = LineType.Custom(DashPattern.Dashed.withUnit(PaintLengthUnit.Point))
+val hairlineDash = LineType.Custom(DashPattern.Dotted.withUnit(PaintLengthUnit.DevicePixel))
+
+val hatch = PatternPaint(
+  PatternRecipe.angledHatch(45.0, 2.0, 0.25).orThrow,
+  ink = Rgba.Black
+).withUnit(PaintLengthUnit.Millimetre)
+```
+
+A backend never sees a unit: the device scene carries device pixels, and a rhythm whose device size
+equals its given size (any layout-pixel rhythm at 96 ppi) is passed through as given, so
+`LineType.Dashed` stays `Dashed` there. `PaintLengthLaws` states these rules for a lowering
+pipeline.
 
 ## Typographic weight
 

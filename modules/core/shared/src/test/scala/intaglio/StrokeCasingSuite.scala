@@ -27,7 +27,12 @@ class StrokeCasingSuite extends munit.FunSuite:
       CasingWidth.Absolute(StrokeWidth.devicePixelsUnsafe(12))
     )
     assertEquals(relative.casing.get.alpha, 0.6)
-    assertEquals(relative.casing.get.lineType, LineType.Dotted)
+    // The casing keeps its own rhythm, resolved like every dash: `Dotted` is 1 3 layout pixels,
+    // so 1.5 4.5 device pixels at 144 ppi.
+    assertEquals(
+      relative.casing.get.lineType,
+      LineType.Custom(DashPattern(Vector(1.5, 4.5), PaintLengthUnit.DevicePixel).orThrow)
+    )
     assertEquals(relative.withoutCasing.casing, None)
   }
 

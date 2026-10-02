@@ -217,8 +217,15 @@ class SvgConformanceSuite extends munit.FunSuite:
         if encoded.length == 1 then "0" + encoded else encoded
       "#" + channel(color.red) + channel(color.green) + channel(color.blue)
 
+    /** The renderer's fixed-point form: at most four decimals, trailing zeros dropped. Resolved
+      * physical lengths (a millimetre hatch at 96 ppi) are not short decimals.
+      */
     private def number(value: Double): String =
-      if value == value.toLong.toDouble then value.toLong.toString else value.toString
+      val scaled = math.rint(math.abs(value) * 10000.0).toLong
+      val sign = if value < 0.0 && scaled != 0L then "-" else ""
+      val fraction = scaled % 10000L
+      if fraction == 0L then s"$sign${scaled / 10000L}"
+      else s"$sign${scaled / 10000L}.${f"$fraction%04d".reverse.dropWhile(_ == '0').reverse}"
 
   test("the SVG backend passes the renderer conformance contract") {
     val violations = RendererConformance.check(SvgHarness).fold(e => fail(e.message), identity)

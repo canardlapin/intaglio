@@ -145,12 +145,52 @@ final class LengthResolver(
               width.unit match
                 case StrokeUnit.DevicePixel => width.value
                 case StrokeUnit.Point       => width.value * device.pixelsPerInch / 72.0
-          DeviceValue
-            .checked("casing width", casingPixels)
-            .map(resolved =>
-              Some(value.withWidth(CasingWidth.Absolute(StrokeWidth.devicePixelsUnsafe(resolved))))
-            )
-    yield gp.withStrokeWidth(StrokeWidth.devicePixelsUnsafe(lineWidth)).withResolvedCasing(casing)
+          for
+            resolved <- DeviceValue.checked("casing width", casingPixels)
+            casingLine <- lineType(value.lineType)
+          yield Some(
+            value
+              .withWidth(CasingWidth.Absolute(StrokeWidth.devicePixelsUnsafe(resolved)))
+              .withLineType(casingLine)
+          )
+      line <- lineType(gp.lineType)
+      pattern <- gp.fillPattern match
+        case None        => Right(None)
+        case Some(paint) => patternPaint(paint).map(Some(_))
+    yield gp
+      .withStrokeWidth(StrokeWidth.devicePixelsUnsafe(lineWidth))
+      .withResolvedCasing(casing)
+      .withResolvedPaintLengths(line, pattern)
+
+  /** A dash rhythm resolved to device pixels. A rhythm whose device size already equals its given
+    * size (layout pixels at 96 ppi, points at 72 ppi, any device-pixel rhythm) is returned as
+    * given, so `Dashed` and `Dotted` stay named where nothing scales.
+    */
+  private def lineType(value: LineType): Either[GraphicsError, LineType] =
+    value.dash match
+      case None          => Right(value)
+      case Some(pattern) =>
+        if PaintLengthUnit.devicePixels(pattern.unit, device.pixelsPerInch) == 1.0 then Right(value)
+        else
+          val resolved = pattern.inDevicePixels(device.pixelsPerInch)
+          validateAll("dash segment", resolved.segments).map(_ => LineType.Custom(resolved))
+
+  /** A fill pattern resolved to device pixels, under the same rule as [[lineType]]. */
+  private def patternPaint(paint: PatternPaint): Either[GraphicsError, PatternPaint] =
+    if PaintLengthUnit.devicePixels(paint.unit, device.pixelsPerInch) == 1.0 then Right(paint)
+    else
+      val resolved = paint.inDevicePixels(device.pixelsPerInch)
+      val lengths = resolved.recipe match
+        case recipe: PatternRecipe.AngledHatch   => Vector(recipe.spacing, recipe.lineWidth)
+        case recipe: PatternRecipe.CrossHatch    => Vector(recipe.spacing, recipe.lineWidth)
+        case recipe: PatternRecipe.ParallelRules => Vector(recipe.spacing, recipe.lineWidth)
+        case recipe: PatternRecipe.Stipple       => Vector(recipe.spacing, recipe.radius)
+      validateAll("pattern length", lengths).map(_ => resolved)
+
+  private def validateAll(field: String, values: Vector[Double]): Either[GraphicsError, Unit] =
+    values.foldLeft[Either[GraphicsError, Unit]](Right(())) { (result, value) =>
+      result.flatMap(_ => DeviceValue.checked(field, value).map(_ => ()))
+    }
 
   def fontFamily(requested: Option[String]): Option[String] =
     fontRegistry.resolve(requested)

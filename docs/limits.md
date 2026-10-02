@@ -225,8 +225,11 @@ silently reads as regular. Register the faces you use.
 
 The dash limit has a reason beyond tidiness: `java.awt.BasicStroke` throws on an all-zero dash
 array, so a pattern that three backends would draw and Java2D would reject is refused at
-construction instead. Dash segments are device pixels, which is what `Dashed` and `Dotted` have
-always meant — a stroke measured in points scales with the device while its dash does not.
+construction instead. Dash segments, and a fill pattern's spacing, line width and radius, are
+layout pixels (1/96 inch) by default: one device pixel at 96 ppi, two at 192, so a dash and a
+hatch keep their physical size at 2x and in export. `PaintLengthUnit.Point` and `Millimetre` are
+the other physical units; `PaintLengthUnit.DevicePixel` is the explicit opt-in to the old literal
+device pixel. See [style aesthetics](style-aesthetics.md#dash-and-hatch-units).
 
 The palette limit has one number most people meet: the default theme's discrete palette holds
 **six** colours, and the default overflow policy is `Reject`. A seventh level is a typed error, not a
