@@ -34,6 +34,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Rasters with a palette per class.** `geomRasterByClass(classOf, classes)`
+  draws a scalar field as one image whose colour mapping is chosen per class:
+  each `ColorClass` (label, palette, transform, OOB policy) trains its own
+  domain from its own cells and maps through its own palette, through one
+  `ClassedColorScaleSpec` on the fill aesthetic. Derived guides give each class
+  with values its own colorbar, identical to the one an ordinary `geomRaster` of
+  that class's cells alone would draw. Masked cells and unknown class indices
+  take `missingColor`. The new `classed-raster` conformance case runs on every
+  backend.
+
 - **Composition row heights and a shared x frame.**
   `CompositionOptions.withRowHeights` sizes each row of a composition with
   `RowHeight.points` (fixed physical height) or `RowHeight.weight` (a share of

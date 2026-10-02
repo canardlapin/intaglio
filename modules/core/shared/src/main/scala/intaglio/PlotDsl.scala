@@ -537,6 +537,48 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       }
     )
 
+  /** Draw a regular scalar grid as one image whose colour mapping is chosen per class: `classOf`
+    * assigns each cell to one of `classes` by index (a column, a region, a regressor type), and
+    * each class trains and maps its values through its own continuous palette. The classes share
+    * one fill scale, so the grid stays one image, and each class with values gets its own colorbar.
+    * Masked cells and values a class cannot map take `missingColor`; a cell whose class index names
+    * no class is out of the scale's domain and takes `missingColor` too.
+    */
+  def geomRasterByClass(
+      classOf: ScalarCell => Int,
+      classes: Vector[ColorClass],
+      name: String = "value",
+      interpolation: RasterInterpolation = RasterInterpolation.Nearest,
+      missingColor: Rgba = Rgba.unsafe(0, 0, 0, 0.0),
+      missing: ScalarCell => Boolean = _ => false,
+      alpha: Double = 1.0
+  )(using fieldRows: Row =:= ScalarCell, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
+    val value: Row => ClassedValue = row =>
+      val cell = fieldRows(row)
+      ClassedValue(classOf(cell), if missing(cell) then Double.NaN else cell.value)
+    val scaled = updateResult(
+      for
+        current <- result
+        spec <- ClassedColorScaleSpec(name, classes)
+        plot <- current.withScale(ScaleBinding(Aesthetic.Fill, value, spec))
+      yield plot
+    )
+    val xy = ev(position)
+    scaled.addLayer(
+      GraphicParams.checked(stroke = None, alpha = alpha).map { params =>
+        Layer.raster(
+          xy.x,
+          xy.y,
+          row => fieldRows(row).width,
+          row => fieldRows(row).height,
+          mapping = scaled.resultMapping,
+          params = Some(params),
+          interpolation = interpolation,
+          missingColor = missingColor
+        )
+      }
+    )
+
   /** Add already-extracted contour paths. The capability witness prevents ordinary row plots from
     * accidentally claiming contour semantics.
     */

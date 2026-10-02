@@ -764,6 +764,9 @@ private[intaglio] enum ScaleObservation:
   case Continuous(value: Double)
   case Discrete(value: CategoryObservation)
 
+  /** A value of one class of a [[ClassedColorScaleSpec]], which trains each class separately. */
+  case Classed(classIndex: Int, value: Double)
+
 private[intaglio] object ScaleObservation:
   def discrete[A](value: A, categories: CategoryIdentity[A]): ScaleObservation =
     ScaleObservation.Discrete(CategoryObservation(value, categories))

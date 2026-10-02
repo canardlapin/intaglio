@@ -210,6 +210,7 @@ object RendererConformance:
       ribbon <- ribbonComparisonCase
       tiles <- tileComparisonCase
       heatmap <- heatmapComparisonCase
+      classedRaster <- classedRasterCase
       bin2d <- bin2DComparisonCase
       kde2d <- kde2DComparisonCase
       contour <- contourComparisonCase
@@ -257,6 +258,7 @@ object RendererConformance:
       ribbon,
       tiles,
       heatmap,
+      classedRaster,
       bin2d,
       kde2d,
       contour,
@@ -1509,6 +1511,45 @@ object RendererConformance:
         RenderRequirement.Primitive(
           GraphicsName.unsafe("geom-tile-0"),
           RenderPrimitiveKind.Rectangle
+        )
+      )
+    )
+
+  /** One raster with a palette per class: a ramp for the first column, a grey ramp for the rest. */
+  def classedRasterCase: Either[GraphicsError, ConformanceCase] =
+    for
+      x <- RegularGridAxis.cellCentered(0.0, 3.0, 3)
+      y <- RegularGridAxis.cellCentered(0.0, 2.0, 2)
+      field <- ScalarField2D(x, y, Vector(-1.0, 10.0, 12.0, 1.0, 11.0, 13.0))
+      task <- ColorClass(
+        "task",
+        Palette.gradient(Rgba.unsafe(30, 60, 200), Rgba.unsafe(200, 40, 30))
+      )
+      nuisance <- ColorClass(
+        "nuisance",
+        Palette.gradient(Rgba.unsafe(60, 60, 60), Rgba.unsafe(220, 220, 220))
+      )
+      scene <- plot(field)
+        .geomRasterByClass(cell => if cell.xIndex == 0 then 0 else 1, Vector(task, nuisance))
+        // Per-class colorbars are covered by the core suite; two do not fit this small target.
+        .guides(GuidePolicy.Derived(deriveLegends = false))
+        .theme(Theme.minimal)
+        .scene
+    yield ConformanceCase(
+      GraphicsName.unsafe("classed-raster"),
+      ConformanceGroup.CompiledPlot,
+      scene,
+      Vector(
+        GraphicsName.unsafe("plot-panel"),
+        GraphicsName.unsafe("geom-raster")
+      ),
+      Vector(
+        RenderRequirement.Primitive(GraphicsName.unsafe("geom-raster"), RenderPrimitiveKind.Image),
+        RenderRequirement.Image(
+          GraphicsName.unsafe("geom-raster"),
+          RasterDimensions.unsafe(3, 2),
+          RasterInterpolation.Nearest,
+          alpha = 1.0
         )
       )
     )
