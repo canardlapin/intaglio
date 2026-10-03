@@ -4,6 +4,12 @@
 sha=3f3db55c92a49cf06489fd72c0e94e7383738314
 version=0.5.0
 
+MissingClassProblem intaglio.javafx.CapabilitySupport
+MissingClassProblem intaglio.javafx.CapabilitySupport$
+MissingClassProblem intaglio.javafx.CapabilitySupport$Unsupported
+MissingClassProblem intaglio.javafx.CapabilitySupport$Unsupported$
+MissingClassProblem intaglio.javafx.HostCapability
+MissingClassProblem intaglio.javafx.HostCapability$
 MissingClassProblem intaglio.javafx.JavaFxCanvasContext$
 DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.DefaultCacheByteLimit
 DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.MaxRasterDimension
@@ -15,17 +21,33 @@ DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.measureText
 DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.release
 DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.this
 DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.validateRaster
+MissingClassProblem intaglio.javafx.JavaFxCapabilities
+MissingClassProblem intaglio.javafx.JavaFxCapabilities$
 MissingClassProblem intaglio.javafx.JavaFxCasing
 MissingClassProblem intaglio.javafx.JavaFxCasing$
 DirectMissingMethodProblem intaglio.javafx.JavaFxGraphicsContext.measureText
 MissingClassProblem intaglio.javafx.JavaFxHostError
 MissingClassProblem intaglio.javafx.JavaFxHostError$
+MissingClassProblem intaglio.javafx.JavaFxHostOptions
+MissingClassProblem intaglio.javafx.JavaFxHostOptions$
 MissingClassProblem intaglio.javafx.JavaFxHostProfile
 MissingClassProblem intaglio.javafx.JavaFxHostProfile$
 MissingClassProblem intaglio.javafx.JavaFxInteractionHost
 MissingClassProblem intaglio.javafx.JavaFxInteractionHost$
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$Drag
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$Drag$
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$Drag$Band
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$Drag$Band$
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$Drag$Panning
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$Drag$Panning$
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$Drag$Trace
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$Drag$Trace$
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$TooltipSource
+MissingClassProblem intaglio.javafx.JavaFxInteractionHost$TooltipSource$
 MissingClassProblem intaglio.javafx.JavaFxInteractionView
 MissingClassProblem intaglio.javafx.JavaFxInteractionView$
+MissingClassProblem intaglio.javafx.JavaFxLink
+MissingClassProblem intaglio.javafx.JavaFxLink$
 MissingClassProblem intaglio.javafx.JavaFxOverlayError
 MissingClassProblem intaglio.javafx.JavaFxOverlayError$
 MissingClassProblem intaglio.javafx.JavaFxOverlayError$CasingNotWider
@@ -47,6 +69,12 @@ DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy$default$10
 DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy$default$11
 DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.textPlate
 DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.this
+MissingClassProblem intaglio.javafx.JavaFxPartEvent
+MissingClassProblem intaglio.javafx.JavaFxPartEvent$
+MissingClassProblem intaglio.javafx.JavaFxPartEvent$Activated
+MissingClassProblem intaglio.javafx.JavaFxPartEvent$Activated$
+MissingClassProblem intaglio.javafx.JavaFxPartEvent$Hovered
+MissingClassProblem intaglio.javafx.JavaFxPartEvent$Hovered$
 DirectMissingMethodProblem intaglio.javafx.JavaFxProgram.fromResolved
 MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge
 MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge$
