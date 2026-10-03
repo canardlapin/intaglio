@@ -10,6 +10,8 @@ MissingClassProblem intaglio.javafx.CapabilitySupport$Unsupported
 MissingClassProblem intaglio.javafx.CapabilitySupport$Unsupported$
 MissingClassProblem intaglio.javafx.HostCapability
 MissingClassProblem intaglio.javafx.HostCapability$
+MissingClassProblem intaglio.javafx.InspectorRow
+MissingClassProblem intaglio.javafx.InspectorRow$
 MissingClassProblem intaglio.javafx.JavaFxCanvasContext$
 DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.DefaultCacheByteLimit
 DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.MaxRasterDimension
@@ -32,6 +34,8 @@ MissingClassProblem intaglio.javafx.JavaFxHostOptions
 MissingClassProblem intaglio.javafx.JavaFxHostOptions$
 MissingClassProblem intaglio.javafx.JavaFxHostProfile
 MissingClassProblem intaglio.javafx.JavaFxHostProfile$
+MissingClassProblem intaglio.javafx.JavaFxInspector
+MissingClassProblem intaglio.javafx.JavaFxInspector$
 MissingClassProblem intaglio.javafx.JavaFxInteractionHost
 MissingClassProblem intaglio.javafx.JavaFxInteractionHost$
 MissingClassProblem intaglio.javafx.JavaFxInteractionHost$Drag
