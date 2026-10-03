@@ -198,6 +198,19 @@ final class SceneEventDriver(stage: Stage, targets: Vector[Node], isolate: Boole
     release()
     shift = false
 
+  /** The platform shortcut (Cmd on macOS, Ctrl elsewhere) with `code`, at the focus owner. */
+  def shortcut(code: KeyCode, withShift: Boolean = false): Unit =
+    val mac = sys.props.getOrElse("os.name", "").toLowerCase.contains("mac")
+    Fx.fx {
+      val owner = Option(stage.getScene.getFocusOwner).getOrElse(stage.getScene.getRoot)
+      Seq(KeyEvent.KEY_PRESSED, KeyEvent.KEY_RELEASED).foreach { kind =>
+        driven(
+          Event.fireEvent(owner, new KeyEvent(kind, "", "", code, withShift, !mac, false, mac))
+        )
+      }
+    }
+    Fx.settle()
+
   def key(code: KeyCode, withShift: Boolean): Unit =
     Fx.fx {
       val owner = Option(stage.getScene.getFocusOwner).getOrElse(stage.getScene.getRoot)

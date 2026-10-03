@@ -222,18 +222,18 @@ shared suites `SelectionAlgebraSuite`, `InteractionSnapshotSuite`, `InteractionH
 `InspectorModelSuite` and `FilterCommandSuite` (JVM and Scala.js). See
 [selection-history.md](selection-history.md).
 
-| Part | SVG | Canvas | Evidence |
-| --- | --- | --- | --- |
-| Save an area sweep and a bin's exact members by name | Pass | Pass | "a swept area and a bin's members are saved by name" |
-| Union, intersection and difference follow the set laws; incompatible operands are refused | Pass | Pass | the browser oracle check; `SelectionAlgebraSuite` (laws exhaustively, refusals) |
-| Recall a saved selection into the current one, carried to linked plots | Pass | Pass | "intersection, union and difference of saved selections match set oracles" |
-| Undo and redo by keyboard (both redo shortcuts), followed by the linked plots, which record nothing | Pass | Pass | "keyboard undo and redo walk this plot's changes…": only `SelectionChanged` events, `canUndo` false in the linked plot |
-| No link or resolver effect from undo, redo or restore | Unit | Unit | `InteractionHistorySuite`, `InteractionSnapshotSuite`; the history page has no links or deferred members |
-| A pan is one history entry; undo restores each window in turn | Pass | Pass | "a pan is one history entry…" (20 pointer frames, then zoom and pan undone and redone) |
-| A restored window on a plot with one categorical axis | Gap | Gap | fixed by navigating only the numeric axis; no fixture builds a categorical axis |
-| A snapshot restores keys, saved selections and the window after a reload | Pass | Pass | "a snapshot survives a reload…" |
-| Tampered schema, codec, revision or text is refused with its reason, changing nothing | Pass | Pass | "a tampered snapshot is refused…" (selection, saved selections and window unchanged); `InteractionSnapshotSuite` for each `SnapshotError` |
-| Inspector: observations, aggregate coverage, saved selections, unresolved keys | Pass | Pass | "the inspector shows each plot's selection…" ("k of n selected" against the bin oracle) |
-| Inspector: exact member lists, uncountable aggregates, stale coverage | Unit | Unit | `InspectorModelSuite` |
-| Filter to a selection: input and statistical changes reported, selection unchanged, then reconciled | Pass | Pass | "filtering the histogram to a selection…" (bin totals against the oracle; every plot keeps the kept observations) |
-| Undo across a data replacement | Gap | Gap | history is cleared when the data is replaced, by design |
+| Part | SVG | Canvas | JavaFX | Evidence |
+| --- | --- | --- | --- | --- |
+| Save an area sweep and a bin's exact members by name | Pass | Pass | — | "a swept area and a bin's members are saved by name" |
+| Union, intersection and difference follow the set laws; incompatible operands are refused | Pass | Pass | Host | the browser oracle check; `SelectionAlgebraSuite` (laws exhaustively, refusals) |
+| Recall a saved selection into the current one, carried to linked plots | Pass | Pass | — | "intersection, union and difference of saved selections match set oracles" |
+| Undo and redo by keyboard (both redo shortcuts), followed by the linked plots, which record nothing | Pass | Pass | Host; native keyboard undo/redo | "keyboard undo and redo walk this plot's changes…": only `SelectionChanged` events, `canUndo` false in the linked plot |
+| No link or resolver effect from undo, redo or restore | Unit | Unit | Host: no link followed | `InteractionHistorySuite`, `InteractionSnapshotSuite`; the history page has no links or deferred members |
+| A pan is one history entry; undo restores each window in turn | Pass | Pass | Host | "a pan is one history entry…" (20 pointer frames, then zoom and pan undone and redone) |
+| A restored window on a plot with one categorical axis | Gap | Gap | — | fixed by navigating only the numeric axis; no fixture builds a categorical axis |
+| A snapshot restores keys, saved selections and the window after a reload | Pass | Pass | Host: same session, no reload | "a snapshot survives a reload…" |
+| Tampered schema, codec, revision or text is refused with its reason, changing nothing | Pass | Pass | Host: another data revision only | "a tampered snapshot is refused…" (selection, saved selections and window unchanged); `InteractionSnapshotSuite` for each `SnapshotError` |
+| Inspector: observations, aggregate coverage, saved selections, unresolved keys | Pass | Pass | Host: observations, coverage, saved selections; native: observations | "the inspector shows each plot's selection…" ("k of n selected" against the bin oracle) |
+| Inspector: exact member lists, uncountable aggregates, stale coverage | Unit | Unit | — | `InspectorModelSuite` |
+| Filter to a selection: input and statistical changes reported, selection unchanged, then reconciled | Pass | Pass | Host | "filtering the histogram to a selection…" (bin totals against the oracle; every plot keeps the kept observations) |
+| Undo across a data replacement | Gap | Gap | — | history is cleared when the data is replaced, by design |

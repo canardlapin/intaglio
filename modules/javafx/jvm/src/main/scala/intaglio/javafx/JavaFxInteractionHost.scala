@@ -270,6 +270,24 @@ final class JavaFxInteractionHost[A] private (
   private var moved = false
   private var pinch = Option.empty[(DevicePoint, DeviceFrame)]
 
+  // ---- Interaction 10: history, state listeners and the viewport the state records ----
+  /** Undo/redo of this plot's durable state, with the shared `InteractionHistory` boundaries. */
+  private var history: InteractionHistory[A] = InteractionHistory.empty[A]().toOption.get
+  private var stateListeners = Vector.empty[(Long, InteractionState[A] => Unit)]
+
+  /** What state listeners last saw: data revision and durable state. Hover and focus are not news.
+    */
+  private var lastReported: Option[Any] = None
+
+  /** The viewport the drawn window records; a restored state viewport that differs is drawn. */
+  private var drawnViewport = Option.empty[PanelViewport]
+
+  /** The state before a run of continuous navigation (pan drag, wheel, pinch or key zoom), recorded
+    * as one history entry when the run ends or pauses, not one per event.
+    */
+  private var navigationBefore = Option.empty[(InteractionState[A], InputCause)]
+  private var navigationTimer = Option.empty[PauseTransition]
+
   node.setAccessibleRole(AccessibleRole.PARENT)
   node.setAccessibleRoleDescription("interactive plot")
   node.setAccessibleText(
@@ -415,6 +433,100 @@ final class JavaFxInteractionHost[A] private (
   /** Return to the compiled, unwindowed view. */
   def resetWindow(): Either[IntaglioError, Unit] = navigate(PanelWindow.full)
 
+  // ---- Saved selections, snapshots, history and the inspector (Interaction 10) ----
+
+  /** Save the current selection as `name` (an application command, recorded in history). */
+  def saveSelection(name: SelectionName): Either[IntaglioError, Unit] =
+    dispatch(InteractionAction.SaveSelection(name), InputCause.Programmatic)
+
+  /** Apply the selection saved as `name` under `operation`. */
+  def recallSelection(
+      name: SelectionName,
+      operation: SelectionOperation
+  ): Either[IntaglioError, Unit] =
+    dispatch(InteractionAction.RecallSelection(name, operation), InputCause.Programmatic)
+
+  /** Save `left` combined with `right` as `into`; the current selection is unchanged. */
+  def combineSelections(
+      left: SelectionName,
+      right: SelectionName,
+      how: SetCombination,
+      into: SelectionName
+  ): Either[IntaglioError, Unit] =
+    dispatch(InteractionAction.CombineSelections(left, right, how, into), InputCause.Programmatic)
+
+  def deleteSelection(name: SelectionName): Either[IntaglioError, Unit] =
+    dispatch(InteractionAction.DeleteSelection(name), InputCause.Programmatic)
+
+  /** The durable state (selection, saved selections, viewport, mode) as a versioned snapshot. */
+  def snapshot: Either[IntaglioError, InteractionSnapshot] =
+    state.map(InteractionSnapshot.capture)
+
+  /** Restore a snapshot taken of this plot (possibly in an earlier session): checked against what
+    * is shown now, refused with a typed `SnapshotError` when it cannot mean the same thing, and
+    * applied as one recorded change that follows no link and asks no resolver. A restored viewport
+    * is drawn.
+    */
+  def restore(saved: InteractionSnapshot): Either[IntaglioError, Unit] =
+    for
+      current <- state
+      resolved <- InteractionSnapshot.resolve(saved, current.domain)
+      _ <- dispatch(InteractionAction.RestoreSnapshot(resolved), InputCause.Programmatic)
+    yield ()
+
+  def canUndo: Boolean = commitNavigationThen(history.canUndo)
+  def canRedo: Boolean = commitNavigationThen(history.canRedo)
+
+  /** Undo this plot's last recorded change; `false` when there is nothing to undo. Ctrl/Cmd+Z does
+    * the same from the keyboard.
+    */
+  def undo(): Either[IntaglioError, Boolean] = move(InputCause.Programmatic, undoing = true)
+
+  /** Redo the last undone change; Shift+Ctrl/Cmd+Z or Ctrl+Y from the keyboard. */
+  def redo(): Either[IntaglioError, Boolean] = move(InputCause.Programmatic, undoing = false)
+
+  /** What the current selection means (`InspectorModel.of(state, sample)`): observations, selected
+    * marks and aggregates, coverage, exact members, unresolved keys, saved selections.
+    */
+  def inspector(sample: Int = 20): Either[IntaglioError, InspectorModel[A]] =
+    if sample < 0 then Left(InteractionError.InvalidValue("inspector sample", sample.toString))
+    else state.map(InspectorModel.of(_, sample))
+
+  /** Called with the state now, and again whenever the data revision or the durable state
+    * (selection mode, selection, saved selections, viewports, unresolved keys) changes, including
+    * changes projected in by a link; hover, focus and gestures are not reported. Returns an
+    * unsubscribe function.
+    */
+  def subscribeState(listener: InteractionState[A] => Unit): Either[IntaglioError, () => Unit] =
+    state.map { current =>
+      val id = nextListener
+      nextListener += 1
+      stateListeners = stateListeners :+ (id -> listener)
+      lastReported = Some(durable(current))
+      try listener(current)
+      catch case NonFatal(_) => accept(Left(InteractionError.CallbackFailed("state listener")))
+      () => stateListeners = stateListeners.filterNot(_._1 == id)
+    }
+
+  private def commitNavigationThen[B](value: => B): B =
+    if view.nonEmpty && Platform.isFxApplicationThread then commitNavigation()
+    value
+
+  private def move(cause: InputCause, undoing: Boolean): Either[IntaglioError, Boolean] =
+    checked.flatMap { _ =>
+      // A navigation run still open is recorded first, so the step reads the history after it.
+      commitNavigation()
+      controller.state.flatMap { current =>
+        (if undoing then history.undo(current) else history.redo(current)) match
+          case None                  => Right(false)
+          case Some((action, after)) =>
+            dispatch(action, cause, record = false).map { _ =>
+              history = after
+              true
+            }
+      }
+    }
+
   /** The observation keys this plot draws as marks of their own; a histogram draws none. */
   def drawnEntities: Set[EntityKey[A]] =
     view.fold(Set.empty[EntityKey[A]])(_.navigation.targets.flatMap(_.target.entity).toSet)
@@ -464,11 +576,7 @@ final class JavaFxInteractionHost[A] private (
   def announcement: Either[IntaglioError, String] = checked.map(_ => spoken)
 
   /** The text companion: one row per mark in reading order (with partial-coverage counts), then one
-    * per plot part.
-    *
-    * Interaction 10 hook: when the shared `InspectorModel` lands, this is where the JavaFX host
-    * reads inspector rows; until then it returns the same text-companion rows the browser widget's
-    * table shows, and [[HostCapability.Inspector]] stays refused.
+    * per plot part, as the browser widget's table shows it. [[inspector]] describes the selection.
     */
   def companionRows: Either[IntaglioError, Vector[(String, String)]] =
     checked.map { _ =>
@@ -487,6 +595,7 @@ final class JavaFxInteractionHost[A] private (
   def update(next: JavaFxInteractionView[A]): Either[IntaglioError, Unit] =
     for
       _ <- checked
+      _ = commitNavigation()
       current <- controller.state
       _ <-
         if current.domain.revision == next.domain.revision then Right(())
@@ -508,18 +617,29 @@ final class JavaFxInteractionHost[A] private (
       navigator = JavaFxInteractionHost.navigatorOf(next)
       basePanelFrame = next.panelFrame
       window = PanelWindow.full
+      drawnViewport = None
+      // New data clears history, as InteractionHistory does on a domain replacement; the view's
+      // own resets below are not reader changes and record nothing.
+      if current.domain.revision != next.domain.revision then
+        history = InteractionHistory.empty[A](history.depth).toOption.get
+      swap(next)
       accept(
         dispatch(
           InteractionAction.SetViewport(JavaFxInteractionHost.panelId, None),
-          InputCause.Programmatic
+          InputCause.Programmatic,
+          record = false
         )
       )
       if navigator.isEmpty && Set(GestureMode.Pan, GestureMode.ZoomRectangle).contains(mode) then
         accept(
-          dispatch(InteractionAction.SetGestureMode(GestureMode.Inspect), InputCause.Programmatic)
+          dispatch(
+            InteractionAction.SetGestureMode(GestureMode.Inspect),
+            InputCause.Programmatic,
+            record = false
+          )
         )
-      swap(next)
       spoken = ""
+      reportState()
 
   /** Local logical coordinates, including letterbox rejection, through the exact draw mapping. */
   def toDevice(x: Double, y: Double): Either[IntaglioError, Option[DevicePoint]] =
@@ -571,6 +691,10 @@ final class JavaFxInteractionHost[A] private (
         tooltipTimer.foreach(_.stop())
         tooltipTimer = None
         tooltipShown = None
+        navigationTimer.foreach(_.stop())
+        navigationTimer = None
+        navigationBefore = None
+        stateListeners = Vector.empty
         subscriptions.foreach(_.cancel())
         subscriptions = Vector.empty
         hoverListeners = Vector.empty
@@ -611,17 +735,91 @@ final class JavaFxInteractionHost[A] private (
     sequence += 1
     value
 
+  /** Dispatch through the controller; a committed change by the reader or the application is
+    * recorded in history under the shared rules unless `record` is false (navigation frames inside
+    * a run, undo and redo, the host's own resets).
+    */
   private def dispatch(
       action: InteractionAction[A],
-      cause: InputCause
+      cause: InputCause,
+      record: Boolean = true
   ): Either[IntaglioError, Unit] =
     checked.flatMap { _ =>
-      controller.state.flatMap { current =>
-        controller.dispatch(stamp(current, cause), action).map { _ =>
+      if record then commitNavigation()
+      controller.state.flatMap { before =>
+        controller.dispatch(stamp(before, cause), action).map { _ =>
+          controller.state.foreach { after =>
+            if record then history = history.record(before, after, cause)
+            followViewport(after)
+          }
           redrawOverlay()
-          ()
+          reportState()
         }
       }
+    }
+
+  /** Record a run of continuous navigation as one entry: the state before it to the state now. */
+  private def commitNavigation(): Unit =
+    navigationTimer.foreach(_.stop())
+    navigationTimer = None
+    navigationBefore.foreach { (before, cause) =>
+      navigationBefore = None
+      controller.state.foreach(after => history = history.record(before, after, cause))
+    }
+
+  /** Show one frame of continuous navigation; the run is recorded when it ends or pauses. */
+  private def continuous(value: PanelWindow, cause: InputCause): Either[IntaglioError, Unit] =
+    if navigationBefore.isEmpty then navigationBefore = controller.state.toOption.map(_ -> cause)
+    val shown = showWindow(value, cause, record = false)
+    navigationTimer.foreach(_.stop())
+    val pause = new PauseTransition(Duration.millis(JavaFxInteractionHost.navigationPauseMs))
+    pause.setOnFinished(_ => if navigationTimer.contains(pause) then commitNavigation())
+    navigationTimer = Some(pause)
+    pause.play()
+    shown
+
+  /** Draw the window the state records when it differs from the one drawn: a restore, undo or redo
+    * changed the viewport. Nothing new is recorded in history.
+    */
+  private def followViewport(current: InteractionState[A]): Unit =
+    val wanted = current.viewports.get(JavaFxInteractionHost.panelId)
+    if wanted != drawnViewport then
+      navigator.foreach { nav =>
+        // A categorical axis always shows its compiled extent, so only navigable axes are asked.
+        val (nx, ny) = nav.navigable
+        val target = wanted.fold[Either[IntaglioError, PanelWindow]](Right(PanelWindow.full))(v =>
+          nav.normalize(
+            PanelWindow(Option.when(nx)((v.xMin, v.xMax)), Option.when(ny)((v.yMin, v.yMax)))
+          )
+        )
+        accept(target.flatMap { w =>
+          if w == window then
+            drawnViewport = wanted
+            Right(())
+          else showWindow(w, InputCause.Programmatic, record = false)
+        })
+      }
+
+  private def durable(now: InteractionState[A]): Any =
+    (
+      now.domain.revision,
+      now.selectionMode,
+      now.selection,
+      now.named,
+      now.viewports,
+      now.unresolved
+    )
+
+  /** Tell state listeners of a change of data or durable state, not of hover, focus or gestures. */
+  private def reportState(): Unit =
+    controller.state.foreach { now =>
+      val seen = durable(now)
+      if !lastReported.contains(seen) then
+        lastReported = Some(seen)
+        stateListeners.foreach { (_, listener) =>
+          try listener(now)
+          catch case NonFatal(_) => accept(Left(InteractionError.CallbackFailed("state listener")))
+        }
     }
 
   /** Map input through the shared contract against the live viewport and dispatch it; true when it
@@ -988,7 +1186,7 @@ final class JavaFxInteractionHost[A] private (
           case Some(Drag.Panning(sx, sy, frame)) =>
             moved = moved || math.hypot(dx - sx, dy - sy) > 1
             navigator.foreach(nav =>
-              accept(showWindow(nav.pan(frame, dx - sx, dy - sy), InputCause.Pointer))
+              accept(continuous(nav.pan(frame, dx - sx, dy - sy), InputCause.Pointer))
             )
             true
           case None => false
@@ -1017,7 +1215,9 @@ final class JavaFxInteractionHost[A] private (
             .foreach(area => sweep(area, event))
       case Drag.Trace(points) if moved && points.size >= 3 =>
         PickArea.lasso(points.map((px, py) => DevicePoint(px, py))).foreach(sweep(_, event))
-      case _ => ()
+      // A pan is one history entry, from press to release.
+      case Drag.Panning(_, _, _) => commitNavigation()
+      case _                     => ()
     }
 
   /** Select what a band or lasso covers: Shift adds, Alt subtracts, otherwise it replaces. */
@@ -1080,7 +1280,7 @@ final class JavaFxInteractionHost[A] private (
         frame <- panelFrameNow
       do
         accept(
-          showWindow(nav.zoom(frame, DevicePoint(point._1, point._2), factor), InputCause.Pointer)
+          continuous(nav.zoom(frame, DevicePoint(point._1, point._2), factor), InputCause.Pointer)
         )
 
   /** A trackpad or touch-screen pinch: zoom is absolute from the gesture's start. */
@@ -1100,10 +1300,11 @@ final class JavaFxInteractionHost[A] private (
         do
           val total = event.getTotalZoomFactor
           if total.isFinite && total > 0 then
-            accept(showWindow(nav.zoom(frame, pivot, 1.0 / total), InputCause.Pointer))
+            accept(continuous(nav.zoom(frame, pivot, 1.0 / total), InputCause.Pointer))
         event.consume()
       else if kind == ZoomEvent.ZOOM_FINISHED then
         pinch = None
+        commitNavigation()
         event.consume()
 
   // ---------------------------------------------------------------------------------------------
@@ -1136,7 +1337,20 @@ final class JavaFxInteractionHost[A] private (
         case KeyCode.DIGIT0 | KeyCode.NUMPAD0 =>
           Some(() => accept(showWindow(PanelWindow.full, InputCause.Keyboard)))
         case _ => None
-      if drag.nonEmpty && code == KeyCode.ESCAPE then
+      // Ctrl or Cmd with Z undoes, with Shift redoes; Ctrl+Y also redoes.
+      val command = (event.isControlDown || event.isMetaDown) && !event.isAltDown
+      val historyKey =
+        if command && code == KeyCode.Z then Some(!event.isShiftDown)
+        else if command && event.isControlDown && !event.isShiftDown && code == KeyCode.Y then
+          Some(false)
+        else None
+      if historyKey.nonEmpty && drag.isEmpty then
+        event.consume()
+        accept(
+          (if historyKey.contains(true) then move(InputCause.Keyboard, undoing = true)
+           else move(InputCause.Keyboard, undoing = false)).map(_ => ())
+        )
+      else if drag.nonEmpty && code == KeyCode.ESCAPE then
         // Escape first abandons a drag in progress; a second Escape clears the selection.
         event.consume()
         drag = None
@@ -1164,7 +1378,9 @@ final class JavaFxInteractionHost[A] private (
     (navigator, panelFrameNow) match
       case (Some(nav), Some(frame)) =>
         val centre = DevicePoint(frame.x + frame.width / 2, frame.y + frame.height / 2)
-        showWindow(nav.zoom(frame, centre, factor), cause)
+        // Key zooms in a row are one run, like the browser's; an application's zoomBy is one entry.
+        if cause == InputCause.Keyboard then continuous(nav.zoom(frame, centre, factor), cause)
+        else showWindow(nav.zoom(frame, centre, factor), cause)
       case _ => Left(InteractionError.UnsupportedCapability(unnavigable))
 
   /** The panel frame of the window shown: a re-windowed panel keeps its device frame and spans
@@ -1180,7 +1396,11 @@ final class JavaFxInteractionHost[A] private (
   /** Re-window the base plan and show it. The plan's identity and revision are unchanged, so the
     * interaction state (selection, focus) stands; the viewport is recorded in it.
     */
-  private def showWindow(value: PanelWindow, cause: InputCause): Either[IntaglioError, Unit] =
+  private def showWindow(
+      value: PanelWindow,
+      cause: InputCause,
+      record: Boolean = true
+  ): Either[IntaglioError, Unit] =
     if value == window then Right(())
     else
       for
@@ -1214,7 +1434,12 @@ final class JavaFxInteractionHost[A] private (
               frame.yScale.lower,
               frame.yScale.upper
             ).map(Some(_))
-        _ <- dispatch(InteractionAction.SetViewport(JavaFxInteractionHost.panelId, recorded), cause)
+        _ = drawnViewport = recorded
+        _ <- dispatch(
+          InteractionAction.SetViewport(JavaFxInteractionHost.panelId, recorded),
+          cause,
+          record
+        )
       yield ()
 
   // ---------------------------------------------------------------------------------------------
@@ -1493,6 +1718,9 @@ object JavaFxInteractionHost:
   /** The panel's identity in the interaction state's viewport map, as the browser widget names it.
     */
   private[javafx] val panelId: SemanticId = SemanticId.unsafe(PlotRegion.Panel.value)
+
+  /** How long navigation must pause before its run is recorded as one history entry. */
+  private[javafx] val navigationPauseMs = 400.0
 
   /** Attach a view with the default behaviour (no tooltips or links) under selection `mode`. The
     * focused mark's accessible text is `describe(target)`.

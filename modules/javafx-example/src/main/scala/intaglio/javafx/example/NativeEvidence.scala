@@ -181,6 +181,32 @@ object NativeEvidence:
       "projectedIntoHistogram" -> Json.Num(linkedBins)
     )
 
+    // Interaction 10 on the live stage: the inspector shows the selection, Cmd/Ctrl+Z undoes it,
+    // the redo shortcut brings it back, and a snapshot round-trips through JSON.
+    val inspected = Fx.fx(built.inspector.rows)
+    snapshot(stage, "example-inspector")
+    driver.shortcut(KeyCode.Z)
+    val afterUndo = Fx.fx(ok(scatter.state).selection.entities.size)
+    driver.shortcut(KeyCode.Z, withShift = true)
+    val afterRedo = Fx.fx(ok(scatter.state).selection.entities.size)
+    val restored = Fx.fx {
+      val saved = ok(scatter.snapshot).toJson
+      ok(scatter.setSelection(Selection[String]()))
+      ok(scatter.restore(ok(InteractionSnapshot.fromJson(saved))))
+      ok(scatter.state).selection.entities.size
+    }
+    val observed =
+      inspected.find(r => r.section == "scatter: Selection" && r.label == "Observations selected")
+    val history = check(
+      observed.exists(_.value.startsWith("1: ")) && afterUndo == 0 && afterRedo == 1 &&
+        restored == 1,
+      "inspectorObservations" -> observed.fold(Json.Null)(r => Json.Str(r.value)),
+      "inspectorRows" -> Json.Num(inspected.size),
+      "selectedAfterUndoShortcut" -> Json.Num(afterUndo),
+      "selectedAfterRedoShortcut" -> Json.Num(afterRedo),
+      "selectedAfterSnapshotRestore" -> Json.Num(restored)
+    )
+
     // Pointer hover with the delayed tooltip, through the native scene.
     val (hx, hy) = Fx.fx {
       val g = ok(scatter.currentView).navigation.targets(10)
@@ -252,6 +278,7 @@ object NativeEvidence:
     Json.obj(
       "threadOwnership" -> thread,
       "keyboardFocus" -> focus,
+      "inspectorAndHistory" -> history,
       "hoverTooltip" -> hover,
       "navigation" -> navigation,
       "disposal" -> disposal

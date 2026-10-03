@@ -154,8 +154,7 @@ def mountDescribed(): Either[IntaglioError, JavaFxInteractionHost[Int]] =
   `host.tooltip` reads the content shown.
 - **Announcements**: the focused mark's description (with partial-coverage counts for aggregates)
   is the node's accessible text and `host.announcement`, as the browser's live region says it.
-  `host.companionRows` is the text companion: every mark, then every plot part. This is also the
-  hook for the Interaction 10 inspector, which is not yet available to hosts.
+  `host.companionRows` is the text companion: every mark, then every plot part.
 - **Links** are followed only for pointer or keyboard activation and only through an
   `onLink: TargetLink => Unit` handler (`HostServices.showDocument`, for example). A behaviour whose
   targets carry links is refused at mount without one; a desktop node has no browser location.
@@ -187,6 +186,41 @@ controls. Named scenes, compositions and faceted plots are refused with
 (a `Reconciled` event reports dropped keys), the same revision keeps the state, and the new view is
 the unwindowed base. `JavaFxInteractionView.compileComposition` hosts a composed figure with scoped
 child parts.
+
+## Saved selections, history, snapshots and the inspector
+
+The host exposes [Interaction 10](selection-history.md) through the shared state, with the same
+boundaries as the browser widget:
+
+```scala mdoc:silent
+def keepAndUndo(host: JavaFxInteractionHost[Int]): Either[IntaglioError, Boolean] =
+  for
+    _ <- host.saveSelection(SelectionName.unsafe("first pass"))
+    model <- host.inspector(sample = 10)
+    _ = println(s"${model.observations} observations selected")
+    undone <- host.undo()
+  yield undone
+```
+
+- **Named selections**: `saveSelection`, `recallSelection(name, operation)`,
+  `combineSelections(left, right, SetCombination.Union | Intersection | Difference, into)` and
+  `deleteSelection` dispatch the shared actions; incompatible operands are refused.
+- **Undo and redo**: `undo()`, `redo()`, `canUndo`, `canRedo`, and from the keyboard Ctrl/Cmd+Z,
+  Shift+Ctrl/Cmd+Z and Ctrl+Y. An entry is the durable state before a change by this plot's reader
+  or by an application command; projected input (a link, `setSelection`) records nothing; a pan
+  drag, a run of wheel, pinch or key zoom (until a 400 ms pause) is one entry; a new recorded change
+  clears redo; `update` with a new data revision clears both stacks. Undo and redo apply a
+  `RestoreSnapshot`, so they follow no link and ask no resolver, and a restored viewport is drawn.
+  Undo in one linked host is carried to the group like any reader change.
+- **Snapshots**: `snapshot` captures the durable state; `restore(snapshot)` checks it with
+  `InteractionSnapshot.resolve` and refuses another plan or data revision with a typed
+  `SnapshotError`.
+- **Inspector**: `host.inspector(sample)` is `InspectorModel.of(state, sample)`;
+  `host.subscribeState(listener)` fires with the current state and then only when the data revision
+  or durable state changes (projected changes included; hover and focus are not news).
+  `JavaFxInspector.mount(Vector("label" -> host, ...))` renders the model as text in the rows the
+  browser `InspectorPanel` uses, and `showFilter` reports a `FilterCommand` result; the desktop
+  example shows it beside the plots.
 
 ## Linked hosts
 
@@ -232,7 +266,11 @@ JavaFxCapabilities.require(HostCapability.PngExport).left.map(_.message)
 | Embedding | PNG export | Refused: `host.node.snapshot` and encode in the application | H |
 | Embedding | Standalone HTML | Refused: not applicable to a desktop node | H |
 | Analytical | Aggregate members, deferred resolution, coverage counts | Supported | T, H |
-| Analytical | Inspector, named selections, undo/redo (Interaction 10) | Refused: not yet available to hosts | H |
+| Analytical | Inspector (`InspectorModel`, `JavaFxInspector`) | Supported | H, N |
+| Analytical | Named selections and selection algebra | Supported | H |
+| Analytical | Undo and redo (keyboard and API), navigation runs as one entry | Supported | H, N (keyboard undo/redo) |
+| Analytical | Snapshots and restore | Supported | H, N |
+| Analytical | Filter to a selection (`FilterCommand` + `update`) | Supported | H |
 
 **T**: the shared trace comparison below. **H**: headless Monocle suites
 (`JavaFxHostCapabilitySuite`, `JavaFxInteractionHostSuite`). **N**: the native desktop run.

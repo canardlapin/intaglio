@@ -57,7 +57,12 @@ enum HostCapability(val area: String, val label: String):
   case DeferredMembers extends HostCapability("Analytical", "Deferred member resolution")
   case CoverageEmphasis extends HostCapability("Analytical", "Partial-coverage counts and emphasis")
   case TextCompanion extends HostCapability("Inspection", "Text description of every mark and part")
-  case Inspector extends HostCapability("Analytical", "Inspector, named selections, undo and redo")
+  case Inspector extends HostCapability("Analytical", "Inspector of what a selection means")
+  case NamedSelections
+      extends HostCapability("Analytical", "Named selections and selection algebra")
+  case UndoRedo extends HostCapability("Analytical", "Undo and redo of durable state")
+  case Snapshots extends HostCapability("Analytical", "Versioned snapshots and restore")
+  case FilterToSelection extends HostCapability("Analytical", "Filter a plot to a selection")
 
 /** Whether the JavaFX host provides a capability; a refusal says what to do instead. */
 enum CapabilitySupport:
@@ -105,12 +110,6 @@ object JavaFxCapabilities:
         Unsupported(
           "a desktop node has no HTML packaging",
           "use intaglio-browser's standalone widget for HTML"
-        )
-      case Inspector =>
-        Unsupported(
-          "the Interaction 10 inspector, named selections and undo are not yet available to hosts",
-          "read host.companionRows (text descriptions) and host.state; snapshot selections in " +
-            "the application"
         )
       case _ => Supported
 

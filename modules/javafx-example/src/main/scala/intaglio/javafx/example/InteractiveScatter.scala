@@ -34,9 +34,11 @@ object ExampleScene:
       scatter: JavaFxInteractionHost[String],
       histogram: JavaFxInteractionHost[String],
       link: JavaFxLink[String],
+      inspector: JavaFxInspector[String],
       status: Text
   ):
     def dispose(): Unit =
+      inspector.dispose()
       link.dispose()
       scatter.dispose()
       histogram.dispose()
@@ -153,10 +155,16 @@ object ExampleScene:
     val help = new Text(
       "Arrows / Page Up / Page Down move focus; Enter selects; Escape clears; + / - / 0 zoom.\n" +
         "Modes: I inspect, S select area, L lasso, P pan, Z zoom to area. Wheel zooms a focused " +
-        "plot; pinch zooms."
+        "plot; pinch zooms.\nCtrl/Cmd+Z undoes, Shift+Ctrl/Cmd+Z redoes; N saves the selection " +
+        "by name, U recalls the union of the saved selections."
     )
     help.setFont(Font.font(12))
-    val plots = new HBox(16, scatter.node, histogram.node)
+    // The shared InspectorModel of both plots, as text, live as either plot changes.
+    val inspector = ok(
+      JavaFxInspector.mount(Vector("scatter" -> scatter, "histogram" -> histogram))
+    )
+    inspector.node.setMinWidth(260)
+    val plots = new HBox(16, scatter.node, histogram.node, inspector.node)
     val root = new VBox(10, plots, status, help)
     root.setStyle("-fx-padding: 16; -fx-background-color: white;")
     // Mode keys the host leaves alone reach the application; the host has no toolbar of its own.
@@ -164,12 +172,42 @@ object ExampleScene:
       KeyEvent.KEY_PRESSED,
       (event: KeyEvent) =>
         val mode = event.getCode match
-          case KeyCode.I => Some(GestureMode.Inspect)
-          case KeyCode.S => Some(GestureMode.Rectangle)
-          case KeyCode.L => Some(GestureMode.Lasso)
-          case KeyCode.P => Some(GestureMode.Pan)
-          case KeyCode.Z => Some(GestureMode.ZoomRectangle)
-          case _         => None
+          case KeyCode.I                          => Some(GestureMode.Inspect)
+          case KeyCode.S                          => Some(GestureMode.Rectangle)
+          case KeyCode.L                          => Some(GestureMode.Lasso)
+          case KeyCode.P                          => Some(GestureMode.Pan)
+          case KeyCode.Z if !event.isShortcutDown => Some(GestureMode.ZoomRectangle)
+          case _                                  => None
+        val target = if histogram.node.isFocused then histogram else scatter
+        event.getCode match
+          case KeyCode.N =>
+            val count = target.state.toOption.fold(0)(_.named.size) + 1
+            val name = SelectionName.unsafe(s"saved $count")
+            say(
+              target
+                .saveSelection(name)
+                .fold(e => s"Refused: ${e.message}", _ => s"Saved ${name.value}")
+            )
+            event.consume()
+          case KeyCode.U =>
+            val names = target.state.toOption.toVector.flatMap(_.named.keys).sortBy(_.value)
+            val all = SelectionName.unsafe("all saved")
+            // Fold every saved selection into one union, then recall it.
+            val combined: Either[IntaglioError, Unit] =
+              if names.isEmpty then
+                Left(InteractionError.InvalidValue("saved selections", "none saved"))
+              else
+                val union = names.tail.foldLeft[Either[IntaglioError, SelectionName]](
+                  Right(names.head)
+                ) { (done, next) =>
+                  done.flatMap(left =>
+                    target.combineSelections(left, next, SetCombination.Union, all).map(_ => all)
+                  )
+                }
+                union.flatMap(target.recallSelection(_, SelectionOperation.Replace))
+            say(combined.fold(e => s"Refused: ${e.message}", _ => "Recalled the saved selections"))
+            event.consume()
+          case _ => ()
         mode.foreach { value =>
           val target = if histogram.node.isFocused then histogram else scatter
           say(
@@ -178,7 +216,7 @@ object ExampleScene:
           event.consume()
         }
     )
-    Built(root, scatter, histogram, link, status)
+    Built(root, scatter, histogram, link, inspector, status)
 
 final class InteractiveScatterApp extends Application:
   private var built = Option.empty[ExampleScene.Built]

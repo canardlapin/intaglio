@@ -155,8 +155,7 @@ class JavaFxHostCapabilitySuite extends munit.FunSuite:
         HostCapability.Toolbar,
         HostCapability.Fullscreen,
         HostCapability.PngExport,
-        HostCapability.StandaloneHtml,
-        HostCapability.Inspector
+        HostCapability.StandaloneHtml
       )
     )
     unsupported.foreach { (capability, reason, instead) =>
@@ -168,6 +167,14 @@ class JavaFxHostCapabilitySuite extends munit.FunSuite:
         case other => fail(s"$capability: $other")
     }
     assertEquals(JavaFxCapabilities.require(HostCapability.Pan), Right(()))
+    for c <- Vector(
+        HostCapability.Inspector,
+        HostCapability.NamedSelections,
+        HostCapability.UndoRedo,
+        HostCapability.Snapshots,
+        HostCapability.FilterToSelection
+      )
+    do assertEquals(JavaFxCapabilities.require(c), Right(()), c.toString)
     assertEquals(JavaFxCapabilities.matrix.size, HostCapability.values.length)
   }
 

@@ -68,7 +68,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `JavaFxInteractionView.compileComposition` hosts composed figures, and
   `JavaFxCapabilities` lists every capability, refusing unsupported ones with an
   actionable `InteractionError.UnsupportedCapability`. `attach` keeps its
-  behaviour. `JavaFxOverlayStyle` gains `linked` and `covered` strokes.
+  behaviour. `JavaFxOverlayStyle` gains `linked` and `covered` strokes. The host
+  carries Interaction 10 with the browser's boundaries: saved selections and
+  their algebra, undo/redo through `InteractionHistory` (keyboard and API; a
+  navigation run is one entry; projected input is never recorded), snapshots,
+  `inspector(sample)` and `subscribeState`; `JavaFxInspector` renders
+  `InspectorModel` and filter reports as text.
   Shared trace scripts (`tools/trace`, `tools/check-host-trace-browser.cjs`)
   yield equal events, selected keys, tooltips and announcements in the browser
   (SVG and Canvas) and JavaFX; the unpublished `javafxExample` project holds the
