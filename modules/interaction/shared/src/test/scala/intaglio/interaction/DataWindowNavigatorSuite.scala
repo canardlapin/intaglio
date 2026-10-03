@@ -160,10 +160,59 @@ class DataWindowNavigatorSuite extends munit.FunSuite:
     apply(host.region(state, area(10.5, 40.5), AreaRule.CenterInside, SelectionOperation.Replace))
     assertEquals(state.selection.entities.map(_.value), expected(10.5, 40.5))
     apply(host.region(state, area(60.5, 80.5), AreaRule.CenterInside, SelectionOperation.Add))
-    assertEquals(state.selection.entities.map(_.value), expected(10.5, 40.5) ++ expected(60.5, 80.5))
+    assertEquals(
+      state.selection.entities.map(_.value),
+      expected(10.5, 40.5) ++ expected(60.5, 80.5)
+    )
     apply(host.region(state, area(20.5, 70.5), AreaRule.CenterInside, SelectionOperation.Subtract))
     assertEquals(
       state.selection.entities.map(_.value),
       (expected(10.5, 40.5) ++ expected(60.5, 80.5)) -- expected(20.5, 70.5)
     )
+  }
+
+  test("an application window is checked, shifted inside the extent, and full means compiled") {
+    val nav = ok(DataWindowNavigator.of(linear, context))
+    assert(nav.normalize(PanelWindow(Some((0.6, 0.2)), None)).isLeft, "reversed")
+    assert(nav.normalize(PanelWindow(Some((0.1, Double.NaN)), None)).isLeft, "not finite")
+    assertEquals(ok(nav.normalize(PanelWindow(Some((-0.2, 0.3)), None))).x, Some((0.0, 0.5)))
+    assertEquals(
+      ok(nav.normalize(PanelWindow(Some((0.0, 1.0)), Some((-1.0, 2.0))))),
+      PanelWindow.full
+    )
+    val raw = compile(plot(rows).aes(_.x, _.y).geomPoint())
+    val rawNav = ok(DataWindowNavigator.of(raw, context))
+    val extent = panel(raw).frame.xScale
+    assertEquals(
+      ok(rawNav.normalize(PanelWindow(Some((extent.lower - 5, extent.lower + 5)), None))).x,
+      Some((extent.lower, extent.lower + 10))
+    )
+  }
+
+  test("zooming in on a date axis stops at a window the axis can still show") {
+    val dated = compile(
+      plot(rows)
+        .aes(_.x, _.y)
+        .scaleXDate(_.day)
+        .encode(Aesthetic.Y, _.y, ok(ContinuousScaleSpec("y", Palette.numeric)))
+        .geomPoint()
+    )
+    val nav = ok(DataWindowNavigator.of(dated, context))
+    var plan = dated
+    var shown = Vector.empty[CoordinateWindow]
+    (1 to 40).foreach { _ =>
+      val frame = panel(plan).frame
+      val centre = DevicePoint(frame.x + frame.width / 2, frame.y + frame.height / 2)
+      val window = nav.zoom(frame, centre, 0.5)
+      val (x, _) = ok(nav.windows(window))
+      x.foreach(w => shown :+= w)
+      plan = ok(InteractionCompiler.rezoom(dated, x, None))
+    }
+    val last = shown.last match
+      case CoordinateWindow.Date(range) => range
+      case other                        => fail(s"expected a date window, got $other")
+    assert(last.lower != last.upper, s"zoom stopped before a one-day window: $last")
+    val day = 1.0 / 58.0 // the domain spans 58 days
+    assert(nav.normalize(PanelWindow(Some((0.5, 0.5 + day / 10)), None)).isLeft, "one value")
+    assertEquals(shown.takeRight(5).distinct.size, 1, "further zoom-in keeps the last window")
   }

@@ -78,7 +78,12 @@ final class HostInput[A](
         Right(
           if state.hover.isEmpty then Vector.empty else Vector(act(InteractionAction.Hover(None)))
         )
-      case PointerInput.Press   => Right(Vector(act(InteractionAction.BeginGesture(0))))
+      // A second contact (the other finger of a pinch) joins the open gesture.
+      case PointerInput.Press =>
+        Right(
+          if state.gesture.nonEmpty then Vector.empty
+          else Vector(act(InteractionAction.BeginGesture(0)))
+        )
       case PointerInput.Release =>
         Right(
           if state.gesture.isEmpty then Vector.empty

@@ -70,12 +70,16 @@ async function main() {
         inside: t.left >= r.left - 0.5 && t.right <= r.right + 0.5 && t.top >= r.top - 0.5 && t.bottom <= r.bottom + 0.5 };
     }, slot);
 
-    await check('two widgets, no duplicate ids, one tab stop per plot', async () => {
+    await check('two widgets, no duplicate ids, one tab stop per plot and per toolbar', async () => {
       const ids = await fx(() => [...document.querySelectorAll('[id]')].map(e => e.id));
       assert.equal(new Set(ids).size, ids.length, `duplicate ids: ${ids}`);
-      const stops = await fx(() => ['left', 'right'].map(s =>
-        [...document.querySelectorAll(`[data-intaglio-widget=${s}] [tabindex="0"], [data-intaglio-widget=${s}] summary`)].length));
-      assert.deepEqual(stops, [2, 2], 'plot plus the companion toggle, not one stop per mark');
+      const stops = await fx(() => ['left', 'right'].map(s => {
+        const root = `[data-intaglio-widget=${s}]`;
+        const sequential = document.querySelectorAll(
+          `${root} [tabindex="0"], ${root} summary, ${root} button:not([tabindex="-1"]):not([hidden])`);
+        return new Set(sequential).size;
+      }));
+      assert.deepEqual(stops, [3, 3], 'toolbar, plot and companion toggle; not one stop per mark or button');
       return { ids: ids.length, stops };
     });
 
@@ -90,6 +94,41 @@ async function main() {
       await fx(() => { document.querySelector('[data-intaglio-widget=left] details').open = false; });
       assert.equal(opened, before);
       return { before, opened };
+    });
+
+    await check('long tooltip fields wrap within narrow widgets without losing text', async () => {
+      const token = 'participant_' + '0123456789'.repeat(6);
+      const results = [];
+      for (const width of [480, 240, 160]) {
+        await fx(([width, token]) => {
+          document.getElementById('left').style.width = `${width}px`;
+          window.intaglioFixture.setTooltipNote(token);
+        }, [width, token]);
+        await tab.waitForTimeout(100); // settle ResizeObserver before keyboard focus
+        await tab.locator('[data-intaglio-widget=left] .intaglio-plot').focus();
+        await tab.keyboard.press('End');
+        await tab.keyboard.press('Home');
+        const box = await fx(() => {
+          const root = document.querySelector('[data-intaglio-widget=left]');
+          const tip = root.querySelector('.intaglio-tooltip');
+          const r = root.getBoundingClientRect(), t = tip.getBoundingClientRect();
+          return { hidden: tip.hidden, text: tip.textContent, width: r.width,
+            inside: t.left >= r.left - 0.5 && t.right <= r.right + 0.5,
+            scrollWidth: tip.scrollWidth, clientWidth: tip.clientWidth };
+        });
+        await tab.screenshot({ path: path.join(out, `long-tooltip-${width}.png`) });
+        assert.equal(box.hidden, false);
+        assert.ok(box.text.includes(token), 'full identifier remains available');
+        assert.ok(box.inside && box.scrollWidth <= box.clientWidth + 1, JSON.stringify(box));
+        results.push(box);
+      }
+      await fx(() => {
+        document.getElementById('left').style.width = '480px';
+        window.intaglioFixture.setTooltipNote('<b>not markup</b>');
+        document.activeElement.blur();
+      });
+      await tab.waitForTimeout(100);
+      return results;
     });
 
     const marks = await fx(() => window.intaglioFixture.markCount('left'));
@@ -178,6 +217,12 @@ async function main() {
       // Reset the sequential focus starting point to the page top, as a reader clicking the page
       // background would; Tab then reaches the first widget's plot.
       await tab.mouse.click(5, 5);
+      await tab.keyboard.press('Tab');
+      const toolbarStop = await fx(() => [document.activeElement.closest('.intaglio-toolbar') !== null,
+        document.activeElement.getAttribute('aria-pressed')]);
+      assert.deepEqual(toolbarStop, [true, 'true'], 'the toolbar is one stop, at its active mode');
+      await tab.keyboard.press('ArrowRight');
+      assert.equal(await fx(() => document.activeElement.textContent), 'Select area');
       await tab.keyboard.press('Tab');
       const focused = await fx(() => document.activeElement.closest('[data-intaglio-widget]')?.dataset.intaglioWidget);
       assert.equal(focused, 'left');

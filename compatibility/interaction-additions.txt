@@ -107,6 +107,8 @@ DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$4
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$5
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$6
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$7
+DirectMissingMethodProblem intaglio.PlotCompiler.resolveRetainingTraining
+DirectMissingMethodProblem intaglio.PlotCompiler.rezoomPlaced
 MissingClassProblem intaglio.PositionCompanions
 MissingClassProblem intaglio.PositionCompanions$
 MissingClassProblem intaglio.RasterGeom
@@ -175,8 +177,11 @@ MissingClassProblem intaglio.ViewportFrameError$UnavailableAxis
 MissingClassProblem intaglio.ViewportFrameError$UnavailableAxis$
 MissingClassProblem intaglio.interaction.CoverageEntry
 MissingClassProblem intaglio.interaction.CoverageEntry$
+DirectMissingMethodProblem intaglio.interaction.InteractionCompiler.rezoom
 MissingClassProblem intaglio.interaction.InteractionCoverage
 MissingClassProblem intaglio.interaction.InteractionCoverage$
+DirectMissingMethodProblem intaglio.interaction.InteractionPlan.this
+DirectMissingMethodProblem intaglio.interaction.InteractionPlan.training
 DirectMissingMethodProblem intaglio.interaction.LinkKeys.contains
 MissingClassProblem intaglio.interaction.PartTarget
 MissingClassProblem intaglio.interaction.PartTarget$

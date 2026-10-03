@@ -2592,8 +2592,21 @@ private[intaglio] object LayoutPhase:
       ranges: Option[(Interval, Interval)],
       specs: Vector[GuideSpec],
       labels: PlotLabels,
-      marks: Vector[Grob] = Vector.empty,
-      frozen: Option[PlotFrames] = None
+      marks: Vector[Grob] = Vector.empty
+  ): Either[GraphicsError, LayoutResolution] =
+    assembleWithin(coord, options, ranges, specs, labels, marks, None)
+
+  /** [[assemble]], optionally inside frames already solved for this plot (data-window navigation
+    * keeps the panel where the original compile put it).
+    */
+  def assembleWithin(
+      coord: Coord,
+      options: PlotCompilerOptions,
+      ranges: Option[(Interval, Interval)],
+      specs: Vector[GuideSpec],
+      labels: PlotLabels,
+      marks: Vector[Grob],
+      frozen: Option[PlotFrames]
   ): Either[GraphicsError, LayoutResolution] =
     val clip = coordClip(coord)
     (options.layout, options.frame, options.policy, ranges) match

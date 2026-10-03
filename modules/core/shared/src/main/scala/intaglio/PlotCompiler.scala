@@ -808,7 +808,7 @@ object PlotCompiler:
     val layoutPolicy = resolvedOptions.policy.getOrElse(resolvedOptions.theme.layoutPolicy)
     for
       resolution <- PhaseClock.timed(PhaseClock.Phase.Layout)(
-        LayoutPhase.assemble(
+        LayoutPhase.assembleWithin(
           trained.coord,
           resolvedOptions,
           single.ranges,

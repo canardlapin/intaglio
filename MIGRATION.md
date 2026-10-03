@@ -30,6 +30,22 @@ name, `copy`, and the builder methods are unaffected, and the default,
     case PlotCompilerOptions(layout, frame, policy, margins, expansion, guides, theme, context, provenance, _) => ...
   ```
 
+### `GestureMode` gained `ZoomRectangle`
+
+A host that matched every `GestureMode` (`Inspect`, `Pan`, `Rectangle`, `Lasso`)
+now gets a non-exhaustiveness warning, and `ZoomRectangle` reaching that match
+throws `MatchError`. Handle the new mode, a drag whose rectangle becomes the
+data window (`DataWindowNavigator.rectangle`), or treat it as `Rectangle`:
+
+```scala
+mode match
+  case GestureMode.Inspect       => ...
+  case GestureMode.Pan           => ...
+  case GestureMode.Rectangle     => ...
+  case GestureMode.Lasso         => ...
+  case GestureMode.ZoomRectangle => ...
+```
+
 ### `DisplayThreshold` and `DisplayError` gained cases
 
 `DisplayThreshold` gained `Below`, `Above` and `TwoSided`; `DisplayError` gained

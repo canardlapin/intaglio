@@ -57,6 +57,14 @@ private[interaction] enum NavigableAxis:
         yield w
       case Fixed => Left(InteractionError.UnsupportedCapability("navigating a non-numeric axis"))
 
+private[interaction] object NavigableAxis:
+  /** A window whose two ends name the same value (one day on a date axis zoomed below a day). */
+  def degenerate(window: CoordinateWindow): Boolean =
+    window match
+      case CoordinateWindow.Numeric(range)  => !(range.upper > range.lower)
+      case CoordinateWindow.Date(range)     => range.lower == range.upper
+      case CoordinateWindow.DateTime(range) => range.lower == range.upper
+
 /** Pure data-window navigation for one single-panel plan: zoom about a point, pan, rubber-band
   * rectangles, and the bounds that keep a window inside the trained extent. All arithmetic is in
   * panel position units, so it is linear on every axis kind; [[windows]] converts the result back
@@ -90,6 +98,51 @@ final class DataWindowNavigator private (x: NavigableAxis, y: NavigableAxis):
         Some(shifted)
     }
 
+  /** A narrower window, unless the axis cannot show it (narrower than its smallest data step, such
+    * as one day on a date axis, or than float resolution): then zooming stops at `current`.
+    */
+  private def narrowed(
+      axis: NavigableAxis,
+      current: (Double, Double),
+      lo: Double,
+      hi: Double
+  ): Option[(Double, Double)] =
+    val next = clamp(axis, lo, hi)
+    val showable = next.forall { (a, b) =>
+      val full = axis.bounds.fold(1.0)((b0, b1) => b1 - b0)
+      (b - a) > full * 1e-9 && axis.window(a, b).exists(w => !NavigableAxis.degenerate(w))
+    }
+    if showable then next else clamp(axis, current._1, current._2)
+
+  /** `window` checked and brought inside the bounds: each interval must be finite and increasing;
+    * it is shifted inside the extent, and an interval covering the extent becomes `None`. Refused
+    * on an axis that cannot be navigated.
+    */
+  def normalize(window: PanelWindow): Either[IntaglioError, PanelWindow] =
+    def axisOf(axis: NavigableAxis, name: String, value: Option[(Double, Double)]) =
+      value match
+        case None           => Right(None)
+        case Some((lo, hi)) =>
+          if !lo.isFinite || !hi.isFinite || lo >= hi then
+            Left(InteractionError.InvalidValue(s"$name window", s"($lo, $hi)"))
+          else if axis.bounds.isEmpty then
+            Left(InteractionError.UnsupportedCapability(s"navigating the $name axis"))
+          else
+            val clamped = clamp(axis, lo, hi)
+            clamped.fold(Right(None)) { (a, b) =>
+              axis.window(a, b).flatMap { w =>
+                if NavigableAxis.degenerate(w) then
+                  Left(
+                    InteractionError.InvalidValue(s"$name window", s"($lo, $hi) shows one value")
+                  )
+                else Right(clamped)
+              }
+            }
+    for
+      nx <- axisOf(x, "x", window.x)
+      ny <- axisOf(y, "y", window.y)
+    yield PanelWindow(nx, ny)
+
   /** Zoom by `factor` (below 1 zooms in) about a device point, keeping that point's data fixed. */
   def zoom(frame: DeviceFrame, pivot: DevicePoint, factor: Double): PanelWindow =
     val (px, py) = position(frame, pivot)
@@ -97,7 +150,7 @@ final class DataWindowNavigator private (x: NavigableAxis, y: NavigableAxis):
     def scaled(p: Double, a: Double, b: Double) = (p + (a - p) * factor, p + (b - p) * factor)
     val (nx0, nx1) = scaled(px, x0, x1)
     val (ny0, ny1) = scaled(py, y0, y1)
-    PanelWindow(clamp(x, nx0, nx1), clamp(y, ny0, ny1))
+    PanelWindow(narrowed(x, (x0, x1), nx0, nx1), narrowed(y, (y0, y1), ny0, ny1))
 
   /** Pan by a device-pixel drag: the data under the pointer follows the pointer. */
   def pan(frame: DeviceFrame, dxDevice: Double, dyDevice: Double): PanelWindow =
@@ -120,9 +173,10 @@ final class DataWindowNavigator private (x: NavigableAxis, y: NavigableAxis):
   def rectangle(frame: DeviceFrame, a: DevicePoint, b: DevicePoint): PanelWindow =
     val (ax, ay) = position(frame, a)
     val (bx, by) = position(frame, b)
+    val ((x0, x1), (y0, y1)) = current(frame)
     PanelWindow(
-      clamp(x, math.min(ax, bx), math.max(ax, bx)),
-      clamp(y, math.min(ay, by), math.max(ay, by))
+      narrowed(x, (x0, x1), math.min(ax, bx), math.max(ax, bx)),
+      narrowed(y, (y0, y1), math.min(ay, by), math.max(ay, by))
     )
 
   /** Typed data windows for [[InteractionCompiler.rezoom]]; `None` where the axis is full. */

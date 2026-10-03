@@ -19,7 +19,9 @@ final class SvgWidgetView[A] private (
     val emphasisMarkup: String,
     val picking: PickingPlan[A],
     val navigation: NavigationPlan[A],
-    val parts: PartPicking
+    val parts: PartPicking,
+    val title: Option[String],
+    val panelFrame: Option[DeviceFrame]
 ):
   def width: Int = context.width
   def height: Int = context.height
@@ -54,13 +56,17 @@ object SvgWidgetView:
       parts <- PartPicking.fromResolved(plan.trained, device, context)
       markup <- SvgRenderer.render(renderPlan, title, SvgFonts.empty, idPrefix)
       emphasis <- SvgRenderer.render(renderPlan, None, SvgFonts.empty, s"$idPrefix-emphasis")
-    yield new SvgWidgetView(
-      plan,
-      context,
-      idPrefix,
-      markup.value,
-      emphasis.value,
-      picking,
-      picking.prepareNavigation(),
-      parts
-    )
+    yield
+      val panel = device.frame(PlotRegion.Panel).toOption.map(_.frame)
+      new SvgWidgetView(
+        plan,
+        context,
+        idPrefix,
+        markup.value,
+        emphasis.value,
+        picking,
+        picking.prepareNavigation(),
+        parts,
+        title,
+        panel
+      )

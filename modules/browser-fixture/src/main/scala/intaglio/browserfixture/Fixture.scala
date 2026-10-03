@@ -74,6 +74,8 @@ object Fixture:
 
   private val byId = trials.map(t => t.id -> t).toMap
 
+  private var tooltipNote = "<b>not markup</b>"
+
   private val scatterBehavior: InteractionBehavior[String] =
     InteractionBehavior
       .default[String]
@@ -85,7 +87,7 @@ object Fixture:
               Vector(
                 orThrow(TargetField("RT", s"${trial.rt.toInt} ms")),
                 orThrow(TargetField("accuracy", f"${trial.accuracy}%.2f")),
-                orThrow(TargetField("note", "<b>not markup</b>"))
+                orThrow(TargetField("note", tooltipNote))
               )
             )
           )
@@ -116,6 +118,7 @@ object Fixture:
 
   def main(args: Array[String]): Unit =
     if g.document.getElementById("linked-a") != null then LinkedFixture.run()
+    else if g.document.getElementById("nav-linear") != null then NavigationFixture.run()
     else widgetPage()
 
   private def widgetPage(): Unit =
@@ -213,5 +216,6 @@ object Fixture:
       setSelection = (ids: js.Array[String]) => setSelection(ids),
       dispose = (slot: String) => dispose(slot),
       selected = (slot: String) => selected(slot),
+      setTooltipNote = (value: String) => { tooltipNote = value },
       ready = true
     )

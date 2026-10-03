@@ -14,6 +14,9 @@ enum InputCause:
 enum GestureMode:
   case Inspect, Pan, Rectangle, Lasso
 
+  /** Drag a rectangle to zoom the data window to it. */
+  case ZoomRectangle
+
 enum MissingEntityPolicy:
   case Drop, Preserve
 

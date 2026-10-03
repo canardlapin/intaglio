@@ -15,6 +15,12 @@ private[browser] final class Listeners:
     target.addEventListener(kind, fn)
     entries = entries :+ ((target, kind, fn))
 
+  /** A non-passive listener, for handlers that must be able to prevent the default (wheel zoom). */
+  def active(target: js.Dynamic, kind: String)(handler: js.Dynamic => Unit): Unit =
+    val fn: js.Function1[js.Dynamic, Unit] = handler
+    target.addEventListener(kind, fn, js.Dynamic.literal(passive = false))
+    entries = entries :+ ((target, kind, fn))
+
   def size: Int = entries.length
 
   def clear(): Unit =
@@ -66,6 +72,37 @@ final class SvgWidget[A] private (
   private var linkedEmphasis: LinkedEmphasis[A] = LinkedEmphasis.none[A]
   private var legendEmphasis: LinkedEmphasis[A] = LinkedEmphasis.none[A]
   private var hoverListeners = Vector.empty[(Long, LinkedEmphasis[A] => Unit)]
+
+  // ---- Data-window navigation and region gestures ----
+  /** The compiled, unwindowed plan every window is taken from. */
+  private var basePlan: InteractionPlan[A] = view.plan
+
+  /** The compiled view itself, shown again on reset rather than re-placed. */
+  private var baseView: SvgWidgetView[A] = view
+  private var navigator: Option[DataWindowNavigator] = SvgWidget.navigatorOf(view)
+
+  /** The unwindowed panel frame; a window's frame is this one with the window's position ranges. */
+  private var basePanelFrame: Option[DeviceFrame] = view.panelFrame
+  private var window: PanelWindow = PanelWindow.full
+  private var pendingCause: InputCause = InputCause.Pointer
+  private var magnification = 1.0
+  private var pendingWindow: Option[PanelWindow] = None
+  private var windowFrame: Option[js.Dynamic] = None
+  private enum Drag:
+    case Band(startX: Double, startY: Double, x: Double, y: Double)
+    case Trace(points: Vector[(Double, Double)])
+
+    /** Pans are absolute from the gesture's start and its frame, so coalescing loses no motion. */
+    case Panning(startX: Double, startY: Double, frame: DeviceFrame)
+  private var drag: Option[Drag] = None
+  private var moved = false
+  private val touches = scala.collection.mutable.LinkedHashMap.empty[Double, (Double, Double)]
+
+  /** A pinch's starting finger distance, midpoint and panel frame; zoom is absolute from them. */
+  private var pinch: Option[(Double, DevicePoint, DeviceFrame)] = None
+  private val toolbar = element("div")
+  private var buttons = Vector.empty[(Option[GestureMode], js.Dynamic, Boolean)]
+  private val gestureLayer = svgElement("svg")
 
   /** The live link this widget belongs to, if any; a widget joins at most one. */
   private[browser] var link: Option[AnyRef] = None
@@ -163,7 +200,33 @@ final class SvgWidget[A] private (
         setHoveredPart(None)
         emitHover(LinkedEmphasis.none[A])
         legendEmphasis = LinkedEmphasis.none[A]
+        // A new view from the application is the new compiled base; its window is full.
+        cancelGesture()
+        clearGestureLayer()
+        // A pointer still held open its gesture in the state; end it, or the mode cannot change.
+        if controller.state.exists(_.gesture.nonEmpty) then
+          dispatch(InteractionAction.EndGesture(true), InputCause.Programmatic).left.foreach(report)
+        basePlan = next.plan
+        baseView = next
+        navigator = SvgWidget.navigatorOf(next)
+        basePanelFrame = next.panelFrame
+        window = PanelWindow.full
+        pendingWindow = None
+        // The state's recorded viewport and a navigation-only mode follow the new full view.
+        dispatch(
+          InteractionAction.SetViewport(SvgWidget.panelId, None),
+          InputCause.Programmatic
+        ).left
+          .foreach(report)
+        if navigator.isEmpty && (mode == GestureMode.Pan || mode == GestureMode.ZoomRectangle) then
+          dispatch(
+            InteractionAction.SetGestureMode(GestureMode.Inspect),
+            InputCause.Programmatic
+          ).left
+            .foreach(report)
+        refreshToolbar()
         view = next
+        applyMagnification()
         input = HostInput(view.picking, view.navigation, unitViewport, behavior)
         live.textContent = ""
         hideTooltip()
@@ -174,6 +237,37 @@ final class SvgWidget[A] private (
   /** The observation keys this plot draws as marks of their own; a histogram draws none. */
   def drawnEntities: Set[EntityKey[A]] =
     view.navigation.targets.flatMap(_.target.entity).toSet
+
+  /** Show the data window `value` (in panel position units; [[PanelWindow.full]] resets). The
+    * statistics are not recomputed; marks, targets and selection stay. Refused when the plot cannot
+    * be navigated (faceted, flipped, or with no numeric or temporal axis).
+    */
+  def navigate(value: PanelWindow): Either[IntaglioError, Unit] =
+    navigator match
+      case None      => Left(InteractionError.UnsupportedCapability("navigating this plot"))
+      case Some(nav) => nav.normalize(value).flatMap(showWindow(_, InputCause.Programmatic))
+
+  /** The data window currently shown. */
+  def currentWindow: PanelWindow = window
+
+  /** Whole-scene magnification: draw the plot `factor` times its compiled size, marks and text
+    * together, which data-window navigation never does. Picking follows the drawn size.
+    */
+  def magnify(factor: Double): Either[IntaglioError, Unit] =
+    if !factor.isFinite || factor <= 0 then
+      Left(InteractionError.InvalidValue("magnification", s"$factor"))
+    else
+      magnification = factor
+      applyMagnification()
+      hideTooltip()
+      scheduleRedraw()
+      Right(())
+
+  /** 1 is the widget's default responsive width; any other factor is a fixed CSS width of `factor`
+    * times the compiled width (it follows the compiled width across [[update]]).
+    */
+  private def applyMagnification(): Unit =
+    plotHost.style.width = if magnification == 1.0 then "" else s"${view.width * magnification}px"
 
   def isDisposed: Boolean = disposed
 
@@ -194,6 +288,8 @@ final class SvgWidget[A] private (
       resizeObserver = None
       frame.foreach(handle => g.cancelAnimationFrame(handle))
       frame = None
+      windowFrame.foreach(handle => g.cancelAnimationFrame(handle))
+      windowFrame = None
       tooltipTimer.foreach(handle => g.clearTimeout(handle))
       tooltipTimer = None
       controller.dispose()
@@ -247,6 +343,11 @@ final class SvgWidget[A] private (
     companion.appendChild(summary)
     companion.appendChild(table)
     plotHost.appendChild(overlay)
+    gestureLayer.setAttribute("class", "intaglio-gesture")
+    gestureLayer.setAttribute("aria-hidden", "true")
+    plotHost.appendChild(gestureLayer)
+    buildToolbar()
+    root.appendChild(toolbar)
     root.appendChild(plotHost)
     root.appendChild(tooltip)
     root.appendChild(live)
@@ -265,6 +366,7 @@ final class SvgWidget[A] private (
     svg.classList.add("intaglio-base")
     plotHost.insertBefore(svg, overlay)
     overlay.setAttribute("viewBox", s"0 0 ${view.width} ${view.height}")
+    gestureLayer.setAttribute("viewBox", s"0 0 ${view.width} ${view.height}")
 
   private def fillCompanion(): Unit =
     companionBody.textContent = ""
@@ -285,8 +387,9 @@ final class SvgWidget[A] private (
   private def wire(): Unit =
     listeners.on(plotHost, "pointermove") { event =>
       pointer = Some((event.clientX.asInstanceOf[Double], event.clientY.asInstanceOf[Double]))
-      withInput(input.pointer(_, PointerInput.Move(pointer.get._1, pointer.get._2)))
-      hoverPart()
+      if !gestureMove(event) then
+        withInput(input.pointer(_, PointerInput.Move(pointer.get._1, pointer.get._2)))
+        hoverPart()
     }
     listeners.on(plotHost, "pointerleave") { _ =>
       pointer = None
@@ -301,26 +404,29 @@ final class SvgWidget[A] private (
         try plotHost.setPointerCapture(event.pointerId)
         catch case NonFatal(_) => ()
         withInput(input.pointer(_, PointerInput.Press))
+        gestureStart(event)
     }
     listeners.on(plotHost, "pointercancel") { _ =>
+      cancelGesture()
       withInput(input.pointer(_, PointerInput.Cancel))
     }
-    listeners.on(plotHost, "lostpointercapture") { _ =>
+    listeners.on(plotHost, "lostpointercapture") { event =>
+      touches.remove(event.pointerId.asInstanceOf[Double])
+      if drag.nonEmpty then cancelGesture()
       withInput(input.pointer(_, PointerInput.Cancel))
     }
     listeners.on(plotHost, "pointerup") { event =>
-      if event.button.asInstanceOf[Int] == 0 then withInput(input.pointer(_, PointerInput.Release))
+      if event.button.asInstanceOf[Int] == 0 then
+        gestureEnd(event)
+        withInput(input.pointer(_, PointerInput.Release))
     }
+    listeners.active(plotHost, "wheel") { event => wheel(event) }
     listeners.on(plotHost, "click") { event =>
-      val x = event.clientX.asInstanceOf[Double]
-      val y = event.clientY.asInstanceOf[Double]
-      val additive = modifier(event)
-      val handled = withInput(input.pointer(_, PointerInput.Click(x, y, additive)))
-      if !handled then
-        hoveredPart.foreach { p =>
-          emitPart(PartEvent.Activated(p.part, InputCause.Pointer))
-          legendLink(p.part).foreach(chooseLegend(_, additive))
-        }
+      // A drag ends in a click event; it is the end of the drag, not a click on a mark.
+      if moved then
+        moved = false
+        event.stopImmediatePropagation()
+      else click(event)
     }
     listeners.on(plotHost, "keydown") { event =>
       val additive = modifier(event)
@@ -336,10 +442,33 @@ final class SvgWidget[A] private (
         case "Enter" | " " => Some(KeyInput.Choose(additive))
         case "Escape"      => Some(KeyInput.Escape)
         case _             => None
-      key.foreach { value =>
+      // Ctrl, Meta or Alt with these keys is the browser's own zoom; leave it to the browser.
+      val modified = event.ctrlKey.asInstanceOf[Boolean] || event.metaKey.asInstanceOf[Boolean] ||
+        event.altKey.asInstanceOf[Boolean]
+      val navigation = event.key.asInstanceOf[String] match
+        case _ if modified || navigator.isEmpty => None
+        case "+" | "="                          => Some(() => zoomCentre(0.8))
+        case "-" | "_"                          => Some(() => zoomCentre(1.25))
+        case "0"                                =>
+          Some(() => showWindow(PanelWindow.full, InputCause.Keyboard).left.foreach(report))
+        case _ => None
+      if drag.nonEmpty && event.key.asInstanceOf[String] == "Escape" then
+        // Escape first abandons a drag in progress; a second Escape clears the selection.
         event.preventDefault()
-        withInput(input.key(_, value))
-      }
+        cancelGesture()
+        withInput(
+          input
+            .key(_, KeyInput.Escape)
+            .map(_.filterNot(_.action.isInstanceOf[InteractionAction.Select[?]]))
+        )
+      else if navigation.nonEmpty && navigator.nonEmpty then
+        event.preventDefault()
+        navigation.foreach(_())
+      else
+        key.foreach { value =>
+          event.preventDefault()
+          withInput(input.key(_, value))
+        }
     }
     listeners.on(plotHost, "focus") { _ => scheduleRedraw() }
     listeners.on(plotHost, "blur") { _ =>
@@ -364,6 +493,336 @@ final class SvgWidget[A] private (
   private def modifier(event: js.Dynamic): Boolean =
     event.shiftKey.asInstanceOf[Boolean] || event.ctrlKey.asInstanceOf[Boolean] ||
       event.metaKey.asInstanceOf[Boolean]
+
+  private def click(event: js.Dynamic): Unit =
+    val x = event.clientX.asInstanceOf[Double]
+    val y = event.clientY.asInstanceOf[Double]
+    val additive = modifier(event)
+    val handled = withInput(input.pointer(_, PointerInput.Click(x, y, additive)))
+    if !handled then
+      hoveredPart.foreach { p =>
+        emitPart(PartEvent.Activated(p.part, InputCause.Pointer))
+        legendLink(p.part).foreach(chooseLegend(_, additive))
+      }
+
+  // ---------------------------------------------------------------------------------------------
+  // Region gestures, panning, zooming
+
+  private def mode: GestureMode =
+    controller.state.toOption.fold(GestureMode.Inspect)(_.gestureMode)
+
+  /** Client to device coordinates, unclamped, so a drag may leave the plot. */
+  private def device(clientX: Double, clientY: Double): Option[(Double, Double)] =
+    viewport.toOption.map { fitted =>
+      (
+        (clientX - fitted.clientLeft) / fitted.cssPixelsPerDevicePixel,
+        (clientY - fitted.clientTop) / fitted.cssPixelsPerDevicePixel
+      )
+    }
+
+  private def at(event: js.Dynamic): Option[(Double, Double)] =
+    device(event.clientX.asInstanceOf[Double], event.clientY.asInstanceOf[Double])
+
+  private def gestureStart(event: js.Dynamic): Unit =
+    moved = false
+    at(event).foreach { start =>
+      if event.pointerType.asInstanceOf[String] == "touch" then
+        touches(event.pointerId.asInstanceOf[Double]) = start
+        if touches.size == 2 then
+          drag = None
+          clearGestureLayer()
+          val (distance, (mx, my)) = pinchState
+          pinch =
+            if navigator.isEmpty then None
+            else panelFrameNow.map(frame => (distance, DevicePoint(mx, my), frame))
+      if touches.size < 2 then
+        drag = mode match
+          case GestureMode.Rectangle | GestureMode.ZoomRectangle =>
+            Some(Drag.Band(start._1, start._2, start._1, start._2))
+          case GestureMode.Lasso                     => Some(Drag.Trace(Vector(start)))
+          case GestureMode.Pan if navigator.nonEmpty =>
+            panelFrameNow.map(frame => Drag.Panning(start._1, start._2, frame))
+          case _ => None
+    }
+
+  private def pinchState: (Double, (Double, Double)) =
+    val Vector(a, b) = touches.values.toVector.take(2)
+    (math.hypot(a._1 - b._1, a._2 - b._2), ((a._1 + b._1) / 2, (a._2 + b._2) / 2))
+
+  /** Advance a drag or pinch; true when the move belonged to one. */
+  private def gestureMove(event: js.Dynamic): Boolean =
+    val here = at(event)
+    if event.pointerType.asInstanceOf[String] == "touch" && touches.contains(
+        event.pointerId.asInstanceOf[Double]
+      )
+    then here.foreach(p => touches(event.pointerId.asInstanceOf[Double]) = p)
+    (pinch, here) match
+      case (Some((distance, mid, frame)), _) if touches.size == 2 =>
+        val (nextDistance, _) = pinchState
+        moved = true
+        navigator.foreach(nav =>
+          requestWindow(nav.zoom(frame, mid, distance / math.max(nextDistance, 1e-6)))
+        )
+        true
+      case (_, Some((x, y))) =>
+        drag match
+          case Some(Drag.Band(sx, sy, _, _)) =>
+            moved = moved || math.hypot(x - sx, y - sy) > 3
+            drag = Some(Drag.Band(sx, sy, x, y))
+            drawBand(sx, sy, x, y)
+            true
+          case Some(Drag.Trace(points)) =>
+            val (lx, ly) = points.last
+            if math.hypot(x - lx, y - ly) > 2 then
+              moved = true
+              drag = Some(Drag.Trace(points :+ (x, y)))
+              drawTrace(points :+ (x, y))
+            true
+          case Some(Drag.Panning(sx, sy, frame)) =>
+            moved = moved || math.hypot(x - sx, y - sy) > 1
+            navigator.foreach(nav => requestWindow(nav.pan(frame, x - sx, y - sy)))
+            true
+          case None => false
+      case _ => drag.nonEmpty
+
+  private def gestureEnd(event: js.Dynamic): Unit =
+    touches.remove(event.pointerId.asInstanceOf[Double])
+    if touches.size < 2 then pinch = None
+    val finished = drag
+    drag = None
+    clearGestureLayer()
+    finished.foreach {
+      case Drag.Band(sx, sy, x, y) if moved =>
+        if mode == GestureMode.ZoomRectangle then
+          for
+            nav <- navigator
+            frame <- panelFrameNow
+          do requestWindow(nav.rectangle(frame, DevicePoint(sx, sy), DevicePoint(x, y)))
+        else
+          PickArea
+            .rectangle(math.min(sx, x), math.min(sy, y), math.max(sx, x), math.max(sy, y))
+            .foreach(area => sweep(area, event))
+      case Drag.Trace(points) if moved && points.size >= 3 =>
+        PickArea.lasso(points.map((x, y) => DevicePoint(x, y))).foreach(area => sweep(area, event))
+      case _ => ()
+    }
+
+  /** Select what a band or lasso covers: Shift adds, Alt subtracts, otherwise it replaces. */
+  private def sweep(area: PickArea, event: js.Dynamic): Unit =
+    val operation =
+      if event.altKey.asInstanceOf[Boolean] then SelectionOperation.Subtract
+      else if event.shiftKey.asInstanceOf[Boolean] then SelectionOperation.Add
+      else SelectionOperation.Replace
+    withInput(state => Right(input.region(state, area, AreaRule.CenterInside, operation)))
+
+  private def cancelGesture(): Unit =
+    drag = None
+    pinch = None
+    touches.clear()
+    clearGestureLayer()
+
+  private def wheel(event: js.Dynamic): Unit =
+    // The page scrolls unless the reader is working in the plot: it has focus, or Ctrl is held
+    // (a trackpad pinch arrives as a Ctrl-wheel).
+    val engaged = event.ctrlKey.asInstanceOf[Boolean] || document.activeElement == plotHost
+    // Lines and pages (deltaMode 1 and 2) are converted to pixels.
+    val delta = event.deltaY.asInstanceOf[Double] * (event.deltaMode.asInstanceOf[Int] match
+      case 1 => 16.0
+      case 2 => view.height.toDouble
+      case _ => 1.0)
+    // Zooming out of the full view changes nothing; the page scrolls instead.
+    val idle = delta == 0 || (delta > 0 && targetWindow.isFull)
+    if navigator.nonEmpty && engaged && !idle then
+      event.preventDefault()
+      val factor = math.exp(math.max(-0.5, math.min(0.5, delta * 0.002)))
+      for
+        point <- at(event)
+        nav <- navigator
+        frame <- panelFrameNow
+      do requestWindow(nav.zoom(frame, DevicePoint(point._1, point._2), factor))
+
+  private def zoomCentre(factor: Double): Unit =
+    for
+      nav <- navigator
+      frame <- panelFrameNow
+    do
+      val centre = DevicePoint(frame.x + frame.width / 2, frame.y + frame.height / 2)
+      requestWindow(nav.zoom(frame, centre, factor), InputCause.Keyboard)
+
+  /** The window the reader last asked for: one waiting for its frame, else the one shown. */
+  private def targetWindow: PanelWindow = pendingWindow.getOrElse(window)
+
+  /** The panel frame of [[targetWindow]], computed without drawing it, so increments (wheel
+    * notches, keys, gesture starts) build on the window last asked for and are still coalesced. A
+    * re-windowed panel keeps its device frame and spans exactly its window's positions.
+    */
+  private def panelFrameNow: Option[DeviceFrame] =
+    val target = targetWindow
+    def range(value: Option[(Double, Double)], full: Interval) =
+      value.flatMap((lo, hi) => Interval(lo, hi).toOption).getOrElse(full)
+    basePanelFrame.map(base =>
+      base.copy(xScale = range(target.x, base.xScale), yScale = range(target.y, base.yScale))
+    )
+
+  /** Coalesce window changes to one re-windowing per animation frame. */
+  private def requestWindow(value: PanelWindow, cause: InputCause = InputCause.Pointer): Unit =
+    pendingWindow = Some(value)
+    pendingCause = cause
+    if windowFrame.isEmpty && !disposed then
+      val callback: js.Function1[Double, Unit] = _ =>
+        windowFrame = None
+        pendingWindow.foreach { next =>
+          showWindow(next, pendingCause).left.foreach(report)
+        }
+      windowFrame = Some(g.requestAnimationFrame(callback))
+
+  /** Re-window the base plan and show it. The plan's identity and revision are unchanged, so the
+    * interaction state (selection, focus) stands; the viewport is recorded in it.
+    */
+  private def showWindow(value: PanelWindow, cause: InputCause): Either[IntaglioError, Unit] =
+    // A window shown now supersedes one still waiting for its animation frame.
+    pendingWindow = None
+    if disposed then Left(ControllerError.Disposed)
+    else if value == window then Right(())
+    else
+      for
+        nav <- navigator.toRight(InteractionError.UnsupportedCapability("navigating this plot"))
+        next <-
+          if value.isFull then Right(baseView)
+          else
+            for
+              windows <- nav.windows(value)
+              plan <- InteractionCompiler.rezoom(basePlan, windows._1, windows._2)
+              compiled <- SvgWidgetView.compile(plan, view.context, view.idPrefix, view.title)
+            yield compiled
+        _ = swap(next)
+        // The window drawn, which a temporal axis snaps to whole days or milliseconds: it is what
+        // the reader sees, what is recorded, and what the next increment builds on.
+        shown = next.panelFrame.fold(value)(frame =>
+          PanelWindow(
+            value.x.map(_ => (frame.xScale.lower, frame.xScale.upper)),
+            value.y.map(_ => (frame.yScale.lower, frame.yScale.upper))
+          )
+        )
+        _ = window = shown
+        recorded <- (shown.x, shown.y, next.panelFrame) match
+          case (None, None, _) | (_, _, None) => Right(None)
+          case (_, _, Some(frame))            =>
+            PanelViewport(
+              frame.xScale.lower,
+              frame.xScale.upper,
+              frame.yScale.lower,
+              frame.yScale.upper
+            ).map(Some(_))
+        _ <- dispatch(
+          InteractionAction.SetViewport(SvgWidget.panelId, recorded),
+          cause
+        )
+      yield ()
+
+  /** Show `next` (the same plan at another window) without touching state. */
+  private def swap(next: SvgWidgetView[A]): Unit =
+    hideTooltip()
+    view = next
+    input = HostInput(view.picking, view.navigation, unitViewport, behavior)
+    renderPlot()
+    if companion.open.asInstanceOf[Boolean] then fillCompanion()
+    scheduleRedraw()
+
+  private def clearGestureLayer(): Unit = gestureLayer.textContent = ""
+
+  private def drawBand(x0: Double, y0: Double, x1: Double, y1: Double): Unit =
+    clearGestureLayer()
+    val rect = svgElement("rect")
+    rect.setAttribute("x", SvgWidget.fmt(math.min(x0, x1)))
+    rect.setAttribute("y", SvgWidget.fmt(math.min(y0, y1)))
+    rect.setAttribute("width", SvgWidget.fmt(math.abs(x1 - x0)))
+    rect.setAttribute("height", SvgWidget.fmt(math.abs(y1 - y0)))
+    rect.setAttribute(
+      "class",
+      if mode == GestureMode.ZoomRectangle then "intaglio-band-zoom" else "intaglio-band"
+    )
+    gestureLayer.appendChild(rect)
+
+  private def drawTrace(points: Vector[(Double, Double)]): Unit =
+    clearGestureLayer()
+    val line = svgElement("polygon")
+    line.setAttribute(
+      "points",
+      points.map((x, y) => s"${SvgWidget.fmt(x)},${SvgWidget.fmt(y)}").mkString(" ")
+    )
+    line.setAttribute("class", "intaglio-band")
+    gestureLayer.appendChild(line)
+
+  // ---------------------------------------------------------------------------------------------
+  // Toolbar
+
+  private def modeButtons: Vector[(GestureMode, String, Boolean)] = Vector(
+    (GestureMode.Inspect, "Inspect", false),
+    (GestureMode.Rectangle, "Select area", false),
+    (GestureMode.Lasso, "Lasso", false),
+    (GestureMode.Pan, "Pan", true),
+    (GestureMode.ZoomRectangle, "Zoom to area", true)
+  )
+
+  private def buildToolbar(): Unit =
+    toolbar.className = "intaglio-toolbar"
+    toolbar.setAttribute("role", "toolbar")
+    toolbar.setAttribute("aria-label", s"$label controls")
+    val modeButtonsBuilt = modeButtons.map { (value, text, needsNavigation) =>
+      val button = element("button")
+      button.setAttribute("type", "button")
+      button.textContent = text
+      button.setAttribute("data-mode", value.toString)
+      listeners.on(button, "click") { _ =>
+        dispatch(InteractionAction.SetGestureMode(value), InputCause.Pointer).left.foreach(report)
+        refreshToolbar()
+      }
+      toolbar.appendChild(button)
+      (Some(value), button, needsNavigation)
+    }
+    val reset = element("button")
+    reset.setAttribute("type", "button")
+    reset.textContent = "Reset view"
+    reset.setAttribute("data-action", "reset")
+    listeners.on(reset, "click") { _ =>
+      showWindow(PanelWindow.full, InputCause.Pointer).left.foreach(report)
+    }
+    toolbar.appendChild(reset)
+    buttons = modeButtonsBuilt :+ ((None, reset, true))
+    // One tab stop for the whole toolbar; arrows, Home and End move between its buttons.
+    listeners.on(toolbar, "keydown") { event =>
+      val visible = buttons.map(_._2).filterNot(_.hidden.asInstanceOf[Boolean])
+      val here = visible.indexWhere(_ == document.activeElement)
+      val next = event.key.asInstanceOf[String] match
+        case "ArrowRight" | "ArrowDown" if here >= 0 => Some((here + 1) % visible.size)
+        case "ArrowLeft" | "ArrowUp" if here >= 0    =>
+          Some((here - 1 + visible.size) % visible.size)
+        case "Home" if visible.nonEmpty => Some(0)
+        case "End" if visible.nonEmpty  => Some(visible.size - 1)
+        case _                          => None
+      next.foreach { i =>
+        event.preventDefault()
+        visible.foreach(_.setAttribute("tabindex", "-1"))
+        visible(i).setAttribute("tabindex", "0")
+        visible(i).focus()
+      }
+    }
+    refreshToolbar()
+
+  private def refreshToolbar(): Unit =
+    val current = mode
+    buttons.foreach { (value, button, needsNavigation) =>
+      button.hidden = needsNavigation && navigator.isEmpty
+      value.foreach(v => button.setAttribute("aria-pressed", (v == current).toString))
+      button.setAttribute("tabindex", if value.contains(current) then "0" else "-1")
+    }
+    // The toolbar always keeps one tab stop, even when the active mode's button is hidden.
+    val visible = buttons.map(_._2).filterNot(_.hidden.asInstanceOf[Boolean])
+    if !visible.exists(_.getAttribute("tabindex").asInstanceOf[String] == "0") then
+      visible.headOption.foreach(_.setAttribute("tabindex", "0"))
+    plotHost.setAttribute("data-navigable", navigator.nonEmpty.toString)
+    plotHost.setAttribute("data-mode", current.toString)
 
   /** The CSS box the plot occupies now, as the picking viewport. */
   private def viewport: Either[IntaglioError, PickViewport] =
@@ -519,8 +978,9 @@ final class SvgWidget[A] private (
           behavior
             .tooltip(target)
             .foreach(showTooltip(_, None, anchorOf(target), immediate = true, TooltipSource.Focus))
-      case InteractionEvent.FocusChanged(None) => ()
-      case InteractionEvent.Activated(target)  =>
+      case InteractionEvent.FocusChanged(None)    => ()
+      case InteractionEvent.GestureModeChanged(_) => refreshToolbar()
+      case InteractionEvent.Activated(target)     =>
         if record.stamp.cause == InputCause.Pointer || record.stamp.cause == InputCause.Keyboard
         then
           behavior.link(target).foreach { link =>
@@ -771,7 +1231,17 @@ object SvgWidget:
       }
       .mkString(" ")
 
-  private def fmt(value: Double): String = Labeler.default(Vector(value)).head
+  private[browser] def fmt(value: Double): String = Labeler.default(Vector(value)).head
+
+  /** The panel's identity in the interaction state's viewport map. */
+  private[browser] val panelId: SemanticId = SemanticId.unsafe(PlotRegion.Panel.value)
+
+  /** A navigator when the plot has a single panel with a numeric or temporal axis. */
+  private[browser] def navigatorOf[A](view: SvgWidgetView[A]): Option[DataWindowNavigator] =
+    view.plan.training
+      .flatMap(_ => DataWindowNavigator.of(view.plan, view.context).toOption)
+      .filter(nav => nav.navigable._1 || nav.navigable._2)
+      .filter(_ => view.plan.trained.facetPanels.isEmpty)
 
   private val styleId = "intaglio-widget-style"
 
@@ -804,14 +1274,30 @@ object SvgWidget:
       |.intaglio-ring-selected{stroke:var(--intaglio-selected);stroke-width:2.5}
       |.intaglio-ring-focus-halo{stroke:var(--intaglio-focus-halo);stroke-width:5}
       |.intaglio-ring-focus{stroke:var(--intaglio-focus);stroke-width:2.5;stroke-dasharray:4 2}
-      |.intaglio-tooltip{position:absolute;z-index:1;max-width:18rem;padding:4px 8px;
+      |.intaglio-tooltip{position:absolute;z-index:1;max-width:min(18rem,100%);box-sizing:border-box;padding:4px 8px;
       |  background:#1f2937;color:#f9fafb;border-radius:4px;font:12px/1.4 system-ui,sans-serif;
-      |  pointer-events:none;white-space:pre-wrap;line-height:1.4}
-      |.intaglio-tooltip dl{margin:2px 0 0;display:grid;grid-template-columns:auto auto;gap:0 8px}
+      |  pointer-events:none;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.4}
+      |.intaglio-tooltip dl{margin:2px 0 0;display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:0 8px}
       |.intaglio-tooltip dt{font-weight:600}.intaglio-tooltip dd{margin:0}
       |.intaglio-tooltip-title{font-weight:600}
       |.intaglio-live{position:absolute;width:1px;height:1px;overflow:hidden;
       |  clip-path:inset(50%);white-space:nowrap}
+      |.intaglio-toolbar{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 4px;
+      |  font:12px/1.4 system-ui,sans-serif}
+      |.intaglio-toolbar button{font:inherit;padding:2px 8px;border:1px solid #9ca3af;
+      |  border-radius:4px;background:#fff;color:#111827;cursor:pointer}
+      |.intaglio-toolbar button[aria-pressed=true]{background:#1f2937;color:#fff;border-color:#1f2937}
+      |.intaglio-toolbar button:focus-visible{outline:2px solid var(--intaglio-focus);outline-offset:1px}
+      |.intaglio-gesture{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+      |.intaglio-band{fill:rgba(26,86,219,0.08);stroke:var(--intaglio-focus);stroke-width:1;
+      |  stroke-dasharray:4 2;vector-effect:non-scaling-stroke}
+      |.intaglio-band-zoom{fill:rgba(124,58,237,0.08);stroke:var(--intaglio-linked);stroke-width:1;
+      |  vector-effect:non-scaling-stroke}
+      |.intaglio-plot[data-navigable=true]{touch-action:pan-x pan-y}
+      |.intaglio-plot[data-mode=Pan]{cursor:grab}
+      |.intaglio-plot[data-mode=Rectangle],.intaglio-plot[data-mode=Lasso],
+      |.intaglio-plot[data-mode=ZoomRectangle]{cursor:crosshair;touch-action:none}
+      |.intaglio-plot[data-mode=Pan]{touch-action:none}
       |.intaglio-companion{font:12px/1.4 system-ui,sans-serif;line-height:1.4}
       |@media (prefers-reduced-motion: reduce){
       |  .intaglio-plot>svg.intaglio-base{transition:none}}

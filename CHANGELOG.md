@@ -37,7 +37,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a positional pattern `case Viewport(a, b, c, d, e, f, g, h)` must now name
   the ninth field.
 
+- `GestureMode` gained `ZoomRectangle`. It is an enum, so a `match` that
+  enumerated every mode is no longer exhaustive: the compiler only warns, and
+  the new case reaching it throws `MatchError` at run time. See
+  [MIGRATION.md](MIGRATION.md).
+
 ### Added
+
+- **Region selection and data-window navigation.** `InteractionCompiler.rezoom`
+  re-windows a compiled interactive plot from its retained training data: no
+  statistic, mapping or scale training runs again, the panel keeps its frame,
+  and ranges and ticks equal a fresh compile at the window on linear, log and
+  date axes. `DataWindowNavigator` (zoom about a point, pan, rectangle, bounds,
+  typed `CoordinateWindow`s) and `HostInput.region` (band and lasso sweeps that
+  replace, add or subtract) are shared. The SVG widget gains a mode toolbar
+  (one tab stop), rubber band, lasso, pan, wheel and pinch zoom with
+  page-scroll arbitration, zoom to area, reset, `navigate`/`currentWindow`,
+  and `magnify`; `DataWindowNavigator.normalize` validates application
+  windows. A second pointer press during a gesture now joins it instead of
+  failing. Checked by `tools/check-navigation-browser.cjs`.
 
 - **Linked views.** `WidgetLink.connect` links browser widgets over one key
   space: reader selections project silently by entity key (missing keys
