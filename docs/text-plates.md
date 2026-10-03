@@ -29,7 +29,7 @@ own metrics at draw time and places the plate around the box it draws the glyphs
 | Java2D | the resolved `java.awt.Font`'s logical bounds, fallback face included |
 | JavaFX | `JavaFxGraphicsContext.measureText`; the live `JavaFxCanvasContext` uses JavaFX's own text layout in the face `Font.font` resolved |
 | Canvas | the context's `measureText`: the advance width and font bounding box, united with the run's actual glyph bounds (`actualBoundingBox*`) so overhangs stay inside |
-| PDF | the embedded face's advance and ascent-to-descent box |
+| PDF | the embedded face's advance and ascent-to-descent box, united with the outline bounds of the glyphs the run draws, from that same face (below) |
 | SVG | with an [embedded](svg-fonts.md) TrueType or OpenType face for the run's family and weight: that face's own glyph boxes and metrics (below); otherwise the render context's `TextMetrics`, the measure layout and picking use, because an SVG file cannot know the viewer's font |
 
 A custom `JavaFxGraphicsContext` that does not override `measureText` falls back to the shared
@@ -40,6 +40,29 @@ clamped to half the shorter side.
 Padding and corner radius take points or device pixels and resolve once at device lowering, like a
 stroke width. The plate's fill alpha multiplies `GraphicParams.alpha`, and a rotated label rotates
 its plate with it.
+
+## PDF: what the plate bounds
+
+A PDF draws every run from a TrueType face in its `PdfFontCatalog`, embedded and subset in the
+document; it never uses a standard-14 base font or a host font, and it has no fallback face. A run
+whose family is not registered, or whose face lacks one of its code points, fails to render
+(`MissingFont`, `MissingFontWeight`, `UnsupportedGlyph`) rather than drawing, or measuring, another
+face.
+
+PDF text is not shaped: each code point is one glyph, placed at the sum of the advances before it,
+with no kerning, ligatures or mark positioning. The plate is therefore the union of the run's
+logical box (its advance by the face's ascent and descent, the box the anchor places) and the
+outline bounds of exactly those glyphs, read from the same embedded face at the same size, plus the
+padding. It covers italic overhangs such as `j` and `f`, combining marks, which draw at the pen
+with no advance of their own, every anchor, and every rotation; glyph placement is unchanged. There
+is no rasterisation allowance: the plate contains the outlines geometrically.
+
+Checked against PDFBox's rasteriser with independently rendered ink-only and plate-only pages:
+Liberation Sans, Georgia Italic, DejaVu Serif Italic and DejaVu Sans; `j`, `f`, `fj`, `A` with a
+combining acute, a leading combining acute, `ÅÉ` and `Plate Wg`; nine anchors; 0°, 33°, 90° and
+180°; 0 and 4 px padding; 1x and 2x. Every inked pixel lies on the plate. The guarantee is about
+the embedded outlines: a viewer that hints them, or substitutes a font for one it rejects, can draw
+outside them.
 
 ## SVG: when the plate is guaranteed to contain the glyphs
 

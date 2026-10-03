@@ -377,6 +377,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   any state changes; before, an update to deferred membership without a
   resolver succeeded and left later clicks pending forever.
 
+- **PDF text plates contain the glyphs they draw.** A PDF plate was the run's
+  advance width by the embedded face's ascent and descent, so ink outside that
+  box (an italic `j` or `f` reaching past its advance, a combining mark drawn
+  before the pen) escaped it: Georgia Italic `j` at 96 pt with 4 px padding
+  left 208 of 1,616 inked pixels outside. The plate is now the union of that
+  logical box and the outline bounds of the glyphs `showText` draws, read
+  from the same embedded face at the same size, plus the padding, for every
+  anchor and rotation. Glyph placement is unchanged. In an independent PDFBox
+  ink-versus-plate court (four faces, seven labels, nine anchors, four
+  rotations, 0 and 4 px padding, 1x and 2x) every case that escaped now
+  contains its ink. Plates over runs without such ink are unchanged.
+
 - **Explicit position scales reach segment ends and tile bounds.** A layer that
   sets its own positions (`geomSegment`, `geomTile`, `geomRect`,
   `geomErrorBar`, `geomRibbon`, `geomArea`, and independent layers) did not see

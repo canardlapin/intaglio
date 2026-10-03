@@ -1,8 +1,8 @@
 package intaglio.pdf
 
-import java.awt.geom.AffineTransform
+import java.awt.geom.{AffineTransform, Rectangle2D}
 import java.awt.image.BufferedImage
-import java.io.ByteArrayOutputStream
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.security.MessageDigest
 import scala.collection.mutable
 import scala.util.control.NonFatal
@@ -220,6 +220,7 @@ object PdfRenderer:
     private val images =
       mutable.LinkedHashMap.empty[(RasterImage, RasterInterpolation), PDImageXObject]
     private val alphaStates = mutable.HashMap.empty[(Float, Float), PDExtendedGraphicsState]
+    private val glyphInk = mutable.HashMap.empty[(PDType0Font, Int), Option[Rectangle2D]]
     private val emittedMarkers = Vector.newBuilder[GraphicsName]
     private val emittedRequirements = Vector.newBuilder[RenderRequirement]
     private var vectorShapes = 0
@@ -599,14 +600,27 @@ object PdfRenderer:
       val baselineY = anchorY + sine * offsetX + cosine * offsetY
       val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
 
-      // The plate bounds the embedded face's own advance and ascent-to-descent box, in the
-      // run's rotated text frame, so it is exactly the box the glyphs are placed against.
+      // The plate bounds the embedded face's own advance and ascent-to-descent box, the box the
+      // glyphs are anchored against, united with the ink of the glyphs the run actually shows:
+      // italic overhangs and combining marks can reach outside the advance box. Both are in the
+      // run's rotated text frame; glyph placement does not depend on the plate.
       gp.textPlate.foreach { plate =>
         val inPoints = plate.copy(
           padding = StrokeWidth.devicePixelsUnsafe(px(plate.padding.value).toDouble),
           cornerRadius = StrokeWidth.devicePixelsUnsafe(px(plate.cornerRadius.value).toDouble)
         )
-        val box = inPoints.around(offsetX, offsetY + descent, width, ascent - descent)
+        var left = offsetX.toDouble
+        var bottom = (offsetY + descent).toDouble
+        var right = (offsetX + width).toDouble
+        var top = (offsetY + ascent).toDouble
+        inkBounds(label, font).foreach { ink =>
+          val scale = size / 1000.0
+          left = math.min(left, offsetX + ink.getMinX * scale)
+          bottom = math.min(bottom, offsetY + ink.getMinY * scale)
+          right = math.max(right, offsetX + ink.getMaxX * scale)
+          top = math.max(top, offsetY + ink.getMaxY * scale)
+        }
+        val box = inPoints.around(left, bottom, right - left, top - bottom)
         withGraphics {
           stream.transform(new Matrix(cosine, sine, -sine, cosine, anchorX, anchorY))
           setNonStrokingColor(plate.fill)
@@ -635,6 +649,29 @@ object PdfRenderer:
         stream.showText(label)
         stream.endText()
       }
+
+    /** The ink of a run as `showText` draws it, in thousandths of an em from the run's origin, y
+      * up: each glyph's outline bounds from the embedded face, offset by the advance of the glyphs
+      * before it. PDF text applies no shaping, kerning or mark positioning, so this is the ink of
+      * the glyphs the document shows. `None` for a run without ink, such as spaces.
+      */
+    private def inkBounds(label: String, font: PDType0Font): Option[Rectangle2D] =
+      val codes = new ByteArrayInputStream(font.encode(label))
+      var pen = 0.0
+      var union: Option[Rectangle2D] = None
+      while codes.available() > 0 do
+        val code = font.readCode(codes)
+        glyphInk.getOrElseUpdate((font, code), glyphBounds(font, code)).foreach { glyph =>
+          val placed =
+            new Rectangle2D.Double(pen + glyph.getX, glyph.getY, glyph.getWidth, glyph.getHeight)
+          union = Some(union.fold(placed)(_.createUnion(placed)))
+        }
+        pen += font.getWidth(code)
+      union
+
+    private def glyphBounds(font: PDType0Font, code: Int): Option[Rectangle2D] =
+      val bounds = font.getNormalizedPath(code).getBounds2D
+      Option.when(!bounds.isEmpty)(bounds)
 
     private def validateGlyphs(label: String, family: String, font: PDType0Font): Unit =
       var offset = 0
