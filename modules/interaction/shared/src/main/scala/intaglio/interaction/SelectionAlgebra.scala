@@ -27,9 +27,10 @@ enum SetCombination:
   case Union, Intersection, Difference
 
 /** Set operations on selections. Operands combine only when they mean the same things: every
-  * observation key belongs to one key space instance accepted by `domain`, and every target is a
-  * target of `domain`. Observations and targets combine separately, as they are selected
-  * separately, so the operations obey the set laws on each part.
+  * observation key belongs to a key space instance `domain` uses (keys of two such spaces stay
+  * distinct, so a selection may span the plots of a domain), and every target is a target of
+  * `domain`. Observations and targets combine separately, as they are selected separately, so the
+  * operations obey the set laws on each part.
   */
 object SelectionAlgebra:
   def combine[A](
@@ -62,12 +63,7 @@ object SelectionAlgebra:
       domain: InteractionDomain[A]
   ): Either[StateError, Unit] =
     val keys = left.entities ++ right.entities
-    val spaces = keys.iterator.map(_.space).foldLeft(Vector.empty[KeySpace[A]]) { (seen, space) =>
-      if seen.exists(_ eq space) then seen else seen :+ space
-    }
-    if spaces.size > 1 then
-      Left(StateError.IncompatibleSelections("the operands hold keys of different key spaces"))
-    else if keys.exists(key => !domain.accepts(key)) then
+    if keys.exists(key => !domain.accepts(key)) then
       Left(
         StateError.IncompatibleSelections("an operand holds keys of a space this plot does not use")
       )

@@ -429,13 +429,14 @@ object InteractionState:
           viewports: Map[SemanticId, PanelViewport] = state.viewports,
           pending: Map[VisualTargetId, MembershipRequest[A]] = state.pendingMembers,
           marks: Map[VisualTargetId, Long] = state.requestMarks,
-          named: Map[SelectionName, Selection[A]] = state.named
+          named: Map[SelectionName, Selection[A]] = state.named,
+          unresolved: Set[EntityKey[A]] = state.unresolved
       ) =
         new InteractionState(
           state.domain,
           selectionMode,
           selection,
-          state.unresolved.intersect(selection.entities),
+          unresolved.intersect(selection.entities),
           hover,
           focus,
           gestureMode,
@@ -558,7 +559,11 @@ object InteractionState:
             select(Selection(plus.entities ++ keys, plus.targets), operation, Map.empty)
           )
         case InteractionAction.SaveSelection(name) =>
-          val next = state.named.updated(name, state.selection)
+          // A saved selection holds only what the data has: keys kept across a data replacement
+          // (unresolved) belong to the current selection alone, so a recall always validates.
+          val resolved =
+            Selection(state.selection.entities -- state.unresolved, state.selection.targets)
+          val next = state.named.updated(name, resolved)
           Right(
             finish(
               changed(named = next),
@@ -589,7 +594,7 @@ object InteractionState:
               (),
               StateError.StaleInput(state.domain.revision, saved.domainRevision)
             )
-            _ <- validateSelection(state.domain, saved.selection, Set.empty)
+            _ <- validateSelection(state.domain, saved.selection, saved.unresolved)
             _ <- saved.named.values.foldLeft[Either[StateError, Unit]](Right(())) { (acc, s) =>
               acc.flatMap(_ => validateSelection(state.domain, s, Set.empty))
             }
@@ -619,6 +624,7 @@ object InteractionState:
                 selection = saved.selection,
                 viewports = saved.viewports,
                 named = saved.named,
+                unresolved = saved.unresolved,
                 // A restored selection supersedes any pending member request, like any other.
                 pending = Map.empty
               ),

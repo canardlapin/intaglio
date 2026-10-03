@@ -102,6 +102,7 @@ class InteractionSnapshotSuite extends munit.FunSuite:
         """{"namespace":"obs","codec":"integer","version":1,"payload":"1"},""" +
         """{"namespace":"obs","codec":"integer","version":1,"payload":"3"}],""" +
         s""""targets":[{"plan":"bars","planRevision":"p1","scope":"${bin.id.scope.value}","ordinal":${bin.id.ordinal}}]},""" +
+        """"unresolved":[],""" +
         """"named":[{"name":"pair","selection":{"entities":[""" +
         """{"namespace":"obs","codec":"integer","version":1,"payload":"1"},""" +
         """{"namespace":"obs","codec":"integer","version":1,"payload":"3"}],""" +
@@ -226,4 +227,122 @@ class InteractionSnapshotSuite extends munit.FunSuite:
         InteractionAction.RestoreSnapshot(elsewhere)
       ).isLeft
     )
+  }
+
+  test("the reader is strict: unknown fields, repeats, non-JSON numbers and lone surrogates") {
+    val json = InteractionSnapshot.capture(saved).toJson
+    Vector(
+      json.replace("{\"schema\":1,", "{\"schema\":1,\"extra\":0,"),
+      json.replace("\"xMax\":1", "\"xMax\":01"),
+      json.replace("\"xMax\":1", "\"xMax\":1."),
+      json.replace("\"xMax\":1", "\"xMax\":\u0661"),
+      json.replace("\"panel\":\"panel\"", "\"panel\":\"\\ud800\"")
+    ).foreach { bad =>
+      assert(
+        InteractionSnapshot.fromJson(bad) match
+          case Left(SnapshotError.Malformed(_)) => true
+          case _                                => false
+        ,
+        bad
+      )
+    }
+    // Repeated saved-selection names or viewport panels are refused when resolved.
+    val snapshot = InteractionSnapshot.capture(saved)
+    val twice = snapshot.copy(named = snapshot.named ++ snapshot.named)
+    assert(InteractionSnapshot.resolve(twice, domain).isLeft)
+    val panels = snapshot.copy(viewports = snapshot.viewports ++ snapshot.viewports)
+    assert(InteractionSnapshot.resolve(panels, domain).isLeft)
+  }
+
+  test("every target's plan must be listed, and a namespace two key spaces share is refused") {
+    val snapshot = InteractionSnapshot.capture(saved)
+    assert(
+      InteractionSnapshot.resolve(snapshot.copy(plans = Vector.empty), domain) match
+        case Left(SnapshotError.Malformed(_)) => true
+        case _                                => false
+    )
+    // Two plans keyed by distinct spaces that share the namespace "obs".
+    val impostor = ok(KeySpace("obs", KeyCodec.integer))
+    val twin = plan(id = "twin", in = impostor)
+    val both = ok(InteractionDomain(Vector(base, twin), ok(PlanRevision("both"))))
+    val withTwin = snapshot.copy(plans = snapshot.plans :+ SnapshotPlan("twin", "p1", "d1"))
+    assertEquals(
+      InteractionSnapshot.resolve(withTwin, both).map(_ => ()),
+      Left(SnapshotError.AmbiguousKeySpace("obs"))
+    )
+  }
+
+  test(
+    "selections kept across a data replacement (unresolved keys) survive save, undo and snapshots"
+  ) {
+    val start = ok(InteractionState.initial(domain))
+    val chosen = Selection(Set(ok(space.entity(1)), ok(space.entity(3))))
+    val selected =
+      ok(run(start, InteractionAction.Select(chosen, SelectionOperation.Replace))).state
+    // New data without observation 3; the selection keeps it as unresolved.
+    val fewer = plan(planRevision = "p2", dataRevision = "d2", rows = data.filter(_.id != 3))
+    sequence += 1
+    val replaced = ok(
+      InteractionState.replaceDomain(
+        selected,
+        InputStamp(
+          selected.domain.revision,
+          SemanticId.unsafe("t"),
+          sequence,
+          InputCause.Programmatic
+        ),
+        domainOf(fewer),
+        MissingEntityPolicy.Preserve
+      )
+    ).state
+    assertEquals(replaced.unresolved, Set(ok(space.entity(3))))
+    // A snapshot of that state restores the unresolved key as unresolved.
+    val back = ok(
+      InteractionSnapshot.resolve(
+        ok(InteractionSnapshot.fromJson(InteractionSnapshot.capture(replaced).toJson)),
+        domainOf(fewer)
+      )
+    )
+    val restored = ok(
+      run(ok(InteractionState.initial(domainOf(fewer))), InteractionAction.RestoreSnapshot(back))
+    ).state
+    assertEquals(restored.selection, replaced.selection)
+    assertEquals(restored.unresolved, replaced.unresolved)
+    // Saving keeps only what the data has, so recalling it later validates.
+    val savedPair =
+      ok(run(replaced, InteractionAction.SaveSelection(SelectionName.unsafe("kept")))).state
+    assertEquals(savedPair.named(SelectionName.unsafe("kept")).entities, Set(ok(space.entity(1))))
+    val cleared =
+      ok(run(savedPair, InteractionAction.Select(Selection[Int](), SelectionOperation.Clear))).state
+    assert(
+      run(
+        cleared,
+        InteractionAction.RecallSelection(SelectionName.unsafe("kept"), SelectionOperation.Replace)
+      ).isRight
+    )
+    // Undo past a click restores the selection that held the unresolved key.
+    val controller = InteractionController(replaced)
+    val history = ok(HistoryController(controller))
+    sequence += 1
+    ok(
+      history.dispatch(
+        InputStamp(replaced.domain.revision, SemanticId.unsafe("t"), sequence, InputCause.Pointer),
+        InteractionAction.Select(Selection(Set(ok(space.entity(2)))), SelectionOperation.Replace)
+      )
+    )
+    sequence += 1
+    assert(
+      history
+        .undo(
+          InputStamp(
+            replaced.domain.revision,
+            SemanticId.unsafe("t"),
+            sequence,
+            InputCause.Keyboard
+          )
+        )
+        .exists(_.isRight)
+    )
+    assertEquals(ok(controller.state).selection, replaced.selection)
+    assertEquals(ok(controller.state).unresolved, replaced.unresolved)
   }

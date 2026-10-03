@@ -8,10 +8,11 @@ private[interaction] final case class DurableState[A](
     mode: SelectionMode,
     selection: Selection[A],
     named: Map[SelectionName, Selection[A]],
-    viewports: Map[SemanticId, PanelViewport]
+    viewports: Map[SemanticId, PanelViewport],
+    unresolved: Set[EntityKey[A]]
 ):
   def restored: RestoredSnapshot[A] =
-    RestoredSnapshot(domainRevision, mode, selection, named, viewports)
+    RestoredSnapshot(domainRevision, mode, selection, named, viewports, unresolved)
 
 private[interaction] object DurableState:
   def of[A](state: InteractionState[A]): DurableState[A] =
@@ -20,7 +21,8 @@ private[interaction] object DurableState:
       state.selectionMode,
       state.selection,
       state.named,
-      state.viewports
+      state.viewports,
+      state.unresolved
     )
 
 /** Undo and redo over the durable state (selection, saved selections, panel viewports, selection

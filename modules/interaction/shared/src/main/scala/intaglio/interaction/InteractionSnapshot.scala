@@ -30,6 +30,8 @@ final case class InteractionSnapshot(
     plans: Vector[SnapshotPlan],
     mode: SelectionMode,
     selection: SnapshotSelection,
+    /** Selected observations the data did not have when saved; they are restored as such. */
+    unresolved: Vector[KeyToken],
     named: Vector[(String, SnapshotSelection)],
     viewports: Vector[SnapshotViewport]
 ):
@@ -48,6 +50,9 @@ enum SnapshotError extends IntaglioError:
   case UnknownTarget(address: TargetAddress)
   case Invalid(reason: String)
 
+  /** Several key spaces here share the namespace, so a saved key's meaning is ambiguous. */
+  case AmbiguousKeySpace(namespace: String)
+
   def message: String = this match
     case UnsupportedSchema(found, supported) =>
       s"Snapshot schema $found is not supported (this version reads $supported)"
@@ -63,7 +68,9 @@ enum SnapshotError extends IntaglioError:
     case UnknownEntity(payload) => s"Observation '$payload' is not in the data shown"
     case UnknownTarget(address) =>
       s"Target ${address.scope}#${address.ordinal} of plan '${address.plan}' is not shown here"
-    case Invalid(reason) => s"The snapshot cannot be applied: $reason"
+    case Invalid(reason)              => s"The snapshot cannot be applied: $reason"
+    case AmbiguousKeySpace(namespace) =>
+      s"Several key spaces here are named '$namespace'; a saved key cannot say which it means"
 
 /** A snapshot checked against one domain: typed keys and targets, ready to restore. */
 final class RestoredSnapshot[A] private[interaction] (
@@ -71,7 +78,9 @@ final class RestoredSnapshot[A] private[interaction] (
     val mode: SelectionMode,
     val selection: Selection[A],
     val named: Map[SelectionName, Selection[A]],
-    val viewports: Map[SemanticId, PanelViewport]
+    val viewports: Map[SemanticId, PanelViewport],
+    /** Selected observations the data does not have (kept by `MissingEntityPolicy.Preserve`). */
+    val unresolved: Set[EntityKey[A]]
 )
 
 object InteractionSnapshot:
@@ -93,6 +102,7 @@ object InteractionSnapshot:
       ),
       state.selectionMode,
       portable(state.selection),
+      state.unresolved.toVector.map(_.token).sortBy(t => (t.namespace, t.payload)),
       state.named.toVector.map((n, s) => n.value -> portable(s)).sortBy(_._1),
       state.viewports.toVector
         .map((panel, v) => SnapshotViewport(panel.value, v.xMin, v.xMax, v.yMin, v.yMax))
@@ -129,42 +139,62 @@ object InteractionSnapshot:
             )
           )
         case Some(_) => Right(())
-    def entity(token: KeyToken): Either[SnapshotError, EntityKey[A]] =
+    def entity(token: KeyToken, allowMissing: Boolean): Either[SnapshotError, EntityKey[A]] =
       val candidates = domain.keySpaces.filter(_.namespace.value == token.namespace)
       if candidates.isEmpty then Left(SnapshotError.KeySpaceMismatch(token.namespace))
+      else if candidates.size > 1 then Left(SnapshotError.AmbiguousKeySpace(token.namespace))
       else
-        candidates.iterator.map(_.readEntity(token)).collectFirst { case Right(key) => key } match
-          case Some(key) if domain.entities.contains(key) => Right(key)
-          case Some(_) => Left(SnapshotError.UnknownEntity(token.payload))
-          case None    =>
-            val space = candidates.head
+        val space = candidates.head
+        space.readEntity(token) match
+          case Right(key) if domain.entities.contains(key) || allowMissing => Right(key)
+          case Right(_) => Left(SnapshotError.UnknownEntity(token.payload))
+          case Left(_)  =>
             val current = s"${space.codec.name.value}/${space.codec.version}"
             val saved = s"${token.codec}/${token.version}"
             if saved != current then
               Left(SnapshotError.CodecMismatch(token.namespace, saved, current))
-            else
-              Left(SnapshotError.Malformed(s"key '${token.payload}' is not canonical for $current"))
+            else Left(SnapshotError.Malformed(s"'${token.payload}' is not a valid $current key"))
     def target(address: TargetAddress) =
       domain
         .resolveTarget(address.plan, address.planRevision, address.scope, address.ordinal)
         .toRight(SnapshotError.UnknownTarget(address))
-    def selection(saved: SnapshotSelection) =
+    val missing = snapshot.unresolved.toSet
+    def selection(saved: SnapshotSelection, allowUnresolved: Boolean) =
       for
-        keys <- all(saved.entities)(entity)
+        keys <- all(saved.entities)(t => entity(t, allowUnresolved && missing.contains(t)))
         ids <- all(saved.targets)(target)
       yield Selection(keys.toSet, ids.toSet)
+    // Every target's plan is listed, so its data revision is always checked.
+    val listed = snapshot.plans.map(_.id).toSet
+    val unlisted = (snapshot.selection.targets ++ snapshot.named.flatMap(_._2.targets))
+      .map(_.plan)
+      .find(plan => !listed.contains(plan))
     for
       _ <- Either.cond(
         snapshot.schema == Schema,
         (),
         SnapshotError.UnsupportedSchema(snapshot.schema, Schema)
       )
+      _ <- unlisted.fold(Right(()))(plan =>
+        Left(SnapshotError.Malformed(s"plan '$plan' is not listed"))
+      )
+      _ <- Either.cond(
+        snapshot.plans.nonEmpty || domain.plans.isEmpty,
+        (),
+        SnapshotError.Malformed("no plans are listed")
+      )
       _ <- all(snapshot.plans)(plan)
-      current <- selection(snapshot.selection)
+      _ <- Either.cond(
+        snapshot.unresolved.forall(snapshot.selection.entities.contains),
+        (),
+        SnapshotError.Malformed("an unresolved key is not selected")
+      )
+      current <- selection(snapshot.selection, allowUnresolved = true)
+      unresolved <- all(snapshot.unresolved)(t => entity(t, allowMissing = true))
       named <- all(snapshot.named) { (n, s) =>
         for
           name <- SelectionName(n).left.map(e => SnapshotError.Malformed(e.message))
-          value <- selection(s)
+          value <- selection(s, allowUnresolved = false)
         yield name -> value
       }
       viewports <- all(snapshot.viewports) { v =>
@@ -175,10 +205,29 @@ object InteractionSnapshot:
           )
         yield panel -> window
       }
-    yield RestoredSnapshot(domain.revision, snapshot.mode, current, named.toMap, viewports.toMap)
+      _ <- Either.cond(
+        named.map(_._1).distinct.size == named.size,
+        (),
+        SnapshotError.Malformed("a saved selection name repeats")
+      )
+      _ <- Either.cond(
+        viewports.map(_._1).distinct.size == viewports.size,
+        (),
+        SnapshotError.Malformed("a viewport panel repeats")
+      )
+    yield RestoredSnapshot(
+      domain.revision,
+      snapshot.mode,
+      current,
+      named.toMap,
+      viewports.toMap,
+      unresolved.toSet.diff(domain.entities)
+    )
 
 /** A strict JSON writer and reader for snapshots, identical on the JVM and Scala.js: numbers are
-  * written as exact decimal expansions (not platform `Double.toString`), keys in a fixed order.
+  * written as exact decimal expansions (not platform `Double.toString`), fields in a fixed order.
+  * Reading accepts exactly the fields of the schema (an unknown field means another schema), JSON's
+  * number grammar in ASCII, no duplicate fields and no lone surrogates.
   */
 private[interaction] object SnapshotJson:
   // ---- writing ----
@@ -200,17 +249,15 @@ private[interaction] object SnapshotJson:
     fields.map((k, v) => s"${str(k)}:$v").mkString("{", ",", "}")
   private def arr(values: Iterable[String]): String = values.mkString("[", ",", "]")
 
+  private def token(t: KeyToken): String = obj(
+    "namespace" -> str(t.namespace),
+    "codec" -> str(t.codec),
+    "version" -> t.version.toString,
+    "payload" -> str(t.payload)
+  )
+
   private def selection(s: SnapshotSelection): String = obj(
-    "entities" -> arr(
-      s.entities.map(t =>
-        obj(
-          "namespace" -> str(t.namespace),
-          "codec" -> str(t.codec),
-          "version" -> t.version.toString,
-          "payload" -> str(t.payload)
-        )
-      )
-    ),
+    "entities" -> arr(s.entities.map(token)),
     "targets" -> arr(
       s.targets.map(a =>
         obj(
@@ -236,6 +283,7 @@ private[interaction] object SnapshotJson:
     ),
     "mode" -> str(s.mode.toString),
     "selection" -> selection(s.selection),
+    "unresolved" -> arr(s.unresolved.map(token)),
     "named" -> arr(s.named.map((n, sel) => obj("name" -> str(n), "selection" -> selection(sel)))),
     "viewports" -> arr(
       s.viewports.map(v =>
@@ -259,9 +307,14 @@ private[interaction] object SnapshotJson:
     case Bool(value: Boolean)
     case Null
 
+  private final case class Bad(reason: String) extends RuntimeException(reason)
+
+  /** JSON's number grammar, ASCII digits only. */
+  private val JsonNumber = "-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?".r
+
   private final class Parser(text: String):
     private var at = 0
-    private def fail(reason: String) = throw SnapshotJson.Bad(s"$reason at offset $at")
+    private def fail(reason: String) = throw Bad(s"$reason at offset $at")
     private def ws(): Unit = while at < text.length && " \t\r\n".contains(text(at)) do at += 1
     private def expect(c: Char): Unit =
       ws()
@@ -275,7 +328,9 @@ private[interaction] object SnapshotJson:
         case '{' =>
           at += 1
           ws()
-          if at < text.length && text(at) == '}' then { at += 1; J.Obj(Vector.empty) }
+          if at < text.length && text(at) == '}' then
+            at += 1
+            J.Obj(Vector.empty)
           else
             val fields = Vector.newBuilder[(String, J)]
             var more = true
@@ -286,14 +341,18 @@ private[interaction] object SnapshotJson:
               fields += key -> value(depth + 1)
               ws()
               if at < text.length && text(at) == ',' then at += 1
-              else { expect('}'); more = false }
+              else
+                expect('}')
+                more = false
             val built = fields.result()
             if built.map(_._1).distinct.size != built.size then fail("duplicate field")
             J.Obj(built)
         case '[' =>
           at += 1
           ws()
-          if at < text.length && text(at) == ']' then { at += 1; J.Arr(Vector.empty) }
+          if at < text.length && text(at) == ']' then
+            at += 1
+            J.Arr(Vector.empty)
           else
             val values = Vector.newBuilder[J]
             var more = true
@@ -301,17 +360,27 @@ private[interaction] object SnapshotJson:
               values += value(depth + 1)
               ws()
               if at < text.length && text(at) == ',' then at += 1
-              else { expect(']'); more = false }
+              else
+                expect(']')
+                more = false
             J.Arr(values.result())
-        case '"'                                 => J.Str(string())
-        case 't' if text.startsWith("true", at)  => at += 4; J.Bool(true)
-        case 'f' if text.startsWith("false", at) => at += 5; J.Bool(false)
-        case 'n' if text.startsWith("null", at)  => at += 4; J.Null
-        case c if c == '-' || c.isDigit          =>
+        case '"'                                => J.Str(string())
+        case 't' if text.startsWith("true", at) =>
+          at += 4
+          J.Bool(true)
+        case 'f' if text.startsWith("false", at) =>
+          at += 5
+          J.Bool(false)
+        case 'n' if text.startsWith("null", at) =>
+          at += 4
+          J.Null
+        case c if c == '-' || (c >= '0' && c <= '9') =>
           val start = at
           at += 1
           while at < text.length && "0123456789.eE+-".contains(text(at)) do at += 1
-          J.Num(text.substring(start, at))
+          val number = text.substring(start, at)
+          if number.length > 1100 || !JsonNumber.matches(number) then fail(s"bad number '$number'")
+          J.Num(number)
         case c => fail(s"unexpected '$c'")
     private def string(): String =
       ws()
@@ -322,36 +391,56 @@ private[interaction] object SnapshotJson:
       while !done do
         if at >= text.length then fail("unterminated string")
         text(at) match
-          case '"'  => at += 1; done = true
+          case '"' =>
+            at += 1
+            done = true
           case '\\' =>
             if at + 1 >= text.length then fail("unterminated escape")
-            text(at + 1) match
-              case '"'                          => out += '"'; at += 2
-              case '\\'                         => out += '\\'; at += 2
-              case '/'                          => out += '/'; at += 2
-              case 'n'                          => out += '\n'; at += 2
-              case 'r'                          => out += '\r'; at += 2
-              case 't'                          => out += '\t'; at += 2
-              case 'b'                          => out += '\b'; at += 2
-              case 'f'                          => out += '\f'; at += 2
+            val escaped = text(at + 1) match
+              case '"'                          => '"'
+              case '\\'                         => '\\'
+              case '/'                          => '/'
+              case 'n'                          => '\n'
+              case 'r'                          => '\r'
+              case 't'                          => '\t'
+              case 'b'                          => '\b'
+              case 'f'                          => '\f'
               case 'u' if at + 6 <= text.length =>
                 val hex = text.substring(at + 2, at + 6)
                 if !hex.forall(c => "0123456789abcdefABCDEF".contains(c)) then
                   fail("bad \\u escape")
-                out += Integer.parseInt(hex, 16).toChar
-                at += 6
+                at += 4
+                Integer.parseInt(hex, 16).toChar
               case _ => fail("bad escape")
+            out += escaped
+            at += 2
           case c if c < ' ' => fail("control character in string")
-          case c            => out += c; at += 1
-      out.result()
+          case c            =>
+            out += c
+            at += 1
+      val result = out.result()
+      // Strings may not hold a lone surrogate, from an escape or raw.
+      var i = 0
+      while i < result.length do
+        val c = result(i)
+        if Character.isHighSurrogate(c) then
+          if i + 1 >= result.length || !Character.isLowSurrogate(result(i + 1)) then
+            fail("lone surrogate")
+          i += 2
+        else if Character.isLowSurrogate(c) then fail("lone surrogate")
+        else i += 1
+      result
     def document(): J =
       val v = value()
       ws()
       if at != text.length then fail("trailing characters")
       v
 
-  private final case class Bad(reason: String) extends RuntimeException(reason)
-
+  /** An object with exactly these fields: an unknown field means another schema. */
+  private def exactly(j: J, names: String*): Unit = j match
+    case J.Obj(fields) =>
+      fields.map(_._1).find(n => !names.contains(n)).foreach(n => throw Bad(s"unknown field '$n'"))
+    case _ => throw Bad("expected an object")
   private def field(o: J, name: String): J = o match
     case J.Obj(fields) =>
       fields.collectFirst { case (`name`, v) => v }.getOrElse(throw Bad(s"missing field '$name'"))
@@ -364,33 +453,37 @@ private[interaction] object SnapshotJson:
     case _ => throw Bad(s"$what must be an integer")
   private def double(j: J, what: String): Double = j match
     case J.Num(t) =>
-      try
-        val d = BigDecimal(t).toDouble
-        if d.isFinite then d else throw Bad(s"$what must be finite")
-      catch case _: NumberFormatException => throw Bad(s"$what must be a number")
+      val d =
+        try new java.math.BigDecimal(t).doubleValue
+        catch case _: NumberFormatException => throw Bad(s"$what must be a number")
+      if d.isFinite then d else throw Bad(s"$what must be finite")
     case _ => throw Bad(s"$what must be a number")
   private def array(j: J, what: String): Vector[J] = j match
     case J.Arr(v) => v
     case _        => throw Bad(s"$what must be an array")
 
+  private def readToken(e: J): KeyToken =
+    exactly(e, "namespace", "codec", "version", "payload")
+    KeyToken(
+      text(field(e, "namespace"), "namespace"),
+      text(field(e, "codec"), "codec"),
+      int(field(e, "version"), "version"),
+      text(field(e, "payload"), "payload")
+    )
+
   private def readSelection(j: J): SnapshotSelection =
+    exactly(j, "entities", "targets")
     SnapshotSelection(
-      array(field(j, "entities"), "entities").map(e =>
-        KeyToken(
-          text(field(e, "namespace"), "namespace"),
-          text(field(e, "codec"), "codec"),
-          int(field(e, "version"), "version"),
-          text(field(e, "payload"), "payload")
-        )
-      ),
-      array(field(j, "targets"), "targets").map(t =>
+      array(field(j, "entities"), "entities").map(readToken),
+      array(field(j, "targets"), "targets").map { t =>
+        exactly(t, "plan", "planRevision", "scope", "ordinal")
         TargetAddress(
           text(field(t, "plan"), "plan"),
           text(field(t, "planRevision"), "planRevision"),
           text(field(t, "scope"), "scope"),
           int(field(t, "ordinal"), "ordinal")
         )
-      )
+      }
     )
 
   def read(input: String): Either[SnapshotError, InteractionSnapshot] =
@@ -404,6 +497,7 @@ private[interaction] object SnapshotJson:
         if schema != InteractionSnapshot.Schema then
           Left(SnapshotError.UnsupportedSchema(schema, InteractionSnapshot.Schema))
         else
+          exactly(root, "schema", "plans", "mode", "selection", "unresolved", "named", "viewports")
           val modeText = text(field(root, "mode"), "mode")
           val mode = SelectionMode.values
             .find(_.toString == modeText)
@@ -411,19 +505,23 @@ private[interaction] object SnapshotJson:
           Right(
             InteractionSnapshot(
               schema,
-              array(field(root, "plans"), "plans").map(p =>
+              array(field(root, "plans"), "plans").map { p =>
+                exactly(p, "id", "planRevision", "dataRevision")
                 SnapshotPlan(
                   text(field(p, "id"), "id"),
                   text(field(p, "planRevision"), "planRevision"),
                   text(field(p, "dataRevision"), "dataRevision")
                 )
-              ),
+              },
               mode,
               readSelection(field(root, "selection")),
-              array(field(root, "named"), "named").map(n =>
+              array(field(root, "unresolved"), "unresolved").map(readToken),
+              array(field(root, "named"), "named").map { n =>
+                exactly(n, "name", "selection")
                 text(field(n, "name"), "name") -> readSelection(field(n, "selection"))
-              ),
-              array(field(root, "viewports"), "viewports").map(v =>
+              },
+              array(field(root, "viewports"), "viewports").map { v =>
+                exactly(v, "panel", "xMin", "xMax", "yMin", "yMax")
                 SnapshotViewport(
                   text(field(v, "panel"), "panel"),
                   double(field(v, "xMin"), "xMin"),
@@ -431,7 +529,7 @@ private[interaction] object SnapshotJson:
                   double(field(v, "yMin"), "yMin"),
                   double(field(v, "yMax"), "yMax")
                 )
-              )
+              }
             )
           )
       catch case Bad(reason) => Left(SnapshotError.Malformed(reason))

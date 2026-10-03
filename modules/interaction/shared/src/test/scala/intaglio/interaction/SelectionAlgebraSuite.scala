@@ -189,3 +189,27 @@ class SelectionAlgebraSuite extends munit.FunSuite:
     Vector("", " lead", "trail ", "a/b", "x" * 65).foreach(n => assert(SelectionName(n).isLeft, n))
     Vector("a", "Lasso 1", "bins_2-3.v2").foreach(n => assert(SelectionName(n).isRight, n))
   }
+
+  test(
+    "selections spanning the plots of a domain keyed by two spaces combine, keys staying distinct"
+  ) {
+    val second = ok(KeySpace("trial", KeyCodec.integer))
+    val trials = ok(
+      InteractionCompiler.compile(
+        ok(Plot(data).addLayer(Layer.point[Obs](_.x, _.x))),
+        second,
+        ok(DataRevision("d")),
+        SemanticId.unsafe("trials"),
+        ok(PlanRevision("p"))
+      )(_.id)
+    )
+    val wide = ok(InteractionDomain(Vector(points, trials), ok(PlanRevision("wide"))))
+    val a = Selection(Set(ok(space.entity(1)), ok(second.entity(1))))
+    val b = Selection(Set(ok(second.entity(1)), ok(second.entity(2))))
+    assertEquals(ok(SelectionAlgebra.intersect(a, b, wide)), Selection(Set(ok(second.entity(1)))))
+    assertEquals(
+      ok(SelectionAlgebra.union(a, b, wide)).entities.size,
+      3,
+      "obs 1 and trial 1 stay distinct"
+    )
+  }

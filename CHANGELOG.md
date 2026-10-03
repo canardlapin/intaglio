@@ -75,7 +75,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   mode) with the plans, plan and data revisions and key codecs it means
   something under, never hover, focus, gestures, pending requests or
   callbacks. `toJson`/`fromJson` use a strict, dependency-free JSON codec that
-  writes the same text on the JVM and Scala.js. `InteractionSnapshot.resolve`
+  writes the same text on the JVM and Scala.js and reads only the schema's
+  fields, JSON numbers in ASCII and well-formed strings. `InteractionSnapshot.resolve`
   checks a snapshot against a domain and refuses it with a typed
   `SnapshotError` (unsupported schema, malformed text, unknown plan, stale
   plan or data revision, key space or codec mismatch, unknown observation or

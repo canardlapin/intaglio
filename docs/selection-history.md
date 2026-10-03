@@ -18,8 +18,12 @@ A selection can be saved by name and combined with others:
 `SelectionAlgebra.union`, `intersect` and `diff` are the same operations as plain functions.
 Observation keys and visual targets combine separately, as they are selected separately, and the
 usual set laws hold (checked exhaustively in `SelectionAlgebraSuite`). Selections combine only when
-they mean the same things: keys of one key-space instance used by the plot, and targets the plot
-draws. Anything else is refused with `StateError.IncompatibleSelections` or `UnknownTarget`.
+they mean the same things: keys of key-space instances the plot uses (keys of two such spaces stay
+distinct even when their values are equal) and targets the plot draws. Anything else is refused with
+`StateError.IncompatibleSelections` or `UnknownTarget`.
+
+A saved selection holds only observations the data has: keys the current selection keeps across a
+data replacement (`MissingEntityPolicy.Preserve`, reported as unresolved) are not saved with it.
 
 When the data is replaced, saved selections keep only the observations and targets the new data
 still has (`MissingEntityPolicy.Preserve` applies to the current selection only), and a
@@ -37,8 +41,11 @@ dependency; the JVM and Scala.js write the same text. A snapshot is restored in 
 
 1. `InteractionSnapshot.resolve(snapshot, domain)` checks it against the plot shown now and returns a
    typed `SnapshotError` when it cannot mean the same thing there: an unsupported schema, malformed
-   text, an unknown plan, a different plan or data revision, a key space or key codec the plot does
-   not use, or an observation or target the plot does not have.
+   text (including an unknown field, a repeated name or panel, or a target whose plan is not listed),
+   an unknown plan, a different plan or data revision, a key space or key codec the plot does not
+   use, a namespace that two of the plot's key spaces share (`AmbiguousKeySpace`), or an observation
+   or target the plot does not have. Observations the saved selection held as unresolved are restored
+   as unresolved.
 2. Dispatching `InteractionAction.RestoreSnapshot(resolved)` applies it as one change. A restore never
    activates a target (so no link is followed) and never asks a membership resolver; it supersedes
    any pending member request, like any other selection change.
@@ -55,6 +62,10 @@ dependency; the JVM and Scala.js write the same text. A snapshot is restored in 
 - A new recorded change clears redo. Replacing the data clears both stacks.
 - Hover, focus, gestures and membership requests are never history.
 - Undo and redo dispatch `RestoreSnapshot`, so they never follow a link or ask a resolver, and they
-  are not recorded themselves.
+  are not recorded themselves. Each restores the whole durable state it recorded: a redo after a
+  linked projection replaces the projected selection with the redone one, which the link then
+  carries to the other plots.
+- Unresolved observations (kept across a data replacement) are part of the recorded state, so
+  undoing to a selection that held them restores them as unresolved.
 
 The history depth is bounded (100 by default).
