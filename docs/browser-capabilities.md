@@ -244,7 +244,8 @@ shared suites `SelectionAlgebraSuite`, `InteractionSnapshotSuite`, `InteractionH
 Measured separately from the baseline and from each other. The receipt is
 [`tools/check-performance-browser.cjs`](../tools/check-performance-browser.cjs): three runs per
 workload, `fastLinkJS` bundle, Chromium 151.0.7922.34 headless, on an Apple M3 Max. The production
-source is `40fe10129676915a664a78f7e53ecac92a911add`. Budgets are in
+source is `40fe10129676915a664a78f7e53ecac92a911add` (`0f940ae` after the rebase onto Interaction 10).
+Budgets are in
 [`performance/browser-budgets.json`](../performance/browser-budgets.json), and the method is in
 [Browser performance](performance.md). Times are medians on that machine, not promises, and the
 fixture sizes are not capacity guarantees.
@@ -259,6 +260,7 @@ fixture sizes are not capacity guarantees.
 | Redraw after selecting 1,000 marks | 43 ms | 52 ms | `select1000RedrawMs` |
 | Re-window to the central half (full rebuild; statistics not recomputed) | 332 ms | 3,071 ms | `rezoomMs` |
 | Update to new data keeps surviving selected entities | Pass | Pass | 990 of 1,000 selected after every 100th row is removed |
+| Restore and undo redraw the cached selection layer (1,000 selected; restore, re-window, undo) | Pass | Pass | exact selected-ring counts after each step |
 | Dispose releases listeners, root and widget | Pass | Pass | 0 listeners, 0 roots, 0 of 5 `WeakRef` widgets survive collection |
 | Exact-member coverage cost (histogram, 100,000 rows) | — | 345 vs 267 ms compile, 18.8 vs 15.9 MiB, 19.8 ms coverage redraw | `membershipExactKeys100k` vs `membershipCountOnly100k` |
 

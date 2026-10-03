@@ -222,6 +222,23 @@ object PerformanceFixture:
     val (_, ms) = timed(orThrow(mounted.navigate(window)))
     ms
 
+  // Interaction 10's paths that change the drawn selection or view without pointer input: the
+  // redraw caches must follow them.
+  private var saved: Option[InteractionSnapshot] = None
+
+  def snapshot(): String =
+    mounted.snapshot.fold(_.message, s => { saved = Some(s); "ok" })
+
+  def restore(): String =
+    saved.fold("no snapshot")(s => mounted.restore(s).fold(_.message, _ => "ok"))
+
+  def undo(): String = mounted.undo().fold(_.message, _.toString)
+
+  def selectedRings: Int =
+    g.document.querySelectorAll("#perf .intaglio-ring-selected").length.asInstanceOf[Int]
+
+  def windowIsFull: Boolean = mounted.currentWindow.isFull
+
   /** Repaint `count` targets through application styles. */
   def restyle(count: Int): Double =
     val styles = shown.navigation.targets
@@ -349,5 +366,10 @@ object PerformanceFixture:
       survivors = () => survivors(),
       membership = (retention: String, selected: Int) => membership(retention, selected),
       coveredRings = () => coveredRings,
+      snapshot = () => snapshot(),
+      restore = () => restore(),
+      undo = () => undo(),
+      selectedRings = () => selectedRings,
+      windowIsFull = () => windowIsFull,
       ready = true
     )

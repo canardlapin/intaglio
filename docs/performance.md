@@ -20,8 +20,10 @@ The page is `PerformanceFixture` in `modules/browser-fixture`, mounted by
 Every timed value is the median of three fresh pages. The recorded machine is an Apple M3 Max (14
 cores, 36 GiB, macOS 14.3 / Darwin 23.3.0, arm64), with Playwright's headless Chromium
 151.0.7922.34 and Node 26.7.0. The bundle is `browserFixture/fastLinkJS`, the bundle every browser
-suite uses. Production source is `40fe10129676915a664a78f7e53ecac92a911add`; the "before" column
-is `e891562e07121d10c438f4c52dab0a22aea0c994` linked with the same fixture. Other agents' builds
+suite uses. The production source measured is `40fe10129676915a664a78f7e53ecac92a911add`, which
+was based on `e891562`. After the rebase onto Interaction 10 (`5e1b10f`), the same change is
+`0f940ae56412936a32c812979923625558e8c31a`. The "before" column is
+`e891562e07121d10c438f4c52dab0a22aea0c994`, linked with the same fixture. Other agents' builds
 shared the machine during the runs.
 
 ### How each value is measured
@@ -40,6 +42,11 @@ shared the machine during the runs.
   style, layout and paint after the frame.
 - **Redraw latency** uses the same frame measurement after a programmatic selection change, a
   re-window and a restyle.
+- **History paths** (Interaction 10) change the selection and the window without pointer input,
+  so the cached selection layer must follow them. With 1,000 marks selected, the check snapshots
+  the state, selects 10 and requires exactly 10 selected rings. It restores the snapshot and
+  requires 1,000 rings. It re-windows to the central half, where only the visible selected marks
+  are ringed, then undoes the re-window and requires the full window and 1,000 rings again.
 - **Disposal** checks the DOM listener count and widget root after `dispose`, then mounts and
   disposes five widgets over the same view. It holds them only through `WeakRef`, and after
   collection it requires that none survive.
@@ -168,9 +175,10 @@ names; partial runs skip the completeness check) are for exploration. The gate r
 outside `tools/check-browser-suites.py` because parallel jobs would distort its timings. Audit
 browser ownership before and after it, as for every browser check.
 
-At `29b5fa2811e37352a459351fb96be984c0d2824f`, which carries these budgets, the gate passed all 44
-budget comparisons and every assertion over three runs. The load average was 9.1 at the start and
-7.7 at the end. Run against `e891562` with the same fixture, the gate fails. It stops the SVG
+Before the rebase, at `29b5fa2811e37352a459351fb96be984c0d2824f`, which carries these budgets, the
+gate passed all 44 budget comparisons and every assertion over three runs. The load average was 9.1
+at the start and 7.7 at the end. After the rebase onto Interaction 10, the restore and undo
+assertions were added, and the gate was rerun on the rebased branch. Run against `e891562` with the same fixture, the gate fails. It stops the SVG
 workload at the emphasis-reuse assertion and exceeds 11 Canvas budgets, among them view compile
 (12.3 s), pointer to highlight (248 ms), hover redraw, re-window, restyle and retained heap
 (764 MiB).

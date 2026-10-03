@@ -223,6 +223,28 @@ async function main() {
         assert.ok(same, 'the emphasis copy is parsed once per view');
       }
 
+      log('restore and undo');
+      // Restore and undo change the selection and the window without pointer input; the cached
+      // selection layer and emphasis copy must follow them (Interaction 10's history paths).
+      assert.equal(await t.p('snapshot'), 'ok');
+      await t.p('select', 10);
+      await t.idle();
+      assert.equal(await t.p('selectedRings'), 10, 'a new selection redraws its own rings');
+      assert.equal(await t.p('restore'), 'ok');
+      await t.idle();
+      assert.equal(await t.p('selectedCount'), 1000, 'restore brings back the thousand');
+      assert.equal(await t.p('selectedRings'), 1000, 'restore redraws a thousand rings');
+      await t.p('navigate', 0.5);
+      await t.idle();
+      const zoomedRings = await t.p('selectedRings');
+      assert.ok(zoomedRings < 1000, `a zoomed view rings only visible selected marks: ${zoomedRings}`);
+      assert.equal(await t.p('undo'), 'true', 'the window change is undoable');
+      await t.idle();
+      await t.idle();
+      assert.ok(await t.p('windowIsFull'), 'undo restores the full window');
+      assert.equal(await t.p('selectedRings'), 1000, "undo redraws the full view's rings");
+      m.restoreUndoZoomedRings = zoomedRings;
+
       log('rezoom');
       const zoom = await framed(t, 'navigate', [0.5], 5, async () => { await t.p('navigate', 1); await t.idle(); });
       m.rezoomMs = zoom.actionMs;
