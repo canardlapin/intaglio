@@ -158,6 +158,8 @@ final class SvgWidget[A] private (
               .map(_ => ())
       yield
         setHoveredPart(None)
+        emitHover(LinkedEmphasis.none[A])
+        legendEmphasis = LinkedEmphasis.none[A]
         view = next
         input = HostInput(view.picking, view.navigation, unitViewport, behavior)
         live.textContent = ""
@@ -166,6 +168,10 @@ final class SvgWidget[A] private (
         if companion.open.asInstanceOf[Boolean] then fillCompanion()
         scheduleRedraw()
 
+  /** The observation keys this plot draws as marks of their own; a histogram draws none. */
+  def drawnEntities: Set[EntityKey[A]] =
+    view.navigation.targets.flatMap(_.target.entity).toSet
+
   def isDisposed: Boolean = disposed
 
   /** Listeners currently registered on the DOM; zero after [[dispose]]. */
@@ -173,6 +179,8 @@ final class SvgWidget[A] private (
 
   def dispose(): Unit =
     if !disposed then
+      // Linked views stop showing what this plot pointed at.
+      emitHover(LinkedEmphasis.none[A])
       disposed = true
       listeners.clear()
       subscriptions.foreach(_.cancel())
@@ -465,12 +473,14 @@ final class SvgWidget[A] private (
   /** Choosing a linked legend entry selects its marks, as a reader's own action. */
   private def chooseLegend(emphasis: LinkedEmphasis[A], additive: Boolean): Unit =
     val entities = view.navigation.targets.map(_.target).filter(emphasis.matches).flatMap(_.entity)
-    val operation = if additive then SelectionOperation.Add else SelectionOperation.Replace
-    dispatch(
-      InteractionAction.Select(Selection(entities.toSet), operation),
-      InputCause.Pointer
-    ).left
-      .foreach(report)
+    // A legend whose link keys match none of this plot's marks selects nothing and clears nothing.
+    if entities.nonEmpty then
+      val operation = if additive then SelectionOperation.Add else SelectionOperation.Replace
+      dispatch(
+        InteractionAction.Select(Selection(entities.toSet), operation),
+        InputCause.Pointer
+      ).left
+        .foreach(report)
 
   private def emitPart(event: PartEvent): Unit =
     partListeners.foreach { (_, listener) =>

@@ -86,6 +86,36 @@ async function main() {
       return { c: await selected('c') };
     });
 
+    await check('clearing a bin with Escape leaves the linked observation selection alone', async () => {
+      const a = await selected('a');
+      assert.ok(a.length > 0);
+      const [x, y] = await point('c', 1);
+      await tab.mouse.click(x, y);
+      await tab.keyboard.press('Escape');
+      await settle();
+      assert.deepEqual(await selected('c'), [], 'the histogram cleared its own bin');
+      assert.deepEqual(await selected('a'), a);
+      assert.deepEqual(await selected('b'), a);
+      return { a };
+    });
+
+    await check('a legend in a foreign key space selects and clears nothing anywhere', async () => {
+      const a = await selected('a');
+      const before = await counts();
+      const centre = await fx(() => {
+        const key = document.querySelector('[data-intaglio-widget=d] [data-name="block-legend-entry-0-key"]');
+        const r = key.getBoundingClientRect();
+        return [r.left + r.width / 2, r.top + r.height / 2];
+      });
+      await tab.mouse.click(centre[0], centre[1]);
+      await settle();
+      assert.deepEqual(await selected('a'), a);
+      assert.deepEqual(await selected('d'), []);
+      const after = await counts();
+      assert.equal(after.a, before.a);
+      return {};
+    });
+
     await check('a linked legend entry emphasizes and selects its category in both scatters', async () => {
       const blockA = await fx(() => window.intaglioLinked.blockCount('A'));
       const centre = await fx(() => {
@@ -134,12 +164,30 @@ async function main() {
       return { missing: missing.slice(-3) };
     });
 
-    await check('disposing the link stops projection and emphasis', async () => {
-      await fx(() => window.intaglioLinked.unlink());
-      const b = await selected('b');
+    await check('a key only one plot has survives an additive change in the other', async () => {
+      // After replaceB, A holds t1 and B cannot. Shift-click t9 in B: A must keep t1 and add t9.
+      assert.deepEqual(await selected('a'), ['t1']);
+      const index = await fx(() => window.intaglioLinked.indexOf('b', 't9'));
+      const [x, y] = await point('b', index);
+      await tab.keyboard.down('Shift');
+      await tab.mouse.click(x, y);
+      await tab.keyboard.up('Shift');
+      await settle();
+      assert.deepEqual(await selected('b'), ['t9']);
+      assert.deepEqual(await selected('a'), ['t1', 't9']);
+      return {};
+    });
+
+    await check('disposing the link clears its emphasis and stops projection', async () => {
       const index = await fx(() => window.intaglioLinked.indexOf('a', 't9'));
       const [x, y] = await point('a', index);
       await tab.mouse.move(x, y);
+      await settle();
+      assert.equal(await rings('b', 'linked'), 1, 'B contains t9 and shows it linked');
+      await fx(() => window.intaglioLinked.unlink());
+      await settle();
+      assert.equal(await rings('b', 'linked'), 0, 'unlinking clears the emphasis it set');
+      const b = await selected('b');
       await tab.mouse.click(x, y);
       await settle();
       assert.deepEqual(await selected('a'), ['t9']);
