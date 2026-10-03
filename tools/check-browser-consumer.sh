@@ -6,8 +6,8 @@
 #
 # 1. Check out <commit> (default HEAD) into a clean temporary worktree, so uncommitted changes in
 #    this checkout can never leak into the artifact.
-# 2. publishLocal the Scala.js artifacts there under a version unique to that commit
-#    (0.0.0-consumer-<sha12>), which no remote repository can supply.
+# 2. publishLocal the Scala.js code artifacts there (no doc jars) under a version unique to that
+#    commit (0.0.0-consumer-<sha12>), which no remote repository can supply.
 # 3. Copy tools/browser-consumer outside the repository and build it against that version by
 #    coordinate only; fail unless every intaglio jar on its classpath is that published version.
 # 4. Link it and run tools/browser-consumer/smoke.cjs in Playwright's own Chromium.
@@ -56,8 +56,14 @@ echo "== publishing $commit as $version"
 git worktree add --quiet --detach "$work/source" "$commit"
 (
   cd "$work/source"
+  # Code artifacts only: the consumer resolves classes, and scaladoc is a separate gate (doc jars
+  # are not part of what this check certifies).
   sbt -batch \
     "set ThisBuild / version := \"$version\"" \
+    "set coreJS / Compile / packageDoc / publishArtifact := false" \
+    "set interactionJS / Compile / packageDoc / publishArtifact := false" \
+    "set svgJS / Compile / packageDoc / publishArtifact := false" \
+    "set browserJS / Compile / packageDoc / publishArtifact := false" \
     coreJS/publishLocal interactionJS/publishLocal svgJS/publishLocal browserJS/publishLocal
 ) >"$out/publish.log" 2>&1 || { tail -40 "$out/publish.log" >&2; exit 1; }
 
