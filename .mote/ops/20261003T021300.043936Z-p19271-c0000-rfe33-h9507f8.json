@@ -1,0 +1,1 @@
+{"actor":"claude-intaglio-motes","entity":"bd-01M3ZRJ9ZCP8E7442J9VKC1Y6V","kind":"reserve_open","mode":"exclusive","op":"20261003T021300.043936Z-p19271-c0000-rfe33-h9507f8","paths":["docs/browser-capabilities.md","tools/check-browser-consumer.sh","tools/browser-consumer/"],"reservation_id":"rv-01M3ZRJG0BFM7ZX09X3XHPPF49","ts":"2026-10-03T02:13:00.043936Z","ttl_s":3600,"v":2}
