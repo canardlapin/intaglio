@@ -364,6 +364,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A slow membership reply can no longer overwrite a newer selection.** A
+  pending `RequestMembers` belongs to the selection it was made against: any
+  later selection change (a reader's, an application's, a linked projection,
+  or a clear) supersedes it, and a replacing request supersedes every earlier
+  one; additive requests still wait side by side. Before, clearing or
+  selecting something else while a deferred bin was pending let its reply
+  restore the old bin.
+
+- **`SvgWidget.update` checks the new view as mounting does.** Legend links,
+  aggregate member selection and the membership resolver are validated before
+  any state changes; before, an update to deferred membership without a
+  resolver succeeded and left later clicks pending forever.
+
 - **Explicit position scales reach segment ends and tile bounds.** A layer that
   sets its own positions (`geomSegment`, `geomTile`, `geomRect`,
   `geomErrorBar`, `geomRibbon`, `geomArea`, and independent layers) did not see

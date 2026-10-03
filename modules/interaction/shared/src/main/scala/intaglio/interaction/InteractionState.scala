@@ -484,10 +484,13 @@ object InteractionState:
           state.domain.target(id).map { info =>
             finish(changed(), Vector(InteractionEvent.Activated(info)))
           }
-        case InteractionAction.Select(value, operation)                => select(value, operation)
+        // A pending membership request belongs to the selection it was made against: any later
+        // selection change (a reader's, an application's, or a linked projection, including a
+        // clear) supersedes it, so a slow reply can never overwrite a newer selection.
+        case InteractionAction.Select(value, operation) => select(value, operation, Map.empty)
         case InteractionAction.SelectMembers(targets, operation, plus) =>
           members(targets).flatMap(keys =>
-            select(Selection(plus.entities ++ keys, plus.targets), operation)
+            select(Selection(plus.entities ++ keys, plus.targets), operation, Map.empty)
           )
         case InteractionAction.RequestMembers(id, requestId, operation) =>
           for
@@ -526,7 +529,11 @@ object InteractionState:
             )
             finish(
               changed(
-                pending = state.pendingMembers.updated(id, request),
+                // A replacing request supersedes every earlier one; additive requests (add,
+                // subtract, toggle) can wait side by side, each applied when it arrives.
+                pending =
+                  if operation == SelectionOperation.Replace then Map(id -> request)
+                  else state.pendingMembers.updated(id, request),
                 marks = state.requestMarks.updated(id, requestId)
               ),
               Vector(InteractionEvent.MembershipRequested(request))

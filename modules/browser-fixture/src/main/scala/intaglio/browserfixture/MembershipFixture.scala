@@ -209,5 +209,10 @@ object MembershipFixture:
         widgets(slot)
           .setSelection(Selection(ids.toVector.map(id => orThrow(space.entity(id))).toSet))
           .fold(_.message, _ => "ok"),
+      // The exact-members histogram updated to deferred membership, which it has no resolver for.
+      updateToDeferred = () =>
+        widgets("h")
+          .update(histogram("h", MembershipRetention.Deferred))
+          .fold(_.message, _ => "ok"),
       ready = true
     )

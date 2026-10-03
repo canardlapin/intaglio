@@ -335,3 +335,67 @@ class MembershipResolverSuite extends munit.FunSuite:
     )
     assert(swept.forall(_.action.isInstanceOf[InteractionAction.Select[?]]), swept.toString)
   }
+
+  test("a later selection change supersedes a pending request; its slow reply cannot restore it") {
+    // Clear while the request is pending: the reply arrives after and changes nothing.
+    val pending = request(initial(), 1)
+    val cleared =
+      run(pending, InteractionAction.Select(Selection[Int](), SelectionOperation.Clear)).state
+    assert(cleared.pendingMembers.isEmpty)
+    val late = reply(cleared, 1, MembershipReply.Complete(keys(binMembers)))
+    assertEquals(outcomes(late).head, MembershipOutcome.Superseded)
+    assertEquals(late.state.selection, Selection[Int]())
+    // A direct selection after the request: the reply cannot overwrite it either.
+    val chosen = Selection(keys(Vector(data.head.id)).toSet)
+    val again =
+      run(request(initial(), 1), InteractionAction.Select(chosen, SelectionOperation.Replace)).state
+    assertEquals(
+      reply(again, 1, MembershipReply.Complete(keys(binMembers))).state.selection,
+      chosen
+    )
+  }
+
+  test(
+    "a replacing request for another bin supersedes the first; additive requests wait together"
+  ) {
+    val binB = bins(1)
+    val membersB = oracle(10.0)
+    def ask(
+        state: InteractionState[Int],
+        target: VisualTargetId,
+        id: Long,
+        op: SelectionOperation
+    ) =
+      run(state, InteractionAction.RequestMembers(target, id, op)).state
+    // A then B, both replacing: A's slower reply is superseded, B's applies.
+    val both = ask(
+      ask(initial(), bin.id, 1, SelectionOperation.Replace),
+      binB.id,
+      1,
+      SelectionOperation.Replace
+    )
+    assertEquals(both.pendingMembers.keySet, Set(binB.id))
+    val slowA = run(
+      both,
+      InteractionAction.ResolveMembers(bin.id, 1, MembershipReply.Complete(keys(binMembers)))
+    )
+    assertEquals(outcomes(slowA).head, MembershipOutcome.Superseded)
+    val b = run(
+      slowA.state,
+      InteractionAction.ResolveMembers(binB.id, 1, MembershipReply.Complete(keys(membersB)))
+    )
+    assertEquals(b.state.selection.entities.map(_.value), membersB)
+    // Two additive requests: both stay pending and both apply.
+    val adds =
+      ask(ask(initial(), bin.id, 1, SelectionOperation.Add), binB.id, 1, SelectionOperation.Add)
+    assertEquals(adds.pendingMembers.keySet, Set(bin.id, binB.id))
+    val first = run(
+      adds,
+      InteractionAction.ResolveMembers(bin.id, 1, MembershipReply.Complete(keys(binMembers)))
+    ).state
+    val second = run(
+      first,
+      InteractionAction.ResolveMembers(binB.id, 1, MembershipReply.Complete(keys(membersB)))
+    ).state
+    assertEquals(second.selection.entities.map(_.value), binMembers ++ membersB)
+  }

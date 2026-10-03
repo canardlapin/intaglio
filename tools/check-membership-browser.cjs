@@ -155,8 +155,27 @@ async function main() {
         await settle(120);
         assert.deepEqual(await m('selected', 'd'), before);
         assert.match(await m('live', 'd'), /could not be retrieved/);
+        // Escape while a request is pending supersedes it: its reply cannot restore the bin.
+        await tab.mouse.click(x, y); // request 5
+        await settle();
+        await tab.keyboard.press('Escape');
+        await settle();
+        await m('reply', 4, 'complete');
+        await settle(120);
+        assert.deepEqual(await m('selected', 'd'), [], 'a reply to a cleared request changes nothing');
         assert.deepEqual(errors, []);
         return { requests: (await fx(() => window.intaglioMembers.requests.length)) };
+      });
+      await check('an update that the plot could not serve is refused before anything changes', async () => {
+        const before = await m('selected', 'h');
+        const message = await fx(() => window.intaglioMembers.updateToDeferred());
+        assert.match(message, /resolver/, message);
+        assert.deepEqual(await m('selected', 'h'), before, 'the selection is untouched');
+        const [x, y, members] = (await m('bins', 'h'))[0];
+        await tab.mouse.click(x, y);
+        await settle();
+        assert.deepEqual(await m('selected', 'h'), sorted(members), 'the plot still selects exact members');
+        return { message };
       });
       await tab.close();
     }

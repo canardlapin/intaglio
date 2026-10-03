@@ -207,6 +207,10 @@ final class SvgWidget[A] private (
       )
     else
       for
+        // The new view must meet every requirement mounting checks, before any state changes.
+        _ <- SvgWidget.validateLegendLinks(next, behavior)
+        _ <- behavior.validateAggregates(next.plans)
+        _ <- SvgWidget.validateResolver(next, behavior, resolver)
         domain <- InteractionDomain(next.plans, next.revision)
         current <- controller.state
         // The same plan revision is the same data at another size or look: target identities are
@@ -1496,7 +1500,7 @@ object SvgWidget:
       )
 
   /** Members-mode aggregates whose members are deferred need a resolver to ask. */
-  private def validateResolver[A](
+  private[browser] def validateResolver[A](
       view: SvgWidgetView[A],
       behavior: InteractionBehavior[A],
       resolver: Option[MembershipResolver[A]]
@@ -1523,7 +1527,7 @@ object SvgWidget:
     * bound category, a different key space) is refused here rather than linking nothing at run
     * time.
     */
-  private def validateLegendLinks[A](
+  private[browser] def validateLegendLinks[A](
       view: SvgWidgetView[A],
       behavior: InteractionBehavior[A]
   ): Either[IntaglioError, Unit] =
