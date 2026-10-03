@@ -92,7 +92,11 @@ private[performance] object TimingHarness:
         () => TimingWorkloads.cachedResizeSweep(densePlot, cacheOptions, cache)
       },
       "train-once" -> (() => TimingWorkloads.trainTrellis(densePlot).hashCode().toLong),
-      "pick-compile" -> (() => TimingWorkloads.compilePicking(interactionPlan).targetCount.toLong)
+      "pick-compile" -> (() => TimingWorkloads.compilePicking(interactionPlan).targetCount.toLong),
+      // Compile, then materialize every target's clipped geometry, as a widget view does.
+      "pick-navigation" -> (() =>
+        TimingWorkloads.compilePicking(interactionPlan).prepareNavigation().targets.size.toLong
+      )
     )
 
     val queryWorkloads: Vector[(String, () => Long, Int)] = Vector(

@@ -91,6 +91,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   runnable desktop example (`sbt javafxExample/run`), the trace parity suite and
   the native evidence runner. See [docs/javafx-interaction.md](docs/javafx-interaction.md).
 
+- **Browser performance budgets.** `tools/check-performance-browser.cjs`
+  characterizes a 10,000-mark SVG widget, a 100,000-point Canvas widget and
+  the cost of exact aggregate membership in Playwright's Chromium. It records
+  retained heap, index-build cost, pointer-to-highlight and redraw latency,
+  update and re-window cost and disposal, and it fails when a median exceeds
+  the measured budget in `performance/browser-budgets.json` or a lifecycle or
+  identity assertion breaks. The fixture sizes are test workloads, not
+  capacity guarantees. See [docs/performance.md](docs/performance.md).
+
 - A native Canvas renderer for the browser widget
   (`WidgetOptions(renderer = WidgetRenderer.Canvas)`), sharing input, selection,
   linking, parts and the text companion with SVG; `intaglio-browser` now
@@ -580,6 +589,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Unfaceted plots are unchanged.
 
 ### Changed
+
+- **Large plots pick, hover and redraw without per-mark work per event.**
+  Picking skips clip work that cannot cut a mark, resolves identities through a
+  per-series table instead of scanning, and builds plot-part targets only for
+  part names. The browser host no longer re-indexes every target on each
+  pointer event. An overlay redraw reuses the standing selection's rings and
+  emphasis outlines, and the SVG emphasis copy is parsed once per view and
+  rendered only when first needed. On the 100,000-point Canvas fixture,
+  pointer-to-highlight fell from 198 ms to 6.7 ms and view compilation from
+  9.5 s to 3.5 s. Every result is identical to the exhaustive oracles.
+  Re-windowing, restyling and updates still rebuild the whole view; see
+  [docs/performance.md](docs/performance.md).
 
 - **Hollow point glyphs are hit on their whole disc.** Hovering or clicking the
   centre of a stroked, unfilled point now hits it on every host that picks

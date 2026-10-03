@@ -31,6 +31,15 @@ baseline definition and TSV in the same commit, record the production source SHA
 platforms plus `scalafmtCheckAll`. Use a profiler or a proper benchmark runner for exploratory
 wall-clock work; do not convert timing observations into hosted-CI pass/fail assertions.
 
+## The browser budgets (a gate, run on named hardware)
+
+[`browser-budgets.json`](browser-budgets.json) holds measured release budgets for the
+10,000-mark SVG and 100,000-point Canvas widget fixtures and for exact aggregate membership. They
+are enforced by `tools/check-performance-browser.cjs` in Playwright's Chromium. That gate does fail
+on elapsed time, so it runs on the recorded class of machine, serially and outside hosted CI, with
+the headroom stated in the file. Method, measurements and limits are in
+[docs/performance.md](../docs/performance.md).
+
 ## The timing receipt (not a CI gate)
 
 Alongside the deterministic gates, [timings/v1.tsv](timings/v1.tsv) records elapsed time and

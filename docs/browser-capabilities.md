@@ -191,8 +191,8 @@ and `compileComposition`, kept across re-windowing and repainting; `SvgWidgetVie
 it misses a hollow point's centre where the default hits it (unit evidence; no browser check).
 
 These receipts qualify the tested Chromium version. Other browser engines, hosted browser CI,
-large-workload performance/capacity, analytical extensions and the later Interaction 09–12
-qualification work are not certified here. See [Canvas widget contracts](canvas-widget.md) for
+large-workload capacity, analytical extensions and the later Interaction 09–12 qualification work
+are not certified here. Large-workload performance is measured separately, below. See [Canvas widget contracts](canvas-widget.md) for
 backing-store bounds, supported paints, lifecycle and error behaviour.
 
 ## Analytical extension: aggregate membership (Interaction 09)
@@ -238,3 +238,30 @@ shared suites `SelectionAlgebraSuite`, `InteractionSnapshotSuite`, `InteractionH
 | Inspector: exact member lists, uncountable aggregates, stale coverage | Unit | Unit | — | `InspectorModelSuite` |
 | Filter to a selection: input and statistical changes reported, selection unchanged, then reconciled | Pass | Pass | Host | "filtering the histogram to a selection…" (bin totals against the oracle; every plot keeps the kept observations) |
 | Undo across a data replacement | Gap | Gap | — | history is cleared when the data is replaced, by design |
+
+## Larger workloads (Interaction 11)
+
+Measured separately from the baseline and from each other. The receipt is
+[`tools/check-performance-browser.cjs`](../tools/check-performance-browser.cjs): three runs per
+workload, `fastLinkJS` bundle, Chromium 151.0.7922.34 headless, on an Apple M3 Max. The production
+source is `40fe10129676915a664a78f7e53ecac92a911add`. Budgets are in
+[`performance/browser-budgets.json`](../performance/browser-budgets.json), and the method is in
+[Browser performance](performance.md). Times are medians on that machine, not promises, and the
+fixture sizes are not capacity guarantees.
+
+| Measured | SVG, 10,000 marks | Canvas, 100,000 points | Evidence |
+| --- | --- | --- | --- |
+| Indexed picking agrees with the exhaustive oracle under overlap, clipping and rotation | Unit | Unit | `IndexedPickingScaleSuite` (JVM and Scala.js) |
+| View compile, including picking index and navigation geometry | 375 ms | 3,455 ms | `viewCompileMs`, `pickingBuildMs`, `navigationBuildMs` |
+| Retained heap, view and widget | 51 MiB | 577 MiB | `totalRetainedMiB` |
+| Pointer to highlight (handler + redraw) | 4.6 ms | 6.7 ms | `pointerToHighlightMs`; ring asserted per sample |
+| Hover redraw over 1,000 selected marks | 18.2 ms | 10.3 ms | `hoverWithSelectionRedrawMs` |
+| Redraw after selecting 1,000 marks | 43 ms | 52 ms | `select1000RedrawMs` |
+| Re-window to the central half (full rebuild; statistics not recomputed) | 332 ms | 3,071 ms | `rezoomMs` |
+| Update to new data keeps surviving selected entities | Pass | Pass | 990 of 1,000 selected after every 100th row is removed |
+| Dispose releases listeners, root and widget | Pass | Pass | 0 listeners, 0 roots, 0 of 5 `WeakRef` widgets survive collection |
+| Exact-member coverage cost (histogram, 100,000 rows) | — | 345 vs 267 ms compile, 18.8 vs 15.9 MiB, 19.8 ms coverage redraw | `membershipExactKeys100k` vs `membershipCountOnly100k` |
+
+Re-windowing, restyling and updates rebuild the whole view; only the overlay redraw is incremental.
+Optimized (`fullLinkJS`) bundles are not measured: Scala.js 1.22.0's optimizer turns a check in
+plot compilation into an infinite loop. See [Known gaps](performance.md#known-gaps).

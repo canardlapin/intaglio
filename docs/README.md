@@ -27,6 +27,9 @@ one directly above it.
 - [Backends](backends.md) — what each of the six can and cannot express.
 - [Performance and limits](limits.md) — what the deterministic gates measure,
   and where the scaling limits are.
+- [Browser performance](performance.md) — the 10,000-mark SVG and
+  100,000-point Canvas fixtures, what is indexed or incremental, and the
+  measured release budgets.
 - [Notebooks and publication](notebooks.md) — Jupyter MIME bundles, print
   output, device scale, fonts.
 - [Accessibility](accessibility.md) — semantic identity, per-grob titles and

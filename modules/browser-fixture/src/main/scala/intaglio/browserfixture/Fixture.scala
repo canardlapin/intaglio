@@ -123,6 +123,7 @@ object Fixture:
     else if g.document.getElementById("members-a") != null then MembershipFixture.run()
     else if g.document.getElementById("linked-a") != null then LinkedFixture.run()
     else if g.document.getElementById("nav-linear") != null then NavigationFixture.run()
+    else if g.document.getElementById("perf") != null then PerformanceFixture.run()
     else widgetPage()
 
   private def widgetPage(): Unit =

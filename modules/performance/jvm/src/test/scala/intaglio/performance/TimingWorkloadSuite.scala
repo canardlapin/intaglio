@@ -36,6 +36,8 @@ class TimingWorkloadSuite extends munit.FunSuite:
     assert(TimingWorkloads.runHitQueries(plan) > 0L)
     assert(TimingWorkloads.runNearestQueries(plan) > 0L)
     assert(TimingWorkloads.runSelectQueries(plan) > 0L)
+    // The pick-navigation workload materializes every mark's visible geometry.
+    assertEquals(plan.prepareNavigation().targets.size, TimingWorkloads.pickMarks)
   }
 
   test("the resize sweep is deterministic across repeated runs") {
