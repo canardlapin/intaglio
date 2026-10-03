@@ -35,11 +35,22 @@ async function main() {
           assert.deepEqual(selected,[mark.id], `${slot}: pointer selects actual rendered mark`);
           trace.selections.push(selected);
           if(renderer==='canvas') {
-            const pixel = await page.evaluate(({slot,mark})=>{
+            // The default point glyph is a hollow ring and the anchor is its centre (hollow points
+            // pick on their whole disc), so the evidence is dark ink around the anchor whose
+            // centroid is the anchor: a glyph drawn elsewhere, or not at all, fails.
+            const ink = await page.evaluate(({slot,mark})=>{
               const c=document.querySelector(`[data-intaglio-widget=${slot}] canvas.intaglio-base`);
-              return [...c.getContext('2d').getImageData(Math.floor(mark.localX*c.width/540),Math.floor(mark.localY*c.height/360),1,1).data];
+              const sx=c.width/540, sy=c.height/360, half=Math.ceil(8*sx);
+              const cx=mark.localX*sx, cy=mark.localY*sy, x0=Math.floor(cx)-half, y0=Math.floor(cy)-half, n=2*half+1;
+              const d=c.getContext('2d').getImageData(x0,y0,n,n).data;
+              let count=0, mx=0, my=0;
+              for(let i=0;i<n*n;i++) if(d[i*4+3]>0 && Math.min(d[i*4],d[i*4+1],d[i*4+2])<220) {
+                count++; mx+=x0+i%n+0.5; my+=y0+Math.floor(i/n)+0.5;
+              }
+              return {count, dx: count ? mx/count-cx : NaN, dy: count ? my/count-cy : NaN, scale: sx};
             },{slot,mark});
-            assert.ok(pixel[3]>0 && Math.min(...pixel.slice(0,3))<220, `${slot}: actual mark paint at anchor: ${pixel}`);
+            assert.ok(ink.count>=8*ink.scale && Math.hypot(ink.dx,ink.dy)<=0.75*ink.scale,
+              `${slot}: actual mark paint centred on the anchor: ${JSON.stringify(ink)}`);
           }
         }
         await page.locator(`[data-intaglio-widget=${slot}] .intaglio-plot`).focus();
