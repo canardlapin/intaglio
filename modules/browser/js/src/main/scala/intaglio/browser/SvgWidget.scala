@@ -80,6 +80,8 @@ final class SvgWidget[A] private (
 
   /** The compiled view itself, shown again on reset rather than re-placed. */
   private var baseView: SvgWidgetView[A] = view
+  private var unstyledView: SvgWidgetView[A] = view
+  private var targetStyles = Map.empty[VisualTargetId, WidgetTargetStyle]
   private var navigator: Option[DataWindowNavigator] = SvgWidget.navigatorOf(view)
 
   /** The unwindowed panel frame; a window's frame is this one with the window's position ranges. */
@@ -177,6 +179,18 @@ final class SvgWidget[A] private (
     scheduleRedraw()
     result
 
+  /** Replace application-supplied target paint, or clear it with an empty map. This changes no
+    * selection, viewport, or events. Invalid targets/styles fail atomically. Explicit data/view
+    * updates clear these view-bound styles; ordinary pan/zoom retains them.
+    */
+  def setTargetStyles(styles: Map[VisualTargetId, WidgetTargetStyle]): Either[IntaglioError, Unit] =
+    if disposed then Left(ControllerError.Disposed)
+    else
+      unstyledView.withTargetStyles(styles).map { painted =>
+        targetStyles = styles
+        paintView(painted)
+      }
+
   /** Show a new view of the same plot (new data or a new render size). Selection is reconciled by
     * entity key; entities that no longer exist are dropped and reported in a `Reconciled` event. A
     * view whose plan has the current revision (a resize or restyle of the same data) keeps the
@@ -216,6 +230,8 @@ final class SvgWidget[A] private (
           dispatch(InteractionAction.EndGesture(true), InputCause.Programmatic).left.foreach(report)
         basePlan = next.singlePlan
         baseView = next
+        unstyledView = next
+        targetStyles = Map.empty
         navigator = SvgWidget.navigatorOf(next)
         basePanelFrame = next.panelFrame
         window = PanelWindow.full
@@ -271,7 +287,7 @@ final class SvgWidget[A] private (
       source <- viewport match
         case ExportViewport.Current  => Right(view)
         case ExportViewport.Original =>
-          Right(baseView)
+          baseView.withTargetStyles(targetStyles)
     yield (
       source,
       if selection == ExportSelection.Include then current.selection else Selection[A]()
@@ -802,6 +818,12 @@ final class SvgWidget[A] private (
 
   /** Show `next` (the same plan at another window) without touching state. */
   private def swap(next: SvgWidgetView[A]): Unit =
+    unstyledView = next
+    next.withTargetStyles(targetStyles) match
+      case Left(error)    => report(error)
+      case Right(painted) => paintView(painted)
+
+  private def paintView(next: SvgWidgetView[A]): Unit =
     hideTooltip()
     view = next
     input = HostInput(view.picking, view.navigation, unitViewport, behavior)

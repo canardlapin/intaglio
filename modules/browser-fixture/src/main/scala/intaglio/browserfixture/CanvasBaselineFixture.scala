@@ -171,6 +171,37 @@ object CanvasBaselineFixture:
         widget.get
           .setSelection(Selection(ids.toVector.map(id => checked(space.entity(id))).toSet))
           .fold(_.message, _ => "ok"),
+      runtimeStyles = (kind: String) =>
+        val targets = view.get.navigation.targets.map(_.target)
+        val styles = if kind == "clear" then Map.empty[VisualTargetId, WidgetTargetStyle]
+        else if kind == "invalid" then
+          Map(targets.head.id -> WidgetTargetStyle(opacity = Some(Double.NaN)))
+        else
+          targets.flatMap { target =>
+            target.entity.flatMap { entity =>
+              val color = entity.value match
+                case "r1" => Some(Rgba.unsafe(210, 44, 68))
+                case "r7" => Some(Rgba.unsafe(38, 59, 230))
+                case _    => None
+              color.map(c => target.id -> WidgetTargetStyle(fill = Some(c)))
+            }
+          }.toMap
+        widget.get.setTargetStyles(styles).fold(_.message, _ => "ok")
+      ,
+      resetWindow = () => widget.get.navigate(PanelWindow.full).fold(_.message, _ => "ok"),
+      updateView = () => widget.get.update(view.get).fold(_.message, _ => "ok"),
+      styledPng = (original: Boolean) =>
+        widget.get
+          .exportPng(
+            if original then ExportViewport.Original else ExportViewport.Current,
+            ExportSelection.Omit
+          )
+          .`then`[String]((result: Either[IntaglioError, String]) =>
+            result.fold(e => throw new IllegalStateException(e.message), identity)
+          ),
+      window = () => widget.get.currentWindow.toString,
+      navigate =
+        () => widget.get.navigate(PanelWindow(Some((0.5, 3.5)), None)).fold(_.message, _ => "ok"),
       invalidAppearance = (renderer: String) =>
         widget.foreach(_.dispose())
         Vector(

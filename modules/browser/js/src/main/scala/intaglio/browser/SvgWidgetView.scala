@@ -56,6 +56,41 @@ final class SvgWidgetView[A] private (
   private[browser] def annotationPart(target: VisualTargetId): Option[PlotPart] =
     annotations.get((target.plan, target.scope.value))
 
+  /** Repaint logical targets without changing their identity, data, layout, or navigation window.
+    */
+  private[browser] def withTargetStyles(
+      styles: Map[VisualTargetId, WidgetTargetStyle]
+  ): Either[IntaglioError, SvgWidgetView[A]] =
+    if styles.isEmpty then Right(this)
+    else
+      for
+        painted <- WidgetTargetStyle.paint(this, styles)
+        device <- DeviceScene.fromScene(painted, context)
+        picking <- Picking.fromResolved(device, plans.flatMap(_.groups), context)
+        parts <- PartPicking.fromParts(this.parts.parts, device, context)
+        markup <- SvgRenderer.render(RenderPlan(painted, context), title, fonts, idPrefix)
+        emphasis <- SvgRenderer.render(
+          RenderPlan(painted, context),
+          None,
+          fonts,
+          s"$idPrefix-emphasis"
+        )
+      yield new SvgWidgetView(
+        plans,
+        painted,
+        revision,
+        context,
+        idPrefix,
+        markup.value,
+        emphasis.value,
+        picking,
+        picking.prepareNavigation(),
+        parts,
+        title,
+        panelFrame,
+        fonts
+      )
+
   /** A short description of a target for the text companion and the live region. */
   def describe(target: TargetInfo[A], behavior: InteractionBehavior[A]): String =
     behavior

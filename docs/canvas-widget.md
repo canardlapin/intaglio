@@ -49,6 +49,22 @@ for example `.fill(row => applicationColors(row.id))`. Recompile and pass the ne
 view to `widget.update` when that state changes. The paired baseline checks verify
 an externally supplied per-entity color survives hover and emphasis recovery.
 
+## Runtime target styles
+
+Use `widget.setTargetStyles(Map(target.id -> WidgetTargetStyle(fill = Some(color))))`
+to replace paint on chosen logical targets. Target IDs come from the typed target
+records in subscriptions or the view's navigation targets. Fill, stroke color and
+opacity overrides apply to both renderers, including individual points in a batch.
+This is a paint update: it preserves selection and the current navigation window
+and emits no interaction events. Pass an empty map to recover the original paint.
+Unknown target IDs, invalid opacity and raster-cell stroke requests fail before any
+paint is changed. Raster cells support fill and opacity; they have no stroke.
+
+Pan and zoom retain runtime styles, and PNG exports include them. An explicit
+`widget.update(nextView)` clears runtime styles because visual target IDs belong to
+a particular view; apply a new map from the new view's target records as needed.
+These typed paint overrides work on Canvas without creating DOM nodes for marks.
+
 ## Compositions, resizing and export
 
 `SvgWidgetView.compileComposition(composed, revision, idPrefix)` retains every

@@ -64,7 +64,7 @@ async function main(){
     await page.emulateMedia({reducedMotion:'no-preference'});await save('typed appearance and transition options honor reduced motion');
     await page.mouse.move(900,800);await page.waitForTimeout(300);assert.equal(await fx(()=>getComputedStyle(document.querySelector('.intaglio-base')).opacity),'1');assert.equal(await page.locator('.intaglio-ring-hover').count(),0);await save('pointer out restores original appearance');
     await mount('authored-styles');m=await center();
-    const markPixel=()=>fx(async m=>{
+    const markPixel=(mark=m)=>fx(async m=>{
       const base=document.querySelector('.intaglio-base'),box=base.getBoundingClientRect();
       let canvas=base;
       if(base.tagName.toLowerCase()==='svg'){
@@ -72,10 +72,39 @@ async function main(){
         try{await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url});canvas=document.createElement('canvas');canvas.width=600;canvas.height=400;canvas.getContext('2d').drawImage(image,0,0,600,400)}finally{URL.revokeObjectURL(url)}
       }
       return Array.from(canvas.getContext('2d').getImageData(Math.floor((m.x-box.left)*canvas.width/box.width),Math.floor((m.y-box.top)*canvas.height/box.height),1,1).data);
-    },m);
+    },mark);
     assert.deepEqual(await markPixel(),[15,150,120,255]);
     await page.mouse.move(m.x,m.y);await settle();await page.mouse.move(900,800);await page.waitForTimeout(200);
     assert.deepEqual(await markPixel(),[15,150,120,255]);await save('application-assigned per-entity paint survives emphasis recovery');
+    assert.equal(await fx(()=>window.intaglioBaseline.navigate()),'ok');await settle();
+    assert.equal(await fx(()=>window.intaglioBaseline.select(['r4'])),'ok');
+    const styleMarks=await marks(),first=styleMarks.find(m=>m.id==='r1'),last=styleMarks.find(m=>m.id==='r7');
+    const originalFirst=await markPixel(first),originalLast=await markPixel(last);
+    const stateBefore=await fx(()=>({events:[...window.intaglioBaseline.events],selected:window.intaglioBaseline.selected(),window:window.intaglioBaseline.window()}));
+    assert.equal(await fx(()=>window.intaglioBaseline.runtimeStyles('on')),'ok');await settle();
+    assert.deepEqual(await markPixel(first),[210,44,68,255]);assert.deepEqual(await markPixel(last),[38,59,230,255]);assert.deepEqual(await markPixel(),[15,150,120,255]);
+    assert.match(await fx(()=>window.intaglioBaseline.runtimeStyles('invalid')),/opacity/);await settle();assert.deepEqual(await markPixel(first),[210,44,68,255]);
+    assert.deepEqual(await fx(()=>({events:[...window.intaglioBaseline.events],selected:window.intaglioBaseline.selected(),window:window.intaglioBaseline.window()})),stateBefore);
+    assert.equal(await fx(()=>window.intaglioBaseline.runtimeStyles('clear')),'ok');await settle();
+    assert.deepEqual(await markPixel(first),originalFirst);assert.deepEqual(await markPixel(last),originalLast);
+    assert.deepEqual(await fx(()=>({events:[...window.intaglioBaseline.events],selected:window.intaglioBaseline.selected(),window:window.intaglioBaseline.window()})),stateBefore);
+    await save('runtime target styles change exact marks atomically and clear without events');
+    assert.equal(await fx(()=>window.intaglioBaseline.runtimeStyles('on')),'ok');
+    assert.equal(await fx(()=>window.intaglioBaseline.resetWindow()),'ok');await settle();
+    assert.deepEqual(await markPixel(first),[210,44,68,255]);assert.deepEqual(await markPixel(last),[38,59,230,255]);
+    for(const original of [false,true]){
+      const colors=await fx(async original=>{
+        const url=await window.intaglioBaseline.styledPng(original),image=new Image();
+        await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url});
+        const c=document.createElement('canvas');c.width=image.width;c.height=image.height;const ctx=c.getContext('2d');ctx.drawImage(image,0,0);
+        const data=ctx.getImageData(0,0,c.width,c.height).data;let red=0,blue=0;
+        for(let i=0;i<data.length;i+=4){if(data[i]===210&&data[i+1]===44&&data[i+2]===68)red++;if(data[i]===38&&data[i+1]===59&&data[i+2]===230)blue++}return{red,blue};
+      },original);assert.ok(colors.red>50&&colors.blue>50,JSON.stringify(colors));
+    }
+    await save('runtime target styles survive navigation and both PNG viewport choices');
+    assert.equal(await fx(()=>window.intaglioBaseline.updateView()),'ok');await settle();
+    assert.deepEqual(await markPixel(first),originalFirst);assert.deepEqual(await markPixel(last),originalLast);assert.deepEqual(await selected(),['r4']);
+    await save('explicit view update clears view-bound styles and retains selection');
     await mount('parts');const targets=await fx(()=>window.intaglioBaseline.partTargets());
     for(const kind of ['PlotTitle','PlotSubtitle','FacetStrip','Axis','Colorbar','Annotation']){
       const p=targets.find(p=>p.kind===kind);assert.ok(p,`fixture contains ${kind}`);

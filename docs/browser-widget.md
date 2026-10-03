@@ -1,7 +1,9 @@
 # Interactive plots in the browser
 
 `intaglio-browser` (Scala.js) mounts an ordinary compiled plot as an interactive, accessible SVG
-widget. It reads the same interaction plan, state, picking and behaviour values as the JavaFX
+widget, with native Canvas available through `WidgetOptions(renderer = WidgetRenderer.Canvas)`.
+See [Canvas widgets](canvas-widget.md) for renderer selection, application appearance and runtime
+target styles. It reads the same interaction plan, state, picking and behaviour values as the JavaFX
 host, so the two hosts agree on what a pointer or a key does.
 
 ## The smallest use
