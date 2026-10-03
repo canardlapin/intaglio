@@ -37,7 +37,7 @@ trace equality against SVG).
 | Plot parts | partial: marks and legend keys pass; colorbars, strips, axes, titles and annotations are unit-only | Gap |
 | Navigation | **pass** | Gap |
 | Composition | partial: linked plots pass; links across panels of one composed figure are unit-only | Gap |
-| Embedding | partial: standalone HTML, application mounting, responsive sizing, configurable toolbar, fullscreen, PNG export and programmatic access pass, and an outside application runs against the exact published artifact | Gap |
+| Embedding | **pass**, including an outside application built against the exact published artifact | Gap |
 
 The baseline is therefore **not yet complete** on either backend. The gaps are listed under
 [What remains](#what-remains).
