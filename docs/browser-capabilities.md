@@ -37,7 +37,7 @@ trace equality against SVG).
 | Plot parts | partial: marks and legend keys pass; colorbars, strips, axes, titles and annotations are unit-only | Gap |
 | Navigation | **pass** | Gap |
 | Composition | partial: linked plots pass; links across panels of one composed figure are unit-only | Gap |
-| Embedding | partial: standalone HTML, application mounting, responsive sizing, configurable toolbar, fullscreen, PNG export and programmatic access pass; the external-consumer run is pending | Gap |
+| Embedding | partial: standalone HTML, application mounting, responsive sizing, configurable toolbar, fullscreen, PNG export and programmatic access pass, and an outside application runs against the exact published artifact | Gap |
 
 The baseline is therefore **not yet complete** on either backend. The gaps are listed under
 [What remains](#what-remains).
@@ -145,7 +145,7 @@ Faceted and flipped plots refuse navigation by design; that is a stated limit, n
 | Fullscreen | Pass | `tools/check-export-browser.cjs`: fullscreen enters, and a browser without the API gets a typed refusal |
 | PNG export | Pass | `tools/check-export-browser.cjs`: original and current views, with and without the selection, at scale 1 and 2, read back as pixels; an unavailable canvas and an encoder failure are reported |
 | Programmatic event and state access | Pass | `setSelection`, `navigate`, event and part subscriptions across the widget, linked and navigation checks |
-| External consumer of the published artifact | Pending | `tools/check-browser-consumer.sh` publishes a clean checkout under a commit-unique version and runs an application built against it; not yet run |
+| External consumer of the published artifact | Pass | `bash tools/check-browser-consumer.sh` at `5a27028`: the clean checkout's Scala.js artifacts, published as `0.0.0-consumer-5a27028108f6`, are the only intaglio jars on an outside application's classpath; its two linked widgets mount, select by keyboard, pick by pointer, navigate and dispose cleanly (5/5) |
 
 ## Per-geom coverage
 
@@ -166,6 +166,7 @@ For SVG, before the baseline can be called complete:
 3. Configurable transitions, externally assigned target styles, a tooltip appearance API, and a
    data-label part kind.
 4. Coverage entries for the five uncovered geoms, and picking tests per entry.
-5. An external-consumer run at an exact commit.
+5. Picking the inside of hollow point glyphs in the browser: the default point is hit only on its
+   outline, and the widget offers no policy to change that.
 
 For Canvas, every row.
