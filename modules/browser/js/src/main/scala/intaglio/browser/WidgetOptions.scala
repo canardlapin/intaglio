@@ -1,5 +1,8 @@
 package intaglio.browser
 
+enum WidgetRenderer:
+  case Svg, Canvas
+
 /** Optional controls. Omitting a control hides its UI, not the programmatic capability. */
 enum WidgetControl:
   case Inspect, Rectangle, Lasso, Pan, ZoomRectangle, Reset, Fullscreen, Download
@@ -26,7 +29,9 @@ final case class WidgetOptions(
     controls: Set[WidgetControl] = WidgetOptions.navigationControls,
     toolbarPosition: ToolbarPosition = ToolbarPosition.Top,
     toolbarVisibility: ToolbarVisibility = ToolbarVisibility.Always,
-    sizing: WidgetSizing = WidgetSizing.Responsive
+    sizing: WidgetSizing = WidgetSizing.Responsive,
+    renderer: WidgetRenderer = WidgetRenderer.Svg,
+    appearance: WidgetAppearance = WidgetAppearance.default
 )
 
 object WidgetOptions:

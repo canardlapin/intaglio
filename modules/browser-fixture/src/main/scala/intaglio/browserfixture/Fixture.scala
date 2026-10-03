@@ -117,7 +117,9 @@ object Fixture:
       case other => s"${other.getClass.getSimpleName}:$cause"
 
   def main(args: Array[String]): Unit =
-    if g.document.getElementById("linked-a") != null then LinkedFixture.run()
+    if g.document.getElementById("baseline") != null then CanvasBaselineFixture.run()
+    else if g.document.getElementById("parity") != null then CanvasParityFixture.run()
+    else if g.document.getElementById("linked-a") != null then LinkedFixture.run()
     else if g.document.getElementById("nav-linear") != null then NavigationFixture.run()
     else widgetPage()
 
@@ -133,7 +135,17 @@ object Fixture:
         if slot == "left" then scatterView("left", "s1", trials) else histogramView("right")
       val behavior = if slot == "left" then scatterBehavior else histogramBehavior
       val widget = orThrow(
-        SvgWidget.mount(document.getElementById(slot), view, behavior, label = s"$slot plot")
+        SvgWidget.mount(
+          document.getElementById(slot),
+          view,
+          behavior,
+          label = s"$slot plot",
+          options = WidgetOptions(renderer =
+            if g.window.location.search.asInstanceOf[String].contains("canvas") then
+              WidgetRenderer.Canvas
+            else WidgetRenderer.Svg
+          )
+        )
       )
       widget.subscribe(record => events(slot).push(describe(record)))
       widget.subscribeParts {
@@ -151,13 +163,27 @@ object Fixture:
       val view = views(slot)
       val anchor = view.navigation.targets(index).anchor
       val box = document
-        .querySelector(s"[data-intaglio-widget=$slot] svg.intaglio-base")
+        .querySelector(s"[data-intaglio-widget=$slot] .intaglio-base")
         .getBoundingClientRect()
       val scale = box.width.asInstanceOf[Double] / view.width
       js.Array(
         box.left.asInstanceOf[Double] + anchor.x * scale,
         box.top.asInstanceOf[Double] + anchor.y * scale
       )
+
+    def legendPoint(slot: String): js.Array[Double] =
+      val view = views(slot)
+      val named = orThrow(NamedPicking.compile(view.scene, view.context))
+      val ring = orThrow(
+        named.outline(GraphicsName.unsafe("block-legend-entry-0-key"), 0)
+      ).get.rings.head
+      val x = (ring.map(_.x).min + ring.map(_.x).max) / 2
+      val y = (ring.map(_.y).min + ring.map(_.y).max) / 2
+      val box = document
+        .querySelector(s"[data-intaglio-widget=$slot] .intaglio-base")
+        .getBoundingClientRect()
+      val scale = box.width.asInstanceOf[Double] / view.width
+      js.Array(box.left.asInstanceOf[Double] + x * scale, box.top.asInstanceOf[Double] + y * scale)
 
     def markCount(slot: String): Int = views(slot).navigation.targets.size
 
@@ -207,6 +233,7 @@ object Fixture:
       events = events,
       parts = parts,
       markPoint = (slot: String, index: Int) => markPoint(slot, index),
+      legendPoint = (slot: String) => legendPoint(slot),
       markCount = (slot: String) => markCount(slot),
       remount = (times: Int) => remount(times),
       update = () => update(),

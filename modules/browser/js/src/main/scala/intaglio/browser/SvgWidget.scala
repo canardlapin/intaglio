@@ -76,7 +76,7 @@ final class SvgWidget[A] private (
 
   // ---- Data-window navigation and region gestures ----
   /** The compiled, unwindowed plan every window is taken from. */
-  private var basePlan: InteractionPlan[A] = view.plan
+  private var basePlan: Option[InteractionPlan[A]] = view.singlePlan
 
   /** The compiled view itself, shown again on reset rather than re-placed. */
   private var baseView: SvgWidgetView[A] = view
@@ -125,6 +125,10 @@ final class SvgWidget[A] private (
   private val live = element("div")
   private val companion = element("details")
   private val companionBody = element("tbody")
+
+  private val canvasSurface = if options.renderer == WidgetRenderer.Canvas then
+    Some(new CanvasSurface[A](controlFailure, () => scheduleRedraw()))
+  else None
 
   build()
 
@@ -186,7 +190,7 @@ final class SvgWidget[A] private (
       )
     else
       for
-        domain <- InteractionDomain(Vector(next.plan), next.plan.revision)
+        domain <- InteractionDomain(next.plans, next.revision)
         current <- controller.state
         // The same plan revision is the same data at another size or look: target identities are
         // unchanged, so the state stands. A new revision is new data and is reconciled.
@@ -210,7 +214,7 @@ final class SvgWidget[A] private (
         // A pointer still held open its gesture in the state; end it, or the mode cannot change.
         if controller.state.exists(_.gesture.nonEmpty) then
           dispatch(InteractionAction.EndGesture(true), InputCause.Programmatic).left.foreach(report)
-        basePlan = next.plan
+        basePlan = next.singlePlan
         baseView = next
         navigator = SvgWidget.navigatorOf(next)
         basePanelFrame = next.panelFrame
@@ -327,6 +331,7 @@ final class SvgWidget[A] private (
       // Linked views stop showing what this plot pointed at.
       emitHover(LinkedEmphasis.none[A])
       disposed = true
+      canvasSurface.foreach(_.dispose())
       listeners.clear()
       subscriptions.foreach(_.cancel())
       subscriptions = Vector.empty
@@ -356,6 +361,8 @@ final class SvgWidget[A] private (
   private def build(): Unit =
     SvgWidget.installStyle(document)
     root.className = "intaglio-widget"
+    if options.appearance != WidgetAppearance.default then
+      options.appearance.properties.foreach((name, value) => root.style.setProperty(name, value))
     root.setAttribute("data-intaglio-widget", view.idPrefix)
     plotHost.className = "intaglio-plot"
     plotHost.tabIndex = 0
@@ -415,13 +422,19 @@ final class SvgWidget[A] private (
 
   /** Insert the plot markup beneath the overlay, which keeps the plot's viewBox. */
   private def renderPlot(): Unit =
-    val previous = plotHost.querySelector(":scope > svg.intaglio-base")
+    val previous = plotHost.querySelector(":scope > .intaglio-base")
     if previous != null then plotHost.removeChild(previous)
-    val holder = element("div")
-    holder.innerHTML = view.markup
-    val svg = holder.firstElementChild
-    svg.classList.add("intaglio-base")
-    plotHost.insertBefore(svg, overlay)
+    canvasSurface match
+      case Some(surface) =>
+        plotHost.insertBefore(surface.base, overlay)
+        plotHost.insertBefore(surface.emphasis, overlay)
+        surface.update(view)
+      case None =>
+        val holder = element("div")
+        holder.innerHTML = view.markup
+        val svg = holder.firstElementChild
+        svg.classList.add("intaglio-base")
+        plotHost.insertBefore(svg, overlay)
     overlay.setAttribute("viewBox", s"0 0 ${view.width} ${view.height}")
     gestureLayer.setAttribute("viewBox", s"0 0 ${view.width} ${view.height}")
 
@@ -538,6 +551,7 @@ final class SvgWidget[A] private (
       if companion.open.asInstanceOf[Boolean] then fillCompanion()
       else companionBody.textContent = ""
     }
+    listeners.on(g.window, "resize") { _ => scheduleRedraw() }
     controller.subscribe(react).foreach(sub => subscriptions = subscriptions :+ sub)
     if !js.isUndefined(g.ResizeObserver) then
       val callback: js.Function1[js.Any, Unit] = _ =>
@@ -749,7 +763,10 @@ final class SvgWidget[A] private (
           else
             for
               windows <- nav.windows(value)
-              plan <- InteractionCompiler.rezoom(basePlan, windows._1, windows._2)
+              original <- basePlan.toRight(
+                InteractionError.UnsupportedCapability("navigating a composed figure")
+              )
+              plan <- InteractionCompiler.rezoom(original, windows._1, windows._2)
               compiled <- SvgWidgetView.compile(
                 plan,
                 view.context,
@@ -952,7 +969,7 @@ final class SvgWidget[A] private (
 
   /** The CSS box the plot occupies now, as the picking viewport. */
   private def viewport: Either[IntaglioError, PickViewport] =
-    val box = plotHost.querySelector(":scope > svg.intaglio-base").getBoundingClientRect()
+    val box = plotHost.querySelector(":scope > .intaglio-base").getBoundingClientRect()
     PickViewport.fit(
       view.width.toDouble,
       view.height.toDouble,
@@ -1018,8 +1035,11 @@ final class SvgWidget[A] private (
     yield part
     hit match
       case Right(part) =>
-        val markHovered = controller.state.toOption.exists(_.hover.nonEmpty)
-        setHoveredPart(if markHovered then None else part)
+        val hovered = controller.state.toOption.flatMap(_.hover)
+        val annotation = hovered.flatMap(view.annotationPart)
+        setHoveredPart(
+          if hovered.nonEmpty then part.filter(p => annotation.contains(p.part)) else part
+        )
       case Left(_) => setHoveredPart(None)
 
   private def setHoveredPart(part: Option[PartTarget]): Unit =
@@ -1113,6 +1133,9 @@ final class SvgWidget[A] private (
       case InteractionEvent.FocusChanged(None)    => ()
       case InteractionEvent.GestureModeChanged(_) => refreshToolbar()
       case InteractionEvent.Activated(target)     =>
+        view
+          .annotationPart(target.id)
+          .foreach(part => emitPart(PartEvent.Activated(part, record.stamp.cause)))
         if record.stamp.cause == InputCause.Pointer || record.stamp.cause == InputCause.Keyboard
         then
           behavior.link(target).foreach { link =>
@@ -1129,7 +1152,7 @@ final class SvgWidget[A] private (
 
   /** Device point to CSS pixels relative to the widget's top-left corner. */
   private def toCss(x: Double, y: Double): (Double, Double) =
-    val box = plotHost.querySelector(":scope > svg.intaglio-base").getBoundingClientRect()
+    val box = plotHost.querySelector(":scope > .intaglio-base").getBoundingClientRect()
     val rootBox = root.getBoundingClientRect()
     val scale = box.width.asInstanceOf[Double] / view.width
     (
@@ -1214,6 +1237,7 @@ final class SvgWidget[A] private (
 
   /** Redraw the overlay only: rings for hover, selection and focus, and inverse emphasis. */
   private def redraw(): Unit =
+    canvasSurface.foreach { surface => surface.resize(); surface.clearEmphasis() }
     overlay.textContent = ""
     controller.state.foreach { current =>
       val selectedIds = view.navigation.targets.collect {
@@ -1259,6 +1283,12 @@ final class SvgWidget[A] private (
     * the plot clipped to the targets' outlines.
     */
   private def emphasize(targets: Vector[VisualTargetId]): Unit =
+    canvasSurface match
+      case Some(surface) =>
+        surface.emphasize(targets.flatMap(id => view.picking.outline(id, 1.5).toOption))
+      case None => emphasizeSvg(targets)
+
+  private def emphasizeSvg(targets: Vector[VisualTargetId]): Unit =
     val clipId = id("emphasis-clip")
     val defs = svgElement("defs")
     val clip = svgElement("clipPath")
@@ -1306,8 +1336,11 @@ object SvgWidget:
       )
     else
       for
+        _ <- options.appearance.validate
+        _ <-
+          if options.renderer == WidgetRenderer.Canvas then CanvasSurface.available else Right(())
         _ <- validateLegendLinks(view, behavior)
-        domain <- InteractionDomain(Vector(view.plan), view.plan.revision)
+        domain <- InteractionDomain(view.plans, view.revision)
         state <- InteractionState.initial(domain, behavior.selection, selection)
         origin <- SemanticId(s"${view.idPrefix}-widget")
       yield new SvgWidget(
@@ -1378,10 +1411,14 @@ object SvgWidget:
 
   /** A navigator when the plot has a single panel with a numeric or temporal axis. */
   private[browser] def navigatorOf[A](view: SvgWidgetView[A]): Option[DataWindowNavigator] =
-    view.plan.training
-      .flatMap(_ => DataWindowNavigator.of(view.plan, view.context).toOption)
-      .filter(nav => nav.navigable._1 || nav.navigable._2)
-      .filter(_ => view.plan.trained.facetPanels.isEmpty)
+    view.singlePlan
+      .filter(_ => view.panelFrame.nonEmpty)
+      .filter(_.trained.facetPanels.isEmpty)
+      .flatMap { plan =>
+        plan.training
+          .flatMap(_ => DataWindowNavigator.of(plan, view.context).toOption)
+          .filter(nav => nav.navigable._1 || nav.navigable._2)
+      }
 
   private val styleId = "intaglio-widget-style"
 
@@ -1401,11 +1438,12 @@ object SvgWidget:
       |  --intaglio-selected:#b45309;--intaglio-linked:#7c3aed;--intaglio-dim:0.3}
       |.intaglio-plot{position:relative;outline:none;line-height:0;user-select:none;
       |  -webkit-user-select:none;touch-action:manipulation}
-      |.intaglio-plot>svg.intaglio-base{display:block;width:100%;height:auto;
-      |  transition:opacity 160ms ease}
-      |.intaglio-plot.intaglio-dimmed>svg.intaglio-base{opacity:var(--intaglio-dim)}
-      |.intaglio-plot:focus-visible>svg.intaglio-base{outline:2px solid var(--intaglio-focus);
+      |.intaglio-plot>.intaglio-base{display:block;width:100%;height:auto;
+      |  transition:opacity var(--intaglio-transition,160ms) ease}
+      |.intaglio-plot.intaglio-dimmed>.intaglio-base{opacity:var(--intaglio-dim)}
+      |.intaglio-plot:focus-visible>.intaglio-base{outline:2px solid var(--intaglio-focus);
       |  outline-offset:2px}
+      |.intaglio-canvas-emphasis{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       |.intaglio-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
       |  overflow:visible}
       |.intaglio-overlay>path{fill:none;vector-effect:non-scaling-stroke}
@@ -1415,7 +1453,7 @@ object SvgWidget:
       |.intaglio-ring-focus-halo{stroke:var(--intaglio-focus-halo);stroke-width:5}
       |.intaglio-ring-focus{stroke:var(--intaglio-focus);stroke-width:2.5;stroke-dasharray:4 2}
       |.intaglio-tooltip{position:absolute;z-index:1;max-width:min(18rem,100%);box-sizing:border-box;padding:4px 8px;
-      |  background:#1f2937;color:#f9fafb;border-radius:4px;font:12px/1.4 system-ui,sans-serif;
+      |  background:var(--intaglio-tooltip-background,#1f2937);color:var(--intaglio-tooltip-text,#f9fafb);border-radius:4px;font:12px/1.4 system-ui,sans-serif;
       |  pointer-events:none;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.4}
       |.intaglio-tooltip dl{margin:2px 0 0;display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:0 8px}
       |.intaglio-tooltip dt{font-weight:600}.intaglio-tooltip dd{margin:0}
@@ -1451,5 +1489,5 @@ object SvgWidget:
       |.intaglio-widget:fullscreen{background:#fff;padding:16px;box-sizing:border-box;
       |  width:100%!important;height:100%;overflow:auto}
       |@media (prefers-reduced-motion: reduce){
-      |  .intaglio-plot>svg.intaglio-base{transition:none}}
+      |  .intaglio-plot>.intaglio-base{transition:none}}
       |""".stripMargin

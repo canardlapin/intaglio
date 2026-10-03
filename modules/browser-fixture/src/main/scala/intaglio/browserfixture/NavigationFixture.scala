@@ -111,7 +111,12 @@ object NavigationFixture:
           document.getElementById(s"nav-$slot"),
           views(slot),
           behavior,
-          label = s"$slot plot"
+          label = s"$slot plot",
+          options = WidgetOptions(renderer =
+            if g.window.location.search.asInstanceOf[String].contains("canvas") then
+              WidgetRenderer.Canvas
+            else WidgetRenderer.Svg
+          )
         )
       )
     }.toMap
@@ -124,7 +129,7 @@ object NavigationFixture:
 
     def box(slot: String) =
       document
-        .querySelector(s"[data-intaglio-widget=$slot] svg.intaglio-base")
+        .querySelector(s"[data-intaglio-widget=$slot] .intaglio-base")
         .getBoundingClientRect()
 
     /** Client coordinates of every mark's bounds centre, by entity (the point region selection
@@ -146,11 +151,11 @@ object NavigationFixture:
 
     def currentView(slot: String): SvgWidgetView[String] =
       // Rebuild the view the widget shows from its window, as the widget does.
-      val nav = orThrow(DataWindowNavigator.of(views(slot).plan, context))
+      val nav = orThrow(DataWindowNavigator.of(views(slot).singlePlan.get, context))
       val (x, y) = orThrow(nav.windows(widgets(slot).currentWindow))
       val plan =
-        if widgets(slot).currentWindow.isFull then views(slot).plan
-        else orThrow(InteractionCompiler.rezoom(views(slot).plan, x, y))
+        if widgets(slot).currentWindow.isFull then views(slot).singlePlan.get
+        else orThrow(InteractionCompiler.rezoom(views(slot).singlePlan.get, x, y))
       orThrow(SvgWidgetView.compile(plan, context, s"$slot-probe", None))
 
     /** The data under a client point, through the current panel frame's inverse mapping. */
@@ -161,7 +166,7 @@ object NavigationFixture:
         (clientX - b.left.asInstanceOf[Double]) / scale,
         (clientY - b.top.asInstanceOf[Double]) / scale
       )
-      val frame = orThrow(DeviceScene.fromScene(currentView(slot).plan.scene, context))
+      val frame = orThrow(DeviceScene.fromScene(currentView(slot).scene, context))
         .frame(PlotRegion.Panel)
       frame.flatMap(_.deviceToNative(device)).fold(_ => js.Array[Double](), p => js.Array(p.x, p.y))
 

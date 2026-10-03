@@ -48,7 +48,9 @@ async function main() {
 
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
-  const report = { browser: browser.version(), checks: [] };
+  const renderer = process.env.INTAGLIO_TEST_RENDERER || 'svg';
+  assert.ok(['svg', 'canvas'].includes(renderer));
+  const report = { renderer, browser: browser.version(), checks: [] };
   const check = (name, fn) => fn().then(detail => report.checks.push({ name, ok: true, detail }));
   try {
     const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 1 });
@@ -57,7 +59,7 @@ async function main() {
     tab.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     tab.on('pageerror', error => consoleErrors.push(String(error)));
     await tab.addInitScript(instrument);
-    await tab.goto(pathToFileURL(page).href);
+    await tab.goto(pathToFileURL(page).href + `?renderer=${renderer}`);
     await tab.waitForFunction(() => window.intaglioFixture && window.intaglioFixture.ready);
     const fx = (body, ...args) => tab.evaluate(body, ...args);
     const last = slot => fx(s => window.intaglioFixture.events[s].slice(-6), slot);
@@ -86,7 +88,7 @@ async function main() {
     await check('a duplicate id prefix and a prefix change are refused; the table does not rescale the plot', async () => {
       assert.match(await fx(() => window.intaglioFixture.mountDuplicate()), /already mounted/);
       assert.match(await fx(() => window.intaglioFixture.updateOtherPrefix()), /id prefix/);
-      const width = () => fx(() => document.querySelector('[data-intaglio-widget=left] svg.intaglio-base').getBoundingClientRect().width);
+      const width = () => fx(() => document.querySelector('[data-intaglio-widget=left] .intaglio-base').getBoundingClientRect().width);
       const before = await width();
       await fx(() => { document.querySelector('[data-intaglio-widget=left] details').open = true; });
       await tab.waitForTimeout(50);
@@ -142,11 +144,16 @@ async function main() {
       assert.match(box.text, /<b>not markup<\/b>/, 'content is text');
       assert.equal(box.markup, 0, 'no element was parsed from content');
       assert.ok(box.inside);
-      const emphasis = await fx(() => ({
+      const emphasis = await fx(renderer => ({
         dimmed: document.querySelector('[data-intaglio-widget=left] .intaglio-plot').classList.contains('intaglio-dimmed'),
-        clipped: !!document.querySelector('[data-intaglio-widget=left] .intaglio-emphasis[clip-path]'),
+        clipped: renderer === 'canvas' ? (() => {
+          const c = document.querySelector('[data-intaglio-widget=left] .intaglio-canvas-emphasis');
+          const d = c.getContext('2d').getImageData(0,0,c.width,c.height).data;
+          let n=0; for(let i=3;i<d.length;i+=4) if(d[i]) n++;
+          return n > 5 && n < 1000; // A clipped mark, never a copied full plot.
+        })() : !!document.querySelector('[data-intaglio-widget=left] .intaglio-emphasis[clip-path]'),
         hover: document.querySelectorAll('[data-intaglio-widget=left] .intaglio-ring-hover').length
-      }));
+      }), renderer);
       assert.deepEqual(emphasis, { dimmed: true, clipped: true, hover: 1 });
       assert.ok((await last('left')).some(e => /^hover:t\d+:Pointer$/.test(e)));
       await tab.screenshot({ path: path.join(out, 'hover.png') });
@@ -189,7 +196,7 @@ async function main() {
       await tab.mouse.click(x, y);
       assert.equal((await tooltipBox('left')).hidden, false);
       const corner = await fx(() => {
-        const r = document.querySelector('[data-intaglio-widget=left] svg.intaglio-base').getBoundingClientRect();
+        const r = document.querySelector('[data-intaglio-widget=left] .intaglio-base').getBoundingClientRect();
         return [r.left + 4, r.bottom - 4];
       });
       await tab.mouse.move(corner[0], corner[1]);
@@ -271,11 +278,7 @@ async function main() {
     });
 
     await check('a legend entry is a typed part under the pointer', async () => {
-      const centre = await fx(() => {
-        const key = document.querySelector('[data-intaglio-widget=left] [data-name="block-legend-entry-0-key"]');
-        const r = key.getBoundingClientRect();
-        return [r.left + r.width / 2, r.top + r.height / 2];
-      });
+      const centre = await fx(() => window.intaglioFixture.legendPoint('left'));
       await tab.mouse.move(centre[0], centre[1]);
       await tab.waitForTimeout(50);
       const parts = await fx(() => window.intaglioFixture.parts.slice(-3));
@@ -299,14 +302,15 @@ async function main() {
     });
 
     await check('reduced motion removes the emphasis transition', async () => {
-      const before = await fx(() => getComputedStyle(document.querySelector('[data-intaglio-widget=left] svg.intaglio-base')).transitionDuration);
+      const before = await fx(() => getComputedStyle(document.querySelector('[data-intaglio-widget=left] .intaglio-base')).transitionDuration);
       await tab.emulateMedia({ reducedMotion: 'reduce' });
-      const after = await fx(() => getComputedStyle(document.querySelector('[data-intaglio-widget=left] svg.intaglio-base')).transitionDuration);
+      const after = await fx(() => getComputedStyle(document.querySelector('[data-intaglio-widget=left] .intaglio-base')).transitionDuration);
       assert.notEqual(before, '0s');
       assert.equal(after, '0s');
       return { before, after };
     });
 
+    report.trace = await fx(() => ({ events: window.intaglioFixture.events, parts: window.intaglioFixture.parts }));
     await check('repeated mount and dispose retain no listeners, observers or nodes', async () => {
       const base = await fx(() => ({ listeners: window.__listeners, observers: window.__observers }));
       await fx(() => window.intaglioFixture.remount(25));
@@ -326,7 +330,7 @@ async function main() {
 
     const hidpi = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 2 });
     const tab2 = await hidpi.newPage();
-    await tab2.goto(pathToFileURL(page).href);
+    await tab2.goto(pathToFileURL(page).href + `?renderer=${renderer}`);
     await tab2.waitForFunction(() => window.intaglioFixture && window.intaglioFixture.ready);
     await check('at device scale 2 the pointer still hits the drawn mark', async () => {
       const [x, y] = await tab2.evaluate(() => window.intaglioFixture.markPoint('left', 5));
@@ -335,6 +339,13 @@ async function main() {
       const events = await tab2.evaluate(() => window.intaglioFixture.events.left.slice(-3));
       assert.ok(events.some(e => /^hover:t\d+:Pointer$/.test(e)), events.join(' / '));
       await tab2.screenshot({ path: path.join(out, 'hover-2x.png') });
+      if (renderer === 'canvas') {
+        const size = await tab2.evaluate(() => {
+          const c = document.querySelector('canvas.intaglio-base'), r=c.getBoundingClientRect();
+          return [c.width, c.height, Math.round(r.width*devicePixelRatio), Math.round(r.height*devicePixelRatio)];
+        });
+        assert.deepEqual(size.slice(0,2), size.slice(2));
+      }
       return { events };
     });
     await hidpi.close();

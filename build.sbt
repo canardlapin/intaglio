@@ -301,7 +301,7 @@ lazy val browser =
   crossProject(JSPlatform)
     .crossType(CrossType.Full)
     .in(file("modules/browser"))
-    .dependsOn(interaction, svg)
+    .dependsOn(interaction, svg, canvas)
     .settings(commonSettings)
     .settings(
       name := "intaglio-browser",

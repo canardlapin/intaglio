@@ -80,7 +80,8 @@ object PlotParts:
         axis.name.toVector.flatMap { name =>
           keep(
             PlotPart.Axis(axis.side, axis.title),
-            Vector(name, GraphicsName.unsafe(s"${name.value}-title"))
+            Vector(name) ++ Vector("baseline", "ticks", "label", "title")
+              .map(suffix => GraphicsName.unsafe(s"${name.value}-$suffix"))
           ).toVector
         }
       case legend: GuideSpec.Legend =>

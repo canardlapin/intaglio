@@ -105,3 +105,24 @@ class PlotPartsSuite extends munit.FunSuite:
     )
     assertEquals(ok(picking.at(centre, 1.0)).map(_.part), colorbar.map(_.part))
   }
+
+  test("axis baselines, ticks and labels retain their typed axis identity") {
+    val picking = ok(PartPicking.compile(trained, context))
+    val named = ok(NamedPicking.compile(trained.scene, context))
+    val axes = parts.filter(_.part.isInstanceOf[PlotPart.Axis])
+    assert(axes.nonEmpty)
+    axes.foreach { axis =>
+      Vector("baseline", "ticks", "label").foreach { suffix =>
+        val name = axis.names
+          .find(_.value.endsWith(s"-$suffix"))
+          .getOrElse(fail(s"missing $suffix for $axis"))
+        val outline = ok(named.outline(name, 0)).getOrElse(fail(s"no painted $name"))
+        val ring = outline.rings.head
+        val centre = DevicePoint(
+          (ring.map(_.x).min + ring.map(_.x).max) / 2,
+          (ring.map(_.y).min + ring.map(_.y).max) / 2
+        )
+        assertEquals(ok(picking.at(centre, 1)).map(_.part), Some(axis.part))
+      }
+    }
+  }

@@ -12,7 +12,9 @@ import intaglio.svg.{SvgFonts, SvgRenderer}
   * hold any number of widgets whose prefixes differ.
   */
 final class SvgWidgetView[A] private (
-    val plan: InteractionPlan[A],
+    val plans: Vector[InteractionPlan[A]],
+    val scene: Scene,
+    val revision: PlanRevision,
     val context: RenderContext,
     val idPrefix: String,
     val markup: String,
@@ -24,8 +26,35 @@ final class SvgWidgetView[A] private (
     val panelFrame: Option[DeviceFrame],
     val fonts: SvgFonts
 ):
+  /** A single plot can navigate its data window; a composition has several independent plans. */
+  def singlePlan: Option[InteractionPlan[A]] = Option.when(plans.size == 1)(plans.head)
+
   def width: Int = context.width
   def height: Int = context.height
+
+  /** Authored annotations are also logical targets. Preserve their typed part when that target wins
+    * a hit, rather than guessing from another shape under the pointer.
+    */
+  private lazy val annotations: Map[(SemanticId, String), PlotPart] =
+    def routes(grob: Grob): Vector[String] = grob match
+      case a: Grob.Annotated =>
+        a.meta.data.collect {
+          case (key, value) if key == InteractionCompiler.targetAttribute => value
+        } ++ routes(a.child)
+      case g: Grob.Group => g.children.flatMap(routes)
+      case _             => Vector.empty
+    plans.flatMap { plan =>
+      (plan.trained.layers ++ plan.trained.facetPanels.flatMap(_.layers))
+        .filter(_.annotation.nonEmpty)
+        .flatMap { layer =>
+          layer.grobs
+            .flatMap(routes)
+            .map(route => (plan.id, route) -> PlotPart.Annotation(layer.layerIndex))
+        }
+    }.toMap
+
+  private[browser] def annotationPart(target: VisualTargetId): Option[PlotPart] =
+    annotations.get((target.plan, target.scope.value))
 
   /** A short description of a target for the text companion and the live region. */
   def describe(target: TargetInfo[A], behavior: InteractionBehavior[A]): String =
@@ -61,7 +90,9 @@ object SvgWidgetView:
     yield
       val panel = device.frame(PlotRegion.Panel).toOption.map(_.frame)
       new SvgWidgetView(
-        plan,
+        Vector(plan),
+        plan.scene,
+        plan.revision,
         context,
         idPrefix,
         markup.value,
@@ -73,3 +104,41 @@ object SvgWidgetView:
         panel,
         fonts
       )
+
+  /** Mount a composed figure without discarding any child identity or source revision. Figure-wide
+    * pan/zoom is unavailable: children have independent trained scales.
+    */
+  def compileComposition[A](
+      composed: ComposedInteraction[A],
+      revision: PlanRevision,
+      idPrefix: String,
+      title: Option[String] = None,
+      fonts: SvgFonts = SvgFonts.empty
+  ): Either[IntaglioError, SvgWidgetView[A]] =
+    val context = composed.composition.context
+    val scene = composed.scene
+    for
+      device <- DeviceScene.fromScene(scene, context)
+      picking <- Picking.fromResolved(device, composed.groups, context)
+      parts <- PartPicking.fromParts(
+        composed.plans.flatMap(p => PlotParts.of(p.trained)).distinct,
+        device,
+        context
+      )
+      markup <- SvgRenderer.render(composed.renderPlan, title, fonts, idPrefix)
+      emphasis <- SvgRenderer.render(composed.renderPlan, None, fonts, s"$idPrefix-emphasis")
+    yield new SvgWidgetView(
+      composed.plans,
+      scene,
+      revision,
+      context,
+      idPrefix,
+      markup.value,
+      emphasis.value,
+      picking,
+      picking.prepareNavigation(),
+      parts,
+      title,
+      None,
+      fonts
+    )

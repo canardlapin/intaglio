@@ -21,6 +21,9 @@ object ExportFixture:
     build(ok(SvgFonts(face)))
 
   private def build(fonts: SvgFonts): js.Dynamic =
+    val renderer = if g.window.location.search.asInstanceOf[String].contains("canvas") then
+      WidgetRenderer.Canvas
+    else WidgetRenderer.Svg
     val context = RenderContext.unsafe(400, 300)
     val keys = ok(KeySpace("export-fixture", KeyCodec.text))
     val plan = ok(
@@ -68,6 +71,7 @@ object ExportFixture:
         options = WidgetOptions(
           controls = Set(WidgetControl.Reset, WidgetControl.Fullscreen, WidgetControl.Download),
           toolbarPosition = ToolbarPosition.Bottom,
+          renderer = renderer,
           sizing = WidgetSizing.Fixed(400)
         )
       )
@@ -89,6 +93,7 @@ object ExportFixture:
             controls = Set(WidgetControl.Reset),
             toolbarPosition = ToolbarPosition.valueOf(position),
             toolbarVisibility = ToolbarVisibility.valueOf(visibility),
+            renderer = renderer,
             sizing = if width == 0 then WidgetSizing.Responsive else WidgetSizing.Fixed(width)
           )
         )

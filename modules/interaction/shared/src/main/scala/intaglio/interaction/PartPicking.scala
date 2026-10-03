@@ -46,3 +46,11 @@ object PartPicking:
       context: RenderContext
   ): Either[IntaglioError, PartPicking] =
     NamedPicking.fromResolved(scene, context).map(new PartPicking(PlotParts.of(trained), _))
+
+  /** Parts supplied by a composed figure, resolved over the transformed, clipped device scene. */
+  def fromParts(
+      parts: Vector[PartTarget],
+      scene: DeviceScene,
+      context: RenderContext
+  ): Either[IntaglioError, PartPicking] =
+    NamedPicking.fromResolved(scene, context).map(new PartPicking(parts, _))

@@ -21,7 +21,9 @@ async function main() {
 
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
-  const report = { browser: browser.version(), checks: [] };
+  const renderer = process.env.INTAGLIO_TEST_RENDERER || 'svg';
+  assert.ok(['svg', 'canvas'].includes(renderer));
+  const report = { renderer, browser: browser.version(), checks: [] };
   const check = (name, fn) => fn().then(detail => report.checks.push({ name, ok: true, detail }));
   try {
     const context = await browser.newContext({ viewport: { width: 1100, height: 900 } });
@@ -29,7 +31,7 @@ async function main() {
     const consoleErrors = [];
     tab.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
     tab.on('pageerror', e => consoleErrors.push(String(e)));
-    await tab.goto(pathToFileURL(page).href);
+    await tab.goto(pathToFileURL(page).href + `?renderer=${renderer}`);
     await tab.waitForFunction(() => window.intaglioLinked && window.intaglioLinked.ready);
     const fx = (body, ...args) => tab.evaluate(body, ...args);
     const L = name => fx(n => window.intaglioLinked[n], name);
@@ -122,11 +124,7 @@ async function main() {
     await check('a legend in a foreign key space selects only its own plot\'s marks', async () => {
       const a = await selected('a');
       const before = await counts();
-      const centre = await fx(() => {
-        const key = document.querySelector('[data-intaglio-widget=d] [data-name="block-legend-entry-0-key"]');
-        const r = key.getBoundingClientRect();
-        return [r.left + r.width / 2, r.top + r.height / 2];
-      });
+      const centre = await fx(() => window.intaglioLinked.legendPoint('d'));
       await tab.mouse.click(centre[0], centre[1]);
       await settle();
       assert.deepEqual(await selected('a'), a);
@@ -139,17 +137,18 @@ async function main() {
 
     await check('a linked legend entry emphasizes and selects its category in both scatters', async () => {
       const blockA = await fx(() => window.intaglioLinked.blockCount('A'));
-      const centre = await fx(() => {
-        const key = document.querySelector('[data-intaglio-widget=a] [data-name="block-legend-entry-0-key"]');
-        const r = key.getBoundingClientRect();
-        return [r.left + r.width / 2, r.top + r.height / 2];
-      });
+      const centre = await fx(() => window.intaglioLinked.legendPoint('a'));
       await tab.mouse.move(centre[0], centre[1]);
       await settle();
       assert.equal(await rings('a', 'linked'), blockA);
       assert.equal(await rings('b', 'linked'), blockA);
       assert.equal(await rings('d', 'linked'), 0, 'equal category labels in another key space never join');
       await tab.screenshot({ path: path.join(out, 'linked-legend.png') });
+      await tab.mouse.move(5,5); await settle();
+      assert.equal(await rings('a','linked'),0,'leaving legend clears local category emphasis');
+      assert.equal(await rings('b','linked'),0,'leaving legend clears projected category emphasis');
+      await tab.mouse.move(centre[0],centre[1]); await settle();
+      assert.equal(await rings('b','linked'),blockA);
       await tab.mouse.click(centre[0], centre[1]);
       await settle();
       assert.equal((await selected('a')).length, blockA);
@@ -217,6 +216,19 @@ async function main() {
       assert.deepEqual(consoleErrors, []);
       return {};
     });
+    report.trace = await fx(() => ({ events: window.intaglioLinked.events,
+      selected: Object.fromEntries(['a', 'b', 'c', 'd'].map(s => [s, window.intaglioLinked.selected(s)])) }));
+    if (renderer === 'canvas') {
+      assert.equal(await tab.locator('svg.intaglio-base').count(), 0);
+      assert.equal(await tab.locator('canvas.intaglio-base[data-render-state=ready]').count(), 4);
+      const pixels = await fx(() => [...document.querySelectorAll('canvas.intaglio-base')].map(c => {
+        const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        let ink = 0; for(let i=0; i<data.length; i+=4) if(data[i+3] && Math.min(data[i],data[i+1],data[i+2]) < 200) ink++;
+        return ink;
+      }));
+      assert.ok(pixels.every(n => n > 1000), JSON.stringify(pixels));
+      report.canvasInk = pixels;
+    }
     await context.close();
   } finally {
     await browser.close();
