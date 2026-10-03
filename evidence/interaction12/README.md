@@ -1,7 +1,7 @@
 # Interaction 12: JavaFX host receipt
 
 The JavaFX interaction host, including its Interaction 10 surface (inspector, saved selections,
-undo/redo, snapshots), was qualified at source **`0f6243a9e67b157e09fb927da4c9e082594e08b0`**
+undo/redo, snapshots), was qualified at source **`0ea82eb242dcbef1c5b2520f5c9e0fe9548ed97b`**
 (clean tree, on main `5e1b10f`) by three separate courts. None is inferred from another, and the
 headless results are not offered as desktop proof.
 
@@ -29,18 +29,20 @@ Results:
   the FX thread.
 - **Keyboard focus**: the plot node is the scene's focus owner; Home/Right/Enter rove, show the
   tooltip at once, announce the mark and select it, and the selection is projected into the linked
-  histogram. The window held OS focus for the first trace stage only in this run (another
-  application took it); scene-level focus ownership, which these checks use, does not depend on it.
-- **Inspector and history**: the `JavaFxInspector` shows the selected observation ("1: t29"); the
-  platform undo shortcut (Cmd+Z) clears it, Shift+Cmd+Z restores it, and a snapshot round-trips
-  through JSON.
+  histogram. No stage held OS window focus in this run (the runner is launched in the background
+  from a terminal); these checks use scene-level focus ownership, which does not depend on it, so
+  OS-level keyboard focus is not evidenced here.
+- **Inspector and history**: the `JavaFxInspector` shows the selected observation ("1: t29"); a
+  Cmd+Z `KeyEvent` fired into the scene (not an OS keystroke) clears it, Shift+Cmd+Z restores it,
+  and a snapshot round-trips through JSON.
 - **Tooltip**: pointer hover shows the delayed structured tooltip.
 - **Navigation**: keyboard zoom twice, a pan drag and `0` reset, through `DataWindowNavigator` and
   `InteractionCompiler.rezoom`.
 - **Disposal**: the live hosts dispose; 200 further build/dispose cycles leave 0 hosts reachable
   after GC.
 
-Screenshots are snapshots of the real stages' scene graphs at output scale 2 (not screen grabs):
+Screenshots are snapshots of the real stages' scene graphs at output scale 2 (not screen grabs);
+`evidence.json` lists exactly these nine:
 [initial](screenshots/example-initial.png), [keyboard focus](screenshots/example-keyboard-focus.png),
 [inspector](screenshots/example-inspector.png), [hover tooltip](screenshots/example-hover-tooltip.png),
 [zoomed](screenshots/example-zoomed.png), [panned](screenshots/example-panned.png), and trace steps
@@ -63,6 +65,6 @@ one changed event, key or announcement is detected.
 
 ## Headless toolkit
 
-Monocle with software Prism: `JavaFxInteractionHostSuite`, `JavaFxHostCapabilitySuite` and
-`JavaFxHistorySuite` on a simulated 2x screen, and `JavaFxTraceParitySuite` on a 1x screen. This is
+Monocle with software Prism: `JavaFxInteractionHostSuite`, `JavaFxHostCapabilitySuite`, `JavaFxHistorySuite` and
+`JavaFxHostContractSuite` on a simulated 2x screen, and `JavaFxTraceParitySuite` on a 1x screen. This is
 toolkit evidence only. Gate results for the final commit are recorded in its commit message.
