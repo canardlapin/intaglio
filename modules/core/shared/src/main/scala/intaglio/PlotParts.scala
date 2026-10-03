@@ -102,7 +102,10 @@ object PlotParts:
         }
       case colorbar: GuideSpec.Colorbar =>
         colorbar.name.toVector.flatMap(name =>
-          keep(PlotPart.Colorbar(name.value, colorbar.title), Vector(name)).toVector
+          keep(
+            PlotPart.Colorbar(name.value, colorbar.title),
+            Vector(name, GraphicsName.unsafe(s"${name.value}-title"))
+          ).toVector
         )
     }
 

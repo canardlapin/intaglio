@@ -7,8 +7,9 @@ import intaglio.*
   * no part (panel backgrounds, grid lines) are ignored.
   */
 final class PartPicking private (val parts: Vector[PartTarget], plan: NamedPickingPlan):
+  // A name claimed by two parts resolves to the first, in reading order.
   private val byName: Map[GraphicsName, PartTarget] =
-    parts.flatMap(part => part.names.map(_ -> part)).toMap
+    parts.reverse.flatMap(part => part.names.map(_ -> part)).toMap
 
   /** The nearest part within `toleranceDevicePx`, preferring the later-drawn on a tie. */
   def at(
@@ -17,18 +18,21 @@ final class PartPicking private (val parts: Vector[PartTarget], plan: NamedPicki
   ): Either[PickingError, Option[PartTarget]] =
     plan.hits(point, toleranceDevicePx).map(_.view.flatMap(hit => byName.get(hit.name)).headOption)
 
-  /** Rings around a part's first painted name, for focus and hover overlays. */
+  /** Rings around every painted copy of a part (a facet-repeated axis has one per panel), for focus
+    * and hover overlays; `None` when nothing of the part is painted.
+    */
   def outline(
       part: PartTarget,
       offsetDevicePx: Double
   ): Either[PickingError, Option[TargetOutline]] =
-    part.names.view
-      .map(plan.outline(_, offsetDevicePx))
-      .collectFirst {
-        case Left(error)          => Left(error)
-        case Right(Some(outline)) => Right(Some(outline))
+    part.names
+      .foldLeft[Either[PickingError, Vector[Vector[DevicePoint]]]](Right(Vector.empty)) {
+        (rings, name) =>
+          rings.flatMap(done =>
+            plan.outline(name, offsetDevicePx).map(o => done ++ o.toVector.flatMap(_.rings))
+          )
       }
-      .getOrElse(Right(None))
+      .map(rings => Option.when(rings.nonEmpty)(TargetOutline(rings)))
 
 object PartPicking:
   /** Parts of `trained`, picked over the scene it lowers to at `context`. */

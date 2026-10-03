@@ -79,6 +79,19 @@ async function main() {
       return { ids: ids.length, stops };
     });
 
+    await check('a duplicate id prefix and a prefix change are refused; the table does not rescale the plot', async () => {
+      assert.match(await fx(() => window.intaglioFixture.mountDuplicate()), /already mounted/);
+      assert.match(await fx(() => window.intaglioFixture.updateOtherPrefix()), /id prefix/);
+      const width = () => fx(() => document.querySelector('[data-intaglio-widget=left] svg.intaglio-base').getBoundingClientRect().width);
+      const before = await width();
+      await fx(() => { document.querySelector('[data-intaglio-widget=left] details').open = true; });
+      await tab.waitForTimeout(50);
+      const opened = await width();
+      await fx(() => { document.querySelector('[data-intaglio-widget=left] details').open = false; });
+      assert.equal(opened, before);
+      return { before, opened };
+    });
+
     const marks = await fx(() => window.intaglioFixture.markCount('left'));
     await check('pointer hover shows a delayed, escaped tooltip and inverse emphasis', async () => {
       const [x, y] = await point('left', 3);

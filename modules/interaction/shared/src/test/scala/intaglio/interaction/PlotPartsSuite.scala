@@ -80,3 +80,28 @@ class PlotPartsSuite extends munit.FunSuite:
   test("parts describe themselves for accessible names") {
     assert(parts.exists(_.part.describe == "condition: control"), parts.map(_.part.describe))
   }
+
+  test("a colorbar is found through its title as well as its bar") {
+    val shaded = ok(
+      plot(rows)
+        .aes(_.x, _.y)
+        .scaleFillContinuous(_.y, name = "score")
+        .geomTile(_ => 0.5, _ => 0.5)
+        .resolve(context)
+    )
+    val colorbar = PlotParts.of(shaded).find(_.part.isInstanceOf[PlotPart.Colorbar])
+    assert(colorbar.exists(_.names.exists(_.value.endsWith("-title"))), PlotParts.of(shaded))
+    val picking = ok(PartPicking.compile(shaded, context))
+    val title = colorbar.get.names.find(_.value.endsWith("-title")).get
+    val ring = ok(NamedPicking.compile(shaded.scene, context))
+      .outline(title, 0)
+      .fold(e => fail(e.message), identity)
+      .getOrElse(fail("title not painted"))
+      .rings
+      .head
+    val centre = DevicePoint(
+      (ring.map(_.x).min + ring.map(_.x).max) / 2,
+      (ring.map(_.y).min + ring.map(_.y).max) / 2
+    )
+    assertEquals(ok(picking.at(centre, 1.0)).map(_.part), colorbar.map(_.part))
+  }

@@ -172,6 +172,16 @@ object Fixture:
       views += "left" -> next
       widgets("left").update(next).fold(_.message, _ => "ok")
 
+    /** Mounting a second widget under an id prefix already on the page must be refused. */
+    def mountDuplicate(): String =
+      SvgWidget
+        .mount(document.getElementById("right"), scatterView("left", "s1", trials), scatterBehavior)
+        .fold(_.message, _ => "mounted")
+
+    /** Updating to a view with another id prefix must be refused. */
+    def updateOtherPrefix(): String =
+      widgets("left").update(scatterView("other", "s9", trials)).fold(_.message, _ => "ok")
+
     def setSelection(ids: js.Array[String]): String =
       widgets("left")
         .setSelection(Selection(ids.toVector.map(id => orThrow(space.entity(id))).toSet))
@@ -194,6 +204,8 @@ object Fixture:
       remount = (times: Int) => remount(times),
       update = () => update(),
       resize = () => resize(),
+      mountDuplicate = () => mountDuplicate(),
+      updateOtherPrefix = () => updateOtherPrefix(),
       setSelection = (ids: js.Array[String]) => setSelection(ids),
       dispose = (slot: String) => dispose(slot),
       selected = (slot: String) => selected(slot),

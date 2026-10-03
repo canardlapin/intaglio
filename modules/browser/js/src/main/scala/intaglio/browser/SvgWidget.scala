@@ -112,6 +112,10 @@ final class SvgWidget[A] private (
     */
   def update(next: SvgWidgetView[A]): Either[IntaglioError, Unit] =
     if disposed then Left(ControllerError.Disposed)
+    else if next.idPrefix != view.idPrefix then
+      Left(
+        InteractionError.InvalidValue("widget update", "a view must keep the widget's id prefix")
+      )
     else
       for
         domain <- InteractionDomain(Vector(next.plan), next.plan.revision)
@@ -129,8 +133,10 @@ final class SvgWidget[A] private (
               )
               .map(_ => ())
       yield
+        setHoveredPart(None)
         view = next
         input = HostInput(view.picking, view.navigation, unitViewport, behavior)
+        live.textContent = ""
         hideTooltip()
         renderPlot()
         if companion.open.asInstanceOf[Boolean] then fillCompanion()
@@ -494,6 +500,9 @@ final class SvgWidget[A] private (
               list.appendChild(value)
             }
             tooltip.appendChild(list)
+        // Measure at the origin: at its previous position the box could be squeezed by the edge.
+        tooltip.style.left = "0px"
+        tooltip.style.top = "0px"
         tooltip.hidden = false
         val rootBox = root.getBoundingClientRect()
         val relative = at.map((x, y) =>
@@ -607,6 +616,11 @@ object SvgWidget:
   ): Either[IntaglioError, SvgWidget[A]] =
     if js.isUndefined(container) || container == null then
       Left(InteractionError.InvalidValue("widget container", "no DOM element"))
+    else if g.document.getElementById(s"${view.idPrefix}-live") != null then
+      // Two widgets with one prefix would resolve each other's ids (live region, clips).
+      Left(
+        InteractionError.InvalidValue("widget id prefix", s"'${view.idPrefix}' is already mounted")
+      )
     else
       for
         domain <- InteractionDomain(Vector(view.plan), view.plan.revision)
@@ -648,7 +662,7 @@ object SvgWidget:
       document.head.appendChild(style)
 
   private[browser] val css: String =
-    """.intaglio-widget{position:relative;display:inline-block;max-width:100%;
+    """.intaglio-widget{position:relative;display:block;width:100%;
       |  --intaglio-focus:#1a56db;--intaglio-focus-halo:#ffffff;--intaglio-hover:#0b6e4f;
       |  --intaglio-selected:#b45309;--intaglio-dim:0.3}
       |.intaglio-plot{position:relative;outline:none;line-height:0;user-select:none;
