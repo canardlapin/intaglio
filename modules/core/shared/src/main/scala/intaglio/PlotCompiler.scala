@@ -556,6 +556,72 @@ object PlotCompiler:
     val resolvedOptions = effectiveOptions(plot, options)
     trainStage(plot, resolvedOptions, options).flatMap(placeStage(_, resolvedOptions))
 
+  /** Train and place, keeping the trained data for later re-windowing ([[rezoomPlaced]]). */
+  private[intaglio] def resolveRetainingTraining[Row](
+      plot: Plot[Row],
+      options: PlotCompilerOptions
+  ): Either[GraphicsError, (TrainedPlotData, TrainedPlot)] =
+    val resolvedOptions = effectiveOptions(plot, options)
+    for
+      trained <- trainStage(plot, resolvedOptions, options)
+      placed <- placeStage(trained, resolvedOptions)
+    yield (trained, placed)
+
+  /** Re-window trained single-panel data to `x`/`y` (both empty: the compiled, unzoomed view) and
+    * place it, without mapping, statistics, scale training or row resolution: only the panel
+    * ranges, guide specifications and the device-dependent phases are recomputed. The layers are
+    * reused as they are, which is sound because a Cartesian or zoom coordinate system leaves them
+    * unchanged. Faceted data and other coordinate systems are refused.
+    */
+  private[intaglio] def rezoomPlaced(
+      trained: TrainedPlotData,
+      x: Option[CoordinateWindow],
+      y: Option[CoordinateWindow]
+  ): Either[IntaglioError, (TrainedPlotData, TrainedPlot)] =
+    import intaglio.interaction.InteractionError
+    val resolvedOptions =
+      effectiveOptionsFor(trained.labels.isEmpty, hasFacet = false, trained.baseOptions)
+    (trained.stage, trained.coord) match
+      case (_: TrainedStage.Faceted, _) =>
+        Left(InteractionError.UnsupportedCapability("data-window navigation of faceted plots"))
+      case (single: TrainedStage.Single, _: Coord.Cartesian | _: Coord.Zoom) =>
+        val coord: Coord =
+          if x.isEmpty && y.isEmpty then Coord.Cartesian(trained.coord.clipping)
+          else new Coord.Zoom(x, y, trained.coord.clipping)
+        for
+          logicalRanges <- LayoutPhase.panelRangesFor(resolvedOptions, single.layers)
+          specs <- GuidePhase.specs(
+            resolvedOptions.guides,
+            coord,
+            single.registry,
+            logicalRanges,
+            relativeLegend = resolvedOptions.policy.nonEmpty,
+            labels = trained.labels
+          )
+          coordinates <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
+            CoordPhase.transform(coord, single.layers, logicalRanges, single.registry)
+          )
+          zoomed = TrainedPlotData(
+            coord,
+            trained.labels,
+            trained.baseOptions,
+            TrainedStage.Single(
+              coordinates.layers,
+              single.registry,
+              specs,
+              coordinates.ranges,
+              single.semantics
+            )
+          )
+          placed <- placeStage(zoomed, resolvedOptions)
+        yield (zoomed, placed)
+      case (_, other) =>
+        Left(
+          InteractionError.UnsupportedCapability(
+            s"data-window navigation under ${other.getClass.getSimpleName} coordinates"
+          )
+        )
+
   private def trainStage[Row](
       plot: Plot[Row],
       resolvedOptions: PlotCompilerOptions,

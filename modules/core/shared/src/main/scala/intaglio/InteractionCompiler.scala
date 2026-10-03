@@ -89,9 +89,35 @@ final class InteractionPlan[A] private[interaction] (
     val sourceEntities: Vector[EntityKey[A]],
     val context: Option[RenderContext],
     val trained: TrainedPlot,
-    val groups: Vector[TargetGroup[A]]
+    val groups: Vector[TargetGroup[A]],
+    private[intaglio] val training: Option[TrainedPlotData]
 ):
+  /** Bridge for the constructor descriptor from before retained training. */
+  private[interaction] def this(
+      id: SemanticId,
+      revision: PlanRevision,
+      sourceRevision: DataRevision,
+      spaces: Vector[KeySpace[A]],
+      sourceEntities: Vector[EntityKey[A]],
+      context: Option[RenderContext],
+      trained: TrainedPlot,
+      groups: Vector[TargetGroup[A]]
+  ) = this(id, revision, sourceRevision, spaces, sourceEntities, context, trained, groups, None)
+
   def scene: Scene = trained.scene
+
+  private[interaction] def retaining(value: TrainedPlotData): InteractionPlan[A] =
+    new InteractionPlan(
+      id,
+      revision,
+      sourceRevision,
+      spaces,
+      sourceEntities,
+      context,
+      trained,
+      groups,
+      Some(value)
+    )
   private val byName = groups.iterator.map(group => group.name.value -> group).toMap
   def group(name: String): Option[TargetGroup[A]] = byName.get(name)
 
@@ -146,10 +172,10 @@ object InteractionCompiler:
                 )
               )
         }
-        resolved <- PlotCompiler.resolveBeforeRetention(plot, options)
+        resolved <- PlotCompiler.resolveRetainingTraining(plot, options)
         result <- attach(
           plot,
-          resolved,
+          resolved._2,
           prepared,
           revision,
           planId,
@@ -158,7 +184,7 @@ object InteractionCompiler:
           adapters,
           options.renderContext
         )
-      yield result
+      yield result.retaining(resolved._1)
 
   private def attach[PlotRow, A](
       plot: Plot[PlotRow],
@@ -260,6 +286,41 @@ object InteractionCompiler:
         groups.result()
       )
     )
+
+  /** Show `plan` through a data window: `x`/`y` are typed windows (numeric, date or date-time, as
+    * the axis's scale is), and both empty restores the compiled view. Only the panel ranges, axes,
+    * grid and layout are recomputed from the plan's retained training; statistics, scale training
+    * and row resolution do not run, and the marks, their targets and the plan's identity and
+    * revision are the same, so selection and focus carry over. The plan must have been compiled
+    * with a render context; faceted and flipped plots are refused.
+    */
+  def rezoom[A](
+      plan: InteractionPlan[A],
+      x: Option[CoordinateWindow],
+      y: Option[CoordinateWindow]
+  ): Either[IntaglioError, InteractionPlan[A]] =
+    for
+      training <- plan.training.toRight(
+        InteractionError.UnsupportedCapability("re-windowing a plan without retained training")
+      )
+      _ <- plan.context.toRight(
+        InteractionError.InvalidValue("rezoom", "the plan was compiled without a render context")
+      )
+      zoomed <- PlotCompiler.rezoomPlaced(training, x, y)
+    yield
+      val (data, placed) = zoomed
+      // The marks are unchanged by a window: keep the plan's annotated, retention-applied layers.
+      new InteractionPlan(
+        plan.id,
+        plan.revision,
+        plan.sourceRevision,
+        plan.spaces,
+        plan.sourceEntities,
+        plan.context,
+        placed.copy(layers = plan.trained.layers, facetPanels = plan.trained.facetPanels),
+        plan.groups,
+        Some(data)
+      )
 
   private def retain[A](
       space: KeySpace[A],
