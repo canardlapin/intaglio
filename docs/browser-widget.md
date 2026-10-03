@@ -178,5 +178,11 @@ profile. It covers pointer, keyboard, tooltip edges, two isolated widgets, appli
 update, reduced motion, device scale 2 and 25 mount/dispose cycles, and writes screenshots and a
 JSON report.
 
-Not yet covered: region selection and pan/zoom (Interaction 05), standalone HTML packaging and a
-toolbar (07), and Canvas (08).
+Canvas interaction parity retains its separate Interaction 08 gate. Browser receipts qualify
+the cases they exercise, not every operating system or browser engine.
+
+## Standalone files, controls, and PNG export
+
+See [standalone browser applications](standalone-browser.md) for a one-file offline package,
+configurable toolbar placement and controls, explicit original/current PNG snapshots, fullscreen,
+and embedded fonts. Canvas parity retains its separate qualification gate.

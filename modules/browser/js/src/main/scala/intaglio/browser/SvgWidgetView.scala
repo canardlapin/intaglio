@@ -21,7 +21,8 @@ final class SvgWidgetView[A] private (
     val navigation: NavigationPlan[A],
     val parts: PartPicking,
     val title: Option[String],
-    val panelFrame: Option[DeviceFrame]
+    val panelFrame: Option[DeviceFrame],
+    val fonts: SvgFonts
 ):
   def width: Int = context.width
   def height: Int = context.height
@@ -47,15 +48,16 @@ object SvgWidgetView:
       plan: InteractionPlan[A],
       context: RenderContext,
       idPrefix: String,
-      title: Option[String] = None
+      title: Option[String] = None,
+      fonts: SvgFonts = SvgFonts.empty
   ): Either[IntaglioError, SvgWidgetView[A]] =
     val renderPlan = RenderPlan(plan.scene, context)
     for
       device <- DeviceScene.fromScene(plan.scene, context)
       picking <- Picking.fromResolved(device, plan.groups, context)
       parts <- PartPicking.fromResolved(plan.trained, device, context)
-      markup <- SvgRenderer.render(renderPlan, title, SvgFonts.empty, idPrefix)
-      emphasis <- SvgRenderer.render(renderPlan, None, SvgFonts.empty, s"$idPrefix-emphasis")
+      markup <- SvgRenderer.render(renderPlan, title, fonts, idPrefix)
+      emphasis <- SvgRenderer.render(renderPlan, None, fonts, s"$idPrefix-emphasis")
     yield
       val panel = device.frame(PlotRegion.Panel).toOption.map(_.frame)
       new SvgWidgetView(
@@ -68,5 +70,6 @@ object SvgWidgetView:
         picking.prepareNavigation(),
         parts,
         title,
-        panel
+        panel,
+        fonts
       )

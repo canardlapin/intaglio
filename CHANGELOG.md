@@ -44,6 +44,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Standalone browser packages, configurable controls and PNG export.**
+  `tools/package-widget.cjs` packages a Scala.js NoModule application into one
+  offline HTML file (runtime, styles and fonts embedded; unbundled resources
+  refused with a visible diagnostic). `WidgetOptions` configures toolbar
+  placement, visibility and the control subset, including fullscreen and PNG
+  download; `SvgWidgetExport` renders the original or current view, with or
+  without the selection, at a chosen scale. Unavailable capabilities report a
+  typed error. See [docs/standalone-browser.md](docs/standalone-browser.md).
+  Checked by `tools/check-standalone-browser.cjs` and
+  `tools/check-export-browser.cjs`.
+
 - **Region selection and data-window navigation.** `InteractionCompiler.rezoom`
   re-windows a compiled interactive plot from its retained training data: no
   statistic, mapping or scale training runs again, the panel keeps its frame,

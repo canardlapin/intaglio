@@ -53,7 +53,8 @@ final class SvgWidget[A] private (
     controller: InteractionController[A],
     origin: SemanticId,
     label: String,
-    onError: IntaglioError => Unit
+    onError: IntaglioError => Unit,
+    options: WidgetOptions
 ):
   private val document = g.document
   private val listeners = Listeners()
@@ -100,6 +101,9 @@ final class SvgWidget[A] private (
 
   /** A pinch's starting finger distance, midpoint and panel frame; zoom is absolute from them. */
   private var pinch: Option[(Double, DevicePoint, DeviceFrame)] = None
+  private val exportViewportChoice = element("select")
+  private val exportSelectionChoice = element("select")
+  private val controlError = element("p")
   private val toolbar = element("div")
   private var buttons = Vector.empty[(Option[GestureMode], js.Dynamic, Boolean)]
   private val gestureLayer = svgElement("svg")
@@ -250,6 +254,50 @@ final class SvgWidget[A] private (
   /** The data window currently shown. */
   def currentWindow: PanelWindow = window
 
+  /** Export an explicit viewport and selection choice. Original uses this data revision before
+    * navigation; hover/focus decorations are never exported. No state or event is changed.
+    */
+  def exportPng(
+      viewport: ExportViewport,
+      selection: ExportSelection,
+      scale: Double = 1.0
+  ): js.Promise[Either[WidgetExportError, String]] =
+    val snapshot = for
+      current <- state
+      source <- viewport match
+        case ExportViewport.Current  => Right(view)
+        case ExportViewport.Original =>
+          Right(baseView)
+    yield (
+      source,
+      if selection == ExportSelection.Include then current.selection else Selection[A]()
+    )
+    snapshot match
+      case Left(error) => js.Promise.resolve(Left(WidgetExportError.Failed(error.message)))
+      case Right((source, chosen)) => SvgWidgetExport.png(source, chosen, scale)
+
+  /** Fullscreen is a reader-activated browser capability; refusal remains an explicit result. */
+  def toggleFullscreen(): js.Promise[Either[IntaglioError, Unit]] =
+    def unavailable(reason: String): Either[IntaglioError, Unit] =
+      Left(InteractionError.UnsupportedCapability(s"fullscreen: $reason"))
+    if disposed then js.Promise.resolve(unavailable("widget is disposed"))
+    else
+      val target = if document.fullscreenElement == root then document else root
+      val method =
+        if document.fullscreenElement == root then "exitFullscreen" else "requestFullscreen"
+      if js.typeOf(target.selectDynamic(method)) != "function" then
+        js.Promise.resolve(unavailable("this browser does not provide the fullscreen API"))
+      else
+        try
+          target
+            .applyDynamic(method)()
+            .asInstanceOf[js.Promise[Unit]]
+            .`then`[Either[IntaglioError, Unit]](
+              (_: Unit) => Right(()),
+              (error: Any) => unavailable(s"request refused: $error")
+            )
+        catch case NonFatal(error) => js.Promise.resolve(unavailable(error.getMessage))
+
   /** Whole-scene magnification: draw the plot `factor` times its compiled size, marks and text
     * together, which data-window navigation never does. Picking follows the drawn size.
     */
@@ -348,10 +396,19 @@ final class SvgWidget[A] private (
     plotHost.appendChild(gestureLayer)
     buildToolbar()
     root.appendChild(toolbar)
+    root.setAttribute("data-toolbar-position", options.toolbarPosition.toString)
+    root.setAttribute("data-toolbar-visibility", options.toolbarVisibility.toString)
+    options.sizing match
+      case WidgetSizing.Responsive   => ()
+      case WidgetSizing.Fixed(width) => root.style.width = s"${width}px"
+    controlError.setAttribute("role", "alert")
+    controlError.hidden = true
+    root.appendChild(controlError)
     root.appendChild(plotHost)
     root.appendChild(tooltip)
     root.appendChild(live)
     root.appendChild(companion)
+    if options.toolbarPosition == ToolbarPosition.Bottom then root.insertBefore(toolbar, companion)
     container.appendChild(root)
     renderPlot()
     wire()
@@ -693,7 +750,13 @@ final class SvgWidget[A] private (
             for
               windows <- nav.windows(value)
               plan <- InteractionCompiler.rezoom(basePlan, windows._1, windows._2)
-              compiled <- SvgWidgetView.compile(plan, view.context, view.idPrefix, view.title)
+              compiled <- SvgWidgetView.compile(
+                plan,
+                view.context,
+                view.idPrefix,
+                view.title,
+                view.fonts
+              )
             yield compiled
         _ = swap(next)
         // The window drawn, which a temporal axis snaps to whole days or milliseconds: it is what
@@ -769,18 +832,22 @@ final class SvgWidget[A] private (
     toolbar.className = "intaglio-toolbar"
     toolbar.setAttribute("role", "toolbar")
     toolbar.setAttribute("aria-label", s"$label controls")
-    val modeButtonsBuilt = modeButtons.map { (value, text, needsNavigation) =>
-      val button = element("button")
-      button.setAttribute("type", "button")
-      button.textContent = text
-      button.setAttribute("data-mode", value.toString)
-      listeners.on(button, "click") { _ =>
-        dispatch(InteractionAction.SetGestureMode(value), InputCause.Pointer).left.foreach(report)
-        refreshToolbar()
+    val modeButtonsBuilt = modeButtons
+      .filter { (value, _, _) =>
+        options.controls.contains(WidgetControl.valueOf(value.toString))
       }
-      toolbar.appendChild(button)
-      (Some(value), button, needsNavigation)
-    }
+      .map { (value, text, needsNavigation) =>
+        val button = element("button")
+        button.setAttribute("type", "button")
+        button.textContent = text
+        button.setAttribute("data-mode", value.toString)
+        listeners.on(button, "click") { _ =>
+          dispatch(InteractionAction.SetGestureMode(value), InputCause.Pointer).left.foreach(report)
+          refreshToolbar()
+        }
+        toolbar.appendChild(button)
+        (Some(value), button, needsNavigation)
+      }
     val reset = element("button")
     reset.setAttribute("type", "button")
     reset.textContent = "Reset view"
@@ -788,8 +855,65 @@ final class SvgWidget[A] private (
     listeners.on(reset, "click") { _ =>
       showWindow(PanelWindow.full, InputCause.Pointer).left.foreach(report)
     }
-    toolbar.appendChild(reset)
-    buttons = modeButtonsBuilt :+ ((None, reset, true))
+    val resetButtons = if options.controls.contains(WidgetControl.Reset) then
+      toolbar.appendChild(reset)
+      Vector((None, reset, true))
+    else Vector.empty
+    buttons = modeButtonsBuilt ++ resetButtons
+    def extra(control: WidgetControl, text: String)(action: => Unit): Unit =
+      if options.controls.contains(control) then
+        val button = element("button")
+        button.setAttribute("type", "button")
+        button.setAttribute("data-action", control.toString.toLowerCase)
+        button.textContent = text
+        listeners.on(button, "click") { _ => action }
+        toolbar.appendChild(button)
+        buttons = buttons :+ ((None, button, false))
+    extra(WidgetControl.Fullscreen, "Fullscreen") {
+      toggleFullscreen().`then`[Unit]((result: Either[IntaglioError, Unit]) =>
+        result.left.foreach(controlFailure)
+      )
+      ()
+    }
+    if options.controls.contains(WidgetControl.Download) then
+      def choice(select: js.Dynamic, label: String, values: Vector[(String, String)]): Unit =
+        select.setAttribute("aria-label", label)
+        values.foreach { (value, text) =>
+          val option = element("option")
+          option.value = value
+          option.textContent = text
+          select.appendChild(option)
+        }
+        toolbar.appendChild(select)
+      choice(
+        exportViewportChoice,
+        "PNG viewport",
+        Vector("Current" -> "Current view", "Original" -> "Original view")
+      )
+      choice(
+        exportSelectionChoice,
+        "PNG selection",
+        Vector("Include" -> "Include selection", "Omit" -> "Omit selection")
+      )
+    extra(WidgetControl.Download, "Download PNG") {
+      controlError.hidden = true
+      exportPng(
+        ExportViewport.valueOf(exportViewportChoice.value.asInstanceOf[String]),
+        ExportSelection.valueOf(exportSelectionChoice.value.asInstanceOf[String])
+      ).`then`[Unit]((result: Either[WidgetExportError, String]) =>
+        if !disposed then
+          result match
+            case Left(error) => controlFailure(error)
+            case Right(data) =>
+              val anchor = element("a")
+              anchor.href = data
+              anchor.download = "intaglio-plot.png"
+              document.body.appendChild(anchor)
+              anchor.click()
+              anchor.remove()
+      )
+      ()
+    }
     // One tab stop for the whole toolbar; arrows, Home and End move between its buttons.
     listeners.on(toolbar, "keydown") { event =>
       val visible = buttons.map(_._2).filterNot(_.hidden.asInstanceOf[Boolean])
@@ -798,9 +922,9 @@ final class SvgWidget[A] private (
         case "ArrowRight" | "ArrowDown" if here >= 0 => Some((here + 1) % visible.size)
         case "ArrowLeft" | "ArrowUp" if here >= 0    =>
           Some((here - 1 + visible.size) % visible.size)
-        case "Home" if visible.nonEmpty => Some(0)
-        case "End" if visible.nonEmpty  => Some(visible.size - 1)
-        case _                          => None
+        case "Home" if here >= 0 => Some(0)
+        case "End" if here >= 0  => Some(visible.size - 1)
+        case _                   => None
       next.foreach { i =>
         event.preventDefault()
         visible.foreach(_.setAttribute("tabindex", "-1"))
@@ -822,6 +946,8 @@ final class SvgWidget[A] private (
     if !visible.exists(_.getAttribute("tabindex").asInstanceOf[String] == "0") then
       visible.headOption.foreach(_.setAttribute("tabindex", "0"))
     plotHost.setAttribute("data-navigable", navigator.nonEmpty.toString)
+    toolbar.hidden =
+      options.toolbarVisibility == ToolbarVisibility.Hidden || options.controls.isEmpty
     plotHost.setAttribute("data-mode", current.toString)
 
   /** The CSS box the plot occupies now, as the picking viewport. */
@@ -866,6 +992,12 @@ final class SvgWidget[A] private (
     controller.state
       .flatMap(current => controller.dispatch(stamp(current, cause), action))
       .map(_ => ())
+
+  private def controlFailure(error: IntaglioError): Unit =
+    if !disposed then
+      controlError.textContent = error.message
+      controlError.hidden = false
+      report(error)
 
   private def report(error: IntaglioError): Unit =
     try onError(error)
@@ -1156,10 +1288,17 @@ object SvgWidget:
       behavior: InteractionBehavior[A] = InteractionBehavior.default[A],
       selection: Selection[A] = Selection[A](),
       label: String = "Interactive plot",
-      onError: IntaglioError => Unit = error => g.console.error(error.message)
+      onError: IntaglioError => Unit = error => g.console.error(error.message),
+      options: WidgetOptions = WidgetOptions()
   ): Either[IntaglioError, SvgWidget[A]] =
     if js.isUndefined(container) || container == null then
       Left(InteractionError.InvalidValue("widget container", "no DOM element"))
+    else if (
+        options.sizing match
+          case WidgetSizing.Fixed(width) => width <= 0
+          case WidgetSizing.Responsive   => false
+      )
+    then Left(InteractionError.InvalidValue("widget width", "fixed width must be positive"))
     else if g.document.getElementById(s"${view.idPrefix}-live") != null then
       // Two widgets with one prefix would resolve each other's ids (live region, clips).
       Left(
@@ -1178,7 +1317,8 @@ object SvgWidget:
         new InteractionController(state),
         origin,
         label,
-        onError
+        onError,
+        options
       )
 
   /** Every [[LegendLink]] must name a legend this plot draws (by its guide name,
@@ -1299,6 +1439,17 @@ object SvgWidget:
       |.intaglio-plot[data-mode=ZoomRectangle]{cursor:crosshair;touch-action:none}
       |.intaglio-plot[data-mode=Pan]{touch-action:none}
       |.intaglio-companion{font:12px/1.4 system-ui,sans-serif;line-height:1.4}
+      |.intaglio-toolbar[hidden]{display:none}
+      |.intaglio-widget[data-toolbar-visibility=OnFocus]>.intaglio-toolbar{opacity:0}
+      |.intaglio-widget[data-toolbar-visibility=OnFocus]:hover>.intaglio-toolbar,
+      |.intaglio-widget[data-toolbar-visibility=OnFocus]:focus-within>.intaglio-toolbar{opacity:1}
+      |.intaglio-widget[data-toolbar-position=FloatingTop]>.intaglio-toolbar,
+      |.intaglio-widget[data-toolbar-position=FloatingBottom]>.intaglio-toolbar{
+      |  position:absolute;left:4px;right:4px;z-index:2;background:#fff;padding:4px}
+      |.intaglio-widget[data-toolbar-position=FloatingTop]>.intaglio-toolbar{top:4px}
+      |.intaglio-widget[data-toolbar-position=FloatingBottom]>.intaglio-toolbar{bottom:4px}
+      |.intaglio-widget:fullscreen{background:#fff;padding:16px;box-sizing:border-box;
+      |  width:100%!important;height:100%;overflow:auto}
       |@media (prefers-reduced-motion: reduce){
       |  .intaglio-plot>svg.intaglio-base{transition:none}}
       |""".stripMargin
