@@ -3,8 +3,8 @@
   "renderer": "canvas",
   "browser": "151.0.7922.34",
   "script": "members.json",
-  "scriptSha256": "40f43c647b443c350f590402ac7295229c4f49b30df9e362032a40da4c1c98ac",
-  "fixtureSha256": "2a59e6799a615cdb9cd79a80a0e630089a0917d88dc16b504bcab8de52106e56",
+  "scriptSha256": "08dd96d4533043e3c3cd372e537d8c2a77e1796767b0b54e744ededcb7e80157",
+  "fixtureSha256": "2cfb404f8018acec6ab5a996bfcd13989adc01d36de764fd0a7be640d9e7f40d",
   "steps": [
     {
       "step": 0,
@@ -415,6 +415,32 @@
     },
     {
       "step": 10,
+      "op": "wait",
+      "events": {
+        "a": [],
+        "b": [],
+        "h": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t1"
+        ],
+        "b": [
+          "t1"
+        ],
+        "h": [
+          "t1"
+        ],
+        "d": [
+          "t1"
+        ]
+      },
+      "missing": [],
+      "requests": 1
+    },
+    {
+      "step": 11,
       "op": "reply",
       "events": {
         "a": [],
@@ -466,13 +492,13 @@
       "missing": [],
       "requests": 1,
       "inspect": {
-        "tooltip": null,
+        "tooltip": "7 trials",
         "announce": "The 7 members of the bin are applied to the selection",
         "link": ""
       }
     },
     {
-      "step": 11,
+      "step": 12,
       "op": "click",
       "events": {
         "a": [],
@@ -529,7 +555,57 @@
       "requests": 2
     },
     {
-      "step": 12,
+      "step": 13,
+      "op": "wait",
+      "events": {
+        "a": [],
+        "b": [],
+        "h": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t1",
+          "t10",
+          "t17",
+          "t2",
+          "t24",
+          "t25",
+          "t9"
+        ],
+        "b": [
+          "t1",
+          "t10",
+          "t17",
+          "t2",
+          "t24",
+          "t25",
+          "t9"
+        ],
+        "h": [
+          "t1",
+          "t10",
+          "t17",
+          "t2",
+          "t24",
+          "t25",
+          "t9"
+        ],
+        "d": [
+          "t1",
+          "t10",
+          "t17",
+          "t2",
+          "t24",
+          "t25",
+          "t9"
+        ]
+      },
+      "missing": [],
+      "requests": 2
+    },
+    {
+      "step": 14,
       "op": "reply",
       "events": {
         "a": [],
@@ -580,13 +656,13 @@
       "missing": [],
       "requests": 2,
       "inspect": {
-        "tooltip": null,
+        "tooltip": "8 trials",
         "announce": "Members could not be applied: the reply has 7 members, not 8",
         "link": ""
       }
     },
     {
-      "step": 13,
+      "step": 15,
       "op": "click",
       "events": {
         "a": [],
@@ -643,7 +719,57 @@
       "requests": 3
     },
     {
-      "step": 14,
+      "step": 16,
+      "op": "wait",
+      "events": {
+        "a": [],
+        "b": [],
+        "h": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t1",
+          "t10",
+          "t17",
+          "t2",
+          "t24",
+          "t25",
+          "t9"
+        ],
+        "b": [
+          "t1",
+          "t10",
+          "t17",
+          "t2",
+          "t24",
+          "t25",
+          "t9"
+        ],
+        "h": [
+          "t1",
+          "t10",
+          "t17",
+          "t2",
+          "t24",
+          "t25",
+          "t9"
+        ],
+        "d": [
+          "t1",
+          "t10",
+          "t17",
+          "t2",
+          "t24",
+          "t25",
+          "t9"
+        ]
+      },
+      "missing": [],
+      "requests": 3
+    },
+    {
+      "step": 17,
       "op": "reply",
       "events": {
         "a": [],
@@ -694,13 +820,13 @@
       "missing": [],
       "requests": 3,
       "inspect": {
-        "tooltip": null,
+        "tooltip": "8 trials",
         "announce": "Members could not be retrieved: the check said so",
         "link": ""
       }
     },
     {
-      "step": 15,
+      "step": 18,
       "op": "select",
       "events": {
         "a": [],
@@ -746,7 +872,7 @@
       "requests": 3
     },
     {
-      "step": 16,
+      "step": 19,
       "op": "focus",
       "events": {
         "a": [],
@@ -792,7 +918,7 @@
       "requests": 3
     },
     {
-      "step": 17,
+      "step": 20,
       "op": "key",
       "events": {
         "a": [],
@@ -812,7 +938,7 @@
       "requests": 3
     },
     {
-      "step": 18,
+      "step": 21,
       "op": "leave",
       "events": {
         "a": [],

@@ -4,7 +4,7 @@
   "browser": "151.0.7922.34",
   "script": "linked.json",
   "scriptSha256": "beeed5b36fa64bebc195137244ecdee24a2d742b992564f8d83bba148bd29c4c",
-  "fixtureSha256": "2a59e6799a615cdb9cd79a80a0e630089a0917d88dc16b504bcab8de52106e56",
+  "fixtureSha256": "2cfb404f8018acec6ab5a996bfcd13989adc01d36de764fd0a7be640d9e7f40d",
   "steps": [
     {
       "step": 0,
