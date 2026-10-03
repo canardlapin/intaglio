@@ -1,0 +1,162 @@
+// Real-browser evidence for linked views (Interaction 06).
+//
+// Usage: node tools/check-linked-browser.cjs <fixture main.js> <output dir>
+// Build the fixture first: sbt browserFixture/fastLinkJS
+// Runs Playwright's own Chromium headless; never a system browser or profile. Audit browser
+// ownership before and after invoking this script (see AGENTS.md).
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { chromium } = require('playwright');
+
+async function main() {
+  assert.equal(process.argv.length, 4, 'Pass the fixture main.js and an output directory');
+  const script = path.resolve(process.argv[2]);
+  const out = path.resolve(process.argv[3]);
+  await fs.mkdir(out, { recursive: true });
+  const template = await fs.readFile(path.join(__dirname, 'browser', 'linked.html'), 'utf8');
+  const page = path.join(out, 'linked.html');
+  await fs.writeFile(page, template.replace('FIXTURE_SCRIPT', pathToFileURL(script).href));
+
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+  const report = { browser: browser.version(), checks: [] };
+  const check = (name, fn) => fn().then(detail => report.checks.push({ name, ok: true, detail }));
+  try {
+    const context = await browser.newContext({ viewport: { width: 1100, height: 900 } });
+    const tab = await context.newPage();
+    const consoleErrors = [];
+    tab.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+    tab.on('pageerror', e => consoleErrors.push(String(e)));
+    await tab.goto(pathToFileURL(page).href);
+    await tab.waitForFunction(() => window.intaglioLinked && window.intaglioLinked.ready);
+    const fx = (body, ...args) => tab.evaluate(body, ...args);
+    const L = name => fx(n => window.intaglioLinked[n], name);
+    const point = (slot, i) => fx(([s, n]) => window.intaglioLinked.markPoint(s, n), [slot, i]);
+    const selected = slot => fx(s => window.intaglioLinked.selected(s), slot);
+    const rings = (slot, kind) => fx(([s, k]) => window.intaglioLinked.rings(s, k), [slot, kind]);
+    const eventCount = slot => fx(s => window.intaglioLinked.events[s].length, slot);
+    const counts = async () => Object.fromEntries(await Promise.all(['a', 'b', 'c', 'd'].map(async s => [s, await eventCount(s)])));
+    const settle = () => tab.waitForTimeout(60);
+
+    await check('hovering a mark emphasizes the same observation in the differently ordered scatter only', async () => {
+      const entity = await fx(() => window.intaglioLinked.markEntity('a', 4));
+      const indexB = await fx(e => window.intaglioLinked.indexOf('b', e), entity);
+      assert.notEqual(indexB, 4, 'the row orders differ');
+      const before = await counts();
+      const [x, y] = await point('a', 4);
+      await tab.mouse.move(x, y);
+      await settle();
+      assert.equal(await rings('b', 'linked'), 1);
+      assert.equal(await rings('c', 'linked'), 0, 'bins carry no observation key');
+      assert.equal(await rings('d', 'linked'), 0, 'an impostor key space never joins');
+      const after = await counts();
+      assert.deepEqual({ b: after.b, c: after.c, d: after.d }, { b: before.b, c: before.c, d: before.d }, 'no events elsewhere');
+      await tab.screenshot({ path: path.join(out, 'linked-hover.png') });
+      return { entity, indexB };
+    });
+
+    await check('a reader selection is projected silently; missing and foreign keys are reported', async () => {
+      const before = await counts();
+      const [x, y] = await point('a', 2);
+      await tab.mouse.click(x, y);
+      await settle();
+      const a = await selected('a');
+      assert.equal(a.length, 1);
+      assert.deepEqual(await selected('b'), a);
+      assert.equal(await rings('b', 'selected'), 1);
+      assert.equal(await rings('c', 'selected'), 0, 'the histogram does not show observations as bins');
+      assert.deepEqual(await selected('d'), []);
+      const after = await counts();
+      assert.deepEqual({ b: after.b, c: after.c, d: after.d }, { b: before.b, c: before.c, d: before.d }, 'no echo events');
+      const missing = await L('missing');
+      assert.ok(missing.includes(`d:${a[0]}`), missing.join(' / '));
+      return { a, missing };
+    });
+
+    await check('a bin selected in the histogram stays a bin and leaves the linked selection alone', async () => {
+      const a = await selected('a');
+      const [x, y] = await point('c', 0);
+      await tab.mouse.click(x, y);
+      await settle();
+      assert.deepEqual(await selected('c'), ['#target']);
+      assert.deepEqual(await selected('a'), a);
+      assert.deepEqual(await selected('b'), a);
+      return { c: await selected('c') };
+    });
+
+    await check('a linked legend entry emphasizes and selects its category in both scatters', async () => {
+      const blockA = await fx(() => window.intaglioLinked.blockCount('A'));
+      const centre = await fx(() => {
+        const key = document.querySelector('[data-intaglio-widget=a] [data-name="block-legend-entry-0-key"]');
+        const r = key.getBoundingClientRect();
+        return [r.left + r.width / 2, r.top + r.height / 2];
+      });
+      await tab.mouse.move(centre[0], centre[1]);
+      await settle();
+      assert.equal(await rings('a', 'linked'), blockA);
+      assert.equal(await rings('b', 'linked'), blockA);
+      assert.equal(await rings('d', 'linked'), 0, 'equal category labels in another key space never join');
+      await tab.screenshot({ path: path.join(out, 'linked-legend.png') });
+      await tab.mouse.click(centre[0], centre[1]);
+      await settle();
+      assert.equal((await selected('a')).length, blockA);
+      assert.deepEqual(await selected('b'), await selected('a'));
+      return { blockA };
+    });
+
+    await check('application-controlled selection is the application\'s own: it does not propagate', async () => {
+      const b = await selected('b');
+      const before = await counts();
+      // setSelection is Projected: A's state changes, nothing is emitted, so no link reacts.
+      assert.equal(await fx(() => window.intaglioLinked.selectInA(['t2'])), 'ok');
+      await settle();
+      assert.deepEqual(await selected('a'), ['t2']);
+      const after = await counts();
+      assert.deepEqual(after, before);
+      assert.deepEqual(await selected('b'), b);
+      return {};
+    });
+
+    await check('replacing one plot\'s data reconciles its selection and later projections report missing keys', async () => {
+      assert.equal(await fx(() => window.intaglioLinked.replaceB()), 'ok');
+      const b = await selected('b');
+      assert.ok(b.every(id => !['t1', 't2', 't3', 't4', 't5'].includes(id)), b.join(','));
+      const index = await fx(() => window.intaglioLinked.indexOf('a', 't1'));
+      const [x, y] = await point('a', index);
+      await tab.mouse.click(x, y);
+      await settle();
+      assert.deepEqual(await selected('a'), ['t1']);
+      assert.deepEqual(await selected('b'), []);
+      const missing = await L('missing');
+      assert.ok(missing.includes('b:t1'), missing.join(' / '));
+      return { missing: missing.slice(-3) };
+    });
+
+    await check('disposing the link stops projection and emphasis', async () => {
+      await fx(() => window.intaglioLinked.unlink());
+      const b = await selected('b');
+      const index = await fx(() => window.intaglioLinked.indexOf('a', 't9'));
+      const [x, y] = await point('a', index);
+      await tab.mouse.move(x, y);
+      await tab.mouse.click(x, y);
+      await settle();
+      assert.deepEqual(await selected('a'), ['t9']);
+      assert.deepEqual(await selected('b'), b);
+      assert.equal(await rings('b', 'linked'), 0);
+      assert.deepEqual(consoleErrors, []);
+      return {};
+    });
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+  await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
+  console.log(JSON.stringify(report, null, 2));
+}
+
+main().catch(error => {
+  console.error(error);
+  process.exit(1);
+});

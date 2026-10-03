@@ -62,6 +62,12 @@ final class SvgWidget[A] private (
   private var pointer: Option[(Double, Double)] = None
   private var hoveredPart: Option[PartTarget] = None
 
+  /** Emphasis a linked view asked for, and emphasis this plot's own linked legend asks for. */
+  private var linkedEmphasis: LinkedEmphasis[A] = LinkedEmphasis.none[A]
+  private var legendEmphasis: LinkedEmphasis[A] = LinkedEmphasis.none[A]
+  private var hoverListeners = Vector.empty[(Long, LinkedEmphasis[A] => Unit)]
+  private var nextHoverListener = 0L
+
   /** What the visible (or pending) tooltip describes, so each source hides only its own tooltip. */
   private enum TooltipSource:
     case Hover, Focus, Part
@@ -87,6 +93,24 @@ final class SvgWidget[A] private (
       listener: EventRecord[A] => Unit
   ): Either[ControllerError, InteractionSubscription] =
     controller.subscribe(listener)
+
+  /** What this plot's reader is pointing at, as keys a linked view can emphasize: the hovered
+    * mark's entity, or the link key of a hovered linked legend entry; empty when nothing. The
+    * returned function unsubscribes.
+    */
+  def subscribeHover(listener: LinkedEmphasis[A] => Unit): () => Unit =
+    val id = nextHoverListener
+    nextHoverListener += 1
+    hoverListeners = hoverListeners :+ (id -> listener)
+    () => hoverListeners = hoverListeners.filterNot(_._1 == id)
+
+  /** Emphasize the marks a linked view points at. Host-level display only: state and events are
+    * untouched, so emphasis can never echo back.
+    */
+  def setLinkedEmphasis(value: LinkedEmphasis[A]): Unit =
+    if !disposed && value != linkedEmphasis then
+      linkedEmphasis = value
+      scheduleRedraw()
 
   /** Typed plot-part events; the returned function unsubscribes. */
   def subscribeParts(listener: PartEvent => Unit): () => Unit =
@@ -154,6 +178,7 @@ final class SvgWidget[A] private (
       subscriptions.foreach(_.cancel())
       subscriptions = Vector.empty
       partListeners = Vector.empty
+      hoverListeners = Vector.empty
       resizeObserver.foreach(_.disconnect())
       resizeObserver = None
       frame.foreach(handle => g.cancelAnimationFrame(handle))
@@ -281,7 +306,10 @@ final class SvgWidget[A] private (
       val additive = modifier(event)
       val handled = withInput(input.pointer(_, PointerInput.Click(x, y, additive)))
       if !handled then
-        hoveredPart.foreach(p => emitPart(PartEvent.Activated(p.part, InputCause.Pointer)))
+        hoveredPart.foreach { p =>
+          emitPart(PartEvent.Activated(p.part, InputCause.Pointer))
+          legendLink(p.part).foreach(chooseLegend(_, additive))
+        }
     }
     listeners.on(plotHost, "keydown") { event =>
       val additive = modifier(event)
@@ -394,6 +422,9 @@ final class SvgWidget[A] private (
     if part != hoveredPart then
       hoveredPart = part
       emitPart(PartEvent.Hovered(part.map(_.part)))
+      legendEmphasis = part.flatMap(p => legendLink(p.part)).getOrElse(LinkedEmphasis.none[A])
+      if part.nonEmpty || controller.state.toOption.forall(_.hover.isEmpty) then
+        emitHover(legendEmphasis)
       part match
         case Some(p) =>
           showTooltip(
@@ -414,6 +445,33 @@ final class SvgWidget[A] private (
       .flatMap(o => o.rings.flatten.headOption)
       .fold((0.0, 0.0))(p => toCss(p.x, p.y))
 
+  /** The emphasis a linked legend entry stands for: its label as a link key of the legend's space.
+    */
+  private def legendLink(part: PlotPart): Option[LinkedEmphasis[A]] =
+    part match
+      case PlotPart.LegendEntry(legend, _, _, label) =>
+        behavior.legendLinks
+          .find(_.legend == legend)
+          .flatMap(link => link.space.link(label).toOption)
+          .map(key => LinkedEmphasis[A](links = Set(key)))
+      case _ => None
+
+  private def emitHover(value: LinkedEmphasis[A]): Unit =
+    hoverListeners.foreach { (_, listener) =>
+      try listener(value)
+      catch case NonFatal(_) => ()
+    }
+
+  /** Choosing a linked legend entry selects its marks, as a reader's own action. */
+  private def chooseLegend(emphasis: LinkedEmphasis[A], additive: Boolean): Unit =
+    val entities = view.navigation.targets.map(_.target).filter(emphasis.matches).flatMap(_.entity)
+    val operation = if additive then SelectionOperation.Add else SelectionOperation.Replace
+    dispatch(
+      InteractionAction.Select(Selection(entities.toSet), operation),
+      InputCause.Pointer
+    ).left
+      .foreach(report)
+
   private def emitPart(event: PartEvent): Unit =
     partListeners.foreach { (_, listener) =>
       try listener(event)
@@ -426,6 +484,7 @@ final class SvgWidget[A] private (
   private def react(record: EventRecord[A]): Unit =
     record.event match
       case InteractionEvent.HoverChanged(Some(target)) =>
+        emitHover(LinkedEmphasis[A](entities = target.entity.toSet))
         // A new hover replaces any hover or part tooltip, including one still pending.
         hideTooltip(TooltipSource.Hover)
         hideTooltip(TooltipSource.Part)
@@ -433,6 +492,7 @@ final class SvgWidget[A] private (
           showTooltip(content, pointer, anchorOf(target), immediate = false, TooltipSource.Hover)
         }
       case InteractionEvent.HoverChanged(None) =>
+        if hoveredPart.isEmpty then emitHover(LinkedEmphasis.none[A])
         hideTooltip(TooltipSource.Hover)
       case InteractionEvent.FocusChanged(Some(target)) =>
         live.textContent = view.describe(target, behavior)
@@ -552,10 +612,16 @@ final class SvgWidget[A] private (
               geometry.target.entity.exists(current.selection.entities.contains) =>
           geometry.target.id
       }
-      val emphasized = (selectedIds ++ current.hover.toVector).distinct
+      val linkedIds = view.navigation.targets.collect {
+        case geometry
+            if linkedEmphasis.matches(geometry.target) || legendEmphasis.matches(geometry.target) =>
+          geometry.target.id
+      }
+      val emphasized = (selectedIds ++ current.hover.toVector ++ linkedIds).distinct
       val dim = behavior.inverseEmphasis && emphasized.nonEmpty
       plotHost.classList.toggle("intaglio-dimmed", dim)
       if dim then emphasize(emphasized)
+      linkedIds.foreach(ring(_, "intaglio-ring-linked", 3.0))
       selectedIds.foreach(ring(_, "intaglio-ring-selected", 2.0))
       current.hover.foreach(ring(_, "intaglio-ring-hover", 3.0))
       hoveredPart.foreach { part =>
@@ -664,7 +730,7 @@ object SvgWidget:
   private[browser] val css: String =
     """.intaglio-widget{position:relative;display:block;width:100%;
       |  --intaglio-focus:#1a56db;--intaglio-focus-halo:#ffffff;--intaglio-hover:#0b6e4f;
-      |  --intaglio-selected:#b45309;--intaglio-dim:0.3}
+      |  --intaglio-selected:#b45309;--intaglio-linked:#7c3aed;--intaglio-dim:0.3}
       |.intaglio-plot{position:relative;outline:none;line-height:0;user-select:none;
       |  -webkit-user-select:none;touch-action:manipulation}
       |.intaglio-plot>svg.intaglio-base{display:block;width:100%;height:auto;
@@ -676,6 +742,7 @@ object SvgWidget:
       |  overflow:visible}
       |.intaglio-overlay>path{fill:none;vector-effect:non-scaling-stroke}
       |.intaglio-ring-hover{stroke:var(--intaglio-hover);stroke-width:2}
+      |.intaglio-ring-linked{stroke:var(--intaglio-linked);stroke-width:2;stroke-dasharray:2 2}
       |.intaglio-ring-selected{stroke:var(--intaglio-selected);stroke-width:2.5}
       |.intaglio-ring-focus-halo{stroke:var(--intaglio-focus-halo);stroke-width:5}
       |.intaglio-ring-focus{stroke:var(--intaglio-focus);stroke-width:2.5;stroke-dasharray:4 2}

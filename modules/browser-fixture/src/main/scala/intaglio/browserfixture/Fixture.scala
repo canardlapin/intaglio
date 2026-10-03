@@ -115,6 +115,10 @@ object Fixture:
       case other => s"${other.getClass.getSimpleName}:$cause"
 
   def main(args: Array[String]): Unit =
+    if g.document.getElementById("linked-a") != null then LinkedFixture.run()
+    else widgetPage()
+
+  private def widgetPage(): Unit =
     val document = g.document
     val events = js.Dictionary[js.Array[String]]("left" -> js.Array(), "right" -> js.Array())
     val parts = js.Array[String]()
