@@ -184,6 +184,7 @@ MissingClassProblem intaglio.interaction.InteractionCoverage$
 DirectMissingMethodProblem intaglio.interaction.InteractionPlan.this
 DirectMissingMethodProblem intaglio.interaction.InteractionPlan.training
 DirectMissingMethodProblem intaglio.interaction.LinkKeys.contains
+MissingFieldProblem intaglio.interaction.MembershipRetention.Deferred
 MissingClassProblem intaglio.interaction.PartTarget
 MissingClassProblem intaglio.interaction.PartTarget$
 MissingClassProblem intaglio.interaction.PlotPart

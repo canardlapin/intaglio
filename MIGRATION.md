@@ -45,6 +45,22 @@ name, `copy`, and the builder methods are unaffected, and the default,
     case PlotCompilerOptions(layout, frame, policy, margins, expansion, guides, theme, context, provenance, _) => ...
   ```
 
+### `MembershipRetention` gained `Deferred`
+
+`InteractionCompiler.compile` callers are unaffected. Code that matched every
+`MembershipRetention` (`CountOnly`, `Representative`, `ExactKeys`) gets a
+non-exhaustiveness warning, and `Deferred` reaching that match throws
+`MatchError`. `Deferred` keeps counts like `CountOnly` and promises that the
+application resolves exact members on request:
+
+```scala
+retention match
+  case MembershipRetention.CountOnly      => ...
+  case MembershipRetention.Representative => ...
+  case MembershipRetention.ExactKeys      => ...
+  case MembershipRetention.Deferred       => ...
+```
+
 ### `GestureMode` gained `ZoomRectangle`
 
 A host that matched every `GestureMode` (`Inspect`, `Pan`, `Rectangle`, `Lasso`)

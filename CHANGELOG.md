@@ -48,6 +48,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the new case reaching it throws `MatchError` at run time. See
   [MIGRATION.md](MIGRATION.md).
 
+- `MembershipRetention` gained `Deferred`. It is an enum, so a `match` that
+  enumerated every retention is no longer exhaustive: the compiler only warns,
+  and the new case reaching it throws `MatchError` at run time. See
+  [MIGRATION.md](MIGRATION.md).
+
 ### Added
 
 - A native Canvas renderer for the browser widget
@@ -57,6 +62,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   paint (`SvgWidget.setTargetStyles` with `WidgetTargetStyle`), and
   `ComposedParts`, which keeps each composed child's titles, axes and
   annotations its own parts. See [docs/canvas-widget.md](docs/canvas-widget.md).
+
+- **Deferred aggregate membership.** `MembershipRetention.Deferred` keeps only
+  member counts and names the plan as the resolver of exact keys. The
+  reducer's `RequestMembers` and `ResolveMembers` record a request at the
+  current revisions and apply a `MembershipReply.Complete` only when it answers
+  the latest request with exactly the target's members, distinct and from the
+  source; superseded, late, malformed, failed and unavailable replies are
+  reported as a `MembershipResolved` outcome and change nothing, and replacing
+  the domain cancels pending requests. `MembershipResolver` is the host-side
+  interface.
 
 - **Selecting an aggregate's exact members.**
   `InteractionAction.SelectMembers(targets, operation, plus)` selects the

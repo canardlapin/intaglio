@@ -314,6 +314,9 @@ class InteractionCompilerSuite extends munit.FunSuite:
     )
     assert(targets.forall(_.membership.exactKeys(revision).isLeft))
     assert(targets.forall(_.membership.total.isEmpty))
+    // Nor can a resolver be promised for it.
+    val deferred = infos(compile(plot, MembershipRetention.Deferred))
+    assert(deferred.forall(_.membership.capability == MembershipCapability.Unavailable))
   }
 
   test("a custom statistic's free-text contract keeps only the count, even under exact retention") {

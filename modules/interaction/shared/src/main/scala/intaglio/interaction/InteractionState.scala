@@ -183,6 +183,48 @@ final case class InputStamp(
     cause: InputCause
 )
 
+/** A pending request for a deferred aggregate's exact members, at the revisions it was made for. A
+  * reply is accepted only for the latest request on its target, while the domain is unchanged.
+  */
+final case class MembershipRequest[A](
+    id: Long,
+    target: VisualTargetId,
+    planRevision: PlanRevision,
+    sourceRevision: DataRevision,
+    total: Option[Int],
+    resolver: Option[SemanticId],
+    operation: SelectionOperation
+)
+
+/** A resolver's answer. `Complete` must carry exactly the target's member count, distinct and in
+  * the domain's key space; anything less is rejected, never applied as a partial selection.
+  */
+sealed trait MembershipReply[A]
+object MembershipReply:
+  final case class Pending[A]() extends MembershipReply[A]
+  final case class Unavailable[A](reason: String) extends MembershipReply[A]
+  final case class Failed[A](reason: String) extends MembershipReply[A]
+  final case class Complete[A](keys: Vector[EntityKey[A]]) extends MembershipReply[A]
+
+/** What became of a membership request or reply. */
+enum MembershipOutcome:
+  case Pending
+  case Unavailable(reason: String)
+  case Failed(reason: String)
+
+  /** The members, `count` of them, were selected. */
+  case Complete(count: Int)
+
+  /** The reply was not applied: late, superseded, malformed, or refused by the selection mode. */
+  case Rejected(reason: String)
+
+/** A host-side service that answers membership requests, possibly asynchronously: the host
+  * dispatches `RequestMembers`, hands the recorded request to `resolve`, and dispatches each reply
+  * as `ResolveMembers`. The reducer never calls it.
+  */
+trait MembershipResolver[A]:
+  def resolve(request: MembershipRequest[A], reply: MembershipReply[A] => Unit): Unit
+
 sealed trait InteractionAction[A]
 object InteractionAction:
   final case class Hover[A](target: Option[VisualTargetId]) extends InteractionAction[A]
@@ -200,6 +242,22 @@ object InteractionAction:
       targets: Set[VisualTargetId],
       operation: SelectionOperation,
       plus: Selection[A] = Selection[A]()
+  ) extends InteractionAction[A]
+
+  /** Ask for a deferred aggregate's members. `requestId` increases per target; a newer request
+    * supersedes a pending one.
+    */
+  final case class RequestMembers[A](
+      target: VisualTargetId,
+      requestId: Long,
+      operation: SelectionOperation
+  ) extends InteractionAction[A]
+
+  /** A resolver's reply to request `requestId` for `target`. */
+  final case class ResolveMembers[A](
+      target: VisualTargetId,
+      requestId: Long,
+      reply: MembershipReply[A]
   ) extends InteractionAction[A]
   final case class SetSelectionMode[A](value: SelectionMode) extends InteractionAction[A]
   final case class SetViewport[A](panel: SemanticId, value: Option[PanelViewport])
@@ -220,6 +278,12 @@ object InteractionEvent:
   final case class GestureModeChanged[A](value: GestureMode) extends InteractionEvent[A]
   final case class GestureStarted[A](pointer: Long, mode: GestureMode) extends InteractionEvent[A]
   final case class GestureEnded[A](pointer: Long, cancelled: Boolean) extends InteractionEvent[A]
+  final case class MembershipRequested[A](request: MembershipRequest[A]) extends InteractionEvent[A]
+  final case class MembershipResolved[A](
+      target: VisualTargetId,
+      requestId: Long,
+      outcome: MembershipOutcome
+  ) extends InteractionEvent[A]
   final case class Reconciled[A](
       removed: Set[EntityKey[A]],
       unresolved: Set[EntityKey[A]],
@@ -240,7 +304,10 @@ final class InteractionState[A] private[interaction] (
     val gestureMode: GestureMode,
     val gesture: Option[ActiveGesture],
     val viewports: Map[SemanticId, PanelViewport],
-    private[interaction] val delivered: Map[SemanticId, Long]
+    private[interaction] val delivered: Map[SemanticId, Long],
+    /** Membership requests awaiting a reply, at most one (the latest) per target. */
+    val pendingMembers: Map[VisualTargetId, MembershipRequest[A]] =
+      Map.empty[VisualTargetId, MembershipRequest[A]]
 )
 
 final case class StateTransition[A](state: InteractionState[A], events: Vector[EventRecord[A]])
@@ -288,7 +355,8 @@ object InteractionState:
           focus: Option[VisualTargetId] = state.focus,
           gestureMode: GestureMode = state.gestureMode,
           gesture: Option[ActiveGesture] = state.gesture,
-          viewports: Map[SemanticId, PanelViewport] = state.viewports
+          viewports: Map[SemanticId, PanelViewport] = state.viewports,
+          pending: Map[VisualTargetId, MembershipRequest[A]] = state.pendingMembers
       ) =
         new InteractionState(
           state.domain,
@@ -300,7 +368,8 @@ object InteractionState:
           gestureMode,
           gesture,
           viewports,
-          state.delivered.updated(stamp.origin, stamp.sequence)
+          state.delivered.updated(stamp.origin, stamp.sequence),
+          pending
         )
 
       def optional(id: Option[VisualTargetId]): Either[StateError, Option[TargetInfo[A]]] =
@@ -310,7 +379,8 @@ object InteractionState:
 
       def select(
           value: Selection[A],
-          operation: SelectionOperation
+          operation: SelectionOperation,
+          pending: Map[VisualTargetId, MembershipRequest[A]] = state.pendingMembers
       ): Either[StateError, StateTransition[A]] =
         // Even subtraction validates its input: stale routes must not be silently accepted.
         validateSelection(state.domain, value, state.unresolved).flatMap { _ =>
@@ -329,12 +399,29 @@ object InteractionState:
             case SelectionOperation.Clear => Selection[A]()
           checkMode(state.selectionMode, next).map { _ =>
             finish(
-              changed(selection = next),
+              changed(selection = next, pending = pending),
               if next == old then Vector.empty
               else Vector(InteractionEvent.SelectionChanged(next))
             )
           }
         }
+
+      /** A complete reply's keys, if they are exactly the request's members: distinct, in this
+        * domain's sources, and as many as the target counted.
+        */
+      def completeReply(
+          request: MembershipRequest[A],
+          keys: Vector[EntityKey[A]]
+      ): Either[String, Set[EntityKey[A]]] =
+        val set = keys.toSet
+        if set.size != keys.size then Left("the reply repeats a key")
+        else if keys.exists(key => !state.domain.accepts(key)) then
+          Left("the reply has a key from another key space")
+        else if !set.subsetOf(state.domain.entities) then
+          Left("the reply has a key that is not a source observation")
+        else if request.total.exists(_ != set.size) then
+          Left(s"the reply has ${set.size} members, not ${request.total.getOrElse(0)}")
+        else Right(set)
 
       /** Every target's exact members at the source revision its plan was compiled from. */
       def members(targets: Set[VisualTargetId]): Either[StateError, Set[EntityKey[A]]] =
@@ -381,6 +468,85 @@ object InteractionState:
           members(targets).flatMap(keys =>
             select(Selection(plus.entities ++ keys, plus.targets), operation)
           )
+        case InteractionAction.RequestMembers(id, requestId, operation) =>
+          for
+            info <- state.domain.target(id)
+            _ <- info.membership.capability match
+              case MembershipCapability.Deferred => Right(())
+              case MembershipCapability.Exact    =>
+                Left(StateError.InvalidInput("exact members need no resolver: use SelectMembers"))
+              case other => Left(StateError.MembershipNotExact(other))
+            _ <- Either.cond(
+              state.selectionMode != SelectionMode.Disabled,
+              (),
+              StateError.SelectionDisabled
+            )
+            _ <- state.pendingMembers.get(id) match
+              case Some(previous) if requestId <= previous.id =>
+                Left(StateError.InvalidInput(s"request $requestId does not follow ${previous.id}"))
+              case _ => Right(())
+            source <- state.domain
+              .sourceRevision(id)
+              .toRight(StateError.MembershipNotExact(info.membership.capability))
+          yield
+            val request = MembershipRequest[A](
+              requestId,
+              id,
+              state.domain.revision,
+              source,
+              info.membership.total,
+              info.membership.resolver,
+              operation
+            )
+            finish(
+              changed(pending = state.pendingMembers.updated(id, request)),
+              Vector(InteractionEvent.MembershipRequested(request))
+            )
+        case InteractionAction.ResolveMembers(id, requestId, reply) =>
+          def outcome(
+              pending: Map[VisualTargetId, MembershipRequest[A]],
+              value: MembershipOutcome
+          ) =
+            finish(
+              changed(pending = pending),
+              Vector(InteractionEvent.MembershipResolved(id, requestId, value))
+            )
+          state.pendingMembers.get(id) match
+            case Some(request) if request.id == requestId =>
+              val cleared = state.pendingMembers - id
+              reply match
+                case MembershipReply.Pending() =>
+                  Right(outcome(state.pendingMembers, MembershipOutcome.Pending))
+                case MembershipReply.Unavailable(reason) =>
+                  Right(outcome(cleared, MembershipOutcome.Unavailable(reason)))
+                case MembershipReply.Failed(reason) =>
+                  Right(outcome(cleared, MembershipOutcome.Failed(reason)))
+                case MembershipReply.Complete(keys) =>
+                  completeReply(request, keys) match
+                    case Left(reason) => Right(outcome(cleared, MembershipOutcome.Rejected(reason)))
+                    case Right(set)   =>
+                      select(Selection(set), request.operation, cleared) match
+                        case Left(error) =>
+                          Right(outcome(cleared, MembershipOutcome.Rejected(error.message)))
+                        case Right(applied) =>
+                          val resolved = finish(
+                            applied.state,
+                            Vector(
+                              InteractionEvent.MembershipResolved(
+                                id,
+                                requestId,
+                                MembershipOutcome.Complete(set.size)
+                              )
+                            )
+                          )
+                          Right(applied.copy(events = applied.events ++ resolved.events))
+            case _ =>
+              Right(
+                outcome(
+                  state.pendingMembers,
+                  MembershipOutcome.Rejected(s"request $requestId for this target is not pending")
+                )
+              )
         case InteractionAction.SetSelectionMode(mode) =>
           checkMode(mode, state.selection).map { _ =>
             finish(

@@ -5,6 +5,13 @@ import intaglio.*
 enum MembershipRetention:
   case CountOnly, Representative, ExactKeys
 
+  /** Keep only each target's member count, and declare that the application (for example a server
+    * holding the rows) supplies the exact keys on request; the plan's id names that resolver.
+    * Applies only where the statistic can certify its members; a reply is accepted only if it has
+    * exactly that count.
+    */
+  case Deferred
+
 /** Scalar grid coordinates use the field's y-up row index, not the image's top-row index. */
 final case class RasterCell(row: Int, column: Int, value: Double)
 
@@ -251,7 +258,8 @@ object InteractionCompiler:
                       revision,
                       unique,
                       retention,
-                      layer.stat.contract.inputPreservation
+                      layer.stat.contract.inputPreservation,
+                      planId
                     )
                     projections <- traverse(members)(row =>
                       traverse(input.links)(projection => projection(row))
@@ -359,19 +367,21 @@ object InteractionCompiler:
       revision: DataRevision,
       keys: Vector[EntityKey[A]],
       retention: MembershipRetention,
-      preservation: StatInputPreservation
+      preservation: StatInputPreservation,
+      resolver: SemanticId
   ): Either[InteractionError, Membership[A]] =
     preservation match
       case StatInputPreservation.WholeBatch => Right(Membership.unavailable(space, revision))
       case StatInputPreservation.Custom(_)  => Membership.countOnly(space, revision, keys.length)
       case StatInputPreservation.OneToOne | StatInputPreservation.AggregateMembers =>
-        retainDeclared(space, revision, keys, retention)
+        retainDeclared(space, revision, keys, retention, resolver)
 
   private def retainDeclared[A](
       space: KeySpace[A],
       revision: DataRevision,
       keys: Vector[EntityKey[A]],
-      retention: MembershipRetention
+      retention: MembershipRetention,
+      resolver: SemanticId
   ): Either[InteractionError, Membership[A]] =
     retention match
       case MembershipRetention.CountOnly      => Membership.countOnly(space, revision, keys.length)
@@ -380,6 +390,8 @@ object InteractionCompiler:
           case Some(first) => Membership.representative(space, revision, keys.length, first)
           case None        => Membership.countOnly(space, revision, 0)
       case MembershipRetention.ExactKeys => Membership.exact(space, revision, keys)
+      case MembershipRetention.Deferred  =>
+        Membership.deferred(space, revision, keys.length, resolver)
 
   private def traverse[A, B, E](values: Vector[A])(f: A => Either[E, B]): Either[E, Vector[B]] =
     val out = Vector.newBuilder[B]
