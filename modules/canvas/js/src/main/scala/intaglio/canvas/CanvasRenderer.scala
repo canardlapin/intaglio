@@ -1218,9 +1218,9 @@ object CanvasRenderer:
       }
     }
 
-  /** A text plate sized by this context's own `measureText`: the advance width placed by the text
-    * alignment, and the font bounding box above and below the current text baseline (the ink box
-    * where a browser does not report the font box).
+  /** A text plate sized by this context's own `measureText`: logical advance/font bounds unioned
+    * with actual glyph bounds, all relative to the current text alignment and baseline. Expanding
+    * the plate for an overhang does not change where `fillText` places the glyphs.
     */
   private def drawPlate(
       context: CanvasRenderingContext2D,
@@ -1238,14 +1238,22 @@ object CanvasRenderer:
       else Some(value.asInstanceOf[Double]).filter(_.isFinite)
     val width = number("width").getOrElse(0.0)
     val ascent =
-      number("fontBoundingBoxAscent").orElse(number("actualBoundingBoxAscent")).getOrElse(0.0)
+      Vector(number("fontBoundingBoxAscent"), number("actualBoundingBoxAscent")).flatten.maxOption
+        .getOrElse(0.0)
     val descent =
-      number("fontBoundingBoxDescent").orElse(number("actualBoundingBoxDescent")).getOrElse(0.0)
-    val left = horizontal match
+      Vector(number("fontBoundingBoxDescent"), number("actualBoundingBoxDescent")).flatten.maxOption
+        .getOrElse(0.0)
+    val advanceLeft = horizontal match
       case HJust.Left   => x
       case HJust.Center => x - width / 2.0
       case HJust.Right  => x - width
-    val box = plate.around(left, y - ascent, width, ascent + descent)
+    val left = number("actualBoundingBoxLeft")
+      .map(ink => math.min(advanceLeft, x - ink))
+      .getOrElse(advanceLeft)
+    val right = number("actualBoundingBoxRight")
+      .map(ink => math.max(advanceLeft + width, x + ink))
+      .getOrElse(advanceLeft + width)
+    val box = plate.around(left, y - ascent, right - left, ascent + descent)
     context.fillStyle = CanvasColor.fromRgba(plate.fill).css
     context.globalAlpha = opacity * plate.fill.alpha
     context.beginPath()

@@ -308,6 +308,121 @@ class CanvasRendererSuite extends munit.FunSuite:
     assertEquals(context.fillStyle.asInstanceOf[String], CanvasColor.fromRgba(Rgba.Black).css)
   }
 
+  test("text plates enclose actual glyph bounds without moving text or discarding finite metrics") {
+    def render(metrics: js.Any, anchor: Anchor, expected: (Double, Double, Double, Double)): Unit =
+      val rectangles = ArrayBuffer.empty[(Double, Double, Double, Double)]
+      val glyphs = ArrayBuffer.empty[(String, Double, Double)]
+      val noArgs: js.Function0[Unit] = () => ()
+      val context = js.Dynamic.literal(
+        save = noArgs,
+        restore = noArgs,
+        beginPath = noArgs,
+        closePath = noArgs,
+        fill = noArgs,
+        rect = (
+            (x: Double, y: Double, w: Double, h: Double) =>
+              rectangles += ((x, y, w, h))
+              ()
+        ): js.Function4[Double, Double, Double, Double, Unit],
+        fillText = (
+            (label: String, x: Double, y: Double) =>
+              glyphs += ((label, x, y))
+              ()
+        ): js.Function3[String, Double, Double, Unit],
+        measureText = ((_: String) => metrics): js.Function1[String, js.Any],
+        fillStyle = "",
+        globalAlpha = 1.0,
+        font = "",
+        textAlign = "start",
+        textBaseline = "alphabetic"
+      )
+      val gp = GraphicParams
+        .unsafe(stroke = None, fill = Some(Rgba.Black))
+        .withTextPlate(TextPlate(Rgba.unsafe(0, 200, 0), StrokeWidth.devicePixelsUnsafe(3.0)))
+      val text = Grob.text("j", Point.npcUnsafe(0.5, 0.5), anchor = anchor, gp = gp).orThrow
+      val program = CanvasRenderer
+        .compile(Scene(Vector(text)), CanvasOptions.unsafe(width = 100, height = 80))
+        .fold(e => fail(e.message), identity)
+      CanvasRenderer.draw(program, context.asInstanceOf[CanvasRenderingContext2D])
+      assertEquals(rectangles.toVector, Vector(expected), anchor)
+      assertEquals(glyphs.toVector, Vector(("j", 50.0, 40.0)), anchor)
+
+    // Advance 40, ink overhangs 8 left/12 right, and extends 14 above/7 below the baseline.
+    // Actual left/right distances are relative to the current textAlign point, not the advance.
+    for
+      vertical <- VJust.values
+      (horizontal, inkLeft, inkRight, plateLeft) <- Vector(
+        (HJust.Left, 8.0, 52.0, 39.0),
+        (HJust.Center, 28.0, 32.0, 19.0),
+        (HJust.Right, 48.0, 12.0, -1.0)
+      )
+    do
+      render(
+        js.Dynamic.literal(
+          width = 40.0,
+          fontBoundingBoxAscent = 10.0,
+          fontBoundingBoxDescent = 4.0,
+          actualBoundingBoxLeft = inkLeft,
+          actualBoundingBoxRight = inkRight,
+          actualBoundingBoxAscent = 14.0,
+          actualBoundingBoxDescent = 7.0
+        ),
+        Anchor(horizontal, vertical),
+        (plateLeft, 23.0, 66.0, 27.0)
+      )
+
+    // Missing/non-finite font fields fall back to finite ink fields.
+    render(
+      js.Dynamic.literal(
+        width = 40.0,
+        fontBoundingBoxAscent = Double.NaN,
+        fontBoundingBoxDescent = Double.PositiveInfinity,
+        actualBoundingBoxLeft = 6.0,
+        actualBoundingBoxRight = 52.0,
+        actualBoundingBoxAscent = 14.0,
+        actualBoundingBoxDescent = 7.0
+      ),
+      Anchor.BottomLeft,
+      (41.0, 23.0, 64.0, 27.0)
+    )
+    // Missing/non-finite ink fields retain the logical box without poisoning finite fields.
+    render(
+      js.Dynamic.literal(
+        width = 40.0,
+        fontBoundingBoxAscent = 10.0,
+        fontBoundingBoxDescent = 4.0,
+        actualBoundingBoxLeft = Double.NaN,
+        actualBoundingBoxRight = Double.PositiveInfinity,
+        actualBoundingBoxAscent = Double.NaN
+      ),
+      Anchor.BottomLeft,
+      (47.0, 27.0, 46.0, 20.0)
+    )
+    render(
+      js.Dynamic.literal(
+        width = 40.0,
+        fontBoundingBoxAscent = 10.0,
+        fontBoundingBoxDescent = 4.0,
+        actualBoundingBoxLeft = Double.NaN,
+        actualBoundingBoxRight = 32.0
+      ),
+      Anchor.Center,
+      (27.0, 27.0, 58.0, 20.0)
+    )
+    // Ink can lie below the current baseline: negative ascent is a valid signed distance.
+    render(
+      js.Dynamic.literal(
+        width = 40.0,
+        actualBoundingBoxAscent = -2.0,
+        actualBoundingBoxDescent = 8.0,
+        actualBoundingBoxLeft = -4.0,
+        actualBoundingBoxRight = 30.0
+      ),
+      Anchor.BottomLeft,
+      (47.0, 39.0, 46.0, 12.0)
+    )
+  }
+
   test("cased discs and batched marks stroke the underlay first, once for both cross bars") {
     val calls = ArrayBuffer.empty[String]
     def noArgs(label: String): js.Function0[Unit] =
