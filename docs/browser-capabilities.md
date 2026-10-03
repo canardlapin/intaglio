@@ -15,11 +15,11 @@ split into the parts a reader can observe, and each part has a status for each b
 Statuses are never promoted from another backend, from serialized SVG, or from a demo of a
 different feature. A row passes only when every part of it passes.
 
-**Source commit:** `728f359`. Browser receipts were produced at `a47dd03`, whose source is identical
-(the later commits change only tracker records), in Playwright's Chromium 151.0.7922.34:
+**Source commit:** `829b03e`, in Playwright's Chromium 151.0.7922.34:
 `tools/check-widget-browser.cjs` 16/16, `tools/check-linked-browser.cjs` 11/11,
-`tools/check-navigation-browser.cjs` 15/15. Check names are quoted below as they appear in those
-scripts.
+`tools/check-navigation-browser.cjs` 15/15, `tools/check-standalone-browser.cjs` and
+`tools/check-export-browser.cjs` passing, and `node --test tools/package-widget.test.cjs` 2/2. Check
+names are quoted below as they appear in those scripts.
 
 **Canvas:** the Scala.js Canvas renderer has no interaction at this commit. Canvas interaction is in
 progress in a separate Interaction 08 lane; every Canvas cell is **Gap** here until that work is
@@ -37,7 +37,7 @@ trace equality against SVG).
 | Plot parts | partial: marks and legend keys pass; colorbars, strips, axes, titles and annotations are unit-only | Gap |
 | Navigation | **pass** | Gap |
 | Composition | partial: linked plots pass; links across panels of one composed figure are unit-only | Gap |
-| Embedding | partial: application mounting and programmatic access pass; standalone HTML, configurable toolbar, fullscreen and PNG export are pending; responsive sizing is untested | Gap |
+| Embedding | partial: standalone HTML, application mounting, responsive sizing, configurable toolbar, fullscreen, PNG export and programmatic access pass; the external-consumer run is pending | Gap |
 
 The baseline is therefore **not yet complete** on either backend. The gaps are listed under
 [What remains](#what-remains).
@@ -138,12 +138,12 @@ Faceted and flipped plots refuse navigation by design; that is a stated limit, n
 
 | Part | SVG | Evidence |
 | --- | --- | --- |
-| Standalone HTML | Pending | Interaction 07 packaging is implemented and browser-checked outside this commit |
+| Standalone HTML | Pass | `tools/check-standalone-browser.cjs`: a one-file package opened from `file://` requests nothing but itself, keeps keyboard selection and application control, and refuses an unbundled resource with a visible diagnostic |
 | Application mounting, two independent widgets | Pass | "two widgets, no duplicate ids, one tab stop per plot and per toolbar"; "repeated mount and dispose retain no listeners, observers or nodes" |
-| Responsive sizing | Untested | the plot follows its container through a resize observer; no check asserts it rescales |
-| Configurable toolbar | Pending | the toolbar at this commit is fixed; configuration is part of the uncommitted 07 work |
-| Fullscreen | Pending | uncommitted 07 work |
-| PNG export | Pending | uncommitted 07 work |
+| Responsive sizing | Pass | `tools/check-standalone-browser.cjs` at 1200 px (device scale 1) and 390 px (device scale 2): the plots fit (480 and 342 px) without horizontal overflow |
+| Configurable toolbar | Pass | `tools/check-export-browser.cjs` controls: a control subset, bottom placement, hidden and floating toolbars, keyboard reach |
+| Fullscreen | Pass | `tools/check-export-browser.cjs`: fullscreen enters, and a browser without the API gets a typed refusal |
+| PNG export | Pass | `tools/check-export-browser.cjs`: original and current views, with and without the selection, at scale 1 and 2, read back as pixels; an unavailable canvas and an encoder failure are reported |
 | Programmatic event and state access | Pass | `setSelection`, `navigate`, event and part subscriptions across the widget, linked and navigation checks |
 | External consumer of the published artifact | Pending | `tools/check-browser-consumer.sh` publishes a clean checkout under a commit-unique version and runs an application built against it; not yet run |
 
@@ -160,13 +160,12 @@ For SVG, before the baseline can be called complete:
 
 1. Browser checks for nearest hover, anchored and fixed placement, the tooltip delay, plain-text
    tooltips, keyboard activation, toggle, single and disabled modes, selection at mount, lasso
-   subtraction, legend-emphasis recovery, part activation for strips, axes, titles, colorbars and
-   annotations, and responsive rescaling.
+   subtraction, legend-emphasis recovery, and part activation for strips, axes, titles, colorbars
+   and annotations.
 2. A line and a faceted fixture for the inspection acceptance example.
 3. Configurable transitions, externally assigned target styles, a tooltip appearance API, and a
    data-label part kind.
-4. Committing and re-checking the 07 standalone, toolbar, fullscreen and export work.
-5. Coverage entries for the five uncovered geoms, and picking tests per entry.
-6. An external-consumer run at an exact commit.
+4. Coverage entries for the five uncovered geoms, and picking tests per entry.
+5. An external-consumer run at an exact commit.
 
 For Canvas, every row.
