@@ -571,7 +571,9 @@ object PlotCompiler:
     * place it, without mapping, statistics, scale training or row resolution: only the panel
     * ranges, guide specifications and the device-dependent phases are recomputed. The layers are
     * reused as they are, which is sound because a Cartesian or zoom coordinate system leaves them
-    * unchanged. Faceted data and other coordinate systems are refused.
+    * unchanged. `trained` must be the compiled, unwindowed data: its solved layout frames are kept,
+    * so the panel and its strips do not move as the window changes. Faceted data and other
+    * coordinate systems are refused.
     */
   private[intaglio] def rezoomPlaced(
       trained: TrainedPlotData,
@@ -601,19 +603,33 @@ object PlotCompiler:
           coordinates <- PhaseClock.timed(PhaseClock.Phase.Resolve)(
             CoordPhase.transform(coord, single.layers, logicalRanges, single.registry)
           )
+          original <- LayoutPhase.assemble(
+            trained.coord,
+            resolvedOptions,
+            single.ranges,
+            single.specs,
+            trained.labels,
+            single.layers.flatMap(_.value.grobs)
+          )
+          zoomedStage = new TrainedStage.Single(
+            coordinates.layers,
+            single.registry,
+            specs,
+            coordinates.ranges,
+            single.semantics
+          )
           zoomed = TrainedPlotData(
             coord,
             trained.labels,
             trained.baseOptions,
-            TrainedStage.Single(
-              coordinates.layers,
-              single.registry,
-              specs,
-              coordinates.ranges,
-              single.semantics
-            )
+            zoomedStage
           )
-          placed <- placeStage(zoomed, resolvedOptions)
+          placed <- placeSingle(
+            zoomed,
+            zoomedStage,
+            resolvedOptions,
+            original.frames
+          )
         yield (zoomed, placed)
       case (_, other) =>
         Left(
@@ -786,7 +802,8 @@ object PlotCompiler:
   private def placeSingle(
       trained: TrainedPlotData,
       single: TrainedStage.Single,
-      resolvedOptions: PlotCompilerOptions
+      resolvedOptions: PlotCompilerOptions,
+      frozen: Option[PlotFrames] = None
   ): Either[GraphicsError, TrainedPlot] =
     val layoutPolicy = resolvedOptions.policy.getOrElse(resolvedOptions.theme.layoutPolicy)
     for
@@ -797,7 +814,8 @@ object PlotCompiler:
           single.ranges,
           single.specs,
           trained.labels,
-          single.layers.flatMap(_.value.grobs)
+          single.layers.flatMap(_.value.grobs),
+          frozen
         )
       )
       panelGrobs <- PhaseClock.timed(PhaseClock.Phase.Lowering)(

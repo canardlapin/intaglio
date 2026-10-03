@@ -308,8 +308,9 @@ object InteractionCompiler:
       )
       zoomed <- PlotCompiler.rezoomPlaced(training, x, y)
     yield
-      val (data, placed) = zoomed
+      val (_, placed) = zoomed
       // The marks are unchanged by a window: keep the plan's annotated, retention-applied layers.
+      // The compiled training is kept, so every later window starts from the unwindowed plot.
       new InteractionPlan(
         plan.id,
         plan.revision,
@@ -319,7 +320,7 @@ object InteractionCompiler:
         plan.context,
         placed.copy(layers = plan.trained.layers, facetPanels = plan.trained.facetPanels),
         plan.groups,
-        Some(data)
+        plan.training
       )
 
   private def retain[A](

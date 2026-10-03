@@ -2592,7 +2592,8 @@ private[intaglio] object LayoutPhase:
       ranges: Option[(Interval, Interval)],
       specs: Vector[GuideSpec],
       labels: PlotLabels,
-      marks: Vector[Grob] = Vector.empty
+      marks: Vector[Grob] = Vector.empty,
+      frozen: Option[PlotFrames] = None
   ): Either[GraphicsError, LayoutResolution] =
     val clip = coordClip(coord)
     (options.layout, options.frame, options.policy, ranges) match
@@ -2614,11 +2615,16 @@ private[intaglio] object LayoutPhase:
           )
         for
           expanded <- coord.expandRanges(options.expansion, xRange, yRange)
-          frames <- solveAt(expanded._1, expanded._2)
-          framed <- options.framing match
-            case PanelFraming.Data         => Right((expanded, frames))
-            case ink: PanelFraming.MarkInk =>
-              frameMarkInk(coord, ink, policy, marks, expanded, frames, solveAt)
+          framed <- frozen match
+            // Navigation re-windows inside frames already solved, so the panel never moves.
+            case Some(frames) => Right((expanded, frames))
+            case None         =>
+              solveAt(expanded._1, expanded._2).flatMap { frames =>
+                options.framing match
+                  case PanelFraming.Data         => Right((expanded, frames))
+                  case ink: PanelFraming.MarkInk =>
+                    frameMarkInk(coord, ink, policy, marks, expanded, frames, solveAt)
+              }
         yield
           val ((framedX, framedY), framedFrames) = framed
           LayoutResolution(

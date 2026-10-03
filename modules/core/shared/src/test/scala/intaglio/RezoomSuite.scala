@@ -85,6 +85,14 @@ class RezoomSuite extends munit.FunSuite:
       }
   }
 
+  private def ticks(plan: InteractionPlan[String]): Vector[Vector[(Double, String)]] =
+    plan.trained.guides.map(_.spec).collect { case axis: GuideSpec.Axis =>
+      axis.ticks.getOrElse(Vector.empty).map(t => (t.value, t.label))
+    }
+
+  /** A re-windowed plan shows the panel ranges and axis ticks a fresh compile at the same window
+    * shows. (The fresh compile solves its own layout; navigation keeps the original one.)
+    */
   private def oracle(
       axis: AesSpec[Obs] => Either[GraphicsError, AesSpec[Obs]],
       window: CoordinateWindow
@@ -92,10 +100,20 @@ class RezoomSuite extends munit.FunSuite:
     val plot = plotWith(Stat.Identity, axis)
     val zoomed = ok(InteractionCompiler.rezoom(compile(plot), Some(window), None))
     val fresh = compile(plot.withCoord(ok(Coord.zoomWindows(x = Some(window)))))
-    assertEquals(zoomed.scene, fresh.scene)
     assertEquals(zoomed.trained.layout.map(_.xScale), fresh.trained.layout.map(_.xScale))
+    assertEquals(zoomed.trained.layout.map(_.yScale), fresh.trained.layout.map(_.yScale))
+    assertEquals(ticks(zoomed), ticks(fresh))
 
-  test("a numeric window draws exactly what a fresh compile at that window draws") {
+  test("the panel does not move as the window changes") {
+    val plan = compile(plotWith(Stat.Identity, linear))
+    Vector((10.0, 50.0), (20.0, 21.0), (1.0, 98.0)).foreach { (lo, hi) =>
+      val zoomed =
+        ok(InteractionCompiler.rezoom(plan, Some(ok(CoordinateWindow.numeric(lo, hi))), None))
+      assertEquals(zoomed.trained.layout.map(_.frame), plan.trained.layout.map(_.frame))
+    }
+  }
+
+  test("a numeric window shows the ranges and ticks a fresh compile at that window shows") {
     oracle(linear, ok(CoordinateWindow.numeric(10, 50)))
   }
 

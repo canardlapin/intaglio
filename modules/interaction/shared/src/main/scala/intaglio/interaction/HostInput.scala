@@ -128,6 +128,29 @@ final class HostInput[A](
             act(InteractionAction.Select(Selection[A](), SelectionOperation.Clear))
         )
 
+  /** Select the targets a rubber band or lasso covers under `rule`: observation keys for marks that
+    * have them, plot-local targets otherwise. `Replace` makes it the selection, `Add` and
+    * `Subtract` change it; an empty area still applies, so a subtractive sweep over nothing changes
+    * nothing and a replacing sweep over nothing clears. Disabled selection does nothing, and a
+    * single-selection plot ignores a sweep that covers several marks.
+    */
+  def region(
+      state: InteractionState[A],
+      area: PickArea,
+      rule: AreaRule,
+      operation: SelectionOperation
+  ): Vector[HostAction[A]] =
+    if state.selectionMode == SelectionMode.Disabled then Vector.empty
+    else
+      val covered = picking.select(area, rule)
+      val selection = Selection[A](
+        covered.flatMap(_.entity).toSet,
+        covered.filter(_.entity.isEmpty).map(_.id).toSet
+      )
+      // A single-selection plot cannot hold a sweep of several marks: the sweep does nothing.
+      if state.selectionMode == SelectionMode.Single && selection.size > 1 then Vector.empty
+      else Vector(HostAction(InteractionAction.Select(selection, operation), InputCause.Pointer))
+
   /** Select (unless disabled) and activate, as a click or Enter does. */
   private def choose(
       state: InteractionState[A],
