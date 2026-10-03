@@ -69,7 +69,9 @@ object WidgetTargetStyle:
       id.plan == series.plan && id.revision == series.revision && id.scope == series.scope &&
       id.ordinal >= series.first && id.ordinal.toLong < series.first.toLong + series.size
     // Entries are checked in ordinal order, so the error reported for several bad ones is stable.
-    val ordered = styles.toVector.sortBy((id, _) => (id.plan.value, id.scope.value, id.ordinal))
+    val ordered = styles.toVector.sortBy((id, _) =>
+      (id.plan.value, id.revision.value, id.scope.value, id.ordinal)
+    )
     val validation = traverse(ordered) { (id, style) =>
       groups.find(owns(_, id)) match
         case None =>
@@ -113,6 +115,9 @@ object WidgetTargetStyle:
             val original = x.image.packedAt(index)
             styleAt(index).fold(original)(_.applyTo(original))
           }))
+        // A raster's image may sit inside a group even when it has a single cell.
+        case x: Grob.Group if isRaster(group) =>
+          traverse(x.children)(route(_, group)).map(children => x.copy(children = children))
         case _ if group.size == 1 => styleAt(0).fold[Result[Grob]](Right(grob))(styled(grob, _))
         case x: Grob.Group        =>
           traverse(x.children)(route(_, group)).map(children => x.copy(children = children))

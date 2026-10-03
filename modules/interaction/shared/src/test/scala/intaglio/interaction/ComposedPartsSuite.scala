@@ -20,11 +20,21 @@ class ComposedPartsSuite extends munit.FunSuite:
   private val options =
     PlotCompilerOptions(renderContext = Some(context), guides = GuidePolicy.Derived())
 
-  private def compile(title: String, xTitle: String, id: String): InteractionPlan[String] =
+  private def compile(
+      title: String,
+      xTitle: String,
+      id: String,
+      levels: (String, String) = ("control", "treated")
+  ): InteractionPlan[String] =
+    val (first, second) = levels
     val spec = ok(
       plot(rows)
         .aes(_.x, _.y)
-        .scaleColorDiscrete(_.condition, levels = Vector("control", "treated"), name = "condition")
+        .scaleColorDiscrete(
+          r => if r.condition == "control" then first else second,
+          levels = Vector(first, second),
+          name = "condition"
+        )
         .geomPoint()
         .hline(3.0)
         .title(title)
@@ -154,4 +164,31 @@ class ComposedPartsSuite extends munit.FunSuite:
     assert(title.names.forall(_.value.startsWith("composition-inset-0-")), title)
     val ring = ok(picking.outline(title, 0.0)).getOrElse(fail("inset title not painted")).rings.head
     assertEquals(ok(picking.at(centre(ring), 1.0)), Some(title))
+  }
+
+  test("two collected legends that draw the same names are told apart by position") {
+    // Same scale name, different levels: composition collects two legends with equal grob names.
+    val other = compile("Other study", "Week", "other-plan", levels = ("early", "late"))
+    val collect = CompositionOptions.unsafe(guides = CompositionGuidePolicy.CollectCompatible)
+    val composed = ok(InteractionComposition.row(Vector(left, other), context, collect))
+    assertEquals(composed.composition.collectedGuides.size, 2)
+    val (scoped, picking, _) = resolved(composed)
+    val names = scoped.parts.flatMap(_.names)
+    assertEquals(names.distinct.size, names.size, "no name is claimed by two parts")
+    val entries = scoped.parts.filter(_.part.isInstanceOf[PlotPart.LegendEntry])
+    assertEquals(
+      entries.map(_.part.describe).toSet,
+      Set("condition: control", "condition: treated", "condition: early", "condition: late")
+    )
+    entries.foreach { entry =>
+      val outline = ok(picking.outline(entry, 0.0)).getOrElse(fail(s"$entry not painted"))
+      // One ring per name (key and label), all in one collected guide: never the other legend's.
+      assertEquals(outline.rings.size, entry.names.size, entry)
+      val scopes = entry.names.map(_.value).map {
+        case s"composition-guide-$i-$_" => i
+        case other                      => fail(s"$other is not scoped to a collected guide")
+      }
+      assertEquals(scopes.distinct.size, 1, entry)
+      assertEquals(ok(picking.at(centre(outline.rings.head), 1.0)), Some(entry))
+    }
   }

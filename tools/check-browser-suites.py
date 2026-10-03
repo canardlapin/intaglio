@@ -36,7 +36,9 @@ def main() -> int:
             ["git", "rev-parse", "--show-toplevel"], text=True
         ).strip()
     )
-    if subprocess.run(["git", "diff", "--quiet", "HEAD"], cwd=root).returncode != 0:
+    # Untracked sources would be linked too, so they count as a difference.
+    status = subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True)
+    if status.strip():
         print(
             "the working tree differs from HEAD; commit or stash first", file=sys.stderr
         )
@@ -101,7 +103,7 @@ def main() -> int:
             )
         return {
             "name": name,
-            "command": args[1:2],
+            "command": args[1:],
             "renderer": renderer,
             "exitCode": result.returncode,
         }
