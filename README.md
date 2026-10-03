@@ -147,7 +147,7 @@ sbt coreJVM/test svgJS/test   # or one at a time
 ```
 
 Supported versions are the Scala 3 LTS and the current feature release, on
-JDK 17 and 21, for the JVM and Scala.js. The published artifact is built with
+JDK 17, 21 and 25, for the JVM and Scala.js. The published artifact is built with
 the LTS: TASTy is forward- but not backward-compatible, so an LTS build can be
 read by any later 3.x consumer.
 

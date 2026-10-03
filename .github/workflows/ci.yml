@@ -57,6 +57,7 @@ jobs:
         java:
           - "17"
           - "21"
+          - "25"
     env:
       JAVA_OPTS: -Xms1G -Xmx3G -Xss6M -Dfile.encoding=UTF-8
     steps:
