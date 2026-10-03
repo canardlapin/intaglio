@@ -18,11 +18,13 @@ supported versions are the Scala 3 LTS (3.3.8, the default and the published
 one) and the current feature release (3.9.0); CI runs both on JDK 17, 21 and 25.
 Select one locally with `sbt "++3.9.0" testAll`.
 
-On JDK 25, Scala 3.3.8's scaladoc crashes (a `NullPointerException` in its
-`SignatureBuilder`); 3.9.0's does not. Compiling, testing and publishing code
-artifacts are unaffected. The release builds documentation on JDK 17, so this
-only affects a local `doc`: run it on an older JDK
-(`sbt -java-home <jdk-17-to-22> coreJVM/doc`) or with `++3.9.0`.
+On JDK 25, scaladoc can crash with a `NullPointerException` in its
+`SignatureBuilder`, intermittently but often deterministically for a given run
+([scala/scala3#24183](https://github.com/scala/scala3/issues/24183)). Scala
+3.9.0 carries a partial fix (scala/scala3#25779), which others report still
+recurs. Compiling, testing and publishing code artifacts are unaffected, and
+the release builds documentation on JDK 17. For a local `doc`, use an older JDK
+(`sbt -java-home <jdk-17-to-22> coreJVM/doc`).
 
 Formatting is scalafmt's job. Do not hand-format, and do not argue with it.
 
