@@ -163,10 +163,15 @@ object NamedPicking:
   ): Either[PickingError, NamedPickingPlan] =
     fromDeviceScene(scene, context, policy)
 
+  /** `keep` limits the targets built to the names a caller can use (plot parts ignore data marks);
+    * a skipped name's marks still take their draw orders, so kept targets order as before, but
+    * their geometry is never measured.
+    */
   private[interaction] def fromDeviceScene(
       scene: DeviceScene,
       context: RenderContext,
-      policy: PickPolicy
+      policy: PickPolicy,
+      keep: GraphicsName => Boolean = _ => true
   ): Either[PickingError, NamedPickingPlan] =
     if scene.width <= 0 || scene.height <= 0 || !scene.width.isFinite || !scene.height.isFinite then
       Left(PickingError.InvalidInput("scene dimensions"))
@@ -183,7 +188,8 @@ object NamedPicking:
           clips: Vector[Region],
           pointGlyph: Boolean = false
       ): Unit =
-        if failure.isEmpty then
+        if failure.isEmpty && !keep(name) then order += 1
+        else if failure.isEmpty then
           Picking.primitiveRegions(primitive, context, policy, Some(name), pointGlyph) match
             case Left(error)    => failure = Some(error)
             case Right(regions) =>

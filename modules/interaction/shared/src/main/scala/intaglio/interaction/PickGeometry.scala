@@ -108,7 +108,14 @@ private[interaction] object PickGeometry:
         if d <= sweep then Some(center + P(math.cos(angle), math.sin(angle)) * radius) else None
       }
 
-  final class Region private (val edges: Vector[Edge], inside: P => Boolean):
+  /** `rectangle` is set only when the region is exactly that axis-aligned box, which lets
+    * [[Clipped]] recognise a clip that cannot cut a mark without intersecting any edges.
+    */
+  final class Region private (
+      val edges: Vector[Edge],
+      inside: P => Boolean,
+      val rectangle: Option[Box] = None
+  ):
     def contains(p: P): Boolean = inside(p)
     def strictlyContains(p: P): Boolean =
       val probe = math.max(epsilon * 8, math.max(math.abs(p.x), math.abs(p.y)) * 2e-15)
@@ -123,7 +130,27 @@ private[interaction] object PickGeometry:
       }
     lazy val bounds: Option[Box] = Box.enclosing(edges.flatMap(_.extrema))
     def transform(value: Rigid): Region =
-      new Region(edges.map(_.transform(value)), p => contains(value.inverse(p)))
+      // A pure translation keeps an axis-aligned box axis-aligned; a rotation does not.
+      val moved = rectangle.filter(_ => value.cos == 1 && value.sin == 0).map { box =>
+        Box(box.left + value.tx, box.top + value.ty, box.right + value.tx, box.bottom + value.ty)
+      }
+      new Region(edges.map(_.transform(value)), p => contains(value.inverse(p)), moved)
+
+    /** Whether this region holds every point within `margin` of `box`. Conservative: only an
+      * axis-aligned rectangle answers yes.
+      */
+    def encloses(box: Box, margin: Double): Boolean = rectangle.exists { r =>
+      r.left < box.left - margin && r.top < box.top - margin && r.right > box.right + margin &&
+      r.bottom > box.bottom + margin
+    }
+
+    /** Whether this region and every point within `margin` of `box` are disjoint. Conservative:
+      * only an axis-aligned rectangle answers yes.
+      */
+    def excludes(box: Box, margin: Double): Boolean = rectangle.exists { r =>
+      r.right < box.left - margin || r.left > box.right + margin || r.bottom < box.top - margin ||
+      r.top > box.bottom + margin
+    }
 
   object Region:
     val empty: Region = new Region(Vector.empty, _ => false)
@@ -180,16 +207,21 @@ private[interaction] object PickGeometry:
             if evenOdd then winding % 2 != 0 else winding != 0
       )
 
-    def rectangle(box: Box): Region = polygon(
-      Vector(
+    def rectangle(box: Box): Region =
+      val ring = polygon(
         Vector(
-          P(box.left, box.top),
-          P(box.right, box.top),
-          P(box.right, box.bottom),
-          P(box.left, box.bottom)
+          Vector(
+            P(box.left, box.top),
+            P(box.right, box.top),
+            P(box.right, box.bottom),
+            P(box.left, box.bottom)
+          )
         )
       )
-    )
+      val ordered =
+        box.left <= box.right && box.top <= box.bottom &&
+          Vector(box.left, box.top, box.right, box.bottom).forall(_.isFinite)
+      if ordered then new Region(ring.edges, ring.contains, Some(box)) else ring
 
     def roundedRectangle(box: Box, radius: Double): Region =
       val r =
@@ -224,18 +256,23 @@ private[interaction] object PickGeometry:
   final class Clipped(val regions: Vector[Region]):
     require(regions.nonEmpty, "a clipped region requires its source geometry")
     def contains(p: P): Boolean = regions.forall(_.contains(p))
+
+    /** Two exact shortcuts over the source's bounds, with [[Clipped.boundariesOf]] over every
+      * region as their oracle. A clip rectangle apart from those bounds by more than the margin
+      * leaves no point inside both, so the boundary is empty. A clip rectangle holding them with
+      * room to spare meets none of the source's edges and contributes no boundary of its own (each
+      * of its points lies outside the source), so the boundary is computed without it. Containment
+      * and strict containment still consult every region.
+      */
     private lazy val boundaries: (Vector[Edge], Vector[P]) =
-      val pieces = Vector.newBuilder[Edge]
-      val points = Vector.newBuilder[P]
-      regions.indices.foreach { index =>
-        val others = regions.indices.filter(_ != index).flatMap(i => regions(i).edges).toVector
-        regions(index).edges.foreach { edge =>
-          val crossings = others.flatMap(edge.intersections)
-          (Vector(edge.at(0), edge.at(1)) ++ crossings).filter(contains).foreach(points += _)
-          edge.split(crossings).filter(part => contains(part.at(0.5))).foreach(pieces += _)
-        }
-      }
-      (pieces.result(), points.result().distinct)
+      regions.head.bounds match
+        case Some(box) if regions.tail.exists(_.excludes(box, Clipped.enclosureMargin)) =>
+          (Vector.empty, Vector.empty)
+        case Some(box) =>
+          val cutting =
+            regions.head +: regions.tail.filterNot(_.encloses(box, Clipped.enclosureMargin))
+          Clipped.boundariesOf(cutting, contains)
+        case None => Clipped.boundariesOf(regions, contains)
     def edges: Vector[Edge] = boundaries._1
     def points: Vector[P] = boundaries._2
     def nonEmpty: Boolean = edges.nonEmpty || points.nonEmpty
@@ -267,6 +304,26 @@ private[interaction] object PickGeometry:
         boundaryInside && !area.edges.exists { edge =>
           edge.split(edges.flatMap(edge.intersections)).exists(part => strictlyInside(part.at(0.5)))
         }
+
+  object Clipped:
+    /** Far above [[epsilon]], the tolerance of every intersection and containment predicate. */
+    val enclosureMargin: Double = 1e-6
+
+    /** Boundary pieces and points of the intersection of `regions`, each tested against every other
+      * region. `inside` is the intersection's membership test.
+      */
+    def boundariesOf(regions: Vector[Region], inside: P => Boolean): (Vector[Edge], Vector[P]) =
+      val pieces = Vector.newBuilder[Edge]
+      val points = Vector.newBuilder[P]
+      regions.indices.foreach { index =>
+        val others = regions.indices.filter(_ != index).flatMap(i => regions(i).edges).toVector
+        regions(index).edges.foreach { edge =>
+          val crossings = others.flatMap(edge.intersections)
+          (Vector(edge.at(0), edge.at(1)) ++ crossings).filter(inside).foreach(points += _)
+          edge.split(crossings).filter(part => inside(part.at(0.5))).foreach(pieces += _)
+        }
+      }
+      (pieces.result(), points.result().distinct)
 
   private def clamp(t: Double): Double = math.max(0, math.min(1, t))
   private def wrap(angle: Double): Double =

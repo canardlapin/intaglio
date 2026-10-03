@@ -46,11 +46,10 @@ final class HostInput[A](
     behavior: InteractionBehavior[A],
     directToleranceCssPx: Double = 2.0
 ):
-  private val geometries: Map[VisualTargetId, TargetGeometry[A]] =
-    navigation.targets.iterator.map(g => g.target.id -> g).toMap
-
-  /** The geometry of a target, for anchoring tooltips and overlays. */
-  def geometry(id: VisualTargetId): Option[TargetGeometry[A]] = geometries.get(id)
+  /** The geometry of a target, for anchoring tooltips and overlays. The lookup belongs to the
+    * navigation plan, so a host may build this input per event without re-indexing every target.
+    */
+  def geometry(id: VisualTargetId): Option[TargetGeometry[A]] = navigation.lookup(id)
 
   /** The target the pointer at a client point reveals under the behaviour's hover rule. */
   def targetAt(clientX: Double, clientY: Double): Either[IntaglioError, Option[TargetInfo[A]]] =
@@ -122,7 +121,7 @@ final class HostInput[A](
       case KeyInput.Next     => Right(focus(ordered.lift(math.min(ordered.size - 1, index + 1))))
       case KeyInput.Choose(additive) =>
         Right(
-          state.focus.flatMap(geometries.get).toVector.flatMap { g =>
+          state.focus.flatMap(navigation.lookup).toVector.flatMap { g =>
             choose(state, g.target, additive).map(act)
           }
         )

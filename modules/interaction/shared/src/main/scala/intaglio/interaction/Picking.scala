@@ -155,6 +155,14 @@ enum NavigationDirection:
 /** Materialized visible target geometry used by keyboard and other directional navigation. */
 final class NavigationPlan[A] private[interaction] (val targets: Vector[TargetGeometry[A]]):
 
+  /** Positions by identity, built once per plan on first use; every host input reads them. */
+  private lazy val positions: TargetPositions =
+    TargetPositions.of(targets.iterator.map(_.target.id))
+
+  /** The geometry of `id`, if it is one of this plan's targets. */
+  private[interaction] def lookup(id: VisualTargetId): Option[TargetGeometry[A]] =
+    positions(id).map(targets)
+
   /** The target after `from` in the stable order of `targets`, or none at the end. Sequential
     * traversal reaches every target, including any that directional `nearest` cannot.
     */
@@ -209,11 +217,12 @@ final class NavigationPlan[A] private[interaction] (val targets: Vector[TargetGe
         case _ => None
       // Coincident targets are traversed in stable address order. At the edge of that group, the
       // next key leaves it through the requested strict half-plane instead of wrapping forever.
-      nextCoincident.orElse(directional.sortBy { candidate =>
+      // The least key, as the first of a stable sort would be, without sorting every target.
+      nextCoincident.orElse(directional.minByOption { candidate =>
         val (dx, dy) = delta(candidate)
         val id = candidate.target.id
         (dx * dx + dy * dy, id.plan.value, id.revision.value, id.scope.value, id.ordinal)
-      }.headOption)
+      })
     }
 
 /** The device primitive a part was cut from, under the rigid transform it was drawn with. Parts of
@@ -305,7 +314,14 @@ final class PickingPlan[A] private[interaction] (
     private val targets: Vector[PickTarget[A]],
     private val rasters: Vector[RasterPickTarget[A]] = Vector.empty
 ):
-  private val index: PickIndex = PickIndex.build(targets.map(_.bounds))
+  private[interaction] val index: PickIndex = PickIndex.build(targets.map(_.bounds))
+
+  /** Target position by identity, built on the first lookup and owned by this plan, so drawing a
+    * ring or anchoring a tooltip does not scan every target.
+    */
+  private lazy val positions: TargetPositions = TargetPositions.of(targets.iterator.map(_.info.id))
+
+  private def target(id: VisualTargetId): Option[PickTarget[A]] = positions(id).map(targets)
 
   def targetCount: Int = targets.size + rasters.map(_.size).sum
 
@@ -332,7 +348,7 @@ final class PickingPlan[A] private[interaction] (
 
   /** Return one target's clipped painted bounds without materializing unrelated raster cells. */
   def geometry(id: VisualTargetId): Either[PickingError, Option[TargetGeometry[A]]] =
-    targets.find(_.info.id == id) match
+    target(id) match
       case Some(target) => Right(geometryOf(target))
       case None         =>
         rasters.find { raster =>
@@ -351,7 +367,7 @@ final class PickingPlan[A] private[interaction] (
     if !offsetDevicePx.isFinite || offsetDevicePx < 0 then
       Left(PickingError.InvalidInput("outline offset"))
     else
-      targets.find(_.info.id == id) match
+      target(id) match
         case Some(target) => Right(TargetOutline.of(target.parts, offsetDevicePx))
         case None         =>
           rasters.find { raster =>

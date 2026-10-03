@@ -37,7 +37,7 @@ final class PartPicking private (val parts: Vector[PartTarget], plan: NamedPicki
 object PartPicking:
   /** Parts of `trained`, picked over the scene it lowers to at `context`. */
   def compile(trained: TrainedPlot, context: RenderContext): Either[IntaglioError, PartPicking] =
-    NamedPicking.compile(trained.scene, context).map(new PartPicking(PlotParts.of(trained), _))
+    DeviceScene.fromScene(trained.scene, context).flatMap(fromResolved(trained, _, context))
 
   /** The same, over an already resolved device scene (lower once, draw and pick). */
   def fromResolved(
@@ -45,12 +45,18 @@ object PartPicking:
       scene: DeviceScene,
       context: RenderContext
   ): Either[IntaglioError, PartPicking] =
-    NamedPicking.fromResolved(scene, context).map(new PartPicking(PlotParts.of(trained), _))
+    fromParts(PlotParts.of(trained), scene, context)
 
-  /** Parts supplied by a composed figure, resolved over the transformed, clipped device scene. */
+  /** Parts supplied by a composed figure, resolved over the transformed, clipped device scene. Only
+    * names some part claims are picked, so a plot's data marks, however many, cost parts nothing: a
+    * hit on any other name was ignored anyway, and kept names keep their draw order.
+    */
   def fromParts(
       parts: Vector[PartTarget],
       scene: DeviceScene,
       context: RenderContext
   ): Either[IntaglioError, PartPicking] =
-    NamedPicking.fromResolved(scene, context).map(new PartPicking(parts, _))
+    val claimed = parts.iterator.flatMap(_.names).toSet
+    NamedPicking
+      .fromDeviceScene(scene, context, PickPolicy.default, claimed.contains)
+      .map(new PartPicking(parts, _))
