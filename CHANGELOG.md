@@ -63,6 +63,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ComposedParts`, which keeps each composed child's titles, axes and
   annotations its own parts. See [docs/canvas-widget.md](docs/canvas-widget.md).
 
+- **Undo and redo.** `InteractionHistory` and `HistoryController` keep
+  bounded undo/redo stacks of durable state with documented boundaries:
+  reader and application changes are history, projected input is not, a new
+  change clears redo, new data clears both, and undo/redo restore through
+  `RestoreSnapshot`, never following links or asking resolvers. See
+  [docs/selection-history.md](docs/selection-history.md).
+
 - **Versioned interaction snapshots.** `InteractionSnapshot.capture` records
   the durable state (selection, saved selections, panel viewports, selection
   mode) with the plans, plan and data revisions and key codecs it means

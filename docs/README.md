@@ -39,6 +39,8 @@ one directly above it.
   typed selection, input traces, subscriptions, and disposal on JVM and Scala.js.
 - [Interactive plots in the browser](browser-widget.md) — mount a compiled plot as an
   accessible SVG widget with tooltips, selection, keyboard access and typed events.
+- [Named selections, snapshots and history](selection-history.md) — selection algebra, saved
+  selections, versioned snapshots with typed refusals, and undo/redo boundaries.
 - [Interaction coverage](interaction-coverage.md) — how every built-in geom and plot part
   becomes an interactive target.
 - [Picking a hand-built scene](picking.md) — named picking over grobs a host
