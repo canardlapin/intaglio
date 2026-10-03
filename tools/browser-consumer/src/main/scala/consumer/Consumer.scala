@@ -45,9 +45,15 @@ object Consumer:
   def main(args: Array[String]): Unit =
     val document = g.document
     val behavior = InteractionBehavior.describingEntities[String](id => s"observation $id")
-    val a = orThrow(SvgWidget.mount(document.getElementById("a"), view("a", rows), behavior))
+    val renderer = if g.window.location.search.asInstanceOf[String].contains("canvas") then
+      WidgetRenderer.Canvas
+    else WidgetRenderer.Svg
+    val options = WidgetOptions(renderer = renderer)
+    val a = orThrow(
+      SvgWidget.mount(document.getElementById("a"), view("a", rows), behavior, options = options)
+    )
     val b = orThrow(
-      SvgWidget.mount(document.getElementById("b"), view("b", rows.reverse), behavior)
+      SvgWidget.mount(document.getElementById("b"), view("b", rows.reverse), behavior, options = options)
     )
     val events = js.Array[String]()
     a.subscribe(record => events.push(s"a:${record.event.getClass.getSimpleName}"))

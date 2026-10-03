@@ -3,8 +3,8 @@
 
 Usage: tools/check-browser-suites.py <output dir> <font.ttf>
 
-The working tree must be clean: the fixture is linked from it, and report.json names the commit,
-so the evidence describes exactly that commit. The font is any TrueType face; the export suites
+The fixture and browser checks run from a temporary archive of HEAD, so uncommitted files and
+concurrent working-tree edits cannot enter the evidence. The font is any TrueType face; the export suites
 embed it (a DejaVu Sans file is what earlier receipts used). Needs Node with Playwright on
 NODE_PATH and its Chromium installed. Audit browser ownership before and after (see AGENTS.md).
 
@@ -14,12 +14,28 @@ across backends. Exits nonzero unless every job passes.
 """
 
 import hashlib
+import io
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
+
+
+@contextmanager
+def commit_source(repository: Path, commit: str):
+    """Yield only the named commit's bytes; delete this run's build output on exit."""
+    archive = subprocess.check_output(["git", "archive", commit], cwd=repository)
+    with tempfile.TemporaryDirectory(prefix="intaglio-browser-gate-") as directory:
+        source = Path(directory)
+        with tarfile.open(fileobj=io.BytesIO(archive)) as contents:
+            contents.extractall(source, filter="data")
+        yield source
 
 
 def main() -> int:
@@ -36,17 +52,27 @@ def main() -> int:
             ["git", "rev-parse", "--show-toplevel"], text=True
         ).strip()
     )
-    # Untracked sources would be linked too, so they count as a difference.
-    status = subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True)
-    if status.strip():
-        print(
-            "the working tree differs from HEAD; commit or stash first", file=sys.stderr
-        )
-        return 1
     commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=root, text=True
     ).strip()
-    out.mkdir(parents=True, exist_ok=True)
+    runner = subprocess.check_output(
+        ["git", "show", f"{commit}:tools/check-browser-suites.py"], cwd=root
+    )
+    if Path(__file__).read_bytes() != runner:
+        print("commit this runner before using it to certify HEAD", file=sys.stderr)
+        return 1
+    if out.exists():
+        print(f"{out} exists; use a fresh evidence directory", file=sys.stderr)
+        return 1
+    out.mkdir(parents=True)
+    # Keep the font bytes fixed too; callers may replace the original during a run.
+    retained_font = out / "font.ttf"
+    shutil.copyfile(font, retained_font)
+    with commit_source(root, commit) as source:
+        return run_suites(source, commit, out, retained_font)
+
+
+def run_suites(root: Path, commit: str, out: Path, font: Path) -> int:
 
     with (out / "link.log").open("w") as log:
         linked = subprocess.run(
@@ -66,7 +92,9 @@ def main() -> int:
     if len(bundles) != 1:
         print(f"expected one linked fixture, found {bundles}", file=sys.stderr)
         return 1
-    bundle = bundles[0]
+    # Browser pages remain replayable after the temporary source/build tree is removed.
+    bundle = out / "fixture.js"
+    shutil.copyfile(bundles[0], bundle)
 
     jobs = [
         ("baseline", "canvas-baseline", "svg"),
@@ -122,6 +150,7 @@ def main() -> int:
 
     report = {
         "commit": commit,
+        "source": "git archive of the recorded commit",
         "bundleSha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
         "fontSha256": hashlib.sha256(font.read_bytes()).hexdigest(),
         "jobs": results,
@@ -131,15 +160,7 @@ def main() -> int:
     for r in results:
         print(f"{r['name']:>18}  exit {r['exitCode']}")
     print("paired traces match:", traces)
-    # The commit must not have moved while the suites ran.
-    after = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=root, text=True
-    ).strip()
-    ok = (
-        all(r["exitCode"] == 0 for r in results)
-        and all(traces.values())
-        and after == commit
-    )
+    ok = all(r["exitCode"] == 0 for r in results) and all(traces.values())
     return 0 if ok else 1
 
 
