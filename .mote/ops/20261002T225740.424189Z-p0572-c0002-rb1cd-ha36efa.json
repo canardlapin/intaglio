@@ -1,0 +1,1 @@
+{"actor":"codex-intaglio-help","entity":"bd-01M3YZT8BWJ7D5ZX2YDCWRBK6E","kind":"note","note_kind":"progress","op":"20261002T225740.424189Z-p0572-c0002-rb1cd-ha36efa","text":"Bounded follow-up: reproduce signed offset overflow in OS/2 font table parsing, preserve current unreadable-table policy, add JVM/JS regression.","ts":"2026-10-02T22:57:40.424189Z","v":1}
