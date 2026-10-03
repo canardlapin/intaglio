@@ -168,8 +168,12 @@ names; partial runs skip the completeness check) are for exploration. The gate r
 outside `tools/check-browser-suites.py` because parallel jobs would distort its timings. Audit
 browser ownership before and after it, as for every browser check.
 
-Run against `e891562` with the same fixture, the gate fails. It stops the SVG workload at the
-emphasis-reuse assertion, and it exceeds the Canvas budgets on compile, hover and re-window.
+At `29b5fa2811e37352a459351fb96be984c0d2824f`, which carries these budgets, the gate passed all 44
+budget comparisons and every assertion over three runs. The load average was 9.1 at the start and
+7.7 at the end. Run against `e891562` with the same fixture, the gate fails. It stops the SVG
+workload at the emphasis-reuse assertion and exceeds 11 Canvas budgets, among them view compile
+(12.3 s), pointer to highlight (248 ms), hover redraw, re-window, restyle and retained heap
+(764 MiB).
 
 ## Correctness evidence
 
