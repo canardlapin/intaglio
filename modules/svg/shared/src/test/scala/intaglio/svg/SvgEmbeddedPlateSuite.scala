@@ -251,6 +251,37 @@ class SvgEmbeddedPlateSuite extends munit.FunSuite:
     )
   }
 
+  test("every one of 500 plated labels in a document uses the face, independent of the others") {
+    val labels = Vector("j", "fi", "AV", "É", "Á x", "Hj fi")
+    def grob(i: Int) =
+      val gp = GraphicParams
+        .unsafe(
+          stroke = None,
+          fill = Some(Rgba.Black),
+          fontFamily = Some(family),
+          fontSize = Length.pointsUnsafe(10)
+        )
+        .withTextPlate(plate)
+      Grob.textUnsafe(
+        labels(i % labels.length),
+        Point.npcUnsafe((i % 25) / 25.0, (i / 25) / 20.0),
+        Anchor.Center,
+        gp = gp
+      )
+    def rects(svg: String) = svg.linesIterator.map(_.trim).filter(_.startsWith("<rect")).toVector
+    val together = rects(render(Scene(Vector.tabulate(500)(grob))))
+    assertEquals(together.length, 500)
+    (0 until 500).foreach { i =>
+      val alone = rects(render(Scene(Vector(grob(i)))))
+      assertEquals(together(i), alone.head, s"label $i")
+      assertNotEquals(
+        alone.head,
+        rects(render(Scene(Vector(grob(i))), SvgFonts.empty)).head,
+        s"label $i is sized from the face, not the estimate"
+      )
+    }
+  }
+
   /** The tables of an assembled test font, for rebuilding it with one more. */
   private def tablesOf(file: Array[Byte]): Map[String, Array[Byte]] =
     val count = ((file(4) & 0xff) << 8) | (file(5) & 0xff)

@@ -305,3 +305,108 @@ class SfntFontSuite extends munit.FunSuite:
       Left("the face has a malformed table")
     )
   }
+
+  test("each measurement has its own step budget, so many runs measure alike") {
+    val label = SvgTextExtent.codePoints("fi AV É jH").get
+    val tight = SfntFont.parse(bytes(), measureBudget = 5000).get
+    val first = SvgTextExtent.measure(tight, label, 0.5)
+    assert(first.isRight, first)
+    (0 until 500).foreach { i =>
+      assertEquals(SvgTextExtent.measure(tight, label, 0.5), first, s"measurement $i")
+    }
+    val starved = SfntFont.parse(bytes(), measureBudget = 1).get
+    assertEquals(
+      SvgTextExtent.measure(starved, label, 0.5),
+      Left("the face has a malformed table"),
+      "the budget is enforced"
+    )
+  }
+
+  test("class and anchor record offsets from hostile 16-bit counts cannot wrap") {
+    val padding = "zpad" -> new Array[Byte](300000) // in-file zeros a wrapped offset could land on
+    // Class pair: 65535 second classes, first glyph in class 16385: 16385 * 65535 records of 4
+    // bytes wraps an Int to 196604.
+    val pair = writer.u16(2).u16(0).u16(0x4).u16(0x1).u16(0).u16(0).u16(16386).u16(65535)
+    val pairBytes = withChildren(
+      pair,
+      Seq(2, 8, 10),
+      Seq(coverage(Seq(A)), classDef(Seq(A -> 16385)), classDef(Seq(V -> 0)))
+    )
+    val pairFace = parsed(
+      bytes(extra =
+        Map("GPOS" -> layout(Seq("kern" -> Seq(0)), Seq(Lookup(2, Seq(pairBytes)))), padding)
+      )
+    )
+    assertEquals(SfntFont.guard(pairFace.pairAdjustments(A, V)), None)
+    // Mark-to-base: base coverage index 32769 with 65535 classes: 32769 * 65535 * 2 wraps to 65534.
+    def anchor(x: Int, y: Int) = writer.u16(1).u16(x).u16(y).result
+    val marks = withChildren(writer.u16(1).u16(0).u16(0), Seq(4), Seq(anchor(0, 0)))
+    val bases = writer.u16(65535).result
+    val baseCoverage = writer.u16(2).u16(1).u16(E).u16(E).u16(32769).result
+    val markBase = withChildren(
+      writer.u16(1).u16(0).u16(0).u16(65535).u16(0).u16(0),
+      Seq(2, 4, 8, 10),
+      Seq(coverage(Seq(Acute)), baseCoverage, marks, bases)
+    )
+    val markFace = parsed(
+      bytes(extra =
+        Map("GPOS" -> layout(Seq("mark" -> Seq(0)), Seq(Lookup(4, Seq(markBase)))), padding)
+      )
+    )
+    assertEquals(SfntFont.guard(markFace.markAttachments(4, E, Acute)), None)
+    assertEquals(
+      SvgTextExtent.measure(markFace, Vector('E'.toInt, 0x301), 0.0),
+      Left("the face has a malformed table")
+    )
+  }
+
+  test("minimum and cross-stream kern subtables make the kern table unreadable") {
+    for coverage <- Vector(0x0003, 0x0005, 0x0101) do
+      val face = parsed(bytes(extra = Map("kern" -> legacyKern(Seq((A, V, -100)), coverage))))
+      assert(face.unreadableKern, s"coverage $coverage")
+      assertEquals(
+        SvgTextExtent.measure(face, Vector('A'.toInt), 0.0),
+        Left("the face's 'kern' table is unreadable")
+      )
+    assert(!parsed(bytes(extra = Map("kern" -> legacyKern(Seq((A, V, -100)))))).unreadableKern)
+  }
+
+  test("rand alternates are candidate substitutions; a non-default feature's are not") {
+    val face = parsed(
+      bytes(extra =
+        Map(
+          "GSUB" -> layout(
+            Seq("rand" -> Seq(0), "salt" -> Seq(1)),
+            Seq(
+              Lookup(3, Seq(alternateSubstitution(H, Seq(E, A)))),
+              Lookup(3, Seq(alternateSubstitution(J, Seq(X))))
+            )
+          )
+        )
+      )
+    )
+    assertEquals(face.substitutes(H), Vector(E, A))
+    assertEquals(face.substitutes(J), Vector.empty)
+  }
+
+  test("cmap: HarfBuzz's record preference, and an unreadable preferred format maps nothing") {
+    val preferred = cmapSubtable(Map('H'.toInt -> H), 4)
+    val other = cmapSubtable(Map('H'.toInt -> J), 4)
+    def withCmap(table: Array[Byte]) = parsed(font(glyphs, cmap, cmapOverride = Some(table)))
+    assertEquals(
+      withCmap(cmapTable(Seq((0, 3, other), (3, 1, preferred)))).glyphFor('H'.toInt),
+      Some(H),
+      "(3,1) is preferred to (0,3) whatever the record order"
+    )
+    val full = cmapSubtable(Map('H'.toInt -> H, 0x1d400 -> MathA), 12)
+    assertEquals(
+      withCmap(cmapTable(Seq((3, 1, other), (3, 10, full)))).glyphFor('H'.toInt),
+      Some(H),
+      "(3,10) is preferred to (3,1)"
+    )
+    val format6 = writer.u16(6).u16(10).u16(0).u16(0x48).u16(1).u16(H).result
+    assertEquals(
+      withCmap(cmapTable(Seq((3, 1, other), (3, 10, format6)))).glyphFor('H'.toInt),
+      None
+    )
+  }

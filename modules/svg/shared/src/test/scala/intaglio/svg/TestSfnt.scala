@@ -198,9 +198,18 @@ object TestSfnt:
   def gdef(classes: Seq[(Int, Int)]): Array[Byte] =
     withChildren(writer.u16(1).u16(0).u16(0).u16(0).u16(0).u16(0), Seq(4), Seq(classDef(classes)))
 
-  def legacyKern(pairs: Seq[(Int, Int, Int)]): Array[Byte] =
+  def alternateSubstitution(glyph: Int, alternates: Seq[Int]): Array[Byte] =
+    val set = writer.u16(alternates.length)
+    alternates.foreach(set.u16)
+    withChildren(
+      writer.u16(1).u16(0).u16(1).u16(0),
+      Seq(2, 6),
+      Seq(coverage(Seq(glyph)), set.result)
+    )
+
+  def legacyKern(pairs: Seq[(Int, Int, Int)], coverage: Int = 0x0001): Array[Byte] =
     val sorted = pairs.sortBy(p => (p._1, p._2))
-    val w = writer.u16(0).u16(1).u16(0).u16(14 + sorted.length * 6).u16(0x0001).u16(sorted.length)
+    val w = writer.u16(0).u16(1).u16(0).u16(14 + sorted.length * 6).u16(coverage).u16(sorted.length)
     w.u16(0).u16(0).u16(0)
     sorted.foreach { case (a, b, v) => w.u16(a).u16(b).u16(v & 0xffff) }
     w.result
@@ -220,7 +229,8 @@ object TestSfnt:
       hMetrics: Option[Int] = None,
       extra: Map[String, Array[Byte]] = Map.empty,
       signature: Long = 0x00010000L,
-      outlines: Boolean = true
+      outlines: Boolean = true,
+      cmapOverride: Option[Array[Byte]] = None
   ): Array[Byte] =
     val boxes = glyphs.flatMap(_.box)
     val fontBox =
@@ -265,13 +275,13 @@ object TestSfnt:
     }
     val loca = writer
     offsets.foreach(o => if longLoca then loca.u32(o) else loca.u16(o / 2))
-    val cmapTable = cmapBytes(cmap, cmapFormat, rangeOffsets)
+    val cmapBytesValue = cmapOverride.getOrElse(cmapBytes(cmap, cmapFormat, rangeOffsets))
     val tables = Map(
       "head" -> head,
       "hhea" -> hheaTable.result,
       "maxp" -> maxp,
       "hmtx" -> hmtx.result,
-      "cmap" -> cmapTable
+      "cmap" -> cmapBytesValue
     ) ++ (if outlines then Map("glyf" -> glyf.result, "loca" -> loca.result) else Map.empty) ++
       os2.map(o => "OS/2" -> os2Bytes(o)) ++ extra
     assemble(tables, signature)
@@ -305,27 +315,39 @@ object TestSfnt:
     w.result
 
   private def cmapBytes(cmap: Map[Int, Int], format: Int, rangeOffsets: Boolean): Array[Byte] =
+    cmapTable(Seq((3, if format == 12 then 10 else 1, cmapSubtable(cmap, format, rangeOffsets))))
+
+  /** A cmap table of `(platform, encoding, subtable)` records, in the order given. */
+  def cmapTable(records: Seq[(Int, Int, Array[Byte])]): Array[Byte] =
+    val w = writer.u16(0).u16(records.length)
+    var offset = 4 + records.length * 8
+    records.foreach { case (platform, encoding, sub) =>
+      w.u16(platform).u16(encoding).u32(offset)
+      offset += sub.length
+    }
+    records.foreach(record => w.bytes(record._3))
+    w.result
+
+  def cmapSubtable(cmap: Map[Int, Int], format: Int, rangeOffsets: Boolean = false): Array[Byte] =
     val entries = cmap.toVector.sortBy(_._1)
-    val sub =
-      if format == 12 then
-        val w = writer.u16(12).u16(0).u32(16 + entries.length * 12).u32(0).u32(entries.length)
-        entries.foreach { case (cp, glyph) => w.u32(cp).u32(cp).u32(glyph) }
-        w.result
-      else
-        val bmp = entries.filter(_._1 <= 0xfffe)
-        val segments = bmp.length + 1
-        val w = writer.u16(4).u16(0).u16(0).u16(segments * 2).u16(0).u16(0).u16(0)
-        bmp.foreach(e => w.u16(e._1))
-        w.u16(0xffff).u16(0)
-        bmp.foreach(e => w.u16(e._1))
-        w.u16(0xffff)
-        bmp.foreach(e => w.u16(if rangeOffsets then 0 else (e._2 - e._1) & 0xffff))
-        w.u16(1)
-        // With range offsets, segment i's one glyph is entry i of the glyph array that follows the
-        // idRangeOffset array, which is `segments` words past segment i's own slot.
-        bmp.indices.foreach(_ => w.u16(if rangeOffsets then segments * 2 else 0))
-        w.u16(0)
-        if rangeOffsets then bmp.foreach(e => w.u16(e._2))
-        w.patch16(2, w.size)
-        w.result
-    writer.u16(0).u16(1).u16(3).u16(if format == 12 then 10 else 1).u32(12).bytes(sub).result
+    if format == 12 then
+      val w = writer.u16(12).u16(0).u32(16 + entries.length * 12).u32(0).u32(entries.length)
+      entries.foreach { case (cp, glyph) => w.u32(cp).u32(cp).u32(glyph) }
+      w.result
+    else
+      val bmp = entries.filter(_._1 <= 0xfffe)
+      val segments = bmp.length + 1
+      val w = writer.u16(4).u16(0).u16(0).u16(segments * 2).u16(0).u16(0).u16(0)
+      bmp.foreach(e => w.u16(e._1))
+      w.u16(0xffff).u16(0)
+      bmp.foreach(e => w.u16(e._1))
+      w.u16(0xffff)
+      bmp.foreach(e => w.u16(if rangeOffsets then 0 else (e._2 - e._1) & 0xffff))
+      w.u16(1)
+      // With range offsets, segment i's one glyph is entry i of the glyph array that follows the
+      // idRangeOffset array, which is `segments` words past segment i's own slot.
+      bmp.indices.foreach(_ => w.u16(if rangeOffsets then segments * 2 else 0))
+      w.u16(0)
+      if rangeOffsets then bmp.foreach(e => w.u16(e._2))
+      w.patch16(2, w.size)
+      w.result

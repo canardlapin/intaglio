@@ -305,8 +305,10 @@ object SvgRenderer:
           )
       }
 
-  /** Extra room around bounded ink, in user units (device pixels at the document's own size), for
-    * anti-aliased edges and the viewer's rounding of font ascent and glyph origins.
+  /** Extra room around bounded ink for anti-aliased edges and the viewer's rounding of font ascent
+    * and glyph origins: one SVG user unit. The document's viewBox is its size in device pixels, so
+    * this is one device pixel when the SVG is shown at its own size (`width` by `height` device
+    * pixels); a host that scales the SVG scales the allowance with it.
     */
   private val InkMargin = 1.0
 

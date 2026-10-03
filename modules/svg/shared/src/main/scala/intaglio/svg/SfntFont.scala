@@ -52,6 +52,21 @@ private[svg] final class SfntFont private (
     */
   val hasGlyphOutlines: Boolean = table("glyf").nonEmpty && table("loca").nonEmpty
 
+  /** Reads everything measurements share (the GSUB/GPOS lookup graphs, GDEF classes, the legacy
+    * `kern` table and the derived metrics), so that cost falls on parsing, not on whichever run
+    * happens to be measured first.
+    */
+  private def prepare(): Unit =
+    layouts.foreach(_ => ())
+    gdefClassDef.foreach(_ => ())
+    legacyKernState._1.foreach(_ => ())
+    unmodelledTables.foreach(_ => ())
+    xHeights.foreach(_ => ())
+    if hasMarkPositioning then ()
+
+  /** Gives the next measurement its own step budget. */
+  def startMeasurement(): Unit = reader.resetBudget()
+
   /** Tables whose presence means the viewer may draw or move glyphs in ways this model does not
     * read: variation axes (optical size follows the font size), AAT shaping and tracking, colour
     * and bitmap glyphs, and GSUB/GPOS feature variations.
@@ -294,6 +309,7 @@ private[svg] final class SfntFont private (
       val kind = reader.u16(lookup)
       val count = reader.u16(lookup + 4)
       reader.require(lookup + 6, count * 2)
+      reader.allocate(count)
       Vector.tabulate(count) { sub =>
         reader.step()
         val offset = lookup + reader.u16(lookup + 6 + sub * 2)
@@ -337,6 +353,7 @@ private[svg] final class SfntFont private (
   private def nestedContext(offset: Int): Vector[Int] =
     def records(at: Int, count: Int): Vector[Int] =
       reader.require(at, count * 4)
+      reader.allocate(count + 1)
       Vector.tabulate(count)(i => reader.u16(at + i * 4 + 2))
     def rule(at: Int): Vector[Int] =
       val glyphs = reader.u16(at)
@@ -371,6 +388,7 @@ private[svg] final class SfntFont private (
   private def nestedChain(offset: Int): Vector[Int] =
     def records(at: Int, count: Int): Vector[Int] =
       reader.require(at, count * 4)
+      reader.allocate(count + 1)
       Vector.tabulate(count)(i => reader.u16(at + i * 4 + 2))
     def rule(at: Int): Vector[Int] =
       val backtrack = reader.u16(at)
@@ -585,7 +603,8 @@ private[svg] final class SfntFont private (
           val class1Count = reader.u16(offset + 12)
           val class2Count = reader.u16(offset + 14)
           if class1 >= class1Count || class2 >= class2Count then throw Malformed
-          val at = offset + 16 + (class1 * class2Count + class2) * (size1 + size2)
+          val at =
+            reader.offsetAt(offset + 16, (class1.toLong * class2Count + class2) * (size1 + size2))
           Some((valueRecord(at, format1), valueRecord(at + size1, format2)))
         case _ => throw Malformed
 
@@ -615,7 +634,9 @@ private[svg] final class SfntFont private (
             val markClass = reader.u16(record)
             if markClass >= classCount then throw Malformed
             val (mx, my) = anchor(marks + reader.u16(record + 2))
-            val relative = reader.u16(bases + 2 + (baseIndex * classCount + markClass) * 2)
+            val relative = reader.u16(
+              reader.offsetAt(bases + 2, (baseIndex.toLong * classCount + markClass) * 2)
+            )
             if relative == 0 then Iterator.empty
             else
               val (bx, by) = anchor(bases + relative)
@@ -665,11 +686,12 @@ private[svg] final class SfntFont private (
       value
     }.sum
 
-  /** True when a `kern` table exists that this model cannot read (an Apple-format table, or a
-    * subtable format other than 0) and GPOS has no kern feature, so a viewer would use it.
+  /** True when the face has a `kern` table this model cannot read: an Apple-format table, or a
+    * horizontal subtable that is not a plain format 0 pair list (minimum, cross-stream or another
+    * format). HarfBuzz ignores `kern` when GPOS kerns, but other viewers may not, so such a face is
+    * refused whatever its GPOS holds.
     */
-  lazy val unreadableKern: Boolean =
-    legacyKernState._2 && !layout("GPOS").exists(_.hasKernFeature)
+  lazy val unreadableKern: Boolean = legacyKernState._2
 
   private lazy val legacyKernTables: Vector[(Int, Int)] = legacyKernState._1
 
@@ -692,12 +714,12 @@ private[svg] final class SfntFont private (
             val horizontal = (coverage & 0x1) != 0
             val minimum = (coverage & 0x2) != 0
             val crossStream = (coverage & 0x4) != 0
-            if horizontal && !minimum && !crossStream then
-              if format == 0 then
+            if horizontal then
+              if format == 0 && !minimum && !crossStream then
                 val pairs = reader.u16(at + 6)
                 reader.require(at + 14, pairs * 6)
                 found += ((at + 14, pairs))
-              else unreadable = true
+              else unreadable = true // minimum, cross-stream or another format: not modelled
             // A subtable length is 16 bits and may wrap for large format 0 tables; step by the
             // pair count instead when the header length cannot hold it.
             val advanceBy =
@@ -718,7 +740,7 @@ private[svg] object SfntFont:
 
   /** HarfBuzz's always-on horizontal substitution features for scripts without a complex shaper. */
   val DefaultSubstitutionFeatures: Set[String] =
-    Set("ccmp", "locl", "rlig", "rclt", "calt", "clig", "liga", "rvrn", "ltra", "ltrm")
+    Set("ccmp", "locl", "rlig", "rclt", "calt", "clig", "liga", "rand", "rvrn", "ltra", "ltrm")
 
   /** HarfBuzz's always-on horizontal positioning features. */
   val DefaultPositionFeatures: Set[String] =
@@ -731,9 +753,24 @@ private[svg] object SfntFont:
       xHeight: Option[Int]
   )
 
-  /** Read the table directory and the required tables of a TrueType or OpenType file. */
-  def parse(bytes: Array[Byte]): Option[SfntFont] =
-    guard(read(new Reader(bytes))).flatten
+  /** Steps allowed for parsing a face, including its whole GSUB/GPOS lookup graph. */
+  val ParseBudget: Int = 4000000
+
+  /** Steps allowed for each measurement of one run; reset before every measurement. */
+  val MeasureBudget: Int = 4000000
+
+  /** Layout-table records a face may make the reader keep. */
+  val AllocationBudget: Int = 262144
+
+  /** Read the table directory, the required tables and the layout lookup graph of a TrueType or
+    * OpenType file. Everything a measurement reuses is read here, under the parse budget, so a
+    * measurement's outcome never depends on which runs were measured first.
+    */
+  def parse(bytes: Array[Byte], measureBudget: Int = MeasureBudget): Option[SfntFont] =
+    guard(read(new Reader(bytes, measureBudget)).map { font =>
+      font.prepare()
+      font
+    }).flatten
 
   private def read(reader: Reader): Option[SfntFont] =
     val signature = reader.u32(0)
@@ -804,8 +841,10 @@ private[svg] object SfntFont:
           )
         )
 
-  /** The Unicode subtable a viewer shapes with: a full-repertoire format 12 when present, else a
-    * BMP format 4.
+  /** The Unicode subtable a viewer shapes with, chosen in HarfBuzz's order of encoding records:
+    * (3,10), (0,6), (0,4), (3,1), (0,3), (0,2), (0,1), (0,0). The first record present is the one
+    * used; when its format is neither 4 nor 12 this model maps nothing, so every run in the face
+    * falls back to the estimate rather than guessing from another subtable.
     */
   private def chooseCmap(reader: Reader, location: (Int, Int)): Option[(Int, Int)] =
     val (cmap, length) = location
@@ -820,23 +859,44 @@ private[svg] object SfntFont:
       if relative > length - 4 then throw Malformed
       (platform, encoding, reader.u16(cmap + relative), cmap + relative)
     }
-    def unicode(platform: Int, encoding: Int): Boolean =
-      platform == 0 || (platform == 3 && (encoding == 1 || encoding == 10))
-    subtables
-      .find(s => unicode(s._1, s._2) && s._3 == 12)
-      .orElse(subtables.find(s => unicode(s._1, s._2) && s._3 == 4))
+    val preference = Vector((3, 10), (0, 6), (0, 4), (3, 1), (0, 3), (0, 2), (0, 1), (0, 0))
+    preference.iterator
+      .flatMap(key => subtables.find(s => (s._1, s._2) == key))
+      .nextOption()
+      .filter(s => s._3 == 4 || s._3 == 12)
       .map(s => (s._3, s._4))
 
   /** Big-endian reads that refuse to leave the file, plus a work budget so a hostile table of
     * self-referencing offsets cannot make the model loop for long.
     */
-  private[svg] final class Reader(bytes: Array[Byte]):
+  private[svg] final class Reader(bytes: Array[Byte], measureBudget: Int):
     val length: Int = bytes.length
-    private var budget = 4000000
+    private var budget = ParseBudget
+    private var allocations = AllocationBudget
 
     def step(): Unit =
       budget -= 1
       if budget < 0 then throw Malformed
+
+    /** A fresh step budget for one measurement, so every run gets the same allowance whatever was
+      * measured before it with this face.
+      */
+    def resetBudget(): Unit = budget = measureBudget
+
+    /** Records the reader keeps from layout tables; bounded so a hostile face cannot make the model
+      * hold millions of objects.
+      */
+    def allocate(count: Int): Unit =
+      allocations -= count
+      if allocations < 0 then throw Malformed
+
+    /** `base + relative` for a relative offset computed from untrusted counts, in `Long` so a
+      * product of two 16-bit counts cannot wrap, refused when it leaves the file.
+      */
+    def offsetAt(base: Int, relative: Long): Int =
+      val value = base.toLong + relative
+      if relative < 0L || value > length.toLong then throw Malformed
+      value.toInt
 
     def require(offset: Int, size: Int): Unit =
       if offset < 0 || size < 0 || offset > length || size > length - offset then throw Malformed

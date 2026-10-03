@@ -28,7 +28,7 @@ own metrics at draw time and places the plate around the box it draws the glyphs
 | --- | --- |
 | Java2D | the resolved `java.awt.Font`'s logical bounds, fallback face included |
 | JavaFX | `JavaFxGraphicsContext.measureText`; the live `JavaFxCanvasContext` uses JavaFX's own text layout in the face `Font.font` resolved |
-| Canvas | the context's `measureText`: advance width, font bounding box above and below the baseline |
+| Canvas | the context's `measureText`: the advance width and font bounding box, united with the run's actual glyph bounds (`actualBoundingBox*`) so overhangs stay inside |
 | PDF | the embedded face's advance and ascent-to-descent box |
 | SVG | with an [embedded](svg-fonts.md) TrueType or OpenType face for the run's family and weight: that face's own glyph boxes and metrics (below); otherwise the render context's `TextMetrics`, the measure layout and picking use, because an SVG file cannot know the viewer's font |
 
@@ -44,20 +44,34 @@ its plate with it.
 ## SVG: when the plate is guaranteed to contain the glyphs
 
 An SVG file is drawn by someone else's viewer, which shapes and rasterises the text itself. The SVG
-backend therefore makes a containment promise only when it can read the face the viewer will use.
+backend therefore makes a containment promise only when it can read the face the viewer will use,
+and only as far as that face's own tables describe what the viewer draws.
 
 **With an embedded face.** When `SvgRenderer.render` is given an `SvgFonts` holding a TrueType or
 OpenType face whose family and weight match the run exactly, the plate is the union of the run's
-logical box (its advance by the face's ascent and descent) and the ink of every glyph the viewer may
-draw, plus a one-device-pixel allowance for anti-aliasing and rounding, plus the padding. Glyph
-placement is unchanged: the viewer still anchors the text with `text-anchor` and
-`dominant-baseline`. The ink bound is read from the face's own tables (`cmap`, `hmtx`, `glyf`,
-`OS/2`, `GSUB`, `GPOS`, `kern`) and covers italic overhangs such as DejaVu Serif Italic `j` and
-`fj`, combining marks (as the composite glyph the viewer composes them into when the face has one,
-otherwise unattached and at the face's mark anchors), ligatures, kerning on or off, every anchor and
-rotation, and every ascent, descent and x-height a viewer may take from `hhea` or `OS/2`. A
-CFF-flavoured OpenType face has no per-glyph boxes in a table this backend reads, so each of its
-glyphs is bounded by the font-wide `head` box: contained, but loose.
+logical box (its widest possible advance by the face's ascent and descent) and an ink bound computed
+from the face's own tables under default (HarfBuzz-style) shaping, plus one SVG user unit for
+anti-aliasing and rounding, plus the padding. The document's `viewBox` is its size in device pixels,
+so that allowance is one device pixel when the SVG is shown at its own size; a host that scales the
+SVG scales it too. Glyph placement is unchanged: the viewer still anchors the text with
+`text-anchor` and `dominant-baseline`.
+
+The ink bound reads `cmap`, `hmtx`, `glyf`, `OS/2`, `GDEF`, `GSUB`, `GPOS` and `kern`. It covers
+italic overhangs such as DejaVu Serif Italic `j` and `fj`; combining marks, both as the composite
+glyph a shaper composes them into when the face has one and unattached or at the face's
+mark-to-base and mark-to-mark anchors; ligatures and the substitutions of always-on features
+(`ccmp`, `locl`, `rlig`, `rclt`, `calt`, `clig`, `liga`, `rand`), including those reached only
+through contextual rules; kerning on or off; every anchor and rotation; and every ascent, descent
+and x-height a viewer may take from `hhea` or `OS/2`. It rests on these readings of the face:
+
+- each glyph's box is the bounding box recorded in its `glyf` header, which the format requires to
+  enclose the outline; composite glyphs are not recursed into, so a face whose composite headers
+  understate their components is bounded only as well as it records itself;
+- the code-point mapping is the `cmap` subtable HarfBuzz would choose, by encoding record in the
+  order (3,10), (0,6), (0,4), (3,1), (0,3), (0,2), (0,1), (0,0); if that subtable is not format 4
+  or 12, nothing is mapped and the face is not used;
+- a CFF-flavoured OpenType face has no per-glyph boxes in a table this backend reads, so each of its
+  glyphs is bounded by the font-wide `head` box: contained, but loose.
 
 Checked in Playwright's Chromium 151 at 1x and 2x against independently rendered ink-only and
 plate-only images: all 104 embedded-face cases contain their ink (DejaVu Serif Italic and DejaVu
@@ -72,14 +86,17 @@ Sans; `j`, `fj`, `A` with a combining acute, mixed-width text, space and empty l
 - the face does not map one of the run's code points, so the viewer draws it from a fallback font;
 - the run needs shaping the model does not cover: right-to-left and complex scripts (Arabic,
   Hebrew, Indic, South-East Asian, Hangul jamo), emoji, tabs and line breaks, invisible and
-  directional controls, variation selectors, multiple substitution, cursive or mark-to-ligature
-  attachment, or combining marks in a face without GPOS mark positioning;
+  directional controls, variation selectors, the fraction slash (U+2044, which turns on fraction
+  features), multiple substitution, cursive or mark-to-ligature attachment, or combining marks in a
+  face without GPOS mark positioning;
 - the face has variation axes, AAT shaping or tracking, colour or bitmap glyphs, GSUB/GPOS feature
-  variations, or a table that proves malformed.
+  variations, a `kern` table other than plain horizontal format 0 pairs, or a table that proves
+  malformed or exceeds the reader's work limits.
 
 The guarantee is about the face, not every viewer: a viewer that rejects the font, hints outlines,
 or rounds each glyph advance to whole pixels (some platforms do at 1x) can drift from it by a
-fraction of a pixel per glyph.
+fraction of a pixel per glyph, and a viewer that shapes with features beyond the defaults above
+(for example through CSS `font-feature-settings`, which Intaglio does not write) is not covered.
 
 ## Picking
 

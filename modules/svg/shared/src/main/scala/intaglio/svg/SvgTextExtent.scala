@@ -65,6 +65,7 @@ private[svg] object SvgTextExtent:
       (cp >= 0x1cd0 && cp <= 0x1cff) || // Vedic extensions
       (cp >= 0x200b && cp <= 0x200f) || // zero-width and directional marks
       (cp >= 0x2028 && cp <= 0x202e) || // separators and bidi embeddings
+      cp == 0x2044 || // fraction slash: HarfBuzz applies frac, numr and dnom around it
       (cp >= 0x2060 && cp <= 0x206f) || // invisible operators, bidi isolates
       (cp >= 0x2600 && cp <= 0x27bf) || // symbols with emoji presentation
       (cp >= 0xa800 && cp <= 0xabff) || // Indic and South-East Asian, Hangul jamo extended
@@ -119,6 +120,7 @@ private[svg] object SvgTextExtent:
     * (0 start, 0.5 middle, 1 end).
     */
   def measure(font: SfntFont, cps: Vector[Int], anchorFraction: Double): Either[String, RunExtent] =
+    font.startMeasurement()
     SfntFont.guard(layout(font, cps, anchorFraction)) match
       case Some(result) => result
       case None         => Left("the face has a malformed table")

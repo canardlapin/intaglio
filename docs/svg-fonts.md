@@ -62,11 +62,13 @@ repeats a weight.
 
 ## Text plates
 
-A [text plate](text-plates.md) on a run that uses an embedded TrueType or OpenType face is sized
-from that face's own glyph boxes, so it contains the glyphs the viewer draws from it. Without an
-embedded face, or with a WOFF/WOFF2 face, it is sized from the estimate and containment is not
-guaranteed; [text plates](text-plates.md#svg-when-the-plate-is-guaranteed-to-contain-the-glyphs)
-lists every exclusion.
+A [text plate](text-plates.md) on a run that uses an embedded TrueType or OpenType face at the
+run's exact weight is sized from an ink bound computed from that face's own tables under default
+(HarfBuzz-style) shaping, trusting each glyph's `glyf` header box and the `cmap` subtable HarfBuzz
+would choose. Without such a face (including WOFF/WOFF2 faces), or for a run the model does not
+cover, the plate is sized from the estimate and containment is not guaranteed;
+[text plates](text-plates.md#svg-when-the-plate-is-guaranteed-to-contain-the-glyphs) states the
+readings it relies on and every exclusion.
 
 ## Size
 
