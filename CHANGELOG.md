@@ -63,6 +63,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ComposedParts`, which keeps each composed child's titles, axes and
   annotations its own parts. See [docs/canvas-widget.md](docs/canvas-widget.md).
 
+- **Inspector model and explicit filters.** `InspectorModel.of(state)`
+  separates what a selection means: observations, selected marks and
+  aggregates, how far the selection reaches into each aggregate
+  (`MemberCoverage`), exact members of selected aggregates, aggregates whose
+  coverage cannot be known, unresolved keys and saved selections.
+  `FilterCommand.keep` recompiles a plot from the selected observations with
+  new revisions and returns the input change (rows kept and removed) and the
+  statistical change (targets and member totals before and after) separately;
+  it selects and emphasizes nothing, and applying the new plan reconciles the
+  selection as its own event.
+
 - **Undo and redo.** `InteractionHistory` and `HistoryController` keep
   bounded undo/redo stacks of durable state with documented boundaries:
   reader and application changes are history, projected input is not, a new
