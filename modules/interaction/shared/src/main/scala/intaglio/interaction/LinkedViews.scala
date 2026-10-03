@@ -37,9 +37,11 @@ object LinkedEmphasis:
   */
 final case class LegendLink(legend: String, space: KeySpace[String])
 
-/** Checked compatibility of one position axis between two plots, for views that share a data
-  * window. Two axes link directly only when they are continuous with the same transform and the
-  * same trained domain; otherwise the caller must state an explicit conversion, which is checked.
+/** Checked compatibility of one position axis between two plots, for views that will share a data
+  * window. Two axes link directly only when they are continuous with the same transform (the same
+  * transform value, not merely the same name) and the same trained domain; otherwise the caller
+  * must state an explicit conversion, which is checked. This is a check only: sharing a viewport is
+  * the host's job.
   */
 object LinkedAxes:
   private def continuous(
@@ -57,6 +59,20 @@ object LinkedAxes:
       case None =>
         Left(InteractionError.InvalidValue("linked axis", s"no trained ${aesthetic.label} scale"))
 
+  private def sameTransform(
+      a: ContinuousScale[?],
+      b: ContinuousScale[?],
+      aesthetic: Aesthetic[Double]
+  ): Either[InteractionError, Unit] =
+    Either.cond(
+      a.transform eq b.transform,
+      (),
+      InteractionError.InvalidValue(
+        "linked axis",
+        s"${aesthetic.label} axes use different transforms (${a.transform.name.value}, ${b.transform.name.value})"
+      )
+    )
+
   /** Right when `aesthetic` means the same data position in both plots. */
   def compatible(
       from: TrainedPlot,
@@ -66,14 +82,7 @@ object LinkedAxes:
     for
       a <- continuous(from, aesthetic)
       b <- continuous(to, aesthetic)
-      _ <- Either.cond(
-        a.transform.name == b.transform.name,
-        (),
-        InteractionError.InvalidValue(
-          "linked axis",
-          s"${aesthetic.label} transforms differ: ${a.transform.name.value} and ${b.transform.name.value}"
-        )
-      )
+      _ <- sameTransform(a, b, aesthetic)
       _ <- Either.cond(
         a.domain == b.domain,
         (),
@@ -84,9 +93,10 @@ object LinkedAxes:
       )
     yield ()
 
-  /** Right when `conversion` maps the `from` axis's raw domain onto the `to` axis's raw domain
-    * (both endpoints, within `tolerance` of the target's width) and both axes share a transform. A
-    * caller linking seconds to milliseconds states the conversion; it is never inferred.
+  /** Right when `conversion` carries the `from` axis onto the `to` axis: both share a transform,
+    * and the converted positions of the domain's endpoints and of interior points land at the same
+    * normalized panel position in the target, within `tolerance`. An offset conversion under a
+    * nonlinear transform, which maps the endpoints but bends the interior, is refused.
     */
   def converted(
       from: TrainedPlot,
@@ -95,24 +105,28 @@ object LinkedAxes:
       conversion: Transform,
       tolerance: Double = 1e-9
   ): Either[IntaglioError, Unit] =
+    def normalized(scale: ContinuousScale[?], raw: Double): Either[IntaglioError, Double] =
+      scale.transform.transform(raw).map(t => scale.transformedDomain.rescale(t))
     for
       a <- continuous(from, aesthetic)
       b <- continuous(to, aesthetic)
-      _ <- Either.cond(
-        a.transform.name == b.transform.name,
-        (),
-        InteractionError.InvalidValue("linked axis", s"${aesthetic.label} transforms differ")
-      )
-      lower <- conversion.transform(a.domain.lower)
-      upper <- conversion.transform(a.domain.upper)
-      span = math.max(b.domain.width, 1e-300)
-      _ <- Either.cond(
-        math.abs(lower - b.domain.lower) <= tolerance * span &&
-          math.abs(upper - b.domain.upper) <= tolerance * span,
-        (),
-        InteractionError.InvalidValue(
-          "linked axis",
-          s"conversion ${conversion.name.value} does not map the ${aesthetic.label} domain onto the target"
-        )
-      )
+      _ <- sameTransform(a, b, aesthetic)
+      samples = (0 to 8).map(i => a.domain.lower + a.domain.width * i / 8.0)
+      _ <- samples.foldLeft[Either[IntaglioError, Unit]](Right(())) { (done, x) =>
+        done.flatMap { _ =>
+          for
+            source <- normalized(a, x)
+            mapped <- conversion.transform(x)
+            target <- normalized(b, mapped)
+            _ <- Either.cond(
+              math.abs(source - target) <= tolerance * math.max(1.0, math.abs(source)),
+              (),
+              InteractionError.InvalidValue(
+                "linked axis",
+                s"conversion ${conversion.name.value} does not carry the ${aesthetic.label} axis onto the target"
+              )
+            )
+          yield ()
+        }
+      }
     yield ()

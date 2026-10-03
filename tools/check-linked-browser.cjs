@@ -49,6 +49,18 @@ async function main() {
       await tab.mouse.move(x, y);
       await settle();
       assert.equal(await rings('b', 'linked'), 1);
+      // The ring surrounds the same observation's mark in B, not whatever sits at A's row index.
+      // Containment, not centre distance: a mark at the panel edge has a clipped, off-centre ring.
+      const ringBox = await fx(() => {
+        const r = document.querySelector('[data-intaglio-widget=b] .intaglio-ring-linked').getBoundingClientRect();
+        return [r.left, r.top, r.right, r.bottom];
+      });
+      const markB = await point('b', indexB);
+      assert.ok(markB[0] >= ringBox[0] && markB[0] <= ringBox[2] && markB[1] >= ringBox[1] && markB[1] <= ringBox[3],
+        JSON.stringify({ ringBox, markB }));
+      const markAtSameIndex = await point('b', 4);
+      assert.ok(!(markAtSameIndex[0] >= ringBox[0] && markAtSameIndex[0] <= ringBox[2] &&
+        markAtSameIndex[1] >= ringBox[1] && markAtSameIndex[1] <= ringBox[3]), 'not linked by row index');
       assert.equal(await rings('c', 'linked'), 0, 'bins carry no observation key');
       assert.equal(await rings('d', 'linked'), 0, 'an impostor key space never joins');
       const after = await counts();
@@ -99,7 +111,15 @@ async function main() {
       return { a };
     });
 
-    await check('a legend in a foreign key space selects and clears nothing anywhere', async () => {
+    await check('legend links that cannot link are refused at mount; links do not chain', async () => {
+      const results = await fx(() => window.intaglioLinked.badLegendLinks());
+      assert.match(results[0], /matches no mark/);
+      assert.match(results[1], /draws no legend 'blocks-legend'/);
+      assert.match(await fx(() => window.intaglioLinked.relink()), /already belongs to a live link/);
+      return { results };
+    });
+
+    await check('a legend in a foreign key space selects only its own plot\'s marks', async () => {
       const a = await selected('a');
       const before = await counts();
       const centre = await fx(() => {
@@ -110,7 +130,8 @@ async function main() {
       await tab.mouse.click(centre[0], centre[1]);
       await settle();
       assert.deepEqual(await selected('a'), a);
-      assert.deepEqual(await selected('d'), []);
+      assert.equal((await selected('d')).length, await fx(() => window.intaglioLinked.blockCount('A')));
+      assert.equal(await rings('a', 'linked'), 0);
       const after = await counts();
       assert.equal(after.a, before.a);
       return {};

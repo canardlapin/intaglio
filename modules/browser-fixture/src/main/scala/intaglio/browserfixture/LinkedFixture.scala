@@ -114,12 +114,22 @@ object LinkedFixture:
         "Impostor key space"
       )
     )
+    // Plot d's legend links its own (impostor) category space, as its marks do.
+    val impostorBehavior = behavior.withLegendLink(LegendLink("block-legend", impostorBlocks))
+    // The histogram draws no block legend, so it carries no legend link.
+    val histogramBehavior = InteractionBehavior
+      .describingEntities[String](id => s"trial $id")
+      .withInverseEmphasis(true)
+    def behaviorOf(slot: String) = slot match
+      case "d" => impostorBehavior
+      case "c" => histogramBehavior
+      case _   => behavior
     val widgets = slots.map { slot =>
       slot -> orThrow(
         SvgWidget.mount(
           document.getElementById(s"linked-$slot"),
           views(slot),
-          behavior,
+          behaviorOf(slot),
           label = s"plot $slot"
         )
       )
@@ -134,6 +144,7 @@ object LinkedFixture:
     val slotOf = widgets.map(_.swap)
     var link = orThrow(
       WidgetLink.connect(
+        trialSpace,
         slots.map(widgets),
         (widget, keys) =>
           missing.push(s"${slotOf(widget)}:${keys.map(_.value).toVector.sorted.mkString(",")}")
@@ -193,6 +204,31 @@ object LinkedFixture:
 
     def unlink(): Unit = link.dispose()
 
+    /** Legend links that cannot link anything are refused at mount, not discovered at run time. */
+    def badLegendLinks(): js.Array[String] =
+      val scratch = document.createElement("div")
+      document.body.appendChild(scratch)
+      def attempt(link: LegendLink, prefix: String): String =
+        SvgWidget
+          .mount(
+            scratch,
+            scatter(trials, prefix, "x1", impostor, impostorBlocks, _.rt, _.accuracy, "probe"),
+            InteractionBehavior.default[String].withLegendLink(link)
+          )
+          .fold(_.message, widget => { widget.dispose(); "mounted" })
+      val results = js.Array(
+        attempt(LegendLink("block-legend", blocks), "probe1"),
+        attempt(LegendLink("blocks-legend", impostorBlocks), "probe2")
+      )
+      document.body.removeChild(scratch)
+      results
+
+    /** A widget already in a live link cannot join another. */
+    def relink(): String =
+      WidgetLink
+        .connect(trialSpace, Vector(widgets("a"), widgets("b")))
+        .fold(_.message, _ => "linked")
+
     g.window.intaglioLinked = js.Dynamic.literal(
       events = events,
       missing = missing,
@@ -206,5 +242,7 @@ object LinkedFixture:
       replaceB = () => replaceB(),
       selectInA = (ids: js.Array[String]) => selectInA(ids),
       unlink = () => unlink(),
+      badLegendLinks = () => badLegendLinks(),
+      relink = () => relink(),
       ready = true
     )

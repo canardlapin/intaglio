@@ -66,6 +66,9 @@ final class SvgWidget[A] private (
   private var linkedEmphasis: LinkedEmphasis[A] = LinkedEmphasis.none[A]
   private var legendEmphasis: LinkedEmphasis[A] = LinkedEmphasis.none[A]
   private var hoverListeners = Vector.empty[(Long, LinkedEmphasis[A] => Unit)]
+
+  /** The live link this widget belongs to, if any; a widget joins at most one. */
+  private[browser] var link: Option[AnyRef] = None
   private var nextHoverListener = 0L
 
   /** What the visible (or pending) tooltip describes, so each source hides only its own tooltip. */
@@ -340,6 +343,8 @@ final class SvgWidget[A] private (
     }
     listeners.on(plotHost, "focus") { _ => scheduleRedraw() }
     listeners.on(plotHost, "blur") { _ =>
+      if controller.state.toOption.forall(_.hover.isEmpty) && hoveredPart.isEmpty then
+        emitHover(LinkedEmphasis.none[A])
       hideTooltip()
       scheduleRedraw()
     }
@@ -506,6 +511,9 @@ final class SvgWidget[A] private (
         hideTooltip(TooltipSource.Hover)
       case InteractionEvent.FocusChanged(Some(target)) =>
         live.textContent = view.describe(target, behavior)
+        // Keyboard focus points at a mark as hover does, so linked views show it too.
+        if record.stamp.cause == InputCause.Keyboard then
+          emitHover(LinkedEmphasis[A](entities = target.entity.toSet))
         if record.stamp.cause == InputCause.Keyboard then
           hideTooltip()
           behavior
@@ -699,6 +707,7 @@ object SvgWidget:
       )
     else
       for
+        _ <- validateLegendLinks(view, behavior)
         domain <- InteractionDomain(Vector(view.plan), view.plan.revision)
         state <- InteractionState.initial(domain, behavior.selection, selection)
         origin <- SemanticId(s"${view.idPrefix}-widget")
@@ -711,6 +720,45 @@ object SvgWidget:
         label,
         onError
       )
+
+  /** Every [[LegendLink]] must name a legend this plot draws (by its guide name,
+    * `<scale name>-legend` for a derived legend), and every entry's label must be a link key some
+    * mark binds in the link's space. A mismatch (a misspelled legend, a label that differs from the
+    * bound category, a different key space) is refused here rather than linking nothing at run
+    * time.
+    */
+  private def validateLegendLinks[A](
+      view: SvgWidgetView[A],
+      behavior: InteractionBehavior[A]
+  ): Either[IntaglioError, Unit] =
+    val targets = view.navigation.targets.map(_.target)
+    behavior.legendLinks.foldLeft[Either[IntaglioError, Unit]](Right(())) { (done, link) =>
+      done.flatMap { _ =>
+        val entries = view.parts.parts.map(_.part).collect {
+          case entry: PlotPart.LegendEntry if entry.legend == link.legend => entry
+        }
+        if entries.isEmpty then
+          Left(
+            InteractionError
+              .InvalidValue("legend link", s"this plot draws no legend '${link.legend}'")
+          )
+        else
+          entries.foldLeft[Either[IntaglioError, Unit]](Right(())) { (ok, entry) =>
+            ok.flatMap { _ =>
+              link.space.link(entry.label).flatMap { key =>
+                Either.cond(
+                  targets.exists(_.links.contains(key)),
+                  (),
+                  InteractionError.InvalidValue(
+                    "legend link",
+                    s"legend '${link.legend}' entry '${entry.label}' matches no mark's link key"
+                  )
+                )
+              }
+            }
+          }
+      }
+    }
 
   /** An SVG path for every ring of an outline, in device pixels. */
   private[browser] def pathData(outline: TargetOutline): String =

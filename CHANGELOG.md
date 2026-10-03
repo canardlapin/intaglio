@@ -39,6 +39,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Linked views.** `WidgetLink.connect` links browser widgets over one key
+  space: reader selections project silently by entity key (missing keys
+  reported), hover is shared as linked emphasis, legend entries named by a
+  `LegendLink` emphasize and select their category, and histogram bins stay
+  bins. Shared pieces: `SelectionProjection`, `LinkedEmphasis`,
+  `LinkKeys.contains`, and `LinkedAxes` checks with explicit conversions.
+
 - **Interactive SVG widget (`intaglio-browser`, Scala.js).** `SvgWidget.mount`
   turns a compiled interaction plan into an accessible widget: tooltips,
   hover and selection rings, inverse emphasis in the marks' original paint,

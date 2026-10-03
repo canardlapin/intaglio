@@ -177,6 +177,7 @@ MissingClassProblem intaglio.interaction.CoverageEntry
 MissingClassProblem intaglio.interaction.CoverageEntry$
 MissingClassProblem intaglio.interaction.InteractionCoverage
 MissingClassProblem intaglio.interaction.InteractionCoverage$
+DirectMissingMethodProblem intaglio.interaction.LinkKeys.contains
 MissingClassProblem intaglio.interaction.PartTarget
 MissingClassProblem intaglio.interaction.PartTarget$
 MissingClassProblem intaglio.interaction.PlotPart

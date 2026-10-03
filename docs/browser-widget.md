@@ -47,6 +47,40 @@ attributes.
 views cannot echo each other. `widget.update(view)` shows a new view of the same plot and
 reconciles the selection by entity key, reporting dropped entities in a `Reconciled` event.
 
+## Linked views
+
+`WidgetLink.connect(space, Vector(a, b, c))` links widgets over the observation keys of one
+`KeySpace` instance. The link owns one group selection of those keys:
+
+- a reader's change in one plot (keys added or removed, among the keys that plot draws as marks)
+  updates the group, and every other plot shows the group selection projected into its own keys,
+  whatever its row order or arrangement. Keys a plot does not contain are reported through
+  `onMissing`, never invented, and survive a reader's additive change in another plot;
+- what the reader points at (a hovered or keyboard-focused mark, or a linked legend entry) is
+  shown in the other plots as dotted linked rings and counts toward inverse emphasis;
+- projection is `Projected` input and emphasis is display only, so links never echo or loop. A
+  projection a plot refuses (several keys into a single-selection plot) is reported through
+  `onError`. A widget belongs to at most one live link;
+- a change that adds or removes no observation keys the plot draws, such as selecting, toggling
+  or clearing histogram bins as bins, stays in its plot. A bin is never reported as its member
+  observations (exact members are a later capability).
+
+A plot keyed by another space, even one with the same namespace text, never feeds the group and
+is reported missing for every key. `InteractionBehavior.withLegendLink(LegendLink(legend, space))`
+makes a keyed legend's entries stand for link keys of `space`, bound by
+`LayerBinding(...).withLinks(space)(row => category)`. `legend` is the legend's guide name: for a
+derived legend, the scale name followed by `-legend` (`scaleColorDiscrete(..., name = "block")`
+gives `block-legend`). Hovering an entry emphasizes its category's marks; clicking selects them as
+a reader action, which the link then projects. Mounting refuses a legend link that names no
+legend in the plot, or whose entry labels match no mark's link key.
+
+`LinkedAxes.compatible` checks whether two plots' axes mean the same data position (the same
+transform value and domain), and `LinkedAxes.converted` checks an explicit conversion, such as
+seconds to milliseconds, at the endpoints and interior. These are checks only: no host shares a
+data window between plots yet (that arrives with pan and zoom). The linked fixture
+([`LinkedFixture.scala`](../modules/browser-fixture/src/main/scala/intaglio/browserfixture/LinkedFixture.scala))
+is checked by `tools/check-linked-browser.cjs`.
+
 ## Keyboard and accessibility
 
 The plot is one tab stop. Arrow keys move focus to the nearest mark in that direction; Home and
@@ -78,5 +112,5 @@ profile. It covers pointer, keyboard, tooltip edges, two isolated widgets, appli
 update, reduced motion, device scale 2 and 25 mount/dispose cycles, and writes screenshots and a
 JSON report.
 
-Not yet covered: region selection and pan/zoom (Interaction 05), linked plots (06), standalone
-HTML packaging and a toolbar (07), and Canvas (08).
+Not yet covered: region selection and pan/zoom (Interaction 05), standalone HTML packaging and a
+toolbar (07), and Canvas (08).

@@ -150,6 +150,28 @@ class LinkedViewsSuite extends munit.FunSuite:
     assert(LinkedAxes.converted(seconds, ms, Aesthetic.X, toMs).isRight)
     val wrong = ok(Transform("seconds-to-cs", _ * 100.0, _ / 100.0))
     assert(LinkedAxes.converted(seconds, ms, Aesthetic.X, wrong).isLeft)
+    // Two different transforms that share a name are not the same axis.
+    val fakeLog = ok(Transform("log10", v => v, v => v))
+    val fakeLogSeconds =
+      trained(plot(rows).aes(_.seconds, _.ms).scaleXContinuous(transform = fakeLog).geomPoint())
+    assert(LinkedAxes.compatible(logSeconds, fakeLogSeconds, Aesthetic.X).isLeft)
+    // A proportional conversion keeps the interior under a log transform; an offset bends it.
+    val logMs =
+      trained(
+        plot(rows).aes(_.ms, _.seconds).scaleXContinuous(transform = Transform.log10).geomPoint()
+      )
+    assert(LinkedAxes.converted(logSeconds, logMs, Aesthetic.X, toMs).isRight)
+    val temps = Vector(Timing(1, 274.15), Timing(10, 283.15), Timing(100, 373.15))
+    val logC =
+      trained(
+        plot(temps).aes(_.seconds, _.ms).scaleXContinuous(transform = Transform.log10).geomPoint()
+      )
+    val logK =
+      trained(
+        plot(temps).aes(_.ms, _.seconds).scaleXContinuous(transform = Transform.log10).geomPoint()
+      )
+    val toKelvin = ok(Transform("c-to-k", _ + 273.15, _ - 273.15))
+    assert(LinkedAxes.converted(logC, logK, Aesthetic.X, toKelvin).isLeft)
     assert(
       LinkedAxes
         .compatible(seconds, ok(plot(rows).aes(_.seconds, _.ms).geomPoint().resolve), Aesthetic.X)
