@@ -54,7 +54,8 @@ final class SvgWidget[A] private (
     origin: SemanticId,
     label: String,
     onError: IntaglioError => Unit,
-    options: WidgetOptions
+    options: WidgetOptions,
+    resolver: Option[MembershipResolver[A]]
 ):
   private val document = g.document
   private val listeners = Listeners()
@@ -262,6 +263,48 @@ final class SvgWidget[A] private (
   def drawnEntities: Set[EntityKey[A]] =
     view.navigation.targets.flatMap(_.target.entity).toSet
 
+  /** The observation keys a reader can select in this plot: those it draws as marks, and the exact
+    * members of aggregates that select their members (every source observation of a plot whose
+    * aggregates resolve their members on request). A linked group takes a reader's change in these
+    * keys only, so keys merely projected into a histogram never flow back out of it.
+    */
+  def selectableEntities: Set[EntityKey[A]] =
+    val members = view.navigation.targets.iterator.map(_.target).flatMap { info =>
+      if info.entity.nonEmpty || behavior.aggregates(info) != AggregateSelection.Members then
+        Iterator.empty
+      else
+        info.membership.capability match
+          case MembershipCapability.Exact =>
+            view.plans.find(_.id == info.id.plan).iterator.flatMap { plan =>
+              info.membership.exactKeys(plan.sourceRevision).toOption.iterator.flatten
+            }
+          case MembershipCapability.Deferred =>
+            view.plans.find(_.id == info.id.plan).iterator.flatMap(_.sourceEntities)
+          case _ => Iterator.empty
+    }
+    drawnEntities ++ members
+
+  /** "k of n selected" for an aggregate whose members are known exactly. */
+  private def coverageNote(target: TargetInfo[A]): Option[String] =
+    if target.entity.nonEmpty then None
+    else
+      controller.state.toOption.flatMap { current =>
+        MemberCoverage.of(target, current.selection.entities, current.domain) match
+          case MemberCoverage.Known(selected, total) => Some(s"$selected of $total selected")
+          case _                                     => None
+      }
+
+  private def withCoverage(content: TargetContent, target: TargetInfo[A]): TargetContent =
+    coverageNote(target).fold(content) { note =>
+      content match
+        case TargetContent.Text(value)         => TargetContent.Text(s"$value ($note)")
+        case TargetContent.Fields(title, rows) =>
+          TargetField("selected", note).fold(
+            _ => content,
+            row => TargetContent.Fields(title, rows :+ row)
+          )
+    }
+
   /** Show the data window `value` (in panel position units; [[PanelWindow.full]] resets). The
     * statistics are not recomputed; marks, targets and selection stay. Refused when the plot cannot
     * be navigated (faceted, flipped, or with no numeric or temporal axis).
@@ -456,7 +499,11 @@ final class SvgWidget[A] private (
 
   private def fillCompanion(): Unit =
     companionBody.textContent = ""
-    view.companionRows(behavior).foreach { (kind, text) =>
+    val marks = view.navigation.targets.map { g =>
+      val text = view.describe(g.target, behavior)
+      ("mark", coverageNote(g.target).fold(text)(note => s"$text ($note)"))
+    }
+    (marks ++ view.parts.parts.map(part => ("part", part.part.describe))).foreach { (kind, text) =>
       val row = element("tr")
       val k = element("td")
       k.textContent = kind
@@ -1143,7 +1190,13 @@ final class SvgWidget[A] private (
         hideTooltip(TooltipSource.Hover)
         hideTooltip(TooltipSource.Part)
         behavior.tooltip(target).foreach { content =>
-          showTooltip(content, pointer, anchorOf(target), immediate = false, TooltipSource.Hover)
+          showTooltip(
+            withCoverage(content, target),
+            pointer,
+            anchorOf(target),
+            immediate = false,
+            TooltipSource.Hover
+          )
         }
       case InteractionEvent.HoverChanged(None) =>
         if hoveredPart.isEmpty then emitHover(LinkedEmphasis.none[A])
@@ -1170,6 +1223,34 @@ final class SvgWidget[A] private (
             if link.newContext then g.window.open(link.url, "_blank", "noopener,noreferrer")
             else g.window.location.assign(link.url)
           }
+      case InteractionEvent.MembershipRequested(request) =>
+        resolver.foreach { service =>
+          // A reply may come at once, during this delivery, or much later; it is always
+          // dispatched on a later task, and the reducer rejects one that is no longer current.
+          val deliver: MembershipReply[A] => Unit = reply =>
+            val send: js.Function0[Unit] = () =>
+              if !disposed then
+                dispatch(
+                  InteractionAction.ResolveMembers(request.target, request.id, reply),
+                  InputCause.Programmatic
+                ).left.foreach(report)
+            g.setTimeout(send, 0)
+          try service.resolve(request, deliver)
+          catch case NonFatal(error) => deliver(MembershipReply.Failed(error.toString))
+        }
+      case InteractionEvent.MembershipResolved(_, _, outcome) =>
+        outcome match
+          case MembershipOutcome.Complete(count) =>
+            live.textContent = s"$count observations selected"
+          case MembershipOutcome.Unavailable(reason) =>
+            live.textContent = s"Members unavailable: $reason"
+          case MembershipOutcome.Failed(reason) =>
+            live.textContent = s"Members could not be retrieved: $reason"
+          case MembershipOutcome.Pending | MembershipOutcome.Rejected(_) => ()
+        if companion.open.asInstanceOf[Boolean] then fillCompanion()
+      case InteractionEvent.SelectionChanged(_) =>
+        // Coverage counts in the companion follow the selection.
+        if companion.open.asInstanceOf[Boolean] then fillCompanion()
       case _ => ()
     scheduleRedraw()
 
@@ -1274,17 +1355,30 @@ final class SvgWidget[A] private (
               geometry.target.entity.exists(current.selection.entities.contains) =>
           geometry.target.id
       }
+      // Aggregates are pointed at by coverage: a hovered observation in a linked plot emphasizes the
+      // bins that hold it, and selected observations cover bins by the behaviour's rule.
       val linkedIds = view.navigation.targets.collect {
         case geometry
-            if linkedEmphasis.matches(geometry.target) || legendEmphasis.matches(geometry.target) =>
+            if linkedEmphasis.covers(geometry.target, EmphasisRule.AnyMember, current.domain) ||
+              legendEmphasis.matches(geometry.target) =>
           geometry.target.id
       }
-      val emphasized = (selectedIds ++ current.hover.toVector ++ linkedIds).distinct
+      val coveredIds = view.navigation.targets.collect {
+        case geometry
+            if geometry.target.entity.isEmpty &&
+              !current.selection.targets.contains(geometry.target.id) &&
+              behavior.aggregateEmphasis.triggered(
+                MemberCoverage.of(geometry.target, current.selection.entities, current.domain)
+              ) =>
+          geometry.target.id
+      }
+      val emphasized = (selectedIds ++ coveredIds ++ current.hover.toVector ++ linkedIds).distinct
       val dim = behavior.inverseEmphasis && emphasized.nonEmpty
       plotHost.classList.toggle("intaglio-dimmed", dim)
       if dim then emphasize(emphasized)
       linkedIds.foreach(ring(_, "intaglio-ring-linked", 3.0))
       selectedIds.foreach(ring(_, "intaglio-ring-selected", 2.0))
+      coveredIds.foreach(ring(_, "intaglio-ring-covered", 2.0))
       current.hover.foreach(ring(_, "intaglio-ring-hover", 3.0))
       hoveredPart.foreach { part =>
         view.parts.outline(part, 3.0).toOption.flatten.foreach(path(_, "intaglio-ring-hover"))
@@ -1347,7 +1441,8 @@ object SvgWidget:
       selection: Selection[A] = Selection[A](),
       label: String = "Interactive plot",
       onError: IntaglioError => Unit = error => g.console.error(error.message),
-      options: WidgetOptions = WidgetOptions()
+      options: WidgetOptions = WidgetOptions(),
+      resolver: Option[MembershipResolver[A]] = None
   ): Either[IntaglioError, SvgWidget[A]] =
     if js.isUndefined(container) || container == null then
       Left(InteractionError.InvalidValue("widget container", "no DOM element"))
@@ -1368,6 +1463,8 @@ object SvgWidget:
         _ <-
           if options.renderer == WidgetRenderer.Canvas then CanvasSurface.available else Right(())
         _ <- validateLegendLinks(view, behavior)
+        _ <- behavior.validateAggregates(view.plans)
+        _ <- validateResolver(view, behavior, resolver)
         domain <- InteractionDomain(view.plans, view.revision)
         state <- InteractionState.initial(domain, behavior.selection, selection)
         origin <- SemanticId(s"${view.idPrefix}-widget")
@@ -1379,8 +1476,31 @@ object SvgWidget:
         origin,
         label,
         onError,
-        options
+        options,
+        resolver
       )
+
+  /** Members-mode aggregates whose members are deferred need a resolver to ask. */
+  private def validateResolver[A](
+      view: SvgWidgetView[A],
+      behavior: InteractionBehavior[A],
+      resolver: Option[MembershipResolver[A]]
+  ): Either[IntaglioError, Unit] =
+    val deferred = view.plans.iterator
+      .flatMap(_.groups)
+      .flatMap(group => Iterator.range(0, group.size).flatMap(i => group.at(i).toOption))
+      .exists(info =>
+        info.entity.isEmpty && behavior.aggregates(info) == AggregateSelection.Members &&
+          info.membership.capability == MembershipCapability.Deferred
+      )
+    if deferred && resolver.isEmpty then
+      Left(
+        InteractionError.InvalidValue(
+          "membership resolver",
+          "deferred aggregate members are selected on request; mount with a MembershipResolver"
+        )
+      )
+    else Right(())
 
   /** Every [[LegendLink]] must name a legend this plot draws (by its guide name,
     * `<scale name>-legend` for a derived legend), and every entry's label must be a link key some
@@ -1478,6 +1598,7 @@ object SvgWidget:
       |.intaglio-ring-hover{stroke:var(--intaglio-hover);stroke-width:2}
       |.intaglio-ring-linked{stroke:var(--intaglio-linked);stroke-width:2;stroke-dasharray:2 2}
       |.intaglio-ring-selected{stroke:var(--intaglio-selected);stroke-width:2.5}
+      |.intaglio-ring-covered{stroke:var(--intaglio-selected);stroke-width:2;stroke-dasharray:5 3}
       |.intaglio-ring-focus-halo{stroke:var(--intaglio-focus-halo);stroke-width:5}
       |.intaglio-ring-focus{stroke:var(--intaglio-focus);stroke-width:2.5;stroke-dasharray:4 2}
       |.intaglio-tooltip{position:absolute;z-index:1;max-width:min(18rem,100%);box-sizing:border-box;padding:4px 8px;

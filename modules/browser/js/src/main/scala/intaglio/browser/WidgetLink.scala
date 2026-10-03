@@ -64,7 +64,7 @@ final class WidgetLink[A] private (
     // A reader can only add or remove observations this plot draws as marks; keys it holds only
     // because they were projected into it (a histogram holds them all, drawing none) are not its.
     // Only keys of the link's space count; a member keyed by another space never feeds the group.
-    val drawn = inSpace(widgets(i).drawnEntities)
+    val drawn = inSpace(widgets(i).selectableEntities)
     val mine = inSpace(now)
     val added = (mine -- before).intersect(drawn)
     val removed = (before -- mine).intersect(drawn)

@@ -291,3 +291,47 @@ class MembershipResolverSuite extends munit.FunSuite:
     assert(outcomes(borrowed).head.isInstanceOf[MembershipOutcome.Rejected])
     assertEquals(borrowed.state.selection, Selection[Int]())
   }
+
+  test(
+    "a host click on a deferred bin in Members mode asks for its members; a sweep leaves it alone"
+  ) {
+    val context = RenderContext.unsafe(300, 200)
+    val placed = ok(
+      InteractionCompiler.compile(
+        ok(
+          Plot(data).addLayer(Layer.histogram[Obs](_.x, bins = HistogramBins.breaksUnsafe(breaks)))
+        ),
+        space,
+        ok(DataRevision("d")),
+        SemanticId.unsafe("placed"),
+        ok(PlanRevision("p")),
+        PlotCompilerOptions(renderContext = Some(context), guides = GuidePolicy.Derived()),
+        MembershipRetention.Deferred
+      )(_.id)
+    )
+    val picking = ok(Picking.compile(placed, context))
+    val navigation = picking.prepareNavigation()
+    val host = HostInput(
+      picking,
+      navigation,
+      ok(PickViewport.fit(300, 200, 0, 0, 300, 200)),
+      InteractionBehavior.default[Int].withAggregateSelection(_ => AggregateSelection.Members)
+    )
+    val state = ok(InteractionState.initial(ok(InteractionDomain(Vector(placed), placed.revision))))
+    val bar = navigation.targets.head
+    val actions =
+      ok(host.pointer(state, PointerInput.Click(bar.anchor.x, bar.anchor.y, additive = false)))
+    assert(
+      actions.exists(
+        _.action == InteractionAction.RequestMembers(bar.target.id, 1L, SelectionOperation.Replace)
+      ),
+      actions.toString
+    )
+    val swept = host.region(
+      state,
+      ok(PickArea.rectangle(0, 0, 300, 200)),
+      AreaRule.Intersecting,
+      SelectionOperation.Replace
+    )
+    assert(swept.forall(_.action.isInstanceOf[InteractionAction.Select[?]]), swept.toString)
+  }

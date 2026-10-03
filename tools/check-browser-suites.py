@@ -9,7 +9,7 @@ embed it (a DejaVu Sans file is what earlier receipts used). Needs Node with Pla
 NODE_PATH and its Chromium installed. Audit browser ownership before and after (see AGENTS.md).
 
 Jobs: paired SVG/Canvas baseline, parity and navigation; widget, linked, export and standalone on
-each backend; the established SVG navigation suite. Widget and linked traces must be identical
+each backend; the established SVG navigation suite; aggregate membership on both backends. Widget and linked traces must be identical
 across backends. Exits nonzero unless every job passes.
 """
 
@@ -110,6 +110,8 @@ def run_suites(root: Path, commit: str, out: Path, font: Path) -> int:
             )
             jobs.append((f"{suite}-{renderer}", script, renderer))
     jobs.append(("navigation-svg", "navigation", "svg"))
+    # Aggregate membership runs both backends itself.
+    jobs.append(("membership", "membership", "svg"))
 
     def run(job):
         name, script, renderer = job

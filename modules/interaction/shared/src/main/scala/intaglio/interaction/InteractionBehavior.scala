@@ -133,7 +133,8 @@ final case class InteractionBehavior[A] private (
     selection: SelectionMode,
     legendLinks: Vector[LegendLink] = Vector.empty,
     aggregates: TargetInfo[A] => AggregateSelection = (_: TargetInfo[A]) =>
-      AggregateSelection.Target
+      AggregateSelection.Target,
+    aggregateEmphasis: EmphasisRule = EmphasisRule.AnyMember
 ):
   def withTooltip(value: TargetInfo[A] => Option[TargetContent]): InteractionBehavior[A] =
     copy(tooltip = value)
@@ -148,6 +149,12 @@ final case class InteractionBehavior[A] private (
     */
   def withAggregateSelection(value: TargetInfo[A] => AggregateSelection): InteractionBehavior[A] =
     copy(aggregates = value)
+
+  /** How much of an aggregate's exact membership a selection must cover for the aggregate to be
+    * emphasized and outlined as covered: any member (the default), all of them, or a fraction.
+    */
+  def withAggregateEmphasis(value: EmphasisRule): InteractionBehavior[A] =
+    copy(aggregateEmphasis = value)
 
   /** Checked at mount: every aggregate this behaviour selects by its members must be able to
     * deliver them (exact or deferred membership), so a count-only plan fails here rather than at

@@ -83,6 +83,29 @@ seconds to milliseconds, at the endpoints and interior. These are checks only: p
 ([`LinkedFixture.scala`](../modules/browser-fixture/src/main/scala/intaglio/browserfixture/LinkedFixture.scala))
 is checked by `tools/check-linked-browser.cjs`.
 
+## Aggregate members
+
+A histogram bin or summary interval is selected as itself by default. With
+`InteractionBehavior.withAggregateSelection(_ => AggregateSelection.Members)` a click, Enter or
+region sweep selects its contributing observations instead, so linked plots show exactly those
+observations. This needs membership the plan can deliver: compile with
+`MembershipRetention.ExactKeys`, or with `MembershipRetention.Deferred` and mount with a
+`MembershipResolver` that fetches members on request. Mounting refuses Members mode on a plan that
+keeps only counts, and deferred members without a resolver.
+
+- A deferred bin asks the resolver when it is chosen; its reply is applied only if it answers the
+  latest request with exactly the bin's members, and the live region announces the outcome.
+  Superseded, partial and failed replies change nothing. A region sweep selects only aggregates whose
+  members are already known.
+- A linked selection shows how much of each bin it covers: the tooltip and text companion read
+  "k of n selected", and a bin covered by the behaviour's `EmphasisRule` (any member by default, all,
+  or `EmphasisRule.fraction(p)`) gets a dashed outline and counts toward inverse emphasis. A bin
+  whose members are not known exactly shows no count, never "0 of n".
+- Pointing at an observation in a linked plot emphasizes the bins that hold it.
+
+Checked on SVG and Canvas by `tools/check-membership-browser.cjs`, against bins recomputed from the
+raw values.
+
 ## Selecting regions and navigating
 
 A toolbar above the plot chooses what a drag does: **Inspect** (point and click), **Select

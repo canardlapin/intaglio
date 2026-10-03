@@ -148,9 +148,13 @@ final class HostInput[A](
     if state.selectionMode == SelectionMode.Disabled then Vector.empty
     else
       val covered = picking.select(area, rule)
-      val (aggregates, targets) = covered
+      // A sweep selects the members of aggregates that hold them; a deferred aggregate's members
+      // come only through a click or Enter, which asks the resolver, so a sweep leaves it alone.
+      val (members, targets) = covered
         .filter(_.entity.isEmpty)
         .partition(info => behavior.aggregates(info) == AggregateSelection.Members)
+      val aggregates =
+        members.filter(_.membership.capability != MembershipCapability.Deferred)
       val selection = Selection[A](covered.flatMap(_.entity).toSet, targets.map(_.id).toSet)
       // A single-selection plot cannot hold a sweep of several marks: the sweep does nothing.
       // Several marks of one observation (a point and its label) are one selection.
@@ -174,7 +178,14 @@ final class HostInput[A](
     val action: InteractionAction[A] = target.entity match
       case Some(key) => InteractionAction.Select(Selection(Set(key)), operation)
       case None if behavior.aggregates(target) == AggregateSelection.Members =>
-        InteractionAction.SelectMembers(Set(target.id), operation)
+        if target.membership.capability == MembershipCapability.Deferred then
+          // The next id for this target; the host hands the recorded request to its resolver.
+          InteractionAction.RequestMembers(
+            target.id,
+            state.requestMarks.get(target.id).fold(1L)(_ + 1L),
+            operation
+          )
+        else InteractionAction.SelectMembers(Set(target.id), operation)
       case None => InteractionAction.Select(Selection[A](targets = Set(target.id)), operation)
     val select =
       if state.selectionMode == SelectionMode.Disabled then Vector.empty

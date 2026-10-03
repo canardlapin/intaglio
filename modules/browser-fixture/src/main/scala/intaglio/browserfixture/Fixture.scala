@@ -119,6 +119,7 @@ object Fixture:
   def main(args: Array[String]): Unit =
     if g.document.getElementById("baseline") != null then CanvasBaselineFixture.run()
     else if g.document.getElementById("parity") != null then CanvasParityFixture.run()
+    else if g.document.getElementById("members-a") != null then MembershipFixture.run()
     else if g.document.getElementById("linked-a") != null then LinkedFixture.run()
     else if g.document.getElementById("nav-linear") != null then NavigationFixture.run()
     else widgetPage()

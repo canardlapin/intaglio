@@ -181,3 +181,19 @@ These receipts qualify the tested Chromium version. Other browser engines, hoste
 large-workload performance/capacity, analytical extensions and the later Interaction 09–12
 qualification work are not certified here. See [Canvas widget contracts](canvas-widget.md) for
 backing-store bounds, supported paints, lifecycle and error behaviour.
+
+## Analytical extension: aggregate membership (Interaction 09)
+
+Beyond the baseline, separately from it: an aggregate's exact members, linked coverage and deferred
+resolution. Receipts are `tools/check-membership-browser.cjs` on SVG and Canvas, against bins
+recomputed from the raw values, and the shared suites `MemberSelectionSuite`,
+`MembershipResolverSuite` and `MemberCoverageSuite` (JVM and Scala.js).
+
+| Part | SVG | Canvas | Evidence |
+| --- | --- | --- | --- |
+| A bin selects exactly its members; the bin itself stays a separate, plot-local selection | Pass | Pass | "clicking each bin selects exactly its members, in the histogram and both scatters" |
+| Counts, representatives, partial or stale membership never become a selection | Pass | Pass | `MemberSelectionSuite`; "superseded, short and failed replies change nothing" |
+| Deferred members: pending, unavailable, failed and complete replies; late replies rejected | Pass | Pass | `MembershipResolverSuite`; the two deferred-bin browser checks |
+| Linked plots show partial-selection counts and any/all/fraction emphasis | Pass | Pass | "an area selected in a scatter shows each bin's covered count and rings bins covered by half" (counts 3/7, 4/8, 4/8, 4/7) |
+| Filtering or recomputing a statistic from a selection | Gap | Gap | an explicit application action; not part of this extension |
+

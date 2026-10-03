@@ -63,6 +63,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ComposedParts`, which keeps each composed child's titles, axes and
   annotations its own parts. See [docs/canvas-widget.md](docs/canvas-widget.md).
 
+- **Aggregate members in the browser widget.** In `AggregateSelection.Members`
+  mode a histogram bin selects its exact members, and linked plots show them;
+  a deferred bin asks the `MembershipResolver` passed to `SvgWidget.mount`,
+  and the live region announces the outcome. Linked selections show each
+  bin's coverage ("k of n selected" in the tooltip and text companion) and
+  outline bins covered by `InteractionBehavior.withAggregateEmphasis`.
+  `SvgWidget.selectableEntities` is what a `WidgetLink` now forwards: drawn
+  marks plus exact members of Members-mode aggregates. Mounting refuses
+  Members mode without deliverable membership, and deferred members without a
+  resolver. Checked on SVG and Canvas by `tools/check-membership-browser.cjs`.
+
 - **Deferred aggregate membership.** `MembershipRetention.Deferred` keeps only
   member counts and names the plan as the resolver of exact keys. The
   reducer's `RequestMembers` and `ResolveMembers` record a request at the
