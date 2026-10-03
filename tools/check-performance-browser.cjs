@@ -6,8 +6,10 @@
 //
 // Usage: node tools/check-performance-browser.cjs <fixture main.js> <output dir> [--record]
 // Build the fixture first: sbt browserFixture/fastLinkJS (the budgets are set for that bundle).
-// --record writes the measured medians to <output dir>/measured-budgets.json in the budget file's
-// shape instead of failing on regression; review it before replacing the committed budgets.
+// --record writes <output dir>/proposed-budgets.json (the committed file's metrics, medians and
+// the stated headroom; INTAGLIO_PERF_SOURCE_SHA names the source) instead of failing on a budget.
+// It still fails, and writes nothing, if any assertion fails or a workload is incomplete. Review the
+// proposal before replacing the committed budgets.
 //
 // Runs Playwright's own Chromium headless; never a system browser or profile. Audit browser
 // ownership before and after invoking this script (see AGENTS.md). Timing budgets are regression
@@ -28,6 +30,18 @@ const median = xs => {
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
 };
 const round = x => Math.round(x * 100) / 100;
+
+// The headroom applied by --record; the committed budget file states the same rule.
+const HEADROOM = 'time: max(2 x recorded, recorded + 2 ms) (+20 us for per-query microseconds); ' +
+  'retained heap: 1.15 x recorded + 2 MiB; retainedAfterReleaseMiB: max(recorded, 0) + 3 MiB; ' +
+  'counts: exactly the recorded value';
+function budgetFor(metric, value) {
+  if (metric === 'retainedAfterReleaseMiB') return Math.round((Math.max(value, 0) + 3) * 10) / 10;
+  if (metric.endsWith('MiB')) return Math.round((value * 1.15 + 2) * 10) / 10;
+  if (metric.endsWith('Us')) return Math.ceil(Math.max(value * 2, value + 20));
+  if (metric.endsWith('Ms')) return Math.ceil(Math.max(value * 2, value + 2));
+  return value;
+}
 const mib = bytes => round(bytes / (1024 * 1024));
 const started = Date.now();
 const log = message => console.error(`[${((Date.now() - started) / 1000).toFixed(1)}s] ${message}`);
@@ -249,6 +263,7 @@ async function main() {
       const zoom = await framed(t, 'navigate', [0.5], 5, async () => { await t.p('navigate', 1); await t.idle(); });
       m.rezoomMs = zoom.actionMs;
       m.rezoomRedrawMs = zoom.frameMs;
+      m.rezoomTotalMs = zoom.totalMs;
       await t.p('navigate', 1);
       await t.idle();
       assert.equal(await t.p('selectedCount'), 1000, 'navigation keeps the selection');
@@ -256,11 +271,17 @@ async function main() {
       log('restyle');
       const restyle = await framed(t, 'restyle', [100], 3);
       m.restyleMs = restyle.actionMs;
+      // A new view's first frame renders and parses the deferred SVG emphasis copy while the
+      // selection dims the plot, so the action alone undercounts it.
+      m.restyleRedrawMs = restyle.frameMs;
+      m.restyleTotalMs = restyle.totalMs;
 
       log('update');
-      const same = await t.p('update', false);
+      const sameFramed = await t.acrossFrame('update', [false]);
+      const same = sameFramed.sync;
       m.updateSameRevisionCompileMs = same.compileMs;
       m.updateSameRevisionMs = same.updateMs;
+      m.updateSameRevisionRedrawMs = sameFramed.frameMs;
       assert.ok(same.preserved && same.selectedAfter === 1000, `same-revision update kept selection: ${JSON.stringify(same)}`);
       const changed = await t.p('update', true);
       m.updateNewRevisionCompileMs = changed.compileMs;
@@ -276,6 +297,21 @@ async function main() {
         assert.ok(replaced, 'a new view parses its own emphasis copy and the old one is detached');
         await t.tab.evaluate(() => { delete window.__intaglioEmphasis; });
       }
+
+      log('replaced views are released');
+      // Dim once, clear the selection (nothing emphasized), then replace the view: the old view
+      // must not stay reachable through a redraw cache.
+      await t.p('select', 1000);
+      await t.idle();
+      await t.p('select', 0);
+      await t.idle();
+      await t.p('trackView');
+      await t.p('update', false);
+      await t.idle();
+      await t.idle();
+      await t.heap();
+      m.replacedViewsSurviving = await t.p('viewSurvivors');
+      assert.equal(m.replacedViewsSurviving, 0, 'a replaced view is collectable');
 
       log('dispose');
       const disposed = await t.p('dispose');
@@ -359,7 +395,6 @@ async function main() {
   }
 
   // Compare medians with the committed budgets.
-  const measured = {};
   for (const [workload, metrics] of Object.entries(budgets.workloads)) {
     const got = report.workloads[workload];
     for (const [metric, spec] of Object.entries(metrics)) {
@@ -375,14 +410,33 @@ async function main() {
       if (!report.workloads[workload]) { failed = true; report.checks.push({ name: `${workload} measured`, ok: false }); }
     }
   }
+  const assertionsFailed = report.checks.some(c => !c.ok) ||
+    Object.keys(budgets.workloads).some(w => !report.workloads[w] || report.workloads[w].runs.length !== RUNS);
   if (record) {
-    for (const [workload, w] of Object.entries(report.workloads)) {
-      measured[workload] = {};
-      for (const metric of Object.keys((budgets.workloads[workload] || {}))) {
-        measured[workload][metric] = w.median[metric];
+    // Budgets are proposed only from complete runs whose every assertion held.
+    if (assertionsFailed || only !== undefined) {
+      failed = true;
+      report.checks.push({ name: 'record: every workload complete with every assertion passing', ok: false });
+    } else {
+      const proposed = {
+        description: budgets.description,
+        headroom: HEADROOM,
+        source_sha: process.env.INTAGLIO_PERF_SOURCE_SHA || 'unrecorded',
+        bundle: budgets.bundle,
+        browser: report.browser,
+        machine: report.machine,
+        runs: RUNS,
+        workloads: {},
+      };
+      for (const [workload, metrics] of Object.entries(budgets.workloads)) {
+        proposed.workloads[workload] = {};
+        for (const metric of Object.keys(metrics)) {
+          const value = report.workloads[workload].median[metric];
+          proposed.workloads[workload][metric] = { recorded: value, budget: budgetFor(metric, value) };
+        }
       }
+      await fs.writeFile(path.join(out, 'proposed-budgets.json'), JSON.stringify(proposed, null, 2) + '\n');
     }
-    await fs.writeFile(path.join(out, 'measured-budgets.json'), JSON.stringify(measured, null, 2) + '\n');
   }
   // A loaded machine slows every timed metric alike; the load is part of the evidence.
   report.machine.loadAverageAtEnd = os.loadavg().map(round);
@@ -394,7 +448,7 @@ async function main() {
     console.log(`${b.ok ? 'ok  ' : 'FAIL'} ${b.workload}.${b.metric} = ${b.value} (budget ${b.budget}, recorded ${b.recorded})`);
   }
   for (const c of report.checks) if (!c.ok) console.log('FAIL', c.name, c.error || '');
-  if (failed && !record) {
+  if (failed) {
     console.error('performance gate failed');
     process.exit(1);
   }

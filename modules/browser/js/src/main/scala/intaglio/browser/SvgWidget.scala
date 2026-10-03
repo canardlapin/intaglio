@@ -361,6 +361,7 @@ final class SvgWidget[A] private (
             .foreach(report)
         refreshToolbar()
         view = next
+        releaseViewCaches()
         applyMagnification()
         input = HostInput(view.picking, view.navigation, unitViewport, behavior)
         live.textContent = ""
@@ -523,8 +524,7 @@ final class SvgWidget[A] private (
       windowFrame = None
       tooltipTimer.foreach(handle => g.clearTimeout(handle))
       tooltipTimer = None
-      emphasisCache = None
-      selectionCache = None
+      releaseViewCaches()
       controller.dispose()
       if !js.isUndefined(root.parentNode) && root.parentNode != null then
         root.parentNode.removeChild(root)
@@ -1032,6 +1032,7 @@ final class SvgWidget[A] private (
   private def paintView(next: SvgWidgetView[A], keepTooltip: Boolean = false): Unit =
     if !keepTooltip then hideTooltip()
     view = next
+    releaseViewCaches()
     input = HostInput(view.picking, view.navigation, unitViewport, behavior)
     renderPlot()
     if companion.open.asInstanceOf[Boolean] then fillCompanion()
@@ -1543,10 +1544,17 @@ final class SvgWidget[A] private (
               geometry.target.id
           }
       val transient = (current.hover.toVector ++ linkedIds).distinct.filterNot(layer.members)
-      val dim = behavior.inverseEmphasis && (layer.members.nonEmpty || transient.nonEmpty)
+      val wanted = behavior.inverseEmphasis && (layer.members.nonEmpty || transient.nonEmpty)
+      // The SVG copy is obtained before anything is dimmed: a plot whose copy cannot be made is
+      // drawn undimmed with its rings, never dimmed without the marks it means to show.
+      val copy = if wanted && canvasSurface.isEmpty then emphasisCopy() else None
+      val dim = wanted && (canvasSurface.nonEmpty || copy.nonEmpty)
       plotHost.classList.toggle("intaglio-dimmed", dim)
       if dim then
-        emphasize(layer.emphasis ++ transient.flatMap(id => view.picking.outline(id, 1.5).toOption))
+        emphasize(
+          layer.emphasis ++ transient.flatMap(id => view.picking.outline(id, 1.5).toOption),
+          copy
+        )
       linkedIds.foreach(ring(_, "intaglio-ring-linked", 3.0))
       layer.rings.foreach((d, className) => pathElement(d, className))
       current.hover.foreach(ring(_, "intaglio-ring-hover", 3.0))
@@ -1685,12 +1693,12 @@ final class SvgWidget[A] private (
   /** Show the emphasized targets in their original paint above the dimmed plot: a second copy of
     * the plot clipped to the targets' outlines.
     */
-  private def emphasize(outlines: Vector[TargetOutline]): Unit =
+  private def emphasize(outlines: Vector[TargetOutline], copy: Option[js.Dynamic]): Unit =
     canvasSurface match
       case Some(surface) => surface.emphasize(outlines)
-      case None          => emphasizeSvg(outlines)
+      case None          => copy.foreach(emphasizeSvg(outlines, _))
 
-  private def emphasizeSvg(outlines: Vector[TargetOutline]): Unit =
+  private def emphasizeSvg(outlines: Vector[TargetOutline], copy: js.Dynamic): Unit =
     val clipId = id("emphasis-clip")
     val defs = svgElement("defs")
     val clip = svgElement("clipPath")
@@ -1704,23 +1712,39 @@ final class SvgWidget[A] private (
     }
     defs.appendChild(clip)
     overlay.appendChild(defs)
-    overlay.appendChild(emphasisCopy(clipId))
+    overlay.appendChild(copy)
 
   /** The emphasis copy of the current view's marks, parsed once per view: a redraw re-attaches it
-    * and only its clip changes. Released with the view it was parsed from and on dispose.
+    * and only its clip changes. A copy that cannot be made is reported once and remembered as
+    * missing for that view. Released whenever the view is replaced and on dispose.
     */
-  private var emphasisCache: Option[(SvgWidgetView[A], js.Dynamic)] = None
+  private var emphasisCache: Option[(SvgWidgetView[A], Option[js.Dynamic])] = None
 
-  private def emphasisCopy(clipId: String): js.Dynamic =
+  private def emphasisCopy(): Option[js.Dynamic] =
     emphasisCache match
       case Some((parsed, group)) if parsed eq view => group
       case _                                       =>
-        val group = svgElement("g")
-        group.setAttribute("clip-path", s"url(#$clipId)")
-        group.setAttribute("class", "intaglio-emphasis")
-        group.innerHTML = view.emphasisMarkup
+        val group =
+          try
+            val markup = view.emphasisMarkup
+            val copy = svgElement("g")
+            copy.setAttribute("clip-path", s"url(#${id("emphasis-clip")})")
+            copy.setAttribute("class", "intaglio-emphasis")
+            copy.innerHTML = markup
+            Some(copy)
+          catch
+            case NonFatal(error) =>
+              report(
+                InteractionError.UnsupportedCapability(s"SVG emphasis copy: ${error.getMessage}")
+              )
+              None
         emphasisCache = Some((view, group))
         group
+
+  /** Drop everything cached for the view being replaced, so it can be collected. */
+  private def releaseViewCaches(): Unit =
+    emphasisCache = None
+    selectionCache = None
 
 object SvgWidget:
   /** How long navigation must pause before its run is recorded as one history entry. */

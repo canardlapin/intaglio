@@ -239,6 +239,13 @@ object PerformanceFixture:
 
   def windowIsFull: Boolean = mounted.currentWindow.isFull
 
+  private val weakViews = js.Array[js.Dynamic]()
+
+  /** Hold the current view only weakly, to check that the widget releases it once replaced. */
+  def trackView(): Unit = weakViews.push(js.Dynamic.newInstance(g.WeakRef)(shown.asInstanceOf[js.Any]))
+
+  def viewSurvivors(): Int = weakViews.count(ref => !js.isUndefined(ref.deref()))
+
   /** Repaint `count` targets through application styles. */
   def restyle(count: Int): Double =
     val styles = shown.navigation.targets
@@ -371,5 +378,7 @@ object PerformanceFixture:
       undo = () => undo(),
       selectedRings = () => selectedRings,
       windowIsFull = () => windowIsFull,
+      trackView = () => trackView(),
+      viewSurvivors = () => viewSurvivors(),
       ready = true
     )

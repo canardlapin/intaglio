@@ -425,3 +425,34 @@ class IndexedPickingScaleSuite extends munit.FunSuite:
     assert(mean < 200, s"mean candidates per query: $mean")
     assert(counts.max < 400, s"most candidates for one query: ${counts.max}")
   }
+
+  test("part picking validates only the names a part claims") {
+    // Unclaimed marks are skipped without being measured, so a malformed one no longer fails part
+    // picking, while the full named plan still refuses it; a malformed claimed mark still fails.
+    val title = PartTarget(Vector(GraphicsName.unsafe("title")), PlotPart.PlotTitle("t"))
+    val good = DevicePrimitive.Polyline(
+      Vector(DevicePoint(10, 10), DevicePoint(90, 10)),
+      false,
+      stroked,
+      Some(GraphicsName.unsafe("title"))
+    )
+    def broken(name: String) = DevicePrimitive.Polyline(
+      Vector(DevicePoint(10, 50), DevicePoint(Double.NaN, 60)),
+      false,
+      stroked,
+      Some(GraphicsName.unsafe(name))
+    )
+    val unclaimed =
+      DeviceScene(200, 200, Vector(DeviceElement.Mark(good), DeviceElement.Mark(broken("data"))))
+    val claimed = DeviceScene(200, 200, Vector(DeviceElement.Mark(broken("title"))))
+    val parts = ok(PartPicking.fromParts(Vector(title), unclaimed, context))
+    assertEquals(ok(parts.at(DevicePoint(50, 10), 1)), Some(title))
+    assertEquals(
+      NamedPicking.fromResolved(unclaimed, context),
+      Left(PickingError.InvalidInput("path coordinates"))
+    )
+    assertEquals(
+      PartPicking.fromParts(Vector(title), claimed, context),
+      Left(PickingError.InvalidInput("path coordinates"))
+    )
+  }
