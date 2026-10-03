@@ -8,6 +8,9 @@ enum SelectionMode:
 enum SelectionOperation:
   case Replace, Add, Subtract, Toggle, Clear
 
+  /** Keep only what is in both the current selection and the operand. */
+  case Intersect
+
 enum InputCause:
   case Pointer, Keyboard, Programmatic, Projected
 
@@ -158,6 +161,12 @@ enum StateError extends IntaglioError:
   /** An aggregate's members belong to another source revision than the one now shown. */
   case StaleMembership(expected: String, actual: String)
 
+  /** Selections that mean different things (other key spaces) cannot be combined. */
+  case IncompatibleSelections(reason: String)
+
+  /** No selection is saved under this name. */
+  case UnknownSelection(name: SelectionName)
+
   def message: String = this match
     case InvalidInput(reason)         => reason
     case StaleInput(expected, actual) =>
@@ -174,6 +183,8 @@ enum StateError extends IntaglioError:
       s"The target's members are not known exactly (${capability.toString.toLowerCase} membership)"
     case StaleMembership(expected, actual) =>
       s"The target's members describe source revision $expected, not $actual"
+    case IncompatibleSelections(reason) => s"These selections cannot be combined: $reason"
+    case UnknownSelection(name)         => s"No selection is saved as '${name.value}'"
 
 /** Sequence numbers increase per origin, including projected deliveries. */
 final case class InputStamp(
@@ -252,6 +263,23 @@ object InteractionAction:
       plus: Selection[A] = Selection[A]()
   ) extends InteractionAction[A]
 
+  /** Save the current selection under `name`, replacing any selection saved there. */
+  final case class SaveSelection[A](name: SelectionName) extends InteractionAction[A]
+
+  /** Apply the selection saved as `name` to the current selection under `operation`. */
+  final case class RecallSelection[A](name: SelectionName, operation: SelectionOperation)
+      extends InteractionAction[A]
+
+  /** Save `left` combined with `right` under `into`; the current selection is unchanged. */
+  final case class CombineSelections[A](
+      left: SelectionName,
+      right: SelectionName,
+      how: SetCombination,
+      into: SelectionName
+  ) extends InteractionAction[A]
+
+  final case class DeleteSelection[A](name: SelectionName) extends InteractionAction[A]
+
   /** Ask for a deferred aggregate's members. `requestId` increases per target; a newer request
     * supersedes a pending one.
     */
@@ -286,6 +314,10 @@ object InteractionEvent:
   final case class GestureModeChanged[A](value: GestureMode) extends InteractionEvent[A]
   final case class GestureStarted[A](pointer: Long, mode: GestureMode) extends InteractionEvent[A]
   final case class GestureEnded[A](pointer: Long, cancelled: Boolean) extends InteractionEvent[A]
+
+  /** The saved selections changed; `named` is the whole new set. */
+  final case class NamedSelectionsChanged[A](named: Map[SelectionName, Selection[A]])
+      extends InteractionEvent[A]
   final case class MembershipRequested[A](request: MembershipRequest[A]) extends InteractionEvent[A]
   final case class MembershipResolved[A](
       target: VisualTargetId,
@@ -320,7 +352,9 @@ final class InteractionState[A] private[interaction] (
       * so an id is never reused and a duplicate of an old reply can never answer a newer request.
       */
     private[interaction] val requestMarks: Map[VisualTargetId, Long] =
-      Map.empty[VisualTargetId, Long]
+      Map.empty[VisualTargetId, Long],
+    /** Selections saved by name, each validated against the domain like the current selection. */
+    val named: Map[SelectionName, Selection[A]] = Map.empty[SelectionName, Selection[A]]
 )
 
 final case class StateTransition[A](state: InteractionState[A], events: Vector[EventRecord[A]])
@@ -370,7 +404,8 @@ object InteractionState:
           gesture: Option[ActiveGesture] = state.gesture,
           viewports: Map[SemanticId, PanelViewport] = state.viewports,
           pending: Map[VisualTargetId, MembershipRequest[A]] = state.pendingMembers,
-          marks: Map[VisualTargetId, Long] = state.requestMarks
+          marks: Map[VisualTargetId, Long] = state.requestMarks,
+          named: Map[SelectionName, Selection[A]] = state.named
       ) =
         new InteractionState(
           state.domain,
@@ -384,7 +419,8 @@ object InteractionState:
           viewports,
           state.delivered.updated(stamp.origin, stamp.sequence),
           pending,
-          marks
+          marks,
+          named
         )
 
       def optional(id: Option[VisualTargetId]): Either[StateError, Option[TargetInfo[A]]] =
@@ -411,7 +447,12 @@ object InteractionState:
                 (old.entities -- value.entities) ++ (value.entities -- old.entities),
                 (old.targets -- value.targets) ++ (value.targets -- old.targets)
               )
-            case SelectionOperation.Clear => Selection[A]()
+            case SelectionOperation.Clear     => Selection[A]()
+            case SelectionOperation.Intersect =>
+              Selection(
+                old.entities.intersect(value.entities),
+                old.targets.intersect(value.targets)
+              )
           checkMode(state.selectionMode, next).map { _ =>
             finish(
               changed(selection = next, pending = pending),
@@ -492,6 +533,36 @@ object InteractionState:
           members(targets).flatMap(keys =>
             select(Selection(plus.entities ++ keys, plus.targets), operation, Map.empty)
           )
+        case InteractionAction.SaveSelection(name) =>
+          val next = state.named.updated(name, state.selection)
+          Right(
+            finish(
+              changed(named = next),
+              if next == state.named then Vector.empty
+              else Vector(InteractionEvent.NamedSelectionsChanged(next))
+            )
+          )
+        case InteractionAction.RecallSelection(name, operation) =>
+          state.named.get(name).toRight(StateError.UnknownSelection(name)).flatMap { saved =>
+            select(saved, operation, Map.empty)
+          }
+        case InteractionAction.CombineSelections(left, right, how, into) =>
+          for
+            l <- state.named.get(left).toRight(StateError.UnknownSelection(left))
+            r <- state.named.get(right).toRight(StateError.UnknownSelection(right))
+            combined <- SelectionAlgebra.combine(l, r, how, state.domain)
+          yield
+            val next = state.named.updated(into, combined)
+            finish(
+              changed(named = next),
+              if next == state.named then Vector.empty
+              else Vector(InteractionEvent.NamedSelectionsChanged(next))
+            )
+        case InteractionAction.DeleteSelection(name) =>
+          state.named.get(name).toRight(StateError.UnknownSelection(name)).map { _ =>
+            val next = state.named - name
+            finish(changed(named = next), Vector(InteractionEvent.NamedSelectionsChanged(next)))
+          }
         case InteractionAction.RequestMembers(id, requestId, operation) =>
           for
             info <- state.domain.target(id)
@@ -655,6 +726,14 @@ object InteractionState:
           val targets = state.selection.targets.filter(domain.target(_).isRight)
           val unresolved = retained -- domain.entities
           val selection = Selection(retained, targets)
+          // Saved selections keep only what the new data still has: their keys must be
+          // recallable as they stand, so `Preserve` applies to the current selection alone.
+          val named = state.named.view.mapValues { saved =>
+            Selection(
+              saved.entities.intersect(domain.entities),
+              saved.targets.filter(domain.target(_).isRight)
+            )
+          }.toMap
           val next = new InteractionState(
             domain,
             state.selectionMode,
@@ -668,18 +747,22 @@ object InteractionState:
             state.delivered.updated(stamp.origin, stamp.sequence),
             // A new domain cancels every pending request; request ids stay spent.
             Map.empty,
-            state.requestMarks
+            state.requestMarks,
+            named
           )
           val event = InteractionEvent.Reconciled(
             state.selection.entities -- retained,
             unresolved,
             state.selection.targets -- targets
           )
+          val events =
+            Vector(event) ++
+              Option.when(named != state.named)(InteractionEvent.NamedSelectionsChanged(named))
           Right(
             StateTransition(
               next,
               if stamp.cause == InputCause.Projected then Vector.empty
-              else Vector(EventRecord(stamp, event))
+              else events.map(EventRecord(stamp, _))
             )
           )
     }

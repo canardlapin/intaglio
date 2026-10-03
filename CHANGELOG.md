@@ -63,6 +63,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ComposedParts`, which keeps each composed child's titles, axes and
   annotations its own parts. See [docs/canvas-widget.md](docs/canvas-widget.md).
 
+- **Selection algebra and named selections.** `SelectionAlgebra.union`,
+  `intersect` and `diff` combine selections that mean the same things (one
+  key space instance, targets of the current domain) and refuse others with
+  `StateError.IncompatibleSelections`; `SelectionOperation.Intersect` keeps
+  what the current selection shares with an operand. The reducer saves,
+  recalls (under any operation), combines and deletes selections by
+  `SelectionName` (`SaveSelection`, `RecallSelection`, `CombineSelections`,
+  `DeleteSelection`; event `NamedSelectionsChanged`). A domain replacement
+  keeps only what saved selections still name.
+
 - **Aggregate members in the browser widget.** In `AggregateSelection.Members`
   mode a histogram bin selects its exact members, and linked plots show them;
   a deferred bin asks the `MembershipResolver` passed to `SvgWidget.mount`,
