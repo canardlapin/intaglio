@@ -58,6 +58,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ComposedParts`, which keeps each composed child's titles, axes and
   annotations its own parts. See [docs/canvas-widget.md](docs/canvas-widget.md).
 
+- **Selecting an aggregate's exact members.**
+  `InteractionAction.SelectMembers(targets, operation, plus)` selects the
+  exact contributing observations of histogram bins, summary intervals and
+  other aggregates in one selection change, and is refused with
+  `StateError.MembershipNotExact` or `StaleMembership` unless every target's
+  membership is exact and current, so a count, representative or partial
+  list is never returned as a selection.
+  `InteractionBehavior.withAggregateSelection` chooses per target whether a
+  click, Enter or region sweep selects the aggregate itself (the default) or
+  its members.
+
 - **Standalone browser packages, configurable controls and PNG export.**
   `tools/package-widget.cjs` packages a Scala.js NoModule application into one
   offline HTML file (runtime, styles and fonts embedded; unbundled resources

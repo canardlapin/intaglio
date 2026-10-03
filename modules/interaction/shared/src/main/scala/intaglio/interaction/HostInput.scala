@@ -148,13 +148,17 @@ final class HostInput[A](
     if state.selectionMode == SelectionMode.Disabled then Vector.empty
     else
       val covered = picking.select(area, rule)
-      val selection = Selection[A](
-        covered.flatMap(_.entity).toSet,
-        covered.filter(_.entity.isEmpty).map(_.id).toSet
-      )
+      val (aggregates, targets) = covered
+        .filter(_.entity.isEmpty)
+        .partition(info => behavior.aggregates(info) == AggregateSelection.Members)
+      val selection = Selection[A](covered.flatMap(_.entity).toSet, targets.map(_.id).toSet)
       // A single-selection plot cannot hold a sweep of several marks: the sweep does nothing.
-      if state.selectionMode == SelectionMode.Single && selection.size > 1 then Vector.empty
-      else Vector(HostAction(InteractionAction.Select(selection, operation), InputCause.Pointer))
+      if state.selectionMode == SelectionMode.Single && covered.size > 1 then Vector.empty
+      else
+        val action =
+          if aggregates.isEmpty then InteractionAction.Select(selection, operation)
+          else InteractionAction.SelectMembers(aggregates.map(_.id).toSet, operation, selection)
+        Vector(HostAction(action, InputCause.Pointer))
 
   /** Select (unless disabled) and activate, as a click or Enter does. */
   private def choose(
@@ -162,14 +166,17 @@ final class HostInput[A](
       target: TargetInfo[A],
       additive: Boolean
   ): Vector[InteractionAction[A]] =
-    val selected =
-      target.entity.fold(Selection[A](targets = Set(target.id)))(key => Selection(Set(key)))
     val operation =
       if additive && state.selectionMode == SelectionMode.Multiple then SelectionOperation.Toggle
       else SelectionOperation.Replace
+    val action: InteractionAction[A] = target.entity match
+      case Some(key) => InteractionAction.Select(Selection(Set(key)), operation)
+      case None if behavior.aggregates(target) == AggregateSelection.Members =>
+        InteractionAction.SelectMembers(Set(target.id), operation)
+      case None => InteractionAction.Select(Selection[A](targets = Set(target.id)), operation)
     val select =
       if state.selectionMode == SelectionMode.Disabled then Vector.empty
-      else Vector(InteractionAction.Select(selected, operation))
+      else Vector(action)
     select :+ InteractionAction.Activate(target.id)
 
 /** Where a tooltip box goes, in CSS pixels relative to the widget's top-left corner. */

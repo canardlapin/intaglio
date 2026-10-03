@@ -100,6 +100,10 @@ final class InteractionDomain[A] private (
   private[interaction] def accepts(key: EntityKey[A]): Boolean =
     spaces.exists(_ eq key.space)
 
+  /** The source data revision of the compiled plan a target belongs to; `None` for named scenes. */
+  private[interaction] def sourceRevision(id: VisualTargetId): Option[DataRevision] =
+    plans.find(_.id == id.plan).map(_.sourceRevision)
+
 object InteractionDomain:
   def apply[A](
       plans: Vector[InteractionPlan[A]],
@@ -146,18 +150,30 @@ enum StateError extends IntaglioError:
   case GestureAlreadyActive
   case NoActiveGesture
 
+  /** An aggregate's members were asked for, but its membership is not exact (a count, a
+    * representative, a partial list, or nothing): no partial set is ever returned as complete.
+    */
+  case MembershipNotExact(capability: MembershipCapability)
+
+  /** An aggregate's members belong to another source revision than the one now shown. */
+  case StaleMembership(expected: String, actual: String)
+
   def message: String = this match
     case InvalidInput(reason)         => reason
     case StaleInput(expected, actual) =>
       s"Expected interaction revision ${expected.value}, received ${actual.value}"
     case DuplicateOrOutOfOrder(origin, sequence, last) =>
       s"Input $sequence from ${origin.value} does not follow $last"
-    case UnknownTarget(_)              => "Target does not belong to the current compiled domain"
-    case UnknownEntity                 => "Entity does not belong to the current source domain"
-    case SelectionDisabled             => "Selection is disabled"
-    case MultipleSelectionInSingleMode => "Single selection permits at most one entity or target"
-    case GestureAlreadyActive          => "Cancel or complete the active gesture first"
-    case NoActiveGesture               => "There is no active gesture"
+    case UnknownTarget(_)               => "Target does not belong to the current compiled domain"
+    case UnknownEntity                  => "Entity does not belong to the current source domain"
+    case SelectionDisabled              => "Selection is disabled"
+    case MultipleSelectionInSingleMode  => "Single selection permits at most one entity or target"
+    case GestureAlreadyActive           => "Cancel or complete the active gesture first"
+    case NoActiveGesture                => "There is no active gesture"
+    case MembershipNotExact(capability) =>
+      s"The target's members are not known exactly (${capability.toString.toLowerCase} membership)"
+    case StaleMembership(expected, actual) =>
+      s"The target's members describe source revision $expected, not $actual"
 
 /** Sequence numbers increase per origin, including projected deliveries. */
 final case class InputStamp(
@@ -174,6 +190,17 @@ object InteractionAction:
   final case class Activate[A](target: VisualTargetId) extends InteractionAction[A]
   final case class Select[A](value: Selection[A], operation: SelectionOperation)
       extends InteractionAction[A]
+
+  /** Select the exact contributing observations of aggregate `targets` (histogram bins, summary
+    * intervals), together with `plus`, as one selection change under `operation`. Refused unless
+    * every target's membership is exact and current; selecting the targets themselves is
+    * [[Select]].
+    */
+  final case class SelectMembers[A](
+      targets: Set[VisualTargetId],
+      operation: SelectionOperation,
+      plus: Selection[A] = Selection[A]()
+  ) extends InteractionAction[A]
   final case class SetSelectionMode[A](value: SelectionMode) extends InteractionAction[A]
   final case class SetViewport[A](panel: SemanticId, value: Option[PanelViewport])
       extends InteractionAction[A]
@@ -281,6 +308,53 @@ object InteractionState:
           case Some(value) => state.domain.target(value).map(Some(_))
           case None        => Right(None)
 
+      def select(
+          value: Selection[A],
+          operation: SelectionOperation
+      ): Either[StateError, StateTransition[A]] =
+        // Even subtraction validates its input: stale routes must not be silently accepted.
+        validateSelection(state.domain, value, state.unresolved).flatMap { _ =>
+          val old = state.selection
+          val next = operation match
+            case SelectionOperation.Replace => value
+            case SelectionOperation.Add     =>
+              Selection(old.entities ++ value.entities, old.targets ++ value.targets)
+            case SelectionOperation.Subtract =>
+              Selection(old.entities -- value.entities, old.targets -- value.targets)
+            case SelectionOperation.Toggle =>
+              Selection(
+                (old.entities -- value.entities) ++ (value.entities -- old.entities),
+                (old.targets -- value.targets) ++ (value.targets -- old.targets)
+              )
+            case SelectionOperation.Clear => Selection[A]()
+          checkMode(state.selectionMode, next).map { _ =>
+            finish(
+              changed(selection = next),
+              if next == old then Vector.empty
+              else Vector(InteractionEvent.SelectionChanged(next))
+            )
+          }
+        }
+
+      /** Every target's exact members at the source revision its plan was compiled from. */
+      def members(targets: Set[VisualTargetId]): Either[StateError, Set[EntityKey[A]]] =
+        targets.foldLeft[Either[StateError, Set[EntityKey[A]]]](Right(Set.empty)) { (acc, id) =>
+          for
+            keys <- acc
+            info <- state.domain.target(id)
+            current <- state.domain
+              .sourceRevision(id)
+              .toRight(StateError.MembershipNotExact(info.membership.capability))
+            exact <- info.membership.exactKeys(current).left.map {
+              case InteractionError.StaleRevision(expected, actual) =>
+                StateError.StaleMembership(expected, actual)
+              case InteractionError.MembershipUnavailable(capability) =>
+                StateError.MembershipNotExact(capability)
+              case other => StateError.InvalidInput(other.message)
+            }
+          yield keys ++ exact
+        }
+
       action match
         case InteractionAction.Hover(id) =>
           optional(id).map { info =>
@@ -302,30 +376,11 @@ object InteractionState:
           state.domain.target(id).map { info =>
             finish(changed(), Vector(InteractionEvent.Activated(info)))
           }
-        case InteractionAction.Select(value, operation) =>
-          // Even subtraction validates its input: stale routes must not be silently accepted.
-          validateSelection(state.domain, value, state.unresolved).flatMap { _ =>
-            val old = state.selection
-            val next = operation match
-              case SelectionOperation.Replace => value
-              case SelectionOperation.Add     =>
-                Selection(old.entities ++ value.entities, old.targets ++ value.targets)
-              case SelectionOperation.Subtract =>
-                Selection(old.entities -- value.entities, old.targets -- value.targets)
-              case SelectionOperation.Toggle =>
-                Selection(
-                  (old.entities -- value.entities) ++ (value.entities -- old.entities),
-                  (old.targets -- value.targets) ++ (value.targets -- old.targets)
-                )
-              case SelectionOperation.Clear => Selection[A]()
-            checkMode(state.selectionMode, next).map { _ =>
-              finish(
-                changed(selection = next),
-                if next == old then Vector.empty
-                else Vector(InteractionEvent.SelectionChanged(next))
-              )
-            }
-          }
+        case InteractionAction.Select(value, operation)                => select(value, operation)
+        case InteractionAction.SelectMembers(targets, operation, plus) =>
+          members(targets).flatMap(keys =>
+            select(Selection(plus.entities ++ keys, plus.targets), operation)
+          )
         case InteractionAction.SetSelectionMode(mode) =>
           checkMode(mode, state.selection).map { _ =>
             finish(

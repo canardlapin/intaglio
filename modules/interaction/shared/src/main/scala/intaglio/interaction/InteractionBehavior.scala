@@ -96,6 +96,16 @@ enum TooltipPlacement:
   /** At a fixed position within the widget, in CSS pixels from its top-left corner. */
   case Fixed(xCssPx: Double, yCssPx: Double)
 
+/** What choosing an aggregate target (a histogram bin, a summary interval) selects. */
+enum AggregateSelection:
+  /** The displayed target itself: a cheap, plot-local selection. The default. */
+  case Target
+
+  /** Its exact contributing observations, which other linked plots can show. Requires the plan to
+    * retain exact membership (`MembershipRetention.ExactKeys`); otherwise the selection is refused.
+    */
+  case Members
+
 /** Which target the pointer reveals. */
 enum HoverRule:
   /** Only a target the pointer is over, within the host's small hit tolerance. */
@@ -121,7 +131,9 @@ final case class InteractionBehavior[A] private (
     hover: HoverRule,
     inverseEmphasis: Boolean,
     selection: SelectionMode,
-    legendLinks: Vector[LegendLink] = Vector.empty
+    legendLinks: Vector[LegendLink] = Vector.empty,
+    aggregates: TargetInfo[A] => AggregateSelection = (_: TargetInfo[A]) =>
+      AggregateSelection.Target
 ):
   def withTooltip(value: TargetInfo[A] => Option[TargetContent]): InteractionBehavior[A] =
     copy(tooltip = value)
@@ -130,6 +142,12 @@ final case class InteractionBehavior[A] private (
   def withPlacement(value: TooltipPlacement): InteractionBehavior[A] = copy(placement = value)
   def withInverseEmphasis(value: Boolean): InteractionBehavior[A] = copy(inverseEmphasis = value)
   def withSelection(value: SelectionMode): InteractionBehavior[A] = copy(selection = value)
+
+  /** What choosing or sweeping an aggregate target selects; marks with an observation key always
+    * select that key.
+    */
+  def withAggregateSelection(value: TargetInfo[A] => AggregateSelection): InteractionBehavior[A] =
+    copy(aggregates = value)
 
   /** Link a keyed legend to the marks whose layer binding projects its entries' link keys. */
   def withLegendLink(value: LegendLink): InteractionBehavior[A] =
