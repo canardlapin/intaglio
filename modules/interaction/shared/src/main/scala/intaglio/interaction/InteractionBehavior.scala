@@ -120,7 +120,8 @@ final case class InteractionBehavior[A] private (
     tooltipDelayMs: Int,
     hover: HoverRule,
     inverseEmphasis: Boolean,
-    selection: SelectionMode
+    selection: SelectionMode,
+    legendLinks: Vector[LegendLink] = Vector.empty
 ):
   def withTooltip(value: TargetInfo[A] => Option[TargetContent]): InteractionBehavior[A] =
     copy(tooltip = value)
@@ -129,6 +130,10 @@ final case class InteractionBehavior[A] private (
   def withPlacement(value: TooltipPlacement): InteractionBehavior[A] = copy(placement = value)
   def withInverseEmphasis(value: Boolean): InteractionBehavior[A] = copy(inverseEmphasis = value)
   def withSelection(value: SelectionMode): InteractionBehavior[A] = copy(selection = value)
+
+  /** Link a keyed legend to the marks whose layer binding projects its entries' link keys. */
+  def withLegendLink(value: LegendLink): InteractionBehavior[A] =
+    copy(legendLinks = legendLinks.filterNot(_.legend == value.legend) :+ value)
 
   def withTooltipDelay(ms: Int): Either[InteractionError, InteractionBehavior[A]] =
     if ms >= 0 && ms <= 10000 then Right(copy(tooltipDelayMs = ms))

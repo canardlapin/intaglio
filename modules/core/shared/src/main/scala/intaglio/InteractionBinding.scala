@@ -8,6 +8,10 @@ final class LinkKeys private[interaction] (private val values: Vector[PackedLink
   def size: Int = values.length
   def in[A](space: KeySpace[A]): Vector[LinkKey[A]] = values.flatMap(_.in(space))
 
+  /** Whether `key` is among these links. Keys of different spaces never match, whatever their text.
+    */
+  def contains(key: LinkKey[?]): Boolean = values.exists(_.key == key)
+
 object LinkKeys:
   val empty: LinkKeys = new LinkKeys(Vector.empty)
   private[interaction] def apply(values: Vector[PackedLinkKey]): LinkKeys =
