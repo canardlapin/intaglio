@@ -233,6 +233,36 @@ object InteractionCoverage:
       "every row of the group",
       "stroked steps"
     ),
+    CoverageEntry(
+      "geomContour",
+      TargetGranularity.PerGroup(2),
+      "the extracted path vertices",
+      "stroked path"
+    ),
+    CoverageEntry(
+      "geomFilledContour",
+      TargetGranularity.PerGroup(3),
+      "the extracted region vertices",
+      "filled compound polygon, excluding holes"
+    ),
+    CoverageEntry(
+      "geomQuantileSummary",
+      TargetGranularity.PerStatisticRow,
+      "the summarized rows (count by default)",
+      "point and quantile interval"
+    ),
+    CoverageEntry(
+      "geomHeatmap",
+      TargetGranularity.PerCell,
+      "the cell's entity",
+      "filled cell rectangle"
+    ),
+    CoverageEntry(
+      "geomRasterByClass",
+      TargetGranularity.PerCell,
+      "the cell's entity",
+      "image cell"
+    ),
     CoverageEntry("geomRaster", TargetGranularity.PerCell, "the cell's entity", "image cell"),
     CoverageEntry("hline / vline", TargetGranularity.PerAnnotation, "none", "stroked line")
   )

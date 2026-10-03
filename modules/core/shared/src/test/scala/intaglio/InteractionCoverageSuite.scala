@@ -52,9 +52,39 @@ class InteractionCoverageSuite extends munit.FunSuite:
     "geomHistogram" -> (() =>
       (targets(plot(rows).aes(_.y).geomHistogram(bins = ok(HistogramBins.count(3))))(_.id), 3)
     ),
+    "geomQuantileSummary" -> (() => (targets(base.geomQuantileSummary())(_.id), 3)),
     "geomSummary" -> (() => (targets(base.geomSummary())(_.id), 3)),
     "geomDensity" -> (() => (targets(plot(rows).aes(_.y).geomDensity())(_.id), 1)),
     "geomEcdf" -> (() => (targets(plot(rows).aes(_.y).geomEcdf(group = Some(_.g)))(_.id), 2)),
+    "geomContour" -> (() =>
+      val axis = RegularGridAxis.vertexCenteredUnsafe(0, 2, 3)
+      val field = ok(ScalarField2D.tabulate(axis, axis)(_ + _))
+      val contours = ok(ContourSet.extract(field, ContourLevels.atUnsafe(Vector(1, 3))))
+      (targets(plot(contours).geomContour())(c => s"${c.pathId}-${c.pointIndex}"), 2)
+    ),
+    "geomFilledContour" -> (() =>
+      val axis = RegularGridAxis.vertexCenteredUnsafe(0, 2, 3)
+      val field = ok(ScalarField2D.tabulate(axis, axis)(_ + _))
+      val bands = ok(ContourBandSet.extract(field, ContourBreaks.atUnsafe(Vector(1, 3))))
+      (targets(plot(bands).geomFilledContour())(c => s"${c.ringId}-${c.pointIndex}"), 1)
+    ),
+    "geomHeatmap" -> (() =>
+      val axis = RegularGridAxis.cellCenteredUnsafe(0, 2, 2)
+      val field = ok(ScalarField2D.tabulate(axis, axis)(_ + _))
+      (targets(plot(field).geomHeatmap())(c => s"${c.xIndex}-${c.yIndex}"), 4)
+    ),
+    "geomRasterByClass" -> (() =>
+      val axis = RegularGridAxis.cellCenteredUnsafe(0, 2, 2)
+      val field = ok(ScalarField2D.tabulate(axis, axis)(_ + _))
+      val classes = Vector(
+        ColorClass.unsafe("left", Palette.gradient(Rgba.Black, Rgba.White)),
+        ColorClass.unsafe("right", Palette.gradient(Rgba.White, Rgba.Black))
+      )
+      (
+        targets(plot(field).geomRasterByClass(_.xIndex, classes))(c => s"${c.xIndex}-${c.yIndex}"),
+        4
+      )
+    ),
     "geomRaster" -> (() =>
       val field = ok(
         for

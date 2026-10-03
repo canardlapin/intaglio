@@ -44,7 +44,10 @@ set the widget's CSS properties: `--intaglio-hover`, `--intaglio-selected`,
 `--intaglio-focus`, `--intaglio-focus-halo`, `--intaglio-linked`,
 `--intaglio-tooltip-background`, `--intaglio-tooltip-text`, `--intaglio-dim` and
 `--intaglio-transition`. Canvas marks are pixels; CSS selectors cannot restyle
-individual marks. Encode their paint in the plot itself.
+individual marks. Assign their paint from application state in the plot itself,
+for example `.fill(row => applicationColors(row.id))`. Recompile and pass the new
+view to `widget.update` when that state changes. The paired baseline checks verify
+an externally supplied per-entity color survives hover and emphasis recovery.
 
 ## Compositions, resizing and export
 

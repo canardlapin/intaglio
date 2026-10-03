@@ -30,6 +30,15 @@ object CanvasBaselineFixture:
       events.length = 0; parts.length = 0; errors.length = 0
       val base = plot(rows).aes(_.x, _.y)
       val spec = kind match
+        case "authored-styles" =>
+          val applicationColors = Map("r4" -> Rgba.unsafe(15, 150, 120))
+          checked(
+            base
+              .fill(r => applicationColors.getOrElse(r.id, Rgba.unsafe(60, 90, 180)))
+              .size(7)
+              .geomPoint()
+              .build
+          ).plot
         case "labels"    => checked(base.geomText(_.id).title("Observation labels").build).plot
         case "histogram" =>
           checked(

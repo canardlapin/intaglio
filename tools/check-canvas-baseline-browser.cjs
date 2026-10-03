@@ -63,6 +63,19 @@ async function main(){
     await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await fx(()=>getComputedStyle(document.querySelector('.intaglio-base')).transitionDuration),'0s');
     await page.emulateMedia({reducedMotion:'no-preference'});await save('typed appearance and transition options honor reduced motion');
     await page.mouse.move(900,800);await page.waitForTimeout(300);assert.equal(await fx(()=>getComputedStyle(document.querySelector('.intaglio-base')).opacity),'1');assert.equal(await page.locator('.intaglio-ring-hover').count(),0);await save('pointer out restores original appearance');
+    await mount('authored-styles');m=await center();
+    const markPixel=()=>fx(async m=>{
+      const base=document.querySelector('.intaglio-base'),box=base.getBoundingClientRect();
+      let canvas=base;
+      if(base.tagName.toLowerCase()==='svg'){
+        const image=new Image(),url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(base)],{type:'image/svg+xml'}));
+        try{await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url});canvas=document.createElement('canvas');canvas.width=600;canvas.height=400;canvas.getContext('2d').drawImage(image,0,0,600,400)}finally{URL.revokeObjectURL(url)}
+      }
+      return Array.from(canvas.getContext('2d').getImageData(Math.floor((m.x-box.left)*canvas.width/box.width),Math.floor((m.y-box.top)*canvas.height/box.height),1,1).data);
+    },m);
+    assert.deepEqual(await markPixel(),[15,150,120,255]);
+    await page.mouse.move(m.x,m.y);await settle();await page.mouse.move(900,800);await page.waitForTimeout(200);
+    assert.deepEqual(await markPixel(),[15,150,120,255]);await save('application-assigned per-entity paint survives emphasis recovery');
     await mount('parts');const targets=await fx(()=>window.intaglioBaseline.partTargets());
     for(const kind of ['PlotTitle','PlotSubtitle','FacetStrip','Axis','Colorbar','Annotation']){
       const p=targets.find(p=>p.kind===kind);assert.ok(p,`fixture contains ${kind}`);
