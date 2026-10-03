@@ -63,6 +63,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ComposedParts`, which keeps each composed child's titles, axes and
   annotations its own parts. See [docs/canvas-widget.md](docs/canvas-widget.md).
 
+- **Versioned interaction snapshots.** `InteractionSnapshot.capture` records
+  the durable state (selection, saved selections, panel viewports, selection
+  mode) with the plans, plan and data revisions and key codecs it means
+  something under, never hover, focus, gestures, pending requests or
+  callbacks. `toJson`/`fromJson` use a strict, dependency-free JSON codec that
+  writes the same text on the JVM and Scala.js. `InteractionSnapshot.resolve`
+  checks a snapshot against a domain and refuses it with a typed
+  `SnapshotError` (unsupported schema, malformed text, unknown plan, stale
+  plan or data revision, key space or codec mismatch, unknown observation or
+  target); `InteractionAction.RestoreSnapshot` applies it as one change that
+  activates nothing and asks no resolver.
+
 - **Selection algebra and named selections.** `SelectionAlgebra.union`,
   `intersect` and `diff` combine selections that mean the same things (one
   key space instance, targets of the current domain) and refuse others with

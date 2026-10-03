@@ -103,6 +103,24 @@ final class InteractionDomain[A] private (
   private[interaction] def accepts(key: EntityKey[A]): Boolean =
     spaces.exists(_ eq key.space)
 
+  /** The target a saved address names, if this domain still has it at the same plan revision. */
+  private[interaction] def resolveTarget(
+      plan: String,
+      revision: String,
+      scope: String,
+      ordinal: Int
+  ): Option[VisualTargetId] =
+    groups.iterator
+      .collectFirst {
+        case ((p, s), group)
+            if p.value == plan && s.value == scope && group.series.revision.value == revision =>
+          group
+      }
+      .flatMap(group => group.series.at(ordinal - group.series.first).toOption)
+
+  /** The key spaces this domain accepts. */
+  private[interaction] def keySpaces: Vector[KeySpace[A]] = spaces
+
   /** The source data revision of the compiled plan a target belongs to; `None` for named scenes. */
   private[interaction] def sourceRevision(id: VisualTargetId): Option[DataRevision] =
     plans.find(_.id == id.plan).map(_.sourceRevision)
@@ -279,6 +297,12 @@ object InteractionAction:
   ) extends InteractionAction[A]
 
   final case class DeleteSelection[A](name: SelectionName) extends InteractionAction[A]
+
+  /** Restore a snapshot resolved against this domain (`InteractionSnapshot.resolve`): the
+    * selection, saved selections, viewports and selection mode, as one change. It never activates a
+    * target or asks for members, so no host effect (a link, a resolver) follows from it.
+    */
+  final case class RestoreSnapshot[A](snapshot: RestoredSnapshot[A]) extends InteractionAction[A]
 
   /** Ask for a deferred aggregate's members. `requestId` increases per target; a newer request
     * supersedes a pending one.
@@ -557,6 +581,48 @@ object InteractionState:
               changed(named = next),
               if next == state.named then Vector.empty
               else Vector(InteractionEvent.NamedSelectionsChanged(next))
+            )
+        case InteractionAction.RestoreSnapshot(saved) =>
+          for
+            _ <- Either.cond(
+              saved.domainRevision == state.domain.revision,
+              (),
+              StateError.StaleInput(state.domain.revision, saved.domainRevision)
+            )
+            _ <- validateSelection(state.domain, saved.selection, Set.empty)
+            _ <- saved.named.values.foldLeft[Either[StateError, Unit]](Right(())) { (acc, s) =>
+              acc.flatMap(_ => validateSelection(state.domain, s, Set.empty))
+            }
+            _ <- checkMode(saved.mode, saved.selection)
+          yield
+            val viewportEvents = (state.viewports.keySet ++ saved.viewports.keySet).toVector
+              .sortBy(_.value)
+              .collect {
+                case panel if state.viewports.get(panel) != saved.viewports.get(panel) =>
+                  InteractionEvent.ViewportChanged[A](panel, saved.viewports.get(panel))
+              }
+            val events =
+              Option
+                .when(saved.mode != state.selectionMode)(
+                  InteractionEvent.SelectionModeChanged[A](saved.mode)
+                )
+                .toVector ++
+                Option.when(saved.selection != state.selection)(
+                  InteractionEvent.SelectionChanged(saved.selection)
+                ) ++
+                Option.when(saved.named != state.named)(
+                  InteractionEvent.NamedSelectionsChanged(saved.named)
+                ) ++ viewportEvents
+            finish(
+              changed(
+                selectionMode = saved.mode,
+                selection = saved.selection,
+                viewports = saved.viewports,
+                named = saved.named,
+                // A restored selection supersedes any pending member request, like any other.
+                pending = Map.empty
+              ),
+              events
             )
         case InteractionAction.DeleteSelection(name) =>
           state.named.get(name).toRight(StateError.UnknownSelection(name)).map { _ =>
