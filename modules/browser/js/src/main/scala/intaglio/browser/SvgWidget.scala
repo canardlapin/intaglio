@@ -523,6 +523,8 @@ final class SvgWidget[A] private (
       windowFrame = None
       tooltipTimer.foreach(handle => g.clearTimeout(handle))
       tooltipTimer = None
+      emphasisCache = None
+      selectionCache = None
       controller.dispose()
       if !js.isUndefined(root.parentNode) && root.parentNode != null then
         root.parentNode.removeChild(root)
@@ -1519,43 +1521,34 @@ final class SvgWidget[A] private (
         if !disposed then redraw()
       frame = Some(g.requestAnimationFrame(callback))
 
-  /** Redraw the overlay only: rings for hover, selection and focus, and inverse emphasis. */
+  /** Redraw the overlay only: rings for hover, selection and focus, and inverse emphasis. What the
+    * selection decides (its rings and emphasis outlines) is reused until the view, the selection or
+    * the domain changes; hover, focus and linked emphasis are drawn afresh each frame.
+    */
   private def redraw(): Unit =
     canvasSurface.foreach { surface => surface.resize(); surface.clearEmphasis() }
     overlay.textContent = ""
     controller.state.foreach { current =>
-      val selectedIds = view.navigation.targets.collect {
-        case geometry
-            if current.selection.targets.contains(geometry.target.id) ||
-              geometry.target.entity.exists(current.selection.entities.contains) =>
-          geometry.target.id
-      }
+      val layer = selectionLayer(current)
       // Aggregates are pointed at by coverage: a hovered observation in a linked plot emphasizes the
-      // bins that hold it, and selected observations cover bins by the behaviour's rule.
-      val linkedIds = view.navigation.targets.collect {
-        case geometry
-            if linkedEmphasis.covers(geometry.target, EmphasisRule.AnyMember, current.domain) ||
-              legendEmphasis.matches(geometry.target) =>
-          geometry.target.id
-      }
-      // Coverage needs exact members, so only aggregates that keep them are measured, once each.
-      val coveredIds = view.navigation.targets.collect {
-        case geometry
-            if geometry.target.entity.isEmpty &&
-              geometry.target.membership.capability == MembershipCapability.Exact &&
-              !current.selection.targets.contains(geometry.target.id) &&
-              behavior.aggregateEmphasis.triggered(
-                MemberCoverage.of(geometry.target, current.selection.entities, current.domain)
-              ) =>
-          geometry.target.id
-      }
-      val emphasized = (selectedIds ++ coveredIds ++ current.hover.toVector ++ linkedIds).distinct
-      val dim = behavior.inverseEmphasis && emphasized.nonEmpty
+      // bins that hold it, and selected observations cover bins by the behaviour's rule. Nothing
+      // linked covers nothing, so then the scan is skipped.
+      val linkedIds =
+        if linkedEmphasis.isEmpty && legendEmphasis.isEmpty then Vector.empty[VisualTargetId]
+        else
+          view.navigation.targets.collect {
+            case geometry
+                if linkedEmphasis.covers(geometry.target, EmphasisRule.AnyMember, current.domain) ||
+                  legendEmphasis.matches(geometry.target) =>
+              geometry.target.id
+          }
+      val transient = (current.hover.toVector ++ linkedIds).distinct.filterNot(layer.members)
+      val dim = behavior.inverseEmphasis && (layer.members.nonEmpty || transient.nonEmpty)
       plotHost.classList.toggle("intaglio-dimmed", dim)
-      if dim then emphasize(emphasized)
+      if dim then
+        emphasize(layer.emphasis ++ transient.flatMap(id => view.picking.outline(id, 1.5).toOption))
       linkedIds.foreach(ring(_, "intaglio-ring-linked", 3.0))
-      selectedIds.foreach(ring(_, "intaglio-ring-selected", 2.0))
-      coveredIds.foreach(ring(_, "intaglio-ring-covered", 2.0))
+      layer.rings.foreach((d, className) => pathElement(d, className))
       current.hover.foreach(ring(_, "intaglio-ring-hover", 3.0))
       hoveredPart.foreach { part =>
         view.parts.outline(part, 3.0).toOption.flatten.foreach(path(_, "intaglio-ring-hover"))
@@ -1612,11 +1605,77 @@ final class SvgWidget[A] private (
           .foreach(report)
       }
 
+  /** What one selection draws over one view: its selected targets and the aggregates it covers,
+    * their ring path data, and their emphasis outlines, each computed once on first use.
+    */
+  private final class SelectionLayer(
+      val view: SvgWidgetView[A],
+      val selection: Selection[A],
+      val domain: InteractionDomain[A],
+      val selected: Vector[VisualTargetId],
+      val covered: Vector[VisualTargetId]
+  ):
+    lazy val members: Set[VisualTargetId] = (selected ++ covered).toSet
+    lazy val rings: Vector[(String, String)] =
+      def paths(ids: Vector[VisualTargetId], className: String) =
+        ids
+          .flatMap(id =>
+            view.picking.outline(id, 2.0).toOption.map(SvgWidget.pathData).filter(_.nonEmpty)
+          )
+          .map(_ -> className)
+      paths(selected, "intaglio-ring-selected") ++ paths(covered, "intaglio-ring-covered")
+    lazy val emphasis: Vector[TargetOutline] =
+      (selected ++ covered).distinct.flatMap(id => view.picking.outline(id, 1.5).toOption)
+
+  /** The current selection's layer, rebuilt only when the view, the selection or the domain
+    * changes. One entry, dropped on dispose.
+    */
+  private var selectionCache: Option[SelectionLayer] = None
+
+  private def selectionLayer(current: InteractionState[A]): SelectionLayer =
+    selectionCache match
+      case Some(layer)
+          if (layer.view eq view) && (layer.selection eq current.selection) &&
+            (layer.domain eq current.domain) =>
+        layer
+      case _ =>
+        val selection = current.selection
+        val selected =
+          if selection.targets.isEmpty && selection.entities.isEmpty then
+            Vector.empty[VisualTargetId]
+          else
+            view.navigation.targets.collect {
+              case geometry
+                  if selection.targets.contains(geometry.target.id) ||
+                    geometry.target.entity.exists(selection.entities.contains) =>
+                geometry.target.id
+            }
+        // Coverage needs exact members, so only aggregates that keep them are measured, once each.
+        // No selected observation covers no aggregate under any emphasis rule.
+        val covered =
+          if selection.entities.isEmpty then Vector.empty[VisualTargetId]
+          else
+            view.navigation.targets.collect {
+              case geometry
+                  if geometry.target.entity.isEmpty &&
+                    geometry.target.membership.capability == MembershipCapability.Exact &&
+                    !selection.targets.contains(geometry.target.id) &&
+                    behavior.aggregateEmphasis.triggered(
+                      MemberCoverage.of(geometry.target, selection.entities, current.domain)
+                    ) =>
+                geometry.target.id
+            }
+        val layer = new SelectionLayer(view, selection, current.domain, selected, covered)
+        selectionCache = Some(layer)
+        layer
+
   private def ring(target: VisualTargetId, className: String, offset: Double): Unit =
     view.picking.outline(target, offset).foreach(path(_, className))
 
   private def path(outline: TargetOutline, className: String): Unit =
-    val d = SvgWidget.pathData(outline)
+    pathElement(SvgWidget.pathData(outline), className)
+
+  private def pathElement(d: String, className: String): Unit =
     if d.nonEmpty then
       val element = svgElement("path")
       element.setAttribute("d", d)
@@ -1626,33 +1685,42 @@ final class SvgWidget[A] private (
   /** Show the emphasized targets in their original paint above the dimmed plot: a second copy of
     * the plot clipped to the targets' outlines.
     */
-  private def emphasize(targets: Vector[VisualTargetId]): Unit =
+  private def emphasize(outlines: Vector[TargetOutline]): Unit =
     canvasSurface match
-      case Some(surface) =>
-        surface.emphasize(targets.flatMap(id => view.picking.outline(id, 1.5).toOption))
-      case None => emphasizeSvg(targets)
+      case Some(surface) => surface.emphasize(outlines)
+      case None          => emphasizeSvg(outlines)
 
-  private def emphasizeSvg(targets: Vector[VisualTargetId]): Unit =
+  private def emphasizeSvg(outlines: Vector[TargetOutline]): Unit =
     val clipId = id("emphasis-clip")
     val defs = svgElement("defs")
     val clip = svgElement("clipPath")
     clip.setAttribute("id", clipId)
-    targets.foreach { target =>
-      view.picking.outline(target, 1.5).foreach { outline =>
-        val d = SvgWidget.pathData(outline)
-        if d.nonEmpty then
-          val shape = svgElement("path")
-          shape.setAttribute("d", d)
-          clip.appendChild(shape)
-      }
+    outlines.foreach { outline =>
+      val d = SvgWidget.pathData(outline)
+      if d.nonEmpty then
+        val shape = svgElement("path")
+        shape.setAttribute("d", d)
+        clip.appendChild(shape)
     }
     defs.appendChild(clip)
     overlay.appendChild(defs)
-    val group = svgElement("g")
-    group.setAttribute("clip-path", s"url(#$clipId)")
-    group.setAttribute("class", "intaglio-emphasis")
-    group.innerHTML = view.emphasisMarkup
-    overlay.appendChild(group)
+    overlay.appendChild(emphasisCopy(clipId))
+
+  /** The emphasis copy of the current view's marks, parsed once per view: a redraw re-attaches it
+    * and only its clip changes. Released with the view it was parsed from and on dispose.
+    */
+  private var emphasisCache: Option[(SvgWidgetView[A], js.Dynamic)] = None
+
+  private def emphasisCopy(clipId: String): js.Dynamic =
+    emphasisCache match
+      case Some((parsed, group)) if parsed eq view => group
+      case _                                       =>
+        val group = svgElement("g")
+        group.setAttribute("clip-path", s"url(#$clipId)")
+        group.setAttribute("class", "intaglio-emphasis")
+        group.innerHTML = view.emphasisMarkup
+        emphasisCache = Some((view, group))
+        group
 
 object SvgWidget:
   /** How long navigation must pause before its run is recorded as one history entry. */

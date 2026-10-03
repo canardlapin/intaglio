@@ -18,7 +18,7 @@ final class SvgWidgetView[A] private (
     val context: RenderContext,
     val idPrefix: String,
     val markup: String,
-    val emphasisMarkup: String,
+    renderEmphasis: () => String,
     val picking: PickingPlan[A],
     val navigation: NavigationPlan[A],
     val parts: PartPicking,
@@ -28,6 +28,12 @@ final class SvgWidgetView[A] private (
     /** How marks are hit; re-windowing and repainting keep it. */
     val policy: PickPolicy
 ):
+  /** The second copy of the marks, rendered on first use: a Canvas widget, or an SVG widget that
+    * never dims, does not pay for it. It is the same document under `idPrefix-emphasis`, so it
+    * cannot fail where `markup` succeeded.
+    */
+  lazy val emphasisMarkup: String = renderEmphasis()
+
   /** A single plot can navigate its data window; a composition has several independent plans. */
   def singlePlan: Option[InteractionPlan[A]] = Option.when(plans.size == 1)(plans.head)
 
@@ -71,12 +77,6 @@ final class SvgWidgetView[A] private (
         picking <- Picking.fromResolved(device, plans.flatMap(_.groups), context, policy)
         parts <- PartPicking.fromParts(this.parts.parts, device, context)
         markup <- SvgRenderer.render(RenderPlan(painted, context), title, fonts, idPrefix)
-        emphasis <- SvgRenderer.render(
-          RenderPlan(painted, context),
-          None,
-          fonts,
-          s"$idPrefix-emphasis"
-        )
       yield new SvgWidgetView(
         plans,
         painted,
@@ -84,7 +84,7 @@ final class SvgWidgetView[A] private (
         context,
         idPrefix,
         markup.value,
-        emphasis.value,
+        SvgWidgetView.emphasis(RenderPlan(painted, context), fonts, idPrefix),
         picking,
         picking.prepareNavigation(),
         parts,
@@ -110,6 +110,15 @@ final class SvgWidgetView[A] private (
       parts.parts.map(part => ("part", part.part.describe))
 
 object SvgWidgetView:
+  /** The untitled emphasis copy, deferred. Its prefix is a valid prefix with a valid suffix and its
+    * scene already rendered, so a failure here is a broken invariant, not an input error.
+    */
+  private def emphasis(plan: RenderPlan, fonts: SvgFonts, idPrefix: String): () => String =
+    () =>
+      SvgRenderer
+        .render(plan, None, fonts, s"$idPrefix-emphasis")
+        .fold(error => throw new IllegalStateException(error.message), _.value)
+
   /** Resolve `plan` at `context`. `plan` must have been compiled for the same context. `policy`
     * decides how marks are hit; `PickPolicy.default.withHollowPoints(HollowPicking.Outline)` hits a
     * hollow point only on its outline, as for bubble charts whose small points show through large
@@ -129,7 +138,6 @@ object SvgWidgetView:
       picking <- Picking.fromResolved(device, plan.groups, context, policy)
       parts <- PartPicking.fromResolved(plan.trained, device, context)
       markup <- SvgRenderer.render(renderPlan, title, fonts, idPrefix)
-      emphasis <- SvgRenderer.render(renderPlan, None, fonts, s"$idPrefix-emphasis")
     yield
       val panel = device.frame(PlotRegion.Panel).toOption.map(_.frame)
       new SvgWidgetView(
@@ -139,7 +147,7 @@ object SvgWidgetView:
         context,
         idPrefix,
         markup.value,
-        emphasis.value,
+        emphasis(renderPlan, fonts, idPrefix),
         picking,
         picking.prepareNavigation(),
         parts,
@@ -170,7 +178,6 @@ object SvgWidgetView:
       picking <- Picking.fromResolved(device, composed.groups, context, policy)
       parts <- PartPicking.fromParts(scoped.parts, device, context)
       markup <- SvgRenderer.render(plan, title, fonts, idPrefix)
-      emphasis <- SvgRenderer.render(plan, None, fonts, s"$idPrefix-emphasis")
     yield new SvgWidgetView(
       composed.plans,
       scene,
@@ -178,7 +185,7 @@ object SvgWidgetView:
       context,
       idPrefix,
       markup.value,
-      emphasis.value,
+      emphasis(plan, fonts, idPrefix),
       picking,
       picking.prepareNavigation(),
       parts,
