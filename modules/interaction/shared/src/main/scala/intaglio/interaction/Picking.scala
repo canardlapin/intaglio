@@ -37,12 +37,15 @@ enum AreaRule:
   * draw order, so the ordinary rule — smaller distance first, then the later-drawn target — orders
   * overlapping hollow marks, and a point inside two of them reports the upper one first. Rendering
   * is unchanged.
+  *
+  * [[PickPolicy]] holds two of these: `hollow` for every closed mark, and `hollowPoints` for point
+  * glyphs only. A point glyph's inside is hit when either includes it.
   */
 enum HollowPicking:
-  /** Only painted ink is hit; a hollow mark is hit on its outline. The default. */
+  /** Only painted ink is hit; a hollow mark is hit on its outline. The default for `hollow`. */
   case Outline
 
-  /** The inside of every closed hollow mark is hit. */
+  /** The inside of every closed hollow mark is hit. The default for `hollowPoints`. */
   case Interior
 
   /** The inside is hit only for marks whose innermost enclosing name — the primitive's own name,
@@ -55,18 +58,43 @@ enum HollowPicking:
     case Interior          => true
     case InteriorOf(names) => name.exists(names.contains)
 
+/** How painted geometry becomes hit regions.
+  *
+  * `hollow` decides whether closed hollow marks are hit inside; it defaults to
+  * [[HollowPicking.Outline]], so a hollow rectangle, polygon, ribbon or circle grob is hit on its
+  * outline. `hollowPoints` decides the same for point glyphs and defaults to
+  * [[HollowPicking.Interior]], so pointing at the centre of a hollow point hits it, on every host
+  * that picks through this policy. A point glyph is identified by kind, never by shape: every mark
+  * of a point batch, and every mark of a plot target whose grobs are point grobs (with any
+  * intervals or lines beside them, as for a summary). A named scene drawn from individual
+  * `Grob.points` loses that kind when it is lowered, so in [[NamedPicking]] those marks follow
+  * `hollow`. `withHollowPoints(HollowPicking.Outline)` restores outline-only point picking.
+  */
 final class PickPolicy private (
     val includeTransparent: Boolean,
     val dashes: DashPicking,
     val miterLimit: Double,
-    val hollow: HollowPicking
+    val hollow: HollowPicking,
+    val hollowPoints: HollowPicking
 ):
+  private def this(
+      includeTransparent: Boolean,
+      dashes: DashPicking,
+      miterLimit: Double,
+      hollow: HollowPicking
+  ) =
+    this(includeTransparent, dashes, miterLimit, hollow, HollowPicking.Interior)
+
   private def this(includeTransparent: Boolean, dashes: DashPicking, miterLimit: Double) =
     this(includeTransparent, dashes, miterLimit, HollowPicking.Outline)
 
   /** The same policy with `value` deciding whether hollow marks are hit inside. */
   def withHollow(value: HollowPicking): PickPolicy =
-    new PickPolicy(includeTransparent, dashes, miterLimit, value)
+    new PickPolicy(includeTransparent, dashes, miterLimit, value, hollowPoints)
+
+  /** The same policy with `value` deciding whether hollow point glyphs are hit inside. */
+  def withHollowPoints(value: HollowPicking): PickPolicy =
+    new PickPolicy(includeTransparent, dashes, miterLimit, hollow, value)
 
 object PickPolicy:
   val default: PickPolicy = new PickPolicy(false, DashPicking.Continuous, 4.0)
@@ -491,13 +519,14 @@ object Picking:
           primitive: DevicePrimitive,
           transform: Rigid,
           clips: Vector[Region],
-          name: Option[GraphicsName]
+          name: Option[GraphicsName],
+          pointGlyph: Boolean
       ): Unit =
         if failure.isEmpty then
           group.at(index) match
             case Left(_)     => failure = Some(PickingError.InvalidRoute(group.name.value))
             case Right(info) =>
-              primitiveRegions(primitive, context, policy, name) match
+              primitiveRegions(primitive, context, policy, name, pointGlyph) match
                 case Left(error)    => failure = Some(error)
                 case Right(regions) =>
                   val mark = Some(MarkSource(primitive, transform))
@@ -574,7 +603,8 @@ object Picking:
                             primitive,
                             transform,
                             clips,
-                            batch.name.orElse(name)
+                            batch.name.orElse(name),
+                            pointGlyph = true
                           )
                       }
                   }
@@ -602,7 +632,16 @@ object Picking:
               case None        => order += 1
               case Some(group) =>
                 if group.size != 1 then failure = Some(PickingError.InvalidRoute(group.name.value))
-                else add(group, 0, primitive, transform, clips, nameOf(primitive).orElse(name))
+                else
+                  add(
+                    group,
+                    0,
+                    primitive,
+                    transform,
+                    clips,
+                    nameOf(primitive).orElse(name),
+                    group.pointGlyphs
+                  )
         }
 
       walk(
@@ -681,12 +720,16 @@ object Picking:
       case p: DevicePrimitive.TextRun         => p.name
       case p: DevicePrimitive.Image           => p.name
 
-  /** `name` is the innermost name enclosing the primitive, which `policy.hollow` consults. */
+  /** `name` is the innermost name enclosing the primitive, which `policy.hollow` consults, and
+    * `pointGlyph` says the primitive draws a point glyph, whose inside `policy.hollowPoints` may
+    * also include.
+    */
   private[interaction] def primitiveRegions(
       primitive: DevicePrimitive,
       context: RenderContext,
       policy: PickPolicy,
-      name: Option[GraphicsName] = None
+      name: Option[GraphicsName] = None,
+      pointGlyph: Boolean = false
   ): Either[PickingError, Vector[Region]] =
     def visible(alpha: Double) = policy.includeTransparent || alpha > 0
     def filled(gp: GraphicParams) = visible(gp.alpha) &&
@@ -695,7 +738,8 @@ object Picking:
       ))
     def stroked(gp: GraphicParams) =
       gp.lineWidth > 0 && visible(gp.alpha) && gp.stroke.exists(color => visible(color.alpha))
-    val hollowInside = policy.hollow.includes(name)
+    val hollowInside =
+      policy.hollow.includes(name) || (pointGlyph && policy.hollowPoints.includes(name))
     // A closed mark's inside is hit when it is filled, or when it is outlined and the policy
     // treats hollow insides as hit.
     def inside(gp: GraphicParams) = filled(gp) || (hollowInside && stroked(gp))

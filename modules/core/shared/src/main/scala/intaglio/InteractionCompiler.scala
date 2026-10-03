@@ -54,15 +54,27 @@ final class TargetGroup[A] private[interaction] (
     private val memberships: Vector[Membership[A]],
     private val links: Vector[LinkKeys],
     private val rasterCells: Vector[Option[RasterCell]],
-    private[interaction] val raster: Boolean
+    private[interaction] val raster: Boolean,
+    private[interaction] val pointGlyphs: Boolean
 ):
+  /** Bridge for the constructor descriptor from before point-glyph routes. */
+  private[interaction] def this(
+      name: SemanticId,
+      series: TargetSeries,
+      entities: Vector[Option[EntityKey[A]]],
+      memberships: Vector[Membership[A]],
+      links: Vector[LinkKeys],
+      rasterCells: Vector[Option[RasterCell]],
+      raster: Boolean
+  ) = this(name, series, entities, memberships, links, rasterCells, raster, false)
+
   private[interaction] def this(
       name: SemanticId,
       series: TargetSeries,
       entities: Vector[Option[EntityKey[A]]],
       memberships: Vector[Membership[A]],
       links: Vector[LinkKeys]
-  ) = this(name, series, entities, memberships, links, Vector.empty, false)
+  ) = this(name, series, entities, memberships, links, Vector.empty, false, false)
 
   def size: Int = series.size
   def at(index: Int): Either[InteractionError, TargetInfo[A]] =
@@ -123,6 +135,22 @@ final class InteractionPlan[A] private[interaction] (
 
 object InteractionCompiler:
   val targetAttribute: DataKey = DataKey.unsafe("intaglio-targets")
+
+  /** Whether every closed mark of a target's grobs is a point glyph, decided by grob kind: at least
+    * one point grob, and no rectangle, polygon or circle grob whose inside would follow the general
+    * hollow rule. Lines, segments, text and images have no hollow inside and do not decide it.
+    */
+  private def pointGlyphsOnly(grobs: Vector[Grob]): Boolean =
+    def kinds(grob: Grob): (Boolean, Boolean) = grob match
+      case _: Grob.Points | _: Grob.PointBatch                             => (true, false)
+      case _: Grob.Lines | _: Grob.Segments | _: Grob.Text | _: Grob.Image => (false, false)
+      case group: Grob.Group                                               =>
+        val parts = group.children.map(kinds)
+        (parts.exists(_._1), parts.exists(_._2))
+      case annotated: Grob.Annotated => kinds(annotated.child)
+      case _                         => (false, true)
+    val parts = grobs.map(kinds)
+    parts.exists(_._1) && !parts.exists(_._2)
 
   /** Convenience binding for ordinary layers sharing the plot's row type. Use compileBound for
     * independent row types, explicit link projections, or different entity namespaces.
@@ -256,7 +284,8 @@ object InteractionCompiler:
                   evidence.map(_._2),
                   evidence.map(_._3),
                   evidence.map(_._4),
-                  layer.geom.isInstanceOf[Geom.Raster]
+                  layer.geom.isInstanceOf[Geom.Raster],
+                  pointGlyphsOnly(assignment.grobs.map(layer.grobs(_)))
                 )
                 assignment.grobs.foreach { index =>
                   replacements(index) = Grob.annotated(

@@ -377,6 +377,46 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
       }
   }
 
+  test("a real FX pointer at a hollow point's centre hovers it under the default policy") {
+    val hollow = GraphicParams.unsafe(stroke = Some(Rgba.Black), fill = None, lineWidth = 2)
+    val context = RenderContext.unsafe(400, 300, pixelsPerInch = 96.0)
+    for options <- Vector(PlotCompilerOptions.default, PlotCompilerOptions.lean) do
+      val rows = Vector(0, 1, 2, 3, 4)
+      val plan = ok(
+        InteractionCompiler.compile(
+          ok(Plot(rows).addLayer(Layer.point[Int](_.toDouble, _.toDouble, params = Some(hollow)))),
+          ok(KeySpace("marks", KeyCodec.integer)),
+          ok(DataRevision("one")),
+          SemanticId.unsafe("hollow-host"),
+          ok(PlanRevision("one")),
+          options.copy(renderContext = Some(context))
+        )(identity)
+      )
+      val view = ok(JavaFxInteractionView.compile(plan, context))
+      val mark = view.navigation.targets.find(_.target.entity.exists(_.value == 2)).get
+      val x = (mark.left + mark.right) / 2
+      val y = (mark.top + mark.bottom) / 2
+      val outlineOnly = ok(
+        Picking.fromResolved(
+          view.deviceScene,
+          plan.groups,
+          context,
+          PickPolicy.default.withHollowPoints(HollowPicking.Outline)
+        )
+      )
+      assertEquals(ok(outlineOnly.hits(DevicePoint(x, y))), Vector.empty, "outline-only control")
+      fx {
+        val host = ok(JavaFxInteractionHost.attach(view, toleranceLogicalPx = 0))
+        mouse(host, MouseEvent.MOUSE_MOVED, x, y)
+        assertEquals(ok(host.state).hover, Some(mark.target.id))
+        mouse(host, MouseEvent.MOUSE_PRESSED, x, y)
+        mouse(host, MouseEvent.MOUSE_RELEASED, x, y)
+        mouse(host, MouseEvent.MOUSE_CLICKED, x, y)
+        assertEquals(ok(host.state).selection.entities.map(_.value), Set(2))
+        ok(host.dispose())
+      }
+  }
+
   test("projected selection and hover redraw visible overlay without emitting user events") {
     val view = prepared()
     fx {

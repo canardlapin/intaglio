@@ -68,7 +68,9 @@ excluded unless `PickPolicy.includeTransparent` is enabled; absent paint
 remains absent. Stroked, unfilled closed marks are hit on their outline
 unless `PickPolicy.withHollow(HollowPicking.Interior)` (or `InteriorOf` for
 chosen names) includes their inside; a hollow mark then picks exactly as if
-filled. Text uses measured, rotated bounds supplied by `TextMetrics`.
+filled. Point glyphs are the exception: `PickPolicy.hollowPoints` defaults to
+`HollowPicking.Interior`, so the centre of a hollow point hits it, and
+`withHollowPoints(HollowPicking.Outline)` restores outline-only point picking. Text uses measured, rotated bounds supplied by `TextMetrics`.
 Ordinary images use their rectangle and overall opacity. Raster target routes
 also exclude transparent source cells unless `includeTransparent` is enabled.
 

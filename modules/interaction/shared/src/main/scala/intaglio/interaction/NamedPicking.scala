@@ -49,6 +49,11 @@ private[interaction] final case class NamedTarget(
   * A mark of a point batch identified by [[intaglio.BatchMarks]] has its mark name as its innermost
   * name, so it is a target of its own; in SVG that name is the mark's configured `data-*` attribute
   * rather than `data-name`, which keeps the batch's name.
+  *
+  * The marks of a point batch are point glyphs, so `PickPolicy.hollowPoints` applies to them. A
+  * point drawn from an individual `Grob.points` lowers to the same circle, square or closed path as
+  * any other grob of that shape, so a named scene cannot tell it apart and it follows
+  * `PickPolicy.hollow`.
   */
 final class NamedPickingPlan private[interaction] (
     private[interaction] val targets: Vector[NamedTarget],
@@ -175,10 +180,11 @@ object NamedPicking:
           name: GraphicsName,
           primitive: DevicePrimitive,
           transform: Rigid,
-          clips: Vector[Region]
+          clips: Vector[Region],
+          pointGlyph: Boolean = false
       ): Unit =
         if failure.isEmpty then
-          Picking.primitiveRegions(primitive, context, policy, Some(name)) match
+          Picking.primitiveRegions(primitive, context, policy, Some(name), pointGlyph) match
             case Left(error)    => failure = Some(error)
             case Right(regions) =>
               val mark = Some(MarkSource(primitive, transform))
@@ -252,7 +258,9 @@ object NamedPicking:
                           batch.shapes.valueAt(index),
                           batch.graphicParams.valueAt(index)
                         )
-                        .foreach(primitive => add(name, primitive, transform, clips))
+                        .foreach(primitive =>
+                          add(name, primitive, transform, clips, pointGlyph = true)
+                        )
               }
               marks.foreach(_.advance(batch.points.size))
           case DeviceElement.Mark(primitive) =>

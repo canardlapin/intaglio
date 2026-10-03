@@ -52,7 +52,8 @@ scene. The timings it writes are measurements on one machine, not a guarantee.
 ## Hit the inside of hollow marks
 
 By default only painted ink is a target, so a stroked, unfilled circle is hit on its outline and a
-click at its centre misses. `PickPolicy.withHollow` changes that without faking a fill:
+click at its centre misses. Point glyphs are the exception, described below. `PickPolicy.withHollow`
+changes that without faking a fill:
 
 ```scala mdoc:silent
 val outlined = GraphicParams.unsafe(stroke = Some(Rgba.Black), fill = None, lineWidth = 2)
@@ -84,6 +85,48 @@ listed. With the inside included, a hollow mark picks exactly as the same mark f
 overlapping hollow marks are ordered by distance and then by draw order, so a point inside two of
 them reports the later-drawn one first. Area selection uses the same regions. Rendering is
 unchanged. The policy applies to plot picking (`Picking.compile`) as well as named picking.
+
+### Point glyphs are hit on their whole disc
+
+A hollow point is small, and pointing at its centre is how a reader aims at it, so point glyphs
+follow a second field, `PickPolicy.hollowPoints`, which defaults to `HollowPicking.Interior`. The
+inside of a hollow circle, square, triangle or diamond point is hit by default on every host that
+picks through the shared plan (the SVG widget, Canvas and JavaFX); a cross still has no inside.
+`withHollowPoints(HollowPicking.Outline)` restores outline-only point picking, and `InteriorOf`
+limits it to chosen names. A point's inside is hit when either `hollow` or `hollowPoints` includes
+it, so `withHollow(HollowPicking.Interior)` still covers every closed mark.
+
+```scala mdoc:silent
+val hollowPoints = Scene(
+  Vector(
+    Grob.pointBatchUnsafe(
+      Vector(Point.npcUnsafe(0.5, 0.5)),
+      sizes = BatchColumn.Constant(ExtentExpr.pointsUnsafe(10)),
+      graphicParams = BatchColumn.Constant(outlined),
+      name = Some(GraphicsName.unsafe("glyph"))
+    )
+  )
+)
+val pointDefault = NamedPicking.compile(hollowPoints, context)
+val pointOutline = NamedPicking.compile(
+  hollowPoints,
+  context,
+  PickPolicy.default.withHollowPoints(HollowPicking.Outline)
+)
+```
+
+```scala mdoc
+pointDefault.map(_.hits(centre).map(_.map(_.name.value)))
+pointOutline.map(_.hits(centre).map(_.map(_.name.value)))
+```
+
+A point glyph is recognised by its kind, not its shape: every mark of a point batch, and in plot
+picking every mark of a target whose grobs are point grobs, alongside at most lines, segments, text
+or images, as for a summary's centre and interval. Rectangles, tiles, polygons, ribbons and circle
+grobs keep the `hollow` rule. One gap remains in named picking: a point drawn from an individual
+`Grob.points` is lowered to the same circle, square or closed path as any grob of that shape, so a
+named scene cannot tell it apart and it follows `hollow`. Draw such points as a `Grob.pointBatch` to
+give them point semantics.
 
 ## Keyboard navigation and interaction state
 

@@ -183,6 +183,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   for marks under chosen `GraphicsName`s. A hollow mark then picks as if it
   were filled, keeping the distance-then-draw-order rule; rendering is
   unchanged.
+  `PickPolicy.withHollowPoints` sets the same choice for point glyphs alone
+  (`PickPolicy.hollowPoints`, default `Interior`; see Changed).
 
 - **Resolve a hand-built scene once for drawing and picking.**
   `NamedPicking.fromResolved` and `JavaFxProgram.fromResolved` accept a
@@ -406,6 +408,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Unfaceted plots are unchanged.
 
 ### Changed
+
+- **Hollow point glyphs are hit on their whole disc.** Hovering or clicking the
+  centre of a stroked, unfilled point now hits it on every host that picks
+  through the shared plan (the SVG widget, Canvas and JavaFX): `PickPolicy`
+  gained `hollowPoints`, defaulting to `HollowPicking.Interior`, for the marks
+  of point batches and of plot targets drawn only from point grobs (with any
+  lines, segments, text or images beside them). Other hollow marks keep the
+  outline-only default, and rendering is unchanged. Hit distances, nearest
+  hover, navigation anchors and area selection follow the new regions: a hit
+  inside a hollow point reports distance 0, and an `Intersecting` area inside
+  its ring selects it. `PickPolicy.default.withHollowPoints(HollowPicking.Outline)`
+  restores the previous behaviour. Points drawn from individual `Grob.points`
+  in a named (grob-only) scene cannot be told apart from circles and still
+  follow `hollow`.
 
 - **Zoomed axes are broken for the window they show.** Under `coordZoom` or
   data-window navigation, a continuous, date or date-time axis now chooses

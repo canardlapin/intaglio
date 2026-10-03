@@ -12,6 +12,7 @@ class HollowPickingSuite extends munit.FunSuite:
   private val invisible = GraphicParams.unsafe(stroke = None, fill = None)
   private def n(value: String): GraphicsName = GraphicsName.unsafe(value)
   private val interior = PickPolicy.default.withHollow(HollowPicking.Interior)
+  private val outlinePoints = PickPolicy.default.withHollowPoints(HollowPicking.Outline)
 
   private def named(policy: PickPolicy, elements: DeviceElement*): NamedPickingPlan =
     ok(NamedPicking.fromResolved(DeviceScene(200, 200, elements.toVector), context, policy))
@@ -63,10 +64,16 @@ class HollowPickingSuite extends munit.FunSuite:
         PointShape.Diamond
       )
     do
-      val off = named(PickPolicy.default, batch(shape, outline, "b"))
+      val off = named(outlinePoints, batch(shape, outline, "b"))
       val on = named(interior, batch(shape, outline, "b"))
+      val byDefault = named(PickPolicy.default, batch(shape, outline, "b"))
       assertEquals(at(off, 120, 122), Vector.empty, shape)
       assertEquals(at(on, 120, 122), Vector(n("b")), shape)
+      assertEquals(
+        at(byDefault, 120, 122),
+        Vector(n("b")),
+        s"$shape: a batch mark is a point glyph"
+      )
     val cross = named(interior, batch(PointShape.Cross, outline, "x"))
     assertEquals(at(cross, 123, 123), Vector.empty, "a cross has no inside")
     val hidden = named(interior, disc(50, 50, 10, invisible, "hidden"))
@@ -156,8 +163,9 @@ class HollowPickingSuite extends munit.FunSuite:
         DeviceElement.Mark(b.copy(graphicParams = BatchColumn.Constant(outlinedAndFilled)))
       case other => other
     }
-    val off = named(PickPolicy.default, hollow*)
+    val off = named(outlinePoints, hollow*)
     val on = named(interior, hollow*)
+    val byDefault = named(PickPolicy.default, hollow*)
     val asFilled = named(PickPolicy.default, filled*)
     for
       x <- 0 to 200 by 3
@@ -168,6 +176,7 @@ class HollowPickingSuite extends munit.FunSuite:
       val withInside = ok(on.hits(point, 1)).map(_.name).toSet
       assert(without.subsetOf(withInside), point)
       assertEquals(on.hits(point, 1), asFilled.hits(point, 1), point)
+      assertEquals(byDefault.hits(point, 1), asFilled.hits(point, 1), point)
       assertEquals(on.hits(point, 1), on.hitsExhaustive(point, 1), point)
   }
 
@@ -189,8 +198,9 @@ class HollowPickingSuite extends munit.FunSuite:
         PlotCompilerOptions.lean.copy(renderContext = Some(context))
       )(identity)
     )
-    val off = ok(Picking.compile(plan, context))
+    val off = ok(Picking.compile(plan, context, outlinePoints))
     val on = ok(Picking.compile(plan, context, interior))
+    val byDefault = ok(Picking.compile(plan, context))
     val centres = off.prepareNavigation().targets.map(_.anchor)
     assertEquals(centres.size, 2)
     // A navigation anchor of a hollow mark sits on its outline; the bounds centre is the inside.
@@ -199,4 +209,5 @@ class HollowPickingSuite extends munit.FunSuite:
       DevicePoint((geometry.left + geometry.right) / 2, (geometry.top + geometry.bottom) / 2)
     assertEquals(ok(off.hits(centre)).size, 0)
     assertEquals(ok(on.hits(centre)).flatMap(_.target.entity).map(_.value), Vector(0))
+    assertEquals(ok(byDefault.hits(centre)).flatMap(_.target.entity).map(_.value), Vector(0))
   }

@@ -166,7 +166,8 @@ For SVG, before the baseline can be called complete:
 3. Configurable transitions, externally assigned target styles, a tooltip appearance API, and a
    data-label part kind.
 4. Coverage entries for the five uncovered geoms, and picking tests per entry.
-5. Picking the inside of hollow point glyphs in the browser: the default point is hit only on its
-   outline, and the widget offers no policy to change that.
+5. A browser check that a hollow point is hit at its centre. The shared picking plan now hits the
+   inside of hollow point glyphs by default, but the widget passes no `PickPolicy`, so it cannot
+   restore outline-only point picking.
 
 For Canvas, every row.

@@ -23,6 +23,9 @@ class PickingSuite extends munit.FunSuite:
       )(identity)
     ).groups.head
   private val single = group()
+  // `single` routes a point layer, so its closed marks are point glyphs. Geometry tests that are
+  // about painted ink alone pick them outline-only, as before point glyphs were hit inside.
+  private val outlinePoints = PickPolicy.default.withHollowPoints(HollowPicking.Outline)
   private def route(group: TargetGroup[Int], marks: DevicePrimitive*): DeviceElement =
     DeviceElement.Annotated(
       GrobMeta(data = Vector(InteractionCompiler.targetAttribute -> group.name.value)),
@@ -261,9 +264,13 @@ class PickingSuite extends munit.FunSuite:
         50
       )
     )
-    val outline =
-      compile(Vector(route(single, disc(50, 50, gp = GraphicParams.unsafe(lineWidth = 2)))))
+    val hollowDisc = disc(50, 50, gp = GraphicParams.unsafe(lineWidth = 2))
+    val outline = compile(Vector(route(single, hollowDisc)), policy = outlinePoints)
     assert(!hit(outline, 50, 50))
+    assert(
+      hit(compile(Vector(route(single, hollowDisc))), 50, 50),
+      "by default a hollow point glyph is hit inside"
+    )
     assert(hit(outline, 55, 50))
     assertEquals(
       outline.select(ok(PickArea.rectangle(49, 49, 51, 51)), AreaRule.CenterInside).size,
@@ -422,8 +429,9 @@ class PickingSuite extends munit.FunSuite:
   test("rounded rectangle strokes preserve empty interiors and curved corners") {
     val mark =
       DevicePrimitive.RectShape(40, 40, 20, 10, 3, GraphicParams.unsafe(lineWidth = 2), None)
-    val plan = compile(Vector(route(single, mark)))
+    val plan = compile(Vector(route(single, mark)), policy = outlinePoints)
     assert(!hit(plan, 50, 45))
+    assert(hit(compile(Vector(route(single, mark))), 50, 45), "a point route's inside by default")
     assert(!hit(plan, 39, 39))
     assert(hit(plan, 43, 39))
     assert(hit(plan, 50, 40))

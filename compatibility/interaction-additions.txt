@@ -212,6 +212,7 @@ MissingClassProblem intaglio.interaction.TargetGranularity
 MissingClassProblem intaglio.interaction.TargetGranularity$
 MissingClassProblem intaglio.interaction.TargetGranularity$PerGroup
 MissingClassProblem intaglio.interaction.TargetGranularity$PerGroup$
+DirectMissingMethodProblem intaglio.interaction.TargetGroup.pointGlyphs
 DirectMissingMethodProblem intaglio.interaction.TargetGroup.raster
 DirectMissingMethodProblem intaglio.interaction.TargetGroup.this
 DirectMissingMethodProblem intaglio.interaction.TargetInfo.<init>$default$5
