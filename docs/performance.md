@@ -132,13 +132,19 @@ At 100,000 marks that is about 5.5 KiB per mark.
 metric's measured median (`recorded`) and its `budget`, with the source SHA, bundle, browser and
 machine. The headroom is:
 
-- time: the larger of 1.5 × recorded and recorded + 5 ms (+20 µs for per-query microseconds);
+- time: the larger of 2 × recorded and recorded + 5 ms (+20 µs for per-query microseconds);
 - retained heap: 1.15 × recorded + 2 MiB;
 - heap left after release: max(recorded, 0) + 3 MiB, a leak tripwire.
 
-The runs were steady: the worst three-run spread of any timed metric was under 13%. The headroom
-therefore leaves room for a busier machine, while still catching regressions of the size removed
-here, which were 2× to 150×. The gate also fails, independently of time, on any of these:
+Within one run the timings were steady; the worst three-run spread of any timed metric was under
+13%. Machine load moves them together, though. A gate run at a load average of about 15 on the 14
+cores, from other builds on the same machine, slowed every timed metric by 1.3–1.75×. Under a 1.5×
+headroom, two metrics then failed: one `nearest` query at 100,000 points (489 µs) and the
+`ExactKeys` coverage redraw (34.5 ms). The time headroom is therefore 2×. That still catches a
+doubling, and the regressions removed here were 2× to 150×. Heap figures did not move with load.
+The report records the load average at the start and end of each run. Read a failure together with
+it, and rerun on a quiet machine before moving a budget. The gate also fails, independently of
+time, on any of these:
 
 - a missing hover ring;
 - a lost selection on navigation or update;

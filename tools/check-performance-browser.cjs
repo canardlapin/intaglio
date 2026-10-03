@@ -61,6 +61,7 @@ async function main() {
       cpu: os.cpus()[0] && os.cpus()[0].model,
       cores: os.cpus().length,
       memoryGiB: round(os.totalmem() / 2 ** 30),
+      loadAverageAtStart: os.loadavg().map(round),
       node: process.version,
     },
     fixture: script,
@@ -361,9 +362,11 @@ async function main() {
     }
     await fs.writeFile(path.join(out, 'measured-budgets.json'), JSON.stringify(measured, null, 2) + '\n');
   }
+  // A loaded machine slows every timed metric alike; the load is part of the evidence.
+  report.machine.loadAverageAtEnd = os.loadavg().map(round);
   await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2) + '\n');
 
-  console.log(report.browser, '|', report.machine.cpu, '|', report.machine.platform);
+  console.log(report.browser, '|', report.machine.cpu, '|', report.machine.platform, '| load', report.machine.loadAverageAtStart.join(' '), '->', report.machine.loadAverageAtEnd.join(' '));
   for (const [name, w] of Object.entries(report.workloads)) console.log(name, JSON.stringify(w.median));
   for (const b of report.budgets) {
     console.log(`${b.ok ? 'ok  ' : 'FAIL'} ${b.workload}.${b.metric} = ${b.value} (budget ${b.budget}, recorded ${b.recorded})`);
