@@ -28,8 +28,77 @@ final case class LinkedEmphasis[A](
   def matches(target: TargetInfo[A]): Boolean =
     target.entity.exists(entities.contains) || links.exists(target.links.contains)
 
+  /** Whether an aggregate target (a histogram bin) is emphasized because enough of its exact
+    * members are among `entities`, as `rule` requires; a mark with its own key matches as
+    * [[matches]] does. An aggregate whose membership is not exact is never emphasized by coverage.
+    */
+  def covers(target: TargetInfo[A], rule: EmphasisRule, domain: InteractionDomain[A]): Boolean =
+    matches(target) ||
+      (target.entity.isEmpty && rule.triggered(MemberCoverage.of(target, entities, domain)))
+
 object LinkedEmphasis:
   def none[A]: LinkedEmphasis[A] = LinkedEmphasis[A]()
+
+/** How many of an aggregate's members a set of observations covers. */
+enum MemberCoverage:
+  /** `selected` of the aggregate's `total` exact members. */
+  case Known(selected: Int, total: Int)
+
+  /** The aggregate's members are not known exactly, so no count can be given: never "0 of n". */
+  case Unknown(capability: MembershipCapability)
+
+  /** The members describe another source revision than the one shown. */
+  case Stale
+
+  def fraction: Option[Double] = this match
+    case Known(selected, total) if total > 0 => Some(selected.toDouble / total)
+    case _                                   => None
+
+object MemberCoverage:
+  def of[A](
+      target: TargetInfo[A],
+      entities: Set[EntityKey[A]],
+      domain: InteractionDomain[A]
+  ): MemberCoverage =
+    domain.sourceRevision(target.id) match
+      case None           => Unknown(target.membership.capability)
+      case Some(revision) =>
+        target.membership.exactKeys(revision) match
+          case Right(keys) => Known(keys.count(entities.contains), keys.size)
+          case Left(InteractionError.StaleRevision(_, _)) => Stale
+          case Left(_)                                    => Unknown(target.membership.capability)
+
+/** When an aggregate is emphasized by the members a linked selection covers: any of them, all of
+  * them, or at least a stated fraction. Unknown or stale coverage never triggers.
+  */
+sealed trait EmphasisRule:
+  def triggered(coverage: MemberCoverage): Boolean
+
+object EmphasisRule:
+  case object AnyMember extends EmphasisRule:
+    def triggered(coverage: MemberCoverage): Boolean = coverage match
+      case MemberCoverage.Known(selected, _) => selected > 0
+      case _                                 => false
+
+  case object AllMembers extends EmphasisRule:
+    def triggered(coverage: MemberCoverage): Boolean = coverage match
+      case MemberCoverage.Known(selected, total) => total > 0 && selected == total
+      case _                                     => false
+
+  /** At least `value` (in (0, 1]) of the members. */
+  final class Fraction private[EmphasisRule] (val value: Double) extends EmphasisRule:
+    def triggered(coverage: MemberCoverage): Boolean = coverage match
+      case MemberCoverage.Known(selected, total) => total > 0 && selected >= value * total
+      case _                                     => false
+    override def equals(other: Any): Boolean = other match
+      case that: Fraction => value == that.value
+      case _              => false
+    override def hashCode(): Int = value.hashCode
+    override def toString: String = s"Fraction($value)"
+
+  def fraction(value: Double): Either[InteractionError, EmphasisRule] =
+    if value.isFinite && value > 0.0 && value <= 1.0 then Right(new Fraction(value))
+    else Left(InteractionError.InvalidValue("emphasis fraction", s"$value is not in (0, 1]"))
 
 /** A keyed legend whose entries stand for link keys of `space`: entry labels are values of that
   * space, so pointing at an entry emphasizes, and choosing it selects, the marks whose layer

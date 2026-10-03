@@ -22,8 +22,13 @@ InteractionCoverage.entries.foreach { entry =>
 }
 ```
 
-Aggregate targets (histogram bins, summaries, densities) retain only a member count unless the
-compilation asks for `MembershipRetention.ExactKeys`; a count is never reported as a member set.
+Aggregate targets (histogram bins, summaries) retain only a member count unless the compilation
+asks for `MembershipRetention.ExactKeys` (members kept) or `MembershipRetention.Deferred` (the
+application resolves them on request); a count is never reported as a member set. Membership follows
+the statistic's declared contract: only one-to-one and aggregate-member statistics can offer exact
+members, a density grid point's membership is unavailable, and a free-text `Custom` contract keeps
+only its count. `InteractionAction.SelectMembers` selects exact members; `MemberCoverage` counts how
+many a linked selection covers.
 
 ## Plot parts
 

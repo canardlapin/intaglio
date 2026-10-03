@@ -154,7 +154,12 @@ plan's.
 ## State contracts
 
 - Select displayed targets and observation entities independently. Selecting
-  an aggregate target does not imply selecting all its source observations.
+  an aggregate target does not imply selecting all its source observations;
+  `SelectMembers` selects them explicitly, only when membership is exact and
+  current, and `RequestMembers`/`ResolveMembers` fetch deferred members with
+  late, superseded and partial replies rejected. `MemberCoverage` and
+  `EmphasisRule` (any, all, or a fraction of members) describe how a linked
+  selection covers an aggregate.
 - Replace, add, subtract, toggle, and clear selections. Single mode rejects
   results with more than one selected item; disabled mode requires an empty
   selection. Mode changes never choose a surviving observation arbitrarily.
@@ -181,7 +186,7 @@ Category links retain their own key types through activation subscriptions.
 
 This module depends on core and has no browser or reactive-framework dependency.
 Host-specific gesture handling, viewport scale conversion, accessible UI,
-exact aggregate resolution, and history persistence belong to the remaining
+showing aggregate coverage in a host, and history persistence belong to the remaining
 [interaction epic](../../docs/design/interaction.md).
 `PanelViewport` validates numeric bounds; a host still needs to validate the
 addressed panel and its coordinate capabilities.
