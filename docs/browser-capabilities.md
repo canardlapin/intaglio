@@ -48,7 +48,8 @@ never "fails". **Trace**: the shared trace scripts in [`tools/trace`](../tools/t
 same normalized events, selected keys, tooltips, announcements and followed links in JavaFX as the
 browser recorded on SVG and Canvas (`JavaFxTraceParitySuite`, headless Monocle, and the native macOS
 run in [evidence/interaction12](../evidence/interaction12/README.md)). **Host**: JavaFX-only checks
-in the headless suites. **Refused**: the host returns an actionable
+in the headless suites; "native" marks checks repeated on the macOS desktop toolkit with JavaFX
+events fired into the live scene, not OS input. **Refused**: the host returns an actionable
 `InteractionError.UnsupportedCapability` (see the [JavaFX capabilities](javafx-interaction.md#capabilities)).
 JavaFX passes are never inferred from the browser columns, and the browser columns are unchanged.
 
@@ -60,8 +61,8 @@ JavaFX passes are never inferred from the browser columns, and the browser colum
 | Structured tooltip | Pass | Pass | Trace | W: `pointer hover shows a delayed, escaped tooltip and inverse emphasis`; long-field wrapping check |
 | Direct hover | Pass | Pass | Trace | B: `direct hover ignores empty space`; W: DPR 2 pointer hit |
 | Nearest hover | Pass | Pass | Host | B: `nearest hover reaches sparse observation` |
-| Pointer-relative placement | Pass | Pass | — | B: `pointer placement` asserts the pointer offset; W: right-edge containment |
-| Mark-anchored placement | Pass | Pass | — | B: `anchored placement`; shared `HostInputSuite` checks the placement coordinate contract |
+| Pointer-relative placement | Pass | Pass | Host | B: `pointer placement` asserts the pointer offset; W: right-edge containment |
+| Mark-anchored placement | Pass | Pass | Host | B: `anchored placement`; shared `HostInputSuite` checks the placement coordinate contract |
 | Fixed placement | Pass | Pass | Host | B: `fixed placement` asserts the configured coordinates |
 | Configurable appearance | Pass | Pass | Host | B: `typed appearance and transition options honor reduced motion` checks tooltip background; invalid appearance is refused before DOM mutation |
 | Configurable delay | Pass | Pass | Trace | B: `configured delay is observed before showing` |
@@ -77,7 +78,7 @@ JavaFX passes are never inferred from the browser columns, and the browser colum
 | Inactive appearance and inverse emphasis | Pass | Pass | Host | W: inverse emphasis; B: configured dim opacity |
 | Configurable transitions | Pass | Pass | Refused | B: `typed appearance and transition options honor reduced motion` asserts duration and reduced-motion override |
 | Externally assigned styles | Pass | Pass | Refused | B: `application-assigned per-entity paint survives emphasis recovery`; runtime styles change exact marks atomically, clear without events, survive navigation/export, and clear on view replacement |
-| Linked legend emphasis and recovery | Pass | Pass | Trace | L: `a linked legend entry emphasizes and selects its category in both scatters`, including pointer-out recovery |
+| Linked legend emphasis and recovery | Pass | Pass | Host; legend selection: Trace | L: `a linked legend entry emphasizes and selects its category in both scatters`, including pointer-out recovery |
 
 Runtime styles use the typed `setTargetStyles` API: fill, stroke and opacity where the underlying
 paint supports them. Raster fill/opacity are supported; raster stroke and image fill/stroke return
@@ -97,7 +98,7 @@ typed refusals. Arbitrary DOM classes are not the styling contract for Canvas.
 
 | Required behaviour | SVG | Canvas | JavaFX | Named evidence |
 | --- | --- | --- | --- | --- |
-| Disabled mode | Pass | Pass | — | B: `disabled selection` |
+| Disabled mode | Pass | Pass | Host | B: `disabled selection` |
 | Single mode | Pass | Pass | Trace | B: `single selection` |
 | Multiple mode and additive selection | Pass | Pass | Trace | W: click selection; B: `shift lasso adds exact middle row` |
 | Toggle | Pass | Pass | Trace | B: `additive click toggles selected observation` |
@@ -106,7 +107,7 @@ typed refusals. Arbitrary DOM classes are not the styling contract for Canvas.
 | Clear | Pass | Pass | Trace | W: keyboard clear; L: `clearing a bin with Escape leaves the linked observation selection alone` |
 | Lasso | Pass | Pass | Host | B: replace/add/subtract against independently specified keys `r3,r4,r5` |
 | Externally supplied selection | Pass | Pass | Trace | W: application selection without echo and update reconciliation; L: programmatic selection does not propagate |
-| Initial selection | Pass | Pass | — | B: `initial selection` asserts state before the first click |
+| Initial selection | Pass | Pass | Host | B: `initial selection` asserts state before the first click |
 | Accumulate, subtract a lasso region, restore from application | Pass | Pass | Host | B: consecutive replace/add/subtract with application-supplied `r0`; W/L: silent application selection |
 
 ## Plot parts
@@ -150,7 +151,7 @@ independent navigation inside every facet or composed child.
 
 | Required behaviour | SVG | Canvas | JavaFX | Named evidence |
 | --- | --- | --- | --- | --- |
-| Shared hover across plots | Pass | Pass | — | L: `hovering a mark emphasizes the same observation in the differently ordered scatter only` |
+| Shared hover across plots | Pass | Pass | Host | L: `hovering a mark emphasizes the same observation in the differently ordered scatter only` |
 | Shared selection across plots | Pass | Pass | Trace | L: silent projection, missing/foreign keys, and additive preservation of a key present in only one plot |
 | Explicit linking rules | Pass | Pass | Trace | L: `legend links that cannot link are refused at mount; links do not chain`; foreign-key-space and application-controlled checks |
 | Across panels of one composed figure | Pass | Pass | — | P: transformed composed children select the same entity and display two selected rings; pointer/keyboard/touch traces match |
@@ -227,7 +228,7 @@ shared suites `SelectionAlgebraSuite`, `InteractionSnapshotSuite`, `InteractionH
 | Save an area sweep and a bin's exact members by name | Pass | Pass | — | "a swept area and a bin's members are saved by name" |
 | Union, intersection and difference follow the set laws; incompatible operands are refused | Pass | Pass | Host | the browser oracle check; `SelectionAlgebraSuite` (laws exhaustively, refusals) |
 | Recall a saved selection into the current one, carried to linked plots | Pass | Pass | — | "intersection, union and difference of saved selections match set oracles" |
-| Undo and redo by keyboard (both redo shortcuts), followed by the linked plots, which record nothing | Pass | Pass | Host; native keyboard undo/redo | "keyboard undo and redo walk this plot's changes…": only `SelectionChanged` events, `canUndo` false in the linked plot |
+| Undo and redo by keyboard (both redo shortcuts), followed by the linked plots, which record nothing | Pass | Pass | Host; native: shortcut key events fired into the scene, not OS keystrokes | "keyboard undo and redo walk this plot's changes…": only `SelectionChanged` events, `canUndo` false in the linked plot |
 | No link or resolver effect from undo, redo or restore | Unit | Unit | Host: no link followed | `InteractionHistorySuite`, `InteractionSnapshotSuite`; the history page has no links or deferred members |
 | A pan is one history entry; undo restores each window in turn | Pass | Pass | Host | "a pan is one history entry…" (20 pointer frames, then zoom and pan undone and redone) |
 | A restored window on a plot with one categorical axis | Gap | Gap | — | fixed by navigating only the numeric axis; no fixture builds a categorical axis |

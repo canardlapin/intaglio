@@ -33,6 +33,9 @@ import scala.sys.process.*
   * so it is opt-in.
   */
 object NativeEvidence:
+  /** The trace steps whose stage is captured as a screenshot. */
+  private val capturedSteps = Set(("widget", 1), ("widget", 14), ("members", 4))
+
   private def ok[A](value: Either[IntaglioError, A]): A =
     value.fold(error => throw new IllegalStateException(error.message), identity)
 
@@ -74,7 +77,10 @@ object NativeEvidence:
         stage,
         script,
         driver,
-        (index, step) => if step.get("inspect").nonEmpty then snapshot(stage, s"$name-step-$index")
+        // Only the steps the receipt keeps are captured, so evidence.json lists exactly them:
+        // the keyboard tooltip, the delayed hover tooltip with inverse emphasis, linked coverage.
+        (index, _) =>
+          if NativeEvidence.capturedSteps((name, index)) then snapshot(stage, s"$name-step-$index")
       )
       val browser = TraceRunner.browser(name, "svg").map(_("steps").items).getOrElse(Vector.empty)
       val mismatches = TraceRunner.compare(steps, browser)

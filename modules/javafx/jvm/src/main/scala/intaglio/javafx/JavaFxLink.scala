@@ -53,8 +53,10 @@ final class JavaFxLink[A] private (
           }
           _ = unhook = unhook :+ (() => subscription.cancel())
           stop <- host.subscribeHover(emphasis =>
+            // A member disposed while the link lives simply stops showing emphasis.
             hosts
               .patch(i, Nil, 1)
+              .filterNot(_.isDisposed)
               .foreach(other => other.setLinkedEmphasis(emphasis).left.foreach(onError(other, _)))
           )
         yield unhook = unhook :+ stop
@@ -71,7 +73,8 @@ final class JavaFxLink[A] private (
     shown += i -> mine
     if added.nonEmpty || removed.nonEmpty then
       shared = (shared ++ added) -- removed
-      hosts.indices.filter(_ != i).foreach { j =>
+      // A disposed member no longer takes part; it is skipped, not reported.
+      hosts.indices.filter(j => j != i && !hosts(j).isDisposed).foreach { j =>
         val member = hosts(j)
         member.state match
           case Left(error)  => onError(member, error)
@@ -86,14 +89,17 @@ final class JavaFxLink[A] private (
                 if projected.missing.nonEmpty then onMissing(member, projected.missing)
       }
 
-  /** Unhook the group, clear the linked emphasis it set, and leave each selection as it is. */
-  def dispose(): Unit =
+  /** Unhook the group, clear the linked emphasis it set, and leave each selection as it is.
+    * Idempotent; throws `IllegalStateException` off the FX application thread.
+    */
+  def dispose(): Unit = JavaFxInteractionHost.onFxThread("disposing a host link") {
     unhook.foreach(_())
     unhook = Vector.empty
     hosts.foreach { host =>
       if !host.isDisposed then host.setLinkedEmphasis(LinkedEmphasis.none[A])
       if host.link.exists(_ eq this) then host.link = None
     }
+  }
 
 object JavaFxLink:
   /** Link `hosts` over observation keys of `space`, on the FX application thread. A member keyed by

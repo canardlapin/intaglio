@@ -203,6 +203,14 @@ final case class JavaFxHostOptions(
   * Input redraws only the overlay. The shared PickViewport maps device pixels to JavaFX logical
   * coordinates for both canvases and pointer queries. JavaFX applies window output scaling; the
   * host never applies it twice.
+  *
+  * Threading: the host belongs to the FX application thread. Every method returning `Either`
+  * returns `JavaFxHostError.WrongThread` elsewhere; the unsubscribe functions returned by
+  * `subscribeParts`, `subscribeHover` and `subscribeState` throw `IllegalStateException` elsewhere.
+  * The plain getters (`isNavigable`, `currentWindow`, `canUndo`, `canRedo`, `drawnEntities`,
+  * `selectableEntities`, `isDisposed`, `profile`, `overlayStyle`, `lastError`) are unchecked reads
+  * of FX-thread state, and the shared `InteractionSubscription.cancel` is not checked either: call
+  * them on the FX thread.
   */
 final class JavaFxInteractionHost[A] private (
     initialView: JavaFxInteractionView[A],
@@ -361,7 +369,10 @@ final class JavaFxInteractionHost[A] private (
       val id = nextListener
       nextListener += 1
       partListeners = partListeners :+ (id -> listener)
-      () => partListeners = partListeners.filterNot(_._1 == id)
+      () =>
+        JavaFxInteractionHost.onFxThread("unsubscribing a part listener") {
+          partListeners = partListeners.filterNot(_._1 == id)
+        }
     }
 
   /** What this plot's reader is pointing at, as keys a linked view can emphasize: the hovered or
@@ -373,7 +384,10 @@ final class JavaFxInteractionHost[A] private (
       val id = nextListener
       nextListener += 1
       hoverListeners = hoverListeners :+ (id -> listener)
-      () => hoverListeners = hoverListeners.filterNot(_._1 == id)
+      () =>
+        JavaFxInteractionHost.onFxThread("unsubscribing a hover listener") {
+          hoverListeners = hoverListeners.filterNot(_._1 == id)
+        }
     }
 
   /** Emphasize the marks a linked view points at. Display only: state and events are untouched, so
@@ -474,8 +488,21 @@ final class JavaFxInteractionHost[A] private (
       _ <- dispatch(InteractionAction.RestoreSnapshot(resolved), InputCause.Programmatic)
     yield ()
 
-  def canUndo: Boolean = commitNavigationThen(history.canUndo)
-  def canRedo: Boolean = commitNavigationThen(history.canRedo)
+  /** Whether `undo()` would change anything: a recorded entry, or a navigation run still open
+    * (which undo records first). A pure read: asking never ends a run. Read on the FX thread.
+    */
+  def canUndo: Boolean = history.canUndo || runChanged
+
+  /** Whether `redo()` would change anything. An open navigation run that changed the state is a new
+    * change, which clears redo once recorded, so redo is unavailable while it is open.
+    */
+  def canRedo: Boolean = history.canRedo && !runChanged
+
+  /** A navigation run is open and has changed the durable state since it began. */
+  private def runChanged: Boolean =
+    navigationBefore.exists((before, _) =>
+      controller.state.toOption.exists(now => durable(now) != durable(before))
+    )
 
   /** Undo this plot's last recorded change; `false` when there is nothing to undo. Ctrl/Cmd+Z does
     * the same from the keyboard.
@@ -505,12 +532,11 @@ final class JavaFxInteractionHost[A] private (
       lastReported = Some(durable(current))
       try listener(current)
       catch case NonFatal(_) => accept(Left(InteractionError.CallbackFailed("state listener")))
-      () => stateListeners = stateListeners.filterNot(_._1 == id)
+      () =>
+        JavaFxInteractionHost.onFxThread("unsubscribing a state listener") {
+          stateListeners = stateListeners.filterNot(_._1 == id)
+        }
     }
-
-  private def commitNavigationThen[B](value: => B): B =
-    if view.nonEmpty && Platform.isFxApplicationThread then commitNavigation()
-    value
 
   private def move(cause: InputCause, undoing: Boolean): Either[IntaglioError, Boolean] =
     checked.flatMap { _ =>
@@ -595,6 +621,8 @@ final class JavaFxInteractionHost[A] private (
   def update(next: JavaFxInteractionView[A]): Either[IntaglioError, Unit] =
     for
       _ <- checked
+      // The new view must satisfy what mounting requires; a refusal changes nothing.
+      _ <- JavaFxInteractionHost.validate(next, behavior, resolver, onLink)
       _ = commitNavigation()
       current <- controller.state
       _ <-
@@ -1790,10 +1818,7 @@ object JavaFxInteractionHost:
       )
     else
       for
-        _ <- validateLinks(view, behavior, onLink)
-        _ <- validateLegendLinks(view, behavior)
-        _ <- behavior.validateAggregates(view.plans)
-        _ <- validateResolver(view, behavior, resolver)
+        _ <- validate(view, behavior, resolver, onLink)
         initial <- InteractionState.initial(view.domain, behavior.selection, selection)
       yield new JavaFxInteractionHost(
         view,
@@ -1805,6 +1830,28 @@ object JavaFxInteractionHost:
         onLink,
         onError
       )
+
+  /** What mounting and `update` require of a view under `behavior`: links need a handler, legend
+    * links must match a drawn legend, members-mode aggregates must have exact or deferred
+    * membership, and deferred members need a resolver.
+    */
+  private[javafx] def validate[A](
+      view: JavaFxInteractionView[A],
+      behavior: InteractionBehavior[A],
+      resolver: Option[MembershipResolver[A]],
+      onLink: Option[TargetLink => Unit]
+  ): Either[IntaglioError, Unit] =
+    for
+      _ <- validateLinks(view, behavior, onLink)
+      _ <- validateLegendLinks(view, behavior)
+      _ <- behavior.validateAggregates(view.plans)
+      _ <- validateResolver(view, behavior, resolver)
+    yield ()
+
+  /** Run a host-owned mutation that returns nothing on the FX thread, or refuse it loudly. */
+  private[javafx] def onFxThread(what: String)(body: => Unit): Unit =
+    if Platform.isFxApplicationThread then body
+    else throw new IllegalStateException(s"$what requires the FX application thread")
 
   /** A navigator when the view has a single panel with a numeric or temporal axis. */
   private[javafx] def navigatorOf[A](view: JavaFxInteractionView[A]): Option[DataWindowNavigator] =

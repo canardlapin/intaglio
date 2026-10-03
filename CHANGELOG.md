@@ -73,7 +73,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   their algebra, undo/redo through `InteractionHistory` (keyboard and API; a
   navigation run is one entry; projected input is never recorded), snapshots,
   `inspector(sample)` and `subscribeState`; `JavaFxInspector` renders
-  `InspectorModel` and filter reports as text.
+  `InspectorModel` and filter reports as text. `update` refuses a view that
+  mounting would refuse, without changing anything.
   Shared trace scripts (`tools/trace`, `tools/check-host-trace-browser.cjs`)
   yield equal events, selected keys, tooltips and announcements in the browser
   (SVG and Canvas) and JavaFX; the unpublished `javafxExample` project holds the

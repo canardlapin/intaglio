@@ -49,9 +49,24 @@ final class JavaFxInspector[A] private (
     }
 
   /** Show a filter's report: rows before and after, observations removed, and each group's targets
-    * and member totals before and after. Selection and emphasis are not part of it.
+    * and member totals before and after. Selection and emphasis are not part of it. Like
+    * [[clearFilter]] and [[dispose]], it throws `IllegalStateException` off the FX thread.
     */
   def showFilter(label: String, result: FilterResult[A]): Unit =
+    JavaFxInteractionHost.onFxThread("showing a filter report")(fillFilter(label, result))
+
+  def clearFilter(): Unit = JavaFxInteractionHost.onFxThread("clearing a filter report") {
+    filter = Vector.empty
+    render()
+  }
+
+  def dispose(): Unit = JavaFxInteractionHost.onFxThread("disposing an inspector") {
+    unsubscribe.foreach(_())
+    unsubscribe = Vector.empty
+    node.getChildren.clear()
+  }
+
+  private def fillFilter(label: String, result: FilterResult[A]): Unit =
     def totals(v: Vector[Option[Int]]) = v.map(_.fold("?")(_.toString)).mkString(" ")
     val section = s"Filter applied to $label"
     filter = Vector(
@@ -66,15 +81,6 @@ final class JavaFxInspector[A] private (
       )
     )
     render()
-
-  def clearFilter(): Unit =
-    filter = Vector.empty
-    render()
-
-  def dispose(): Unit =
-    unsubscribe.foreach(_())
-    unsubscribe = Vector.empty
-    node.getChildren.clear()
 
   private def render(): Unit =
     node.getChildren.clear()

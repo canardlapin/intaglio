@@ -131,9 +131,16 @@ must change. `view.deviceScene.frames` exposes resolved panel mappings for data-
 
 Call `host.dispose()` on the FX application thread when removing the view. Disposal is idempotent,
 removes event/property listeners and subscriptions, stops a pending tooltip, detaches both
-canvases, and clears native image and pattern caches. Every public method checks the thread and
-returns `JavaFxHostError.WrongThread` off the FX application thread and `Disposed` afterwards.
-`lastError` and the optional `onError` callback expose rejected event inputs.
+canvases, and clears native image and pattern caches. The host belongs to the FX application
+thread: every method that returns an `Either` returns `JavaFxHostError.WrongThread` elsewhere (and
+`Disposed` after disposal); the unsubscribe functions from `subscribeParts`, `subscribeHover` and
+`subscribeState`, `JavaFxLink.dispose` and `JavaFxInspector`'s `showFilter`, `clearFilter` and
+`dispose` throw `IllegalStateException` elsewhere. The plain getters (`isNavigable`,
+`currentWindow`, `canUndo`, `canRedo`, `drawnEntities`, `selectableEntities`, `isDisposed`,
+`profile`, `overlayStyle`, `lastError`) and the shared `InteractionSubscription.cancel` are not
+checked: call them on the FX thread. `lastError` and the optional `onError` callback expose
+rejected event inputs. `update` checks the new view as `mount` does (links need `onLink`, deferred
+members a resolver, legend links a drawn legend) and refuses it without changing anything.
 
 ## Behaviour: tooltips, links, emphasis and members
 
@@ -243,23 +250,23 @@ JavaFxCapabilities.require(HostCapability.PngExport).left.map(_.message)
 
 | Area | Capability | JavaFX | Evidence |
 | --- | --- | --- | --- |
-| Inspection | Plain-text and structured tooltips, delay, placement | Supported | T, H, N |
+| Inspection | Plain-text and structured tooltips, delay, pointer/anchored/fixed placement | Supported | T (text), H (all placements), N (shown) |
 | Inspection | Direct and nearest hover | Supported | T (direct), H |
 | Inspection | Tooltip appearance (`JavaFxHostOptions` colours, width) | Supported | H |
 | Inspection | Text description of every mark and part | Supported | H |
 | Emphasis | Hovered, selected, focused appearance | Supported | H, N |
 | Emphasis | Inverse emphasis | Supported | H, N |
-| Emphasis | Linked legend emphasis and selection | Supported | T, H |
+| Emphasis | Linked legend emphasis, recovery and selection | Supported | T (selection), H (emphasis and recovery) |
 | Emphasis | Configurable transitions | Refused: drawn at once; animate the node from the application | H |
 | Emphasis | Externally assigned target styles | Refused: map the style in the plot and `update` | H |
 | Actions | Pointer and keyboard activation, links through `onLink`, host callbacks | Supported | T, H |
-| Selection | Disabled, single, multiple; toggle; application and initial selection | Supported | T, H |
+| Selection | Disabled, single, multiple; toggle; application and initial selection | Supported | T (single, multiple, toggle, application), H (disabled, initial) |
 | Selection | Rectangle and lasso replace/add/subtract | Supported | H |
 | Plot parts | Legend keys, strips, axes, titles, annotations | Supported | T, H |
 | Navigation | Keyboard zoom and reset | Supported | T, H, N |
 | Navigation | Pan, wheel, pinch and rectangle zoom; bounds | Supported | H, N (pan) |
 | Navigation | Toolbar controls | Refused: call `setGestureMode`, `zoomBy`, `resetWindow` | H |
-| Composition | Shared hover and selection across hosts | Supported | T, H |
+| Composition | Shared hover (emphasis and recovery) and selection across hosts | Supported | T (selection), H (hover and selection) |
 | Composition | Composed figures (no figure-wide navigation) | Supported | H |
 | Embedding | Responsive sizing, programmatic state and events | Supported | H |
 | Embedding | Fullscreen | Refused: `Stage.setFullScreen` on the application's stage | H |
@@ -268,12 +275,14 @@ JavaFxCapabilities.require(HostCapability.PngExport).left.map(_.message)
 | Analytical | Aggregate members, deferred resolution, coverage counts | Supported | T, H |
 | Analytical | Inspector (`InspectorModel`, `JavaFxInspector`) | Supported | H, N |
 | Analytical | Named selections and selection algebra | Supported | H |
-| Analytical | Undo and redo (keyboard and API), navigation runs as one entry | Supported | H, N (keyboard undo/redo) |
+| Analytical | Undo and redo (keyboard and API), navigation runs as one entry | Supported | H, N (shortcut `KeyEvent`s fired into the native scene, not OS keystrokes) |
 | Analytical | Snapshots and restore | Supported | H, N |
 | Analytical | Filter to a selection (`FilterCommand` + `update`) | Supported | H |
 
 **T**: the shared trace comparison below. **H**: headless Monocle suites
-(`JavaFxHostCapabilitySuite`, `JavaFxInteractionHostSuite`). **N**: the native desktop run.
+(`JavaFxInteractionHostSuite`, `JavaFxHostCapabilitySuite`, `JavaFxHistorySuite`,
+`JavaFxHostContractSuite`). **N**: the native desktop run, whose input is JavaFX events fired into
+the live scene (see below), not OS input.
 
 ## Evidence
 
@@ -291,6 +300,14 @@ delayed tooltips, click and additive toggle, application selection without echo,
 outside, legend parts, keyboard zoom and reset, single-selection histograms, four linked plots
 including an impostor key space, and aggregate members with complete, short and failed deferred
 replies.
+
+The comparison has limits. The widget page records events with their target keys, but the linked
+and members fixtures record each event's class and cause only, so on those pages the targets are
+compared through the selected keys, not through the events. Overlay drawing (rings, dimming) is not
+part of any trace. After the keyboard zoom in the widget script, the pointer steps address marks by
+their unzoomed positions and land on empty space, so they show that both hosts agree on a miss, not
+that they hit the same zoomed mark. The negative control perturbs one side of a comparison (the
+expected browser steps), not the JavaFX replay.
 
 ```sh
 sbt browserFixture/fastLinkJS
