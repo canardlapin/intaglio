@@ -41,32 +41,43 @@ The unchanged library, build and compatibility inputs were also checked at
 `13ed4a2` changes only browser qualification tooling and the external consumer fixture; this matrix
 is a subsequent documentation-only update. These are local receipts, not hosted CI results.
 
+### JavaFX column (Interaction 12)
+
+The JavaFX column records only what was verified for the JavaFX host; a dash means not verified,
+never "fails". **Trace**: the shared trace scripts in [`tools/trace`](../tools/trace) produced the
+same normalized events, selected keys, tooltips, announcements and followed links in JavaFX as the
+browser recorded on SVG and Canvas (`JavaFxTraceParitySuite`, headless Monocle, and the native macOS
+run in [evidence/interaction12](../evidence/interaction12/README.md)). **Host**: JavaFX-only checks
+in the headless suites. **Refused**: the host returns an actionable
+`InteractionError.UnsupportedCapability` (see the [JavaFX capabilities](javafx-interaction.md#capabilities)).
+JavaFX passes are never inferred from the browser columns, and the browser columns are unchanged.
+
 ## Inspection
 
-| Required behaviour | SVG | Canvas | Named evidence |
-| --- | --- | --- | --- |
-| Plain-text tooltip | Pass | Pass | B: `plain histogram membership tooltip` |
-| Structured tooltip | Pass | Pass | W: `pointer hover shows a delayed, escaped tooltip and inverse emphasis`; long-field wrapping check |
-| Direct hover | Pass | Pass | B: `direct hover ignores empty space`; W: DPR 2 pointer hit |
-| Nearest hover | Pass | Pass | B: `nearest hover reaches sparse observation` |
-| Pointer-relative placement | Pass | Pass | B: `pointer placement` asserts the pointer offset; W: right-edge containment |
-| Mark-anchored placement | Pass | Pass | B: `anchored placement`; shared `HostInputSuite` checks the placement coordinate contract |
-| Fixed placement | Pass | Pass | B: `fixed placement` asserts the configured coordinates |
-| Configurable appearance | Pass | Pass | B: `typed appearance and transition options honor reduced motion` checks tooltip background; invalid appearance is refused before DOM mutation |
-| Configurable delay | Pass | Pass | B: `configured delay is observed before showing` |
-| Scatter, line, histogram and facet-strip inspection | Pass | Pass | W: scatter hover; B: `line inspected and selected as a target`, histogram tooltip, and strip tooltip/activation |
+| Required behaviour | SVG | Canvas | JavaFX | Named evidence |
+| --- | --- | --- | --- | --- |
+| Plain-text tooltip | Pass | Pass | Trace | B: `plain histogram membership tooltip` |
+| Structured tooltip | Pass | Pass | Trace | W: `pointer hover shows a delayed, escaped tooltip and inverse emphasis`; long-field wrapping check |
+| Direct hover | Pass | Pass | Trace | B: `direct hover ignores empty space`; W: DPR 2 pointer hit |
+| Nearest hover | Pass | Pass | Host | B: `nearest hover reaches sparse observation` |
+| Pointer-relative placement | Pass | Pass | — | B: `pointer placement` asserts the pointer offset; W: right-edge containment |
+| Mark-anchored placement | Pass | Pass | — | B: `anchored placement`; shared `HostInputSuite` checks the placement coordinate contract |
+| Fixed placement | Pass | Pass | Host | B: `fixed placement` asserts the configured coordinates |
+| Configurable appearance | Pass | Pass | Host | B: `typed appearance and transition options honor reduced motion` checks tooltip background; invalid appearance is refused before DOM mutation |
+| Configurable delay | Pass | Pass | Trace | B: `configured delay is observed before showing` |
+| Scatter, line, histogram and facet-strip inspection | Pass | Pass | — | W: scatter hover; B: `line inspected and selected as a target`, histogram tooltip, and strip tooltip/activation |
 
 ## Emphasis
 
-| Required behaviour | SVG | Canvas | Named evidence |
-| --- | --- | --- | --- |
-| Hovered appearance | Pass | Pass | W: delayed tooltip and inverse emphasis; B: `application appearance overrides` |
-| Selected appearance | Pass | Pass | W: `click selects and activates; a link follows only real input`; P: shared entity rings in both composed children |
-| Focused appearance | Pass | Pass | W: `keyboard roves focus with a visible ring, announces it, chooses and clears` |
-| Inactive appearance and inverse emphasis | Pass | Pass | W: inverse emphasis; B: configured dim opacity |
-| Configurable transitions | Pass | Pass | B: `typed appearance and transition options honor reduced motion` asserts duration and reduced-motion override |
-| Externally assigned styles | Pass | Pass | B: `application-assigned per-entity paint survives emphasis recovery`; runtime styles change exact marks atomically, clear without events, survive navigation/export, and clear on view replacement |
-| Linked legend emphasis and recovery | Pass | Pass | L: `a linked legend entry emphasizes and selects its category in both scatters`, including pointer-out recovery |
+| Required behaviour | SVG | Canvas | JavaFX | Named evidence |
+| --- | --- | --- | --- | --- |
+| Hovered appearance | Pass | Pass | Host | W: delayed tooltip and inverse emphasis; B: `application appearance overrides` |
+| Selected appearance | Pass | Pass | Host | W: `click selects and activates; a link follows only real input`; P: shared entity rings in both composed children |
+| Focused appearance | Pass | Pass | Host | W: `keyboard roves focus with a visible ring, announces it, chooses and clears` |
+| Inactive appearance and inverse emphasis | Pass | Pass | Host | W: inverse emphasis; B: configured dim opacity |
+| Configurable transitions | Pass | Pass | Refused | B: `typed appearance and transition options honor reduced motion` asserts duration and reduced-motion override |
+| Externally assigned styles | Pass | Pass | Refused | B: `application-assigned per-entity paint survives emphasis recovery`; runtime styles change exact marks atomically, clear without events, survive navigation/export, and clear on view replacement |
+| Linked legend emphasis and recovery | Pass | Pass | Trace | L: `a linked legend entry emphasizes and selects its category in both scatters`, including pointer-out recovery |
 
 Runtime styles use the typed `setTargetStyles` API: fill, stroke and opacity where the underlying
 paint supports them. Raster fill/opacity are supported; raster stroke and image fill/stroke return
@@ -74,42 +85,42 @@ typed refusals. Arbitrary DOM classes are not the styling contract for Canvas.
 
 ## Actions
 
-| Required behaviour | SVG | Canvas | Named evidence |
-| --- | --- | --- | --- |
-| Pointer activation | Pass | Pass | W: `click selects and activates; a link follows only real input` |
-| Keyboard activation | Pass | Pass | B: `pointer and keyboard activate the same key` |
-| Declarative links | Pass | Pass | W: link follows real input, with no application-event echo |
-| Host callbacks | Pass | Pass | W/L/B record public events; C compares external-consumer event traces |
-| Same target and payload by pointer and keyboard | Pass | Pass | B: `pointer and keyboard activate the same key` asserts the same entity with distinct input origins |
+| Required behaviour | SVG | Canvas | JavaFX | Named evidence |
+| --- | --- | --- | --- | --- |
+| Pointer activation | Pass | Pass | Trace | W: `click selects and activates; a link follows only real input` |
+| Keyboard activation | Pass | Pass | Trace | B: `pointer and keyboard activate the same key` |
+| Declarative links | Pass | Pass | Trace | W: link follows real input, with no application-event echo |
+| Host callbacks | Pass | Pass | Trace | W/L/B record public events; C compares external-consumer event traces |
+| Same target and payload by pointer and keyboard | Pass | Pass | Trace | B: `pointer and keyboard activate the same key` asserts the same entity with distinct input origins |
 
 ## Selection
 
-| Required behaviour | SVG | Canvas | Named evidence |
-| --- | --- | --- | --- |
-| Disabled mode | Pass | Pass | B: `disabled selection` |
-| Single mode | Pass | Pass | B: `single selection` |
-| Multiple mode and additive selection | Pass | Pass | W: click selection; B: `shift lasso adds exact middle row` |
-| Toggle | Pass | Pass | B: `additive click toggles selected observation` |
-| Replace | Pass | Pass | B: `lasso replaces with exact middle row`; P: exact rectangle membership |
-| Subtract | Pass | Pass | B: `alt lasso subtracts exact middle row` |
-| Clear | Pass | Pass | W: keyboard clear; L: `clearing a bin with Escape leaves the linked observation selection alone` |
-| Lasso | Pass | Pass | B: replace/add/subtract against independently specified keys `r3,r4,r5` |
-| Externally supplied selection | Pass | Pass | W: application selection without echo and update reconciliation; L: programmatic selection does not propagate |
-| Initial selection | Pass | Pass | B: `initial selection` asserts state before the first click |
-| Accumulate, subtract a lasso region, restore from application | Pass | Pass | B: consecutive replace/add/subtract with application-supplied `r0`; W/L: silent application selection |
+| Required behaviour | SVG | Canvas | JavaFX | Named evidence |
+| --- | --- | --- | --- | --- |
+| Disabled mode | Pass | Pass | — | B: `disabled selection` |
+| Single mode | Pass | Pass | Trace | B: `single selection` |
+| Multiple mode and additive selection | Pass | Pass | Trace | W: click selection; B: `shift lasso adds exact middle row` |
+| Toggle | Pass | Pass | Trace | B: `additive click toggles selected observation` |
+| Replace | Pass | Pass | Host | B: `lasso replaces with exact middle row`; P: exact rectangle membership |
+| Subtract | Pass | Pass | Host | B: `alt lasso subtracts exact middle row` |
+| Clear | Pass | Pass | Trace | W: keyboard clear; L: `clearing a bin with Escape leaves the linked observation selection alone` |
+| Lasso | Pass | Pass | Host | B: replace/add/subtract against independently specified keys `r3,r4,r5` |
+| Externally supplied selection | Pass | Pass | Trace | W: application selection without echo and update reconciliation; L: programmatic selection does not propagate |
+| Initial selection | Pass | Pass | — | B: `initial selection` asserts state before the first click |
+| Accumulate, subtract a lasso region, restore from application | Pass | Pass | Host | B: consecutive replace/add/subtract with application-supplied `r0`; W/L: silent application selection |
 
 ## Plot parts
 
-| Required behaviour | SVG | Canvas | Named evidence |
-| --- | --- | --- | --- |
-| Marks | Pass | Pass | W/P/B: points, line, histogram and keyed text labels |
-| Legend keys | Pass | Pass | W: `a legend entry is a typed part under the pointer`; L: linked legend selection |
-| Colorbar components | Pass | Pass | B: `title subtitle strip axis colorbar annotation activation` checks description and typed activation |
-| Facet strips | Pass | Pass | Same B check: strip description and typed activation |
-| Axes and titles | Pass | Pass | Same B check: axis, plot title and subtitle |
-| Labels | Pass | Pass | B: `data labels are addressable keyed marks` |
-| Authored annotations | Pass | Pass | Same B parts check: reference-line annotation |
-| Identify a facet strip or legend key by typed value | Pass | Pass | B: strip description/activation; W/L: typed legend entry |
+| Required behaviour | SVG | Canvas | JavaFX | Named evidence |
+| --- | --- | --- | --- | --- |
+| Marks | Pass | Pass | Trace | W/P/B: points, line, histogram and keyed text labels |
+| Legend keys | Pass | Pass | Trace | W: `a legend entry is a typed part under the pointer`; L: linked legend selection |
+| Colorbar components | Pass | Pass | — | B: `title subtitle strip axis colorbar annotation activation` checks description and typed activation |
+| Facet strips | Pass | Pass | — | Same B check: strip description and typed activation |
+| Axes and titles | Pass | Pass | — | Same B check: axis, plot title and subtitle |
+| Labels | Pass | Pass | — | B: `data labels are addressable keyed marks` |
+| Authored annotations | Pass | Pass | — | Same B parts check: reference-line annotation |
+| Identify a facet strip or legend key by typed value | Pass | Pass | Host | B: strip description/activation; W/L: typed legend entry |
 
 Plot parts are inspected and activated; they are not added to the observation selection. Data
 labels are keyed text marks. The authored-annotation check covers reference lines, not arbitrary
@@ -119,17 +130,17 @@ target events additionally carry child identity.
 
 ## Navigation
 
-| Required behaviour | SVG | Canvas | Named evidence |
-| --- | --- | --- | --- |
-| Pan | Pass | Pass | N: pan preserves the grabbed datum and selection |
-| Wheel zoom | Pass | Pass | P: real wheel narrows the window, equal backend traces; NS additionally checks wheel bursts and page arbitration |
-| Pinch zoom | Pass | Pass | P: real two-finger touch input narrows the plot window while page scale stays 1 |
-| Rectangle zoom | Pass | Pass | N: logarithmic rectangle maps to the expected data edges |
-| Bounds | Pass | Pass | N: pan clamps at the lower bound; NS: application-window validation |
-| Reset | Pass | Pass | N: reset preserves selection; temporal keyboard zoom/reset |
-| Explicit gesture activation | Pass | Pass | P: focused Inspect mode receives wheel/pinch; N: explicit pan/zoom modes; NS additionally checks browser/page arbitration |
-| Toolbar controls | Pass | Pass | W: plot/toolbar tab stops; N/P: modes and reset; E: configurable controls |
-| Zoom, pan and reset without recomputing statistics | Pass | Pass | N: counting statistic remains unchanged; NS: wheel/pan statistic checks |
+| Required behaviour | SVG | Canvas | JavaFX | Named evidence |
+| --- | --- | --- | --- | --- |
+| Pan | Pass | Pass | Host | N: pan preserves the grabbed datum and selection |
+| Wheel zoom | Pass | Pass | Host | P: real wheel narrows the window, equal backend traces; NS additionally checks wheel bursts and page arbitration |
+| Pinch zoom | Pass | Pass | Host | P: real two-finger touch input narrows the plot window while page scale stays 1 |
+| Rectangle zoom | Pass | Pass | Host | N: logarithmic rectangle maps to the expected data edges |
+| Bounds | Pass | Pass | Host | N: pan clamps at the lower bound; NS: application-window validation |
+| Reset | Pass | Pass | Trace | N: reset preserves selection; temporal keyboard zoom/reset |
+| Explicit gesture activation | Pass | Pass | — | P: focused Inspect mode receives wheel/pinch; N: explicit pan/zoom modes; NS additionally checks browser/page arbitration |
+| Toolbar controls | Pass | Pass | Refused | W: plot/toolbar tab stops; N/P: modes and reset; E: configurable controls |
+| Zoom, pan and reset without recomputing statistics | Pass | Pass | Host | N: counting statistic remains unchanged; NS: wheel/pan statistic checks |
 
 Navigation supports a single panel with supported Cartesian scales. Faceted, flipped and composed
 figure navigation is explicitly refused; P checks the composed refusal. It is not a claim of
@@ -137,26 +148,26 @@ independent navigation inside every facet or composed child.
 
 ## Composition
 
-| Required behaviour | SVG | Canvas | Named evidence |
-| --- | --- | --- | --- |
-| Shared hover across plots | Pass | Pass | L: `hovering a mark emphasizes the same observation in the differently ordered scatter only` |
-| Shared selection across plots | Pass | Pass | L: silent projection, missing/foreign keys, and additive preservation of a key present in only one plot |
-| Explicit linking rules | Pass | Pass | L: `legend links that cannot link are refused at mount; links do not chain`; foreign-key-space and application-controlled checks |
-| Across panels of one composed figure | Pass | Pass | P: transformed composed children select the same entity and display two selected rings; pointer/keyboard/touch traces match |
-| Same observation in differently arranged plots | Pass | Pass | L: two differently ordered scatters plus histogram; C: two linked external-consumer widgets |
+| Required behaviour | SVG | Canvas | JavaFX | Named evidence |
+| --- | --- | --- | --- | --- |
+| Shared hover across plots | Pass | Pass | — | L: `hovering a mark emphasizes the same observation in the differently ordered scatter only` |
+| Shared selection across plots | Pass | Pass | Trace | L: silent projection, missing/foreign keys, and additive preservation of a key present in only one plot |
+| Explicit linking rules | Pass | Pass | Trace | L: `legend links that cannot link are refused at mount; links do not chain`; foreign-key-space and application-controlled checks |
+| Across panels of one composed figure | Pass | Pass | — | P: transformed composed children select the same entity and display two selected rings; pointer/keyboard/touch traces match |
+| Same observation in differently arranged plots | Pass | Pass | Trace | L: two differently ordered scatters plus histogram; C: two linked external-consumer widgets |
 
 ## Embedding
 
-| Required behaviour | SVG | Canvas | Named evidence |
-| --- | --- | --- | --- |
-| Standalone HTML | Pass | Pass | H: a `file://` package requests only itself, supports keyboard selection/application control, and visibly refuses an unbundled resource |
-| Application mounting and independent widgets | Pass | Pass | W: duplicate IDs/prefix validation and 25 mount/dispose cycles; C: two public-API widgets |
-| Responsive sizing | Pass | Pass | H: 1200 px/DPR 1 and 390 px/DPR 2, without horizontal overflow; W: resize preserves revision/selection |
-| Configurable toolbar | Pass | Pass | E: control subset, bottom placement, hidden/floating controls and keyboard reach |
-| Fullscreen | Pass | Pass | E: entry and typed refusal when unavailable |
-| PNG export | Pass | Pass | E: original/current views, selection inclusion, scales 1/2, pixel readback, unavailable context and encoder failure |
-| Programmatic event/state access | Pass | Pass | W/L/N/B/C: selection, navigation, subscriptions, target styles and view replacement |
-| External consumer of exact artifacts | Pass | Pass | C: 10/10 checks, native Canvas ink, equal event/selection/window traces, clean disposal |
+| Required behaviour | SVG | Canvas | JavaFX | Named evidence |
+| --- | --- | --- | --- | --- |
+| Standalone HTML | Pass | Pass | Refused | H: a `file://` package requests only itself, supports keyboard selection/application control, and visibly refuses an unbundled resource |
+| Application mounting and independent widgets | Pass | Pass | Host | W: duplicate IDs/prefix validation and 25 mount/dispose cycles; C: two public-API widgets |
+| Responsive sizing | Pass | Pass | Host | H: 1200 px/DPR 1 and 390 px/DPR 2, without horizontal overflow; W: resize preserves revision/selection |
+| Configurable toolbar | Pass | Pass | Refused | E: control subset, bottom placement, hidden/floating controls and keyboard reach |
+| Fullscreen | Pass | Pass | Refused | E: entry and typed refusal when unavailable |
+| PNG export | Pass | Pass | Refused | E: original/current views, selection inclusion, scales 1/2, pixel readback, unavailable context and encoder failure |
+| Programmatic event/state access | Pass | Pass | Trace | W/L/N/B/C: selection, navigation, subscriptions, target styles and view replacement |
+| External consumer of exact artifacts | Pass | Pass | — | C: 10/10 checks, native Canvas ink, equal event/selection/window traces, clean disposal |
 
 Canvas paints base marks directly and uses DOM/SVG companions for accessible focus, inspection,
 selection and gestures; it does not create an SVG node for every base mark. E separately checks
@@ -190,17 +201,17 @@ resolution. Receipts are `tools/check-membership-browser.cjs` on SVG and Canvas,
 recomputed from the raw values, and the shared suites `MemberSelectionSuite`,
 `MembershipResolverSuite` and `MemberCoverageSuite` (JVM and Scala.js).
 
-| Part | SVG | Canvas | Evidence |
-| --- | --- | --- | --- |
-| A bin selects exactly its members; the bin itself stays a separate, plot-local selection | Pass | Pass | "clicking each bin selects exactly its members, in the histogram and both scatters" |
-| Counts, representatives, partial or stale membership never become a selection | Pass | Pass | `MemberSelectionSuite`; "superseded, short and failed replies change nothing" |
-| Deferred members: pending, unavailable, failed and complete replies; late replies rejected | Pass | Pass | `MembershipResolverSuite`; the two deferred-bin browser checks |
-| Linked plots show partial-selection counts in the tooltip, the text companion and on keyboard focus | Pass | Pass | "an area selected in a scatter shows each bin's covered count and rings bins covered by half" (counts 3/7, 4/8, 4/8, 4/7) |
-| Emphasis by a fraction of members, exactly at the threshold | Pass | Pass | the same check: 4/8 is ringed under the half rule, 3/7 is not |
-| Emphasis by any or all members | Unit | Unit | `MemberCoverageSuite` thresholds; no browser check selects those rules |
-| Pointing at an observation emphasizes the bins that hold it | Pass | Pass | the same check: hovering a scatter mark rings exactly one bin |
-| Clearing a Members-mode plot clears the linked group | Pass | Pass | "clicking each bin selects exactly its members…" (Escape at the end) |
-| Filtering or recomputing a statistic from a selection | Pass | Pass | an explicit application command, not part of membership; see Interaction 10 below |
+| Part | SVG | Canvas | JavaFX | Evidence |
+| --- | --- | --- | --- | --- |
+| A bin selects exactly its members; the bin itself stays a separate, plot-local selection | Pass | Pass | Trace | "clicking each bin selects exactly its members, in the histogram and both scatters" |
+| Counts, representatives, partial or stale membership never become a selection | Pass | Pass | Trace | `MemberSelectionSuite`; "superseded, short and failed replies change nothing" |
+| Deferred members: pending, unavailable, failed and complete replies; late replies rejected | Pass | Pass | Trace: complete, short and failed replies only | `MembershipResolverSuite`; the two deferred-bin browser checks |
+| Linked plots show partial-selection counts in the tooltip, the text companion and on keyboard focus | Pass | Pass | Trace | "an area selected in a scatter shows each bin's covered count and rings bins covered by half" (counts 3/7, 4/8, 4/8, 4/7) |
+| Emphasis by a fraction of members, exactly at the threshold | Pass | Pass | — | the same check: 4/8 is ringed under the half rule, 3/7 is not |
+| Emphasis by any or all members | Unit | Unit | — | `MemberCoverageSuite` thresholds; no browser check selects those rules |
+| Pointing at an observation emphasizes the bins that hold it | Pass | Pass | — | the same check: hovering a scatter mark rings exactly one bin |
+| Clearing a Members-mode plot clears the linked group | Pass | Pass | Trace | "clicking each bin selects exactly its members…" (Escape at the end) |
+| Filtering or recomputing a statistic from a selection | Pass | Pass | — | an explicit application command, not part of membership; see Interaction 10 below |
 
 ## Analytical extension: named selections, history, snapshots and filters (Interaction 10)
 

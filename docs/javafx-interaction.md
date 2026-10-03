@@ -1,8 +1,16 @@
-# Minimal JavaFX interaction host
+# JavaFX interaction host
 
-`intaglio-javafx` includes a small host over the shared interaction controller and picking plan.
-It accepts a compiled, typed `InteractionPlan`, so entity identity and projected updates follow the
-same rules as other hosts. JavaFX remains outside core and shared interaction.
+`intaglio-javafx` hosts a compiled, typed `InteractionPlan` in a JavaFX node. Pointer and key input
+is normalized into the shared `HostInput` contract and dispatched to the shared
+`InteractionController`, so hover, focus, selection, activation, navigation and linked state mean
+what they mean in the [browser widget](browser-widget.md): the same script of input produces the
+same events and selected keys in both hosts (see [Evidence](#evidence)). The host reads the same
+`InteractionBehavior` value as the browser. JavaFX remains outside core and shared interaction, and
+static rendering (`JavaFxRenderer`) needs none of this.
+
+A runnable desktop example — a navigable scatter linked to a histogram whose bins select their
+members — is `sbt javafxExample/run`
+([source](../modules/javafx-example/src/main/scala/intaglio/javafx/example/InteractiveScatter.scala)).
 
 Compile the view before attaching it. Use the same `RenderContext` used for plot layout:
 
@@ -122,18 +130,168 @@ it does not retrain scales or rerun statistics. Recompile/attach a new view when
 must change. `view.deviceScene.frames` exposes resolved panel mappings for data-position overlays.
 
 Call `host.dispose()` on the FX application thread when removing the view. Disposal is idempotent,
-removes event/property listeners and subscriptions, detaches both canvases, and clears native image
-and pattern caches. `lastError` and the optional `onError` callback expose rejected event inputs.
+removes event/property listeners and subscriptions, stops a pending tooltip, detaches both
+canvases, and clears native image and pattern caches. Every public method checks the thread and
+returns `JavaFxHostError.WrongThread` off the FX application thread and `Disposed` afterwards.
+`lastError` and the optional `onError` callback expose rejected event inputs.
 
-The acceptance suite starts real JavaFX with [Monocle](https://github.com/TestFX/Monocle) and the
+## Behaviour: tooltips, links, emphasis and members
+
+`JavaFxInteractionHost.mount(view, behavior)` takes the browser widget's `InteractionBehavior`:
+
+```scala mdoc:silent
+val described = InteractionBehavior
+  .describingEntities[Int](n => s"observation $n")
+  .withInverseEmphasis(true)
+
+def mountDescribed(): Either[IntaglioError, JavaFxInteractionHost[Int]] =
+  JavaFxInteractionHost.mount(view, described)
+```
+
+- **Tooltips** are `TargetContent` drawn as JavaFX `Text` nodes, never parsed as markup, placed by
+  the shared `TooltipLayout` (`Pointer`, `Anchored` or `Fixed`), flipped and clamped inside the
+  node. Pointer hover waits for `tooltipDelayMs`; keyboard focus shows the tooltip at once.
+  `host.tooltip` reads the content shown.
+- **Announcements**: the focused mark's description (with partial-coverage counts for aggregates)
+  is the node's accessible text and `host.announcement`, as the browser's live region says it.
+  `host.companionRows` is the text companion: every mark, then every plot part. This is also the
+  hook for the Interaction 10 inspector, which is not yet available to hosts.
+- **Links** are followed only for pointer or keyboard activation and only through an
+  `onLink: TargetLink => Unit` handler (`HostServices.showDocument`, for example). A behaviour whose
+  targets carry links is refused at mount without one; a desktop node has no browser location.
+- **Inverse emphasis** dims the base canvas and redraws hovered, selected, covered and linked marks
+  in their own paint, clipped to their outlines.
+- **Plot parts**: `host.subscribeParts` reports legend entries, strips, axes, titles, colorbars and
+  annotations under the pointer or activated, as typed `PlotPart` values. `withLegendLink` legends
+  emphasize and select their category's marks; a legend link that names no drawn legend, or whose
+  entries match no mark, is refused at mount.
+- **Aggregate members** (`withAggregateSelection(_ => AggregateSelection.Members)`): choosing or
+  sweeping a bin selects its exact members; deferred members are asked of the `resolver` given to
+  `mount` (refused at mount without one), and replies are dispatched on a later FX pulse.
+
+## Navigation
+
+A single-panel plot with a numeric, continuous or temporal axis pans and zooms its data window
+through the shared `DataWindowNavigator`; each window is a re-windowed plan from
+`InteractionCompiler.rezoom`, so statistics are not recomputed and selection and focus stand.
+`+`/`=` and `-` zoom about the panel centre, `0` resets; the wheel zooms about the pointer while
+the plot has focus (or with Ctrl); a trackpad pinch zooms about its centre. `setGestureMode` chooses
+what a primary drag does — `Rectangle` and `Lasso` select (Shift adds, Alt subtracts), `Pan` drags
+the window, `ZoomRectangle` zooms to the dragged box — and Escape first abandons a drag in
+progress. `navigate(window)`, `zoomBy(factor)`, `resetWindow()` and `currentWindow` are the
+programmatic equivalents; the host has no toolbar, so applications put these behind their own
+controls. Named scenes, compositions and faceted plots are refused with
+`InteractionError.UnsupportedCapability`.
+
+`host.update(view)` shows a new view of the same plot: a new revision is reconciled by entity key
+(a `Reconciled` event reports dropped keys), the same revision keeps the state, and the new view is
+the unwindowed base. `JavaFxInteractionView.compileComposition` hosts a composed figure with scoped
+child parts.
+
+## Linked hosts
+
+`JavaFxLink.connect(space, Vector(a, b, c))` links hosts with the browser `WidgetLink`'s rules: one
+group selection of observation keys; a reader's change in one plot (among the keys it can select)
+is projected into the others as silent `Projected` input; keys a plot lacks are reported through
+`onMissing`, never invented; hover and keyboard focus are shown elsewhere as dashed linked rings;
+bins chosen as bins stay local; a host joins at most one live link.
+
+## Capabilities
+
+`JavaFxCapabilities.matrix` lists every `HostCapability`, named after the rows of the
+[browser matrix](browser-capabilities.md). `JavaFxCapabilities.require(c)` returns `Right(())` or an
+`InteractionError.UnsupportedCapability` that says what to do instead; the host's own entry points
+refuse with the same errors, never silently.
+
+```scala mdoc
+JavaFxCapabilities.require(HostCapability.PngExport).left.map(_.message)
+```
+
+| Area | Capability | JavaFX | Evidence |
+| --- | --- | --- | --- |
+| Inspection | Plain-text and structured tooltips, delay, placement | Supported | T, H, N |
+| Inspection | Direct and nearest hover | Supported | T (direct), H |
+| Inspection | Tooltip appearance (`JavaFxHostOptions` colours, width) | Supported | H |
+| Inspection | Text description of every mark and part | Supported | H |
+| Emphasis | Hovered, selected, focused appearance | Supported | H, N |
+| Emphasis | Inverse emphasis | Supported | H, N |
+| Emphasis | Linked legend emphasis and selection | Supported | T, H |
+| Emphasis | Configurable transitions | Refused: drawn at once; animate the node from the application | H |
+| Emphasis | Externally assigned target styles | Refused: map the style in the plot and `update` | H |
+| Actions | Pointer and keyboard activation, links through `onLink`, host callbacks | Supported | T, H |
+| Selection | Disabled, single, multiple; toggle; application and initial selection | Supported | T, H |
+| Selection | Rectangle and lasso replace/add/subtract | Supported | H |
+| Plot parts | Legend keys, strips, axes, titles, annotations | Supported | T, H |
+| Navigation | Keyboard zoom and reset | Supported | T, H, N |
+| Navigation | Pan, wheel, pinch and rectangle zoom; bounds | Supported | H, N (pan) |
+| Navigation | Toolbar controls | Refused: call `setGestureMode`, `zoomBy`, `resetWindow` | H |
+| Composition | Shared hover and selection across hosts | Supported | T, H |
+| Composition | Composed figures (no figure-wide navigation) | Supported | H |
+| Embedding | Responsive sizing, programmatic state and events | Supported | H |
+| Embedding | Fullscreen | Refused: `Stage.setFullScreen` on the application's stage | H |
+| Embedding | PNG export | Refused: `host.node.snapshot` and encode in the application | H |
+| Embedding | Standalone HTML | Refused: not applicable to a desktop node | H |
+| Analytical | Aggregate members, deferred resolution, coverage counts | Supported | T, H |
+| Analytical | Inspector, named selections, undo/redo (Interaction 10) | Refused: not yet available to hosts | H |
+
+**T**: the shared trace comparison below. **H**: headless Monocle suites
+(`JavaFxHostCapabilitySuite`, `JavaFxInteractionHostSuite`). **N**: the native desktop run.
+
+## Evidence
+
+The host is qualified by three separate sources; none is inferred from another.
+
+**Shared traces.** The scripts in [`tools/trace`](../tools/trace) name marks by reading order, bins
+left to right and legend keys by name — never pixels. [`check-host-trace-browser.cjs`](../tools/check-host-trace-browser.cjs)
+replays each in the browser fixture pages on SVG and Canvas and records normalized events, selected
+keys, part events, missing-key reports, membership requests, tooltips, announcements and followed
+links after every step (`tools/trace/browser/`). `JavaFxTraceParitySuite` replays the same scripts
+against JavaFX twins of the fixture pages and requires equality step by step, through both the
+Glass robot and scene-event dispatch, and checks that the comparison detects a single changed
+event, key or announcement. The three scripts cover keyboard roving and choosing, pointer hover with
+delayed tooltips, click and additive toggle, application selection without echo, a press released
+outside, legend parts, keyboard zoom and reset, single-selection histograms, four linked plots
+including an impostor key space, and aggregate members with complete, short and failed deferred
+replies.
+
+```sh
+sbt browserFixture/fastLinkJS
+node tools/check-host-trace-browser.cjs \
+  modules/browser-fixture/target/scala-3.3.8/browserfixture-fastopt/main.js \
+  tools/trace/widget.json tools/trace/browser/widget-svg.json svg
+sbt javafxExample/test
+```
+
+**Headless toolkit.** The suites start real JavaFX with
+[Monocle](https://github.com/TestFX/Monocle) and the software renderer: a simulated 2x screen for
+the module suites, a 1x 1600x1200 screen for the trace parity suite. This is toolkit evidence, not
+desktop evidence.
+
+**Native desktop.** `NativeEvidence` runs the same scripts and the example on the platform's own
+Glass and Prism, in real windows, and writes `evidence.json` naming the OS, JDK, OpenJFX, Glass and
+Prism classes and source SHA, with scene snapshots of the real stages. Its default input path fires
+JavaFX events into the live scene graph and filters the physical pointer and keyboard out of the
+scripted stages; it injects no OS input. `--os-input` uses the Glass robot, which moves the real
+pointer and needs accessibility permission, so it is opt-in.
+
+```sh
+sbt "javafxExample/runMain intaglio.javafx.example.NativeEvidence target/native-evidence"
+```
+
+The retained receipt is [evidence/interaction12](../evidence/interaction12/README.md). OS-injected
+input, screen readers, multi-monitor scale changes and Windows/Linux desktops remain unqualified.
+
+### Minimal host receipts
+
+The minimal-host acceptance suite starts real JavaFX with [Monocle](https://github.com/TestFX/Monocle) and the
 software renderer on a test-only simulated 2x screen. A mounted Stage must report output scale 2
 before child-event routing and focus checks run. It also drives synthetic pointer and keyboard events at device scales 1 and 2,
 checks rendered overlays and projected no-echo, exercises 1,000 attach/dispose cycles with retained
 nodes and weak host references, and records 10,000-mark timing to
 `modules/javafx/jvm/target/feature-evidence/javafx-interaction-latency.txt` (relative to the module's
 forked-test working directory). Timings include synchronous Canvas snapshots and are measurements,
-not a latency guarantee. This is headless toolkit evidence; native desktop accessibility, display
-scaling across monitors, and full Interaction 12 remain separate qualification work.
+not a latency guarantee. This is headless toolkit evidence; native desktop accessibility and display
+scaling across monitors remain separate qualification work.
 
 ```sh
 sbt 'javafxJVM/testOnly intaglio.javafx.JavaFxInteractionHostSuite'

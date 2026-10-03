@@ -1,0 +1,830 @@
+{
+  "page": "widget",
+  "renderer": "svg",
+  "browser": "151.0.7922.34",
+  "script": "widget.json",
+  "scriptSha256": "6bc4fd8b3dac9f4059f71a4ffabd6992b8b25ffe24ce18ef5ac4fbd24f07b74c",
+  "fixtureSha256": "2a59e6799a615cdb9cd79a80a0e630089a0917d88dc16b504bcab8de52106e56",
+  "steps": [
+    {
+      "step": 0,
+      "op": "focus",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 1,
+      "op": "key",
+      "events": {
+        "left": [
+          "focus:t1:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": "Trial t1RT300 msaccuracy0.50note<b>not markup</b>",
+        "announce": "Trial t1; RT: 300 ms; accuracy: 0.50; note: <b>not markup</b>",
+        "link": ""
+      }
+    },
+    {
+      "step": 2,
+      "op": "key",
+      "events": {
+        "left": [
+          "focus:t24:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 3,
+      "op": "key",
+      "events": {
+        "left": [
+          "focus:t1:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 4,
+      "op": "key",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 5,
+      "op": "key",
+      "events": {
+        "left": [
+          "focus:t24:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": "Trial t24RT351 msaccuracy0.55note<b>not markup</b>",
+        "announce": "Trial t24; RT: 351 ms; accuracy: 0.55; note: <b>not markup</b>",
+        "link": ""
+      }
+    },
+    {
+      "step": 6,
+      "op": "key",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 7,
+      "op": "key",
+      "events": {
+        "left": [
+          "select:t24|0:Keyboard",
+          "activate:t24:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t24"
+        ],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": "Trial t24RT351 msaccuracy0.55note<b>not markup</b>",
+        "announce": "Trial t24; RT: 351 ms; accuracy: 0.55; note: <b>not markup</b>",
+        "link": "#trial-t24"
+      }
+    },
+    {
+      "step": 8,
+      "op": "key",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t24"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 9,
+      "op": "key",
+      "events": {
+        "left": [
+          "select:|0:Keyboard",
+          "activate:t24:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 10,
+      "op": "key",
+      "events": {
+        "left": [
+          "focus:t23:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": "Trial t23RT314 msaccuracy0.70note<b>not markup</b>",
+        "announce": "Trial t23; RT: 314 ms; accuracy: 0.70; note: <b>not markup</b>",
+        "link": "#trial-t24"
+      }
+    },
+    {
+      "step": 11,
+      "op": "key",
+      "events": {
+        "left": [
+          "select:t23|0:Keyboard",
+          "activate:t23:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t23"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 12,
+      "op": "key",
+      "events": {
+        "left": [
+          "select:|0:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 13,
+      "op": "move",
+      "events": {
+        "left": [
+          "hover:t4:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 14,
+      "op": "wait",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": "Trial t4RT411 msaccuracy0.55note<b>not markup</b>",
+        "announce": "Trial t23; RT: 314 ms; accuracy: 0.70; note: <b>not markup</b>",
+        "link": "#trial-t23"
+      }
+    },
+    {
+      "step": 15,
+      "op": "click",
+      "events": {
+        "left": [
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "focus:t4:Pointer",
+          "select:t4|0:Pointer",
+          "activate:t4:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t4"
+        ],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": "Trial t4RT411 msaccuracy0.55note<b>not markup</b>",
+        "announce": "Trial t4; RT: 411 ms; accuracy: 0.55; note: <b>not markup</b>",
+        "link": "#trial-t4"
+      }
+    },
+    {
+      "step": 16,
+      "op": "click",
+      "events": {
+        "left": [
+          "hover:t8:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "focus:t8:Pointer",
+          "select:t4,t8|0:Pointer",
+          "activate:t8:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t4",
+          "t8"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 17,
+      "op": "click",
+      "events": {
+        "left": [
+          "hover:t4:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "focus:t4:Pointer",
+          "select:t8|0:Pointer",
+          "activate:t4:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t8"
+        ],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": null,
+        "announce": "Trial t4; RT: 411 ms; accuracy: 0.55; note: <b>not markup</b>",
+        "link": "#trial-t4"
+      }
+    },
+    {
+      "step": 18,
+      "op": "move",
+      "events": {
+        "left": [
+          "hover:-:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t8"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 19,
+      "op": "wait",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t8"
+        ],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": null,
+        "announce": "Trial t4; RT: 411 ms; accuracy: 0.55; note: <b>not markup</b>",
+        "link": "#trial-t4"
+      }
+    },
+    {
+      "step": 20,
+      "op": "select",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t2",
+          "t9"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 21,
+      "op": "click",
+      "events": {
+        "left": [
+          "hover:t6:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "focus:t6:Pointer",
+          "select:t6|0:Pointer",
+          "activate:t6:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t6"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 22,
+      "op": "press",
+      "events": {
+        "left": [
+          "hover:t3:Pointer",
+          "GestureStarted:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t6"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 23,
+      "op": "dragOutside",
+      "events": {
+        "left": [
+          "hover:-:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t6"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 24,
+      "op": "release",
+      "events": {
+        "left": [
+          "GestureEnded:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t6"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 25,
+      "op": "leave",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t6"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 26,
+      "op": "click",
+      "events": {
+        "left": [
+          "hover:t3:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "focus:t3:Pointer",
+          "select:t3|0:Pointer",
+          "activate:t3:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 27,
+      "op": "move",
+      "events": {
+        "left": [
+          "hover:-:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": [
+        "hover:block: A"
+      ]
+    },
+    {
+      "step": 28,
+      "op": "click",
+      "events": {
+        "left": [
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": [
+        "activate:block: A"
+      ]
+    },
+    {
+      "step": 29,
+      "op": "move",
+      "events": {
+        "left": [
+          "hover:t12:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": [
+        "hover:-"
+      ]
+    },
+    {
+      "step": 30,
+      "op": "key",
+      "events": {
+        "left": [
+          "ViewportChanged:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 31,
+      "op": "key",
+      "events": {
+        "left": [
+          "ViewportChanged:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 32,
+      "op": "move",
+      "events": {
+        "left": [
+          "hover:-:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 33,
+      "op": "click",
+      "events": {
+        "left": [
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 34,
+      "op": "move",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 35,
+      "op": "key",
+      "events": {
+        "left": [
+          "ViewportChanged:Keyboard"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 36,
+      "op": "key",
+      "events": {
+        "left": [],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 37,
+      "op": "move",
+      "events": {
+        "left": [
+          "hover:t4:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 38,
+      "op": "leave",
+      "events": {
+        "left": [
+          "hover:-:Pointer"
+        ],
+        "right": []
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 39,
+      "op": "click",
+      "events": {
+        "left": [],
+        "right": [
+          "hover:-:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "focus:-:Pointer",
+          "select:|1:Pointer",
+          "activate:-:Pointer"
+        ]
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": null,
+        "announce": "bin of 2 trials",
+        "link": "#trial-t3"
+      }
+    },
+    {
+      "step": 40,
+      "op": "click",
+      "events": {
+        "left": [],
+        "right": [
+          "hover:-:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "focus:-:Pointer",
+          "select:|1:Pointer",
+          "activate:-:Pointer"
+        ]
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 41,
+      "op": "key",
+      "events": {
+        "left": [],
+        "right": [
+          "focus:-:Keyboard"
+        ]
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": [],
+      "inspect": {
+        "tooltip": "bin of 2 trials",
+        "announce": "bin of 2 trials",
+        "link": "#trial-t3"
+      }
+    },
+    {
+      "step": 42,
+      "op": "key",
+      "events": {
+        "left": [],
+        "right": [
+          "select:|1:Keyboard",
+          "activate:-:Keyboard"
+        ]
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 43,
+      "op": "key",
+      "events": {
+        "left": [],
+        "right": [
+          "select:|0:Keyboard"
+        ]
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    },
+    {
+      "step": 44,
+      "op": "leave",
+      "events": {
+        "left": [],
+        "right": [
+          "hover:-:Pointer"
+        ]
+      },
+      "selected": {
+        "left": [
+          "t3"
+        ],
+        "right": []
+      },
+      "parts": []
+    }
+  ]
+}

@@ -55,6 +55,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The JavaFX interaction host covers the supported interactive behaviours
+  (Interaction 12). `JavaFxInteractionHost.mount(view, behavior, ...)` reads the
+  browser widget's `InteractionBehavior` and routes input through the shared
+  `HostInput`: delayed text-only tooltips with pointer, anchored and fixed
+  placement, announcements, links through an `onLink` handler, inverse
+  emphasis, plot-part events and legend links, aggregate member selection with
+  a deferred `MembershipResolver`, rectangle and lasso selection, and data-window
+  navigation (keyboard, wheel, pinch, pan and rectangle zoom) through the shared
+  `DataWindowNavigator` and `InteractionCompiler.rezoom`. `update` reconciles a
+  new view, `JavaFxLink` links hosts with `WidgetLink`'s rules,
+  `JavaFxInteractionView.compileComposition` hosts composed figures, and
+  `JavaFxCapabilities` lists every capability, refusing unsupported ones with an
+  actionable `InteractionError.UnsupportedCapability`. `attach` keeps its
+  behaviour. `JavaFxOverlayStyle` gains `linked` and `covered` strokes.
+  Shared trace scripts (`tools/trace`, `tools/check-host-trace-browser.cjs`)
+  yield equal events, selected keys, tooltips and announcements in the browser
+  (SVG and Canvas) and JavaFX; the unpublished `javafxExample` project holds the
+  runnable desktop example (`sbt javafxExample/run`), the trace parity suite and
+  the native evidence runner. See [docs/javafx-interaction.md](docs/javafx-interaction.md).
+
 - A native Canvas renderer for the browser widget
   (`WidgetOptions(renderer = WidgetRenderer.Canvas)`), sharing input, selection,
   linking, parts and the text companion with SVG; `intaglio-browser` now

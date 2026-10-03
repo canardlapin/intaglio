@@ -72,9 +72,11 @@ mark alpha once after ink/background composition. Raster pattern axes are
 bounded at 1,024 device pixels; oversized requests fail through the typed
 `JavaFxRenderError` compilation boundary rather than degrading to solid fill.
 
-The [minimal interaction host](../../docs/javafx-interaction.md) adds pointer and keyboard input,
-projected selection, cached overlay redraw and explicit disposal using `intaglio-interaction`.
-Compile a `JavaFxInteractionView` from a typed interaction plan, then call
-`JavaFxInteractionHost.attach` on the FX application thread and mount its `node`.
+The [interaction host](../../docs/javafx-interaction.md) adds pointer and keyboard input,
+tooltips, selection gestures, data-window navigation, linked hosts, cached overlay redraw and
+explicit disposal using `intaglio-interaction`, with a capability matrix that refuses what it
+lacks. Compile a `JavaFxInteractionView` from a typed interaction plan, then call
+`JavaFxInteractionHost.mount` (or `attach` for the default behaviour) on the FX application thread
+and mount its `node`. `sbt javafxExample/run` opens a desktop example.
 Its overlay colours, widths, casings and offsets come from a `JavaFxOverlayStyle` the host can
 replace at run time, and outlines can follow each mark's geometry instead of its bounds.

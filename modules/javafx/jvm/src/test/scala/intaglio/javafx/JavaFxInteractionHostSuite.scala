@@ -10,7 +10,6 @@ import _root_.javafx.scene.paint.Color
 import _root_.javafx.stage.Stage
 import _root_.javafx.scene.input.{KeyCode, KeyEvent, MouseButton, MouseEvent, PickResult}
 import java.lang.ref.WeakReference
-import java.util.concurrent.{CountDownLatch, FutureTask, TimeUnit}
 import java.nio.file.{Files, Path}
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
@@ -18,17 +17,9 @@ import javax.imageio.ImageIO
 class JavaFxInteractionHostSuite extends munit.FunSuite:
   private def ok[A](result: Either[IntaglioError, A]): A =
     result.fold(e => fail(e.message), identity)
-  private def fx[A](body: => A): A =
-    val task = new FutureTask[A](() => body)
-    Platform.runLater(task)
-    task.get(60, TimeUnit.SECONDS)
+  private def fx[A](body: => A): A = FxToolkit.fx(body)
 
-  override def beforeAll(): Unit =
-    val latch = new CountDownLatch(1)
-    Platform.startup(() => { Platform.setImplicitExit(false); latch.countDown() })
-    assert(latch.await(30, TimeUnit.SECONDS), "headless FX startup")
-
-  override def afterAll(): Unit = Platform.exit()
+  override def beforeAll(): Unit = FxToolkit.start()
 
   private def raster(color: Int, width: Int = 8, height: Int = 8): RasterImage =
     RasterImage.solid(

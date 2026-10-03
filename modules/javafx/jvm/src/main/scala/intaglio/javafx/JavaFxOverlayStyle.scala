@@ -65,6 +65,10 @@ object OverlayStroke:
   * (see `InteractionAppearance`), and focus is always drawn last. The default reproduces the host's
   * original overlay: blue selection and orange hover 2 px wide at 3 px, a black 2 px focus ring on
   * a white 5 px casing at 5 px, around the target's bounds.
+  *
+  * `linked` outlines what a linked view or legend points at and `covered` outlines aggregates
+  * (histogram bins) whose members the selection covers under the behaviour's emphasis rule; both
+  * are drawn dashed, as the browser widget draws them.
   */
 final class JavaFxOverlayStyle private (
     val selection: OverlayStroke,
@@ -72,7 +76,9 @@ final class JavaFxOverlayStyle private (
     val focus: OverlayStroke,
     val highlightOffsetLogicalPx: Double,
     val focusOffsetLogicalPx: Double,
-    val outline: OverlayOutline
+    val outline: OverlayOutline,
+    val linked: OverlayStroke,
+    val covered: OverlayStroke
 ):
   /** The same style with outlines placed by `value`. */
   def withOutline(value: OverlayOutline): JavaFxOverlayStyle =
@@ -82,7 +88,9 @@ final class JavaFxOverlayStyle private (
       focus,
       highlightOffsetLogicalPx,
       focusOffsetLogicalPx,
-      value
+      value,
+      linked,
+      covered
     )
 
   /** The better WCAG 2 contrast ratio that the focus ring or its casing has against `background`.
@@ -95,6 +103,9 @@ final class JavaFxOverlayStyle private (
       .max
 
 object JavaFxOverlayStyle:
+  private val defaultLinked = new OverlayStroke(Rgba.unsafe(0x7c, 0x3a, 0xed), 2, None)
+  private val defaultCovered = new OverlayStroke(Rgba.unsafe(0x00, 0x72, 0xb2), 2, None)
+
   val default: JavaFxOverlayStyle =
     new JavaFxOverlayStyle(
       new OverlayStroke(Rgba.unsafe(0x00, 0x72, 0xb2), 2, None),
@@ -102,7 +113,9 @@ object JavaFxOverlayStyle:
       new OverlayStroke(Rgba.Black, 2, Some(Rgba.White -> 5.0)),
       3,
       5,
-      OverlayOutline.Bounds
+      OverlayOutline.Bounds,
+      defaultLinked,
+      defaultCovered
     )
 
   def apply(
@@ -111,7 +124,9 @@ object JavaFxOverlayStyle:
       focus: OverlayStroke,
       highlightOffsetLogicalPx: Double = 3,
       focusOffsetLogicalPx: Double = 5,
-      outline: OverlayOutline = OverlayOutline.Bounds
+      outline: OverlayOutline = OverlayOutline.Bounds,
+      linked: OverlayStroke = defaultLinked,
+      covered: OverlayStroke = defaultCovered
   ): Either[JavaFxOverlayError, JavaFxOverlayStyle] =
     def offset(field: String, value: Double) =
       Either.cond(
@@ -122,7 +137,16 @@ object JavaFxOverlayStyle:
     for
       highlight <- offset("highlight", highlightOffsetLogicalPx)
       focused <- offset("focus", focusOffsetLogicalPx)
-    yield new JavaFxOverlayStyle(selection, hover, focus, highlight, focused, outline)
+    yield new JavaFxOverlayStyle(
+      selection,
+      hover,
+      focus,
+      highlight,
+      focused,
+      outline,
+      linked,
+      covered
+    )
 
   /** WCAG 2 contrast ratio between two opaque colours' relative luminances, from 1 to 21. Alpha is
     * ignored: a translucent colour's contrast depends on what lies under it.

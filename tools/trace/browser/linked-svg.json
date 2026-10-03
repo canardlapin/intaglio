@@ -1,0 +1,674 @@
+{
+  "page": "linked",
+  "renderer": "svg",
+  "browser": "151.0.7922.34",
+  "script": "linked.json",
+  "scriptSha256": "beeed5b36fa64bebc195137244ecdee24a2d742b992564f8d83bba148bd29c4c",
+  "fixtureSha256": "2a59e6799a615cdb9cd79a80a0e630089a0917d88dc16b504bcab8de52106e56",
+  "steps": [
+    {
+      "step": 0,
+      "op": "move",
+      "events": {
+        "a": [
+          "HoverChanged:Pointer"
+        ],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 1,
+      "op": "click",
+      "events": {
+        "a": [
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "FocusChanged:Pointer",
+          "SelectionChanged:Pointer",
+          "Activated:Pointer"
+        ],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t5"
+        ],
+        "b": [
+          "t5"
+        ],
+        "c": [
+          "t5"
+        ],
+        "d": []
+      },
+      "missing": [
+        "d:t5"
+      ]
+    },
+    {
+      "step": 2,
+      "op": "click",
+      "events": {
+        "a": [
+          "HoverChanged:Pointer"
+        ],
+        "b": [
+          "HoverChanged:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "FocusChanged:Pointer",
+          "SelectionChanged:Pointer",
+          "Activated:Pointer"
+        ],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t5",
+          "t9"
+        ],
+        "b": [
+          "t5",
+          "t9"
+        ],
+        "c": [
+          "t5",
+          "t9"
+        ],
+        "d": []
+      },
+      "missing": [
+        "d:t5,t9"
+      ]
+    },
+    {
+      "step": 3,
+      "op": "click",
+      "events": {
+        "a": [],
+        "b": [
+          "HoverChanged:Pointer"
+        ],
+        "c": [
+          "HoverChanged:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "FocusChanged:Pointer",
+          "SelectionChanged:Pointer",
+          "Activated:Pointer"
+        ],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t5",
+          "t9"
+        ],
+        "b": [
+          "t5",
+          "t9"
+        ],
+        "c": [
+          "#target"
+        ],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 4,
+      "op": "key",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [
+          "SelectionChanged:Keyboard"
+        ],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t5",
+          "t9"
+        ],
+        "b": [
+          "t5",
+          "t9"
+        ],
+        "c": [],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 5,
+      "op": "click",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [
+          "HoverChanged:Pointer"
+        ],
+        "d": [
+          "HoverChanged:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "FocusChanged:Pointer",
+          "SelectionChanged:Pointer",
+          "Activated:Pointer"
+        ]
+      },
+      "selected": {
+        "a": [
+          "t5",
+          "t9"
+        ],
+        "b": [
+          "t5",
+          "t9"
+        ],
+        "c": [],
+        "d": [
+          "t3"
+        ]
+      },
+      "missing": []
+    },
+    {
+      "step": 6,
+      "op": "focus",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t5",
+          "t9"
+        ],
+        "b": [
+          "t5",
+          "t9"
+        ],
+        "c": [],
+        "d": [
+          "t3"
+        ]
+      },
+      "missing": []
+    },
+    {
+      "step": 7,
+      "op": "key",
+      "events": {
+        "a": [],
+        "b": [
+          "FocusChanged:Keyboard"
+        ],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t5",
+          "t9"
+        ],
+        "b": [
+          "t5",
+          "t9"
+        ],
+        "c": [],
+        "d": [
+          "t3"
+        ]
+      },
+      "missing": []
+    },
+    {
+      "step": 8,
+      "op": "key",
+      "events": {
+        "a": [],
+        "b": [
+          "FocusChanged:Keyboard"
+        ],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t5",
+          "t9"
+        ],
+        "b": [
+          "t5",
+          "t9"
+        ],
+        "c": [],
+        "d": [
+          "t3"
+        ]
+      },
+      "missing": []
+    },
+    {
+      "step": 9,
+      "op": "key",
+      "events": {
+        "a": [],
+        "b": [
+          "SelectionChanged:Keyboard",
+          "Activated:Keyboard"
+        ],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t17",
+          "t5",
+          "t9"
+        ],
+        "b": [
+          "t17",
+          "t5",
+          "t9"
+        ],
+        "c": [
+          "t17",
+          "t5",
+          "t9"
+        ],
+        "d": []
+      },
+      "missing": [
+        "d:t17,t5,t9"
+      ]
+    },
+    {
+      "step": 10,
+      "op": "move",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [],
+        "d": [
+          "HoverChanged:Pointer"
+        ]
+      },
+      "selected": {
+        "a": [
+          "t17",
+          "t5",
+          "t9"
+        ],
+        "b": [
+          "t17",
+          "t5",
+          "t9"
+        ],
+        "c": [
+          "t17",
+          "t5",
+          "t9"
+        ],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 11,
+      "op": "click",
+      "events": {
+        "a": [
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "SelectionChanged:Pointer"
+        ],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t11",
+          "t12",
+          "t14",
+          "t15",
+          "t17",
+          "t18",
+          "t2",
+          "t3",
+          "t5",
+          "t6",
+          "t8",
+          "t9"
+        ],
+        "b": [
+          "t11",
+          "t12",
+          "t14",
+          "t15",
+          "t17",
+          "t18",
+          "t2",
+          "t3",
+          "t5",
+          "t6",
+          "t8",
+          "t9"
+        ],
+        "c": [
+          "t11",
+          "t12",
+          "t14",
+          "t15",
+          "t17",
+          "t18",
+          "t2",
+          "t3",
+          "t5",
+          "t6",
+          "t8",
+          "t9"
+        ],
+        "d": []
+      },
+      "missing": [
+        "d:t11,t12,t14,t15,t17,t18,t2,t3,t5,t6,t8,t9"
+      ]
+    },
+    {
+      "step": 12,
+      "op": "click",
+      "events": {
+        "a": [],
+        "b": [
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer"
+        ],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t11",
+          "t12",
+          "t14",
+          "t15",
+          "t17",
+          "t18",
+          "t2",
+          "t3",
+          "t5",
+          "t6",
+          "t8",
+          "t9"
+        ],
+        "b": [
+          "t11",
+          "t12",
+          "t14",
+          "t15",
+          "t17",
+          "t18",
+          "t2",
+          "t3",
+          "t5",
+          "t6",
+          "t8",
+          "t9"
+        ],
+        "c": [
+          "t11",
+          "t12",
+          "t14",
+          "t15",
+          "t17",
+          "t18",
+          "t2",
+          "t3",
+          "t5",
+          "t6",
+          "t8",
+          "t9"
+        ],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 13,
+      "op": "focus",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t11",
+          "t12",
+          "t14",
+          "t15",
+          "t17",
+          "t18",
+          "t2",
+          "t3",
+          "t5",
+          "t6",
+          "t8",
+          "t9"
+        ],
+        "b": [
+          "t11",
+          "t12",
+          "t14",
+          "t15",
+          "t17",
+          "t18",
+          "t2",
+          "t3",
+          "t5",
+          "t6",
+          "t8",
+          "t9"
+        ],
+        "c": [
+          "t11",
+          "t12",
+          "t14",
+          "t15",
+          "t17",
+          "t18",
+          "t2",
+          "t3",
+          "t5",
+          "t6",
+          "t8",
+          "t9"
+        ],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 14,
+      "op": "key",
+      "events": {
+        "a": [
+          "SelectionChanged:Keyboard"
+        ],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 15,
+      "op": "select",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t3",
+          "t5"
+        ],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 16,
+      "op": "click",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [
+          "HoverChanged:Pointer",
+          "GestureStarted:Pointer",
+          "GestureEnded:Pointer",
+          "FocusChanged:Pointer",
+          "SelectionChanged:Pointer",
+          "Activated:Pointer"
+        ],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t3",
+          "t5"
+        ],
+        "b": [],
+        "c": [
+          "#target"
+        ],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 17,
+      "op": "focus",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t3",
+          "t5"
+        ],
+        "b": [],
+        "c": [
+          "#target"
+        ],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 18,
+      "op": "key",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [
+          "FocusChanged:Keyboard"
+        ],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t3",
+          "t5"
+        ],
+        "b": [],
+        "c": [
+          "#target"
+        ],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 19,
+      "op": "key",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [
+          "SelectionChanged:Keyboard",
+          "Activated:Keyboard"
+        ],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t3",
+          "t5"
+        ],
+        "b": [],
+        "c": [
+          "#target"
+        ],
+        "d": []
+      },
+      "missing": []
+    },
+    {
+      "step": 20,
+      "op": "leave",
+      "events": {
+        "a": [],
+        "b": [],
+        "c": [
+          "HoverChanged:Pointer"
+        ],
+        "d": []
+      },
+      "selected": {
+        "a": [
+          "t3",
+          "t5"
+        ],
+        "b": [],
+        "c": [
+          "#target"
+        ],
+        "d": []
+      },
+      "missing": []
+    }
+  ]
+}

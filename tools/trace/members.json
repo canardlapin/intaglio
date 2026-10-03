@@ -1,0 +1,25 @@
+{
+  "page": "members",
+  "description": "Aggregate members (Interaction 09): bins that select their exact members, linked coverage counts in the announcement, deferred bins answered by a resolver the trace controls (complete, short and failed replies), and clearing a members-mode plot.",
+  "steps": [
+    { "op": "click", "slot": "h", "bin": 1, "inspect": "h" },
+    { "op": "click", "slot": "h", "bin": 3, "shift": true },
+    { "op": "click", "slot": "a", "mark": 0 },
+    { "op": "focus", "slot": "h" },
+    { "op": "key", "key": "Home", "inspect": "h" },
+    { "op": "key", "key": "PageDown", "inspect": "h" },
+    { "op": "move", "slot": "a", "mark": 7 },
+    { "op": "wait", "ms": 450, "inspect": "h" },
+    { "op": "leave" },
+    { "op": "click", "slot": "d", "bin": 0, "inspect": "d" },
+    { "op": "reply", "index": 0, "kind": "complete", "inspect": "d" },
+    { "op": "click", "slot": "d", "bin": 2, "shift": true },
+    { "op": "reply", "index": 1, "kind": "short", "inspect": "d" },
+    { "op": "click", "slot": "d", "bin": 1, "shift": true },
+    { "op": "reply", "index": 2, "kind": "failed", "inspect": "d" },
+    { "op": "select", "slot": "b", "keys": ["t1", "t2", "t3"] },
+    { "op": "focus", "slot": "h" },
+    { "op": "key", "key": "Escape" },
+    { "op": "leave" }
+  ]
+}

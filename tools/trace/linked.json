@@ -1,0 +1,27 @@
+{
+  "page": "linked",
+  "description": "Four linked plots over one key space: two scatters of the same trials in different row orders, a histogram whose bins are bins, and a plot keyed by an impostor space. Pointer and keyboard selection projected across the group, additive changes that preserve keys a plot lacks, legend-link selection, bins that stay local, and application selection that does not propagate.",
+  "steps": [
+    { "op": "move", "slot": "a", "mark": 4 },
+    { "op": "click", "slot": "a", "mark": 4 },
+    { "op": "click", "slot": "b", "mark": 9, "shift": true },
+    { "op": "click", "slot": "c", "mark": 1 },
+    { "op": "key", "key": "Escape" },
+    { "op": "click", "slot": "d", "mark": 2 },
+    { "op": "focus", "slot": "b" },
+    { "op": "key", "key": "Home" },
+    { "op": "key", "key": "PageDown" },
+    { "op": "key", "key": "Enter", "shift": true },
+    { "op": "move", "slot": "a", "legend": true },
+    { "op": "click", "slot": "a", "legend": true },
+    { "op": "click", "slot": "b", "legend": true, "shift": true },
+    { "op": "focus", "slot": "a" },
+    { "op": "key", "key": "Escape" },
+    { "op": "select", "slot": "a", "keys": ["t3", "t5"] },
+    { "op": "click", "slot": "c", "mark": 0 },
+    { "op": "focus", "slot": "c" },
+    { "op": "key", "key": "End" },
+    { "op": "key", "key": "Enter" },
+    { "op": "leave" }
+  ]
+}

@@ -182,7 +182,6 @@ def additiveCompatibilitySettings(reviewFile: String) = Seq(
       "Additive review calibration passed: legacy removals and unreviewed additions still report"
     )
   }
-
 )
 
 lazy val core =
@@ -351,7 +350,7 @@ lazy val java2d =
       },
       tastyMiMaPreviousClasspaths ~= (_.map { case (module, classpath, classes) =>
         (module, classpath :+ JdkModules.desktop, classes)
-      }),
+      })
     )
 
 lazy val java2dJVM = java2d.jvm
@@ -401,12 +400,12 @@ lazy val javafx =
         import tastymima.intf.{ProblemKind, ProblemMatcher}
         previous.withMoreProblemFilters(
           asList(
-                        // tastyquery reports `MemberNotFoundException: Member javafx not found in PackageRef()`
+            // tastyquery reports `MemberNotFoundException: Member javafx not found in PackageRef()`
             // even though the OpenJFX jar carrying `GraphicsContext` is on the classpath it is given.
             // The `java.desktop` fix that cleared the Java2D errors does not apply: these are ordinary
             // modular jars, not a JDK module. Dropping the class-less OpenJFX stub jar was tried and
             // changed nothing.
-ProblemMatcher.make(
+            ProblemMatcher.make(
               ProblemKind.InternalError,
               "intaglio.javafx.JavaFxCanvasContext.<init>"
             )
@@ -416,6 +415,43 @@ ProblemMatcher.make(
     )
 
 lazy val javafxJVM = javafx.jvm
+
+/** A runnable JavaFX desktop example (`sbt javafxExample/run`) and the host trace harness behind
+  * Interaction 12: the JavaFX twins of the browser fixture pages, a replay of tools/trace scripts,
+  * and the native evidence runner (`runMain intaglio.javafx.example.NativeEvidence <dir>`). Its
+  * suite replays every trace under headless Monocle against the recorded browser traces. Not
+  * published; OpenJFX is a compile dependency here, unlike the `Provided` library module.
+  */
+lazy val javafxExample =
+  project
+    .in(file("modules/javafx-example"))
+    .dependsOn(javafxJVM)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-javafx-example",
+      publish / skip := true,
+      mimaPreviousArtifacts := Set.empty,
+      tastyMiMaPreviousArtifacts := Set.empty,
+      versionPolicyCheck / skip := true,
+      versionCheck / skip := true,
+      libraryDependencies ++= Seq(
+        "org.openjfx" % "javafx-base" % "21.0.5" classifier javafxPlatformClassifier,
+        "org.openjfx" % "javafx-graphics" % "21.0.5" classifier javafxPlatformClassifier,
+        "org.testfx" % "openjfx-monocle" % "21.0.2" % Test
+      ),
+      Compile / mainClass := Some("intaglio.javafx.example.InteractiveScatter"),
+      run / fork := true,
+      run / javaOptions += s"-Dintaglio.repo=${(ThisBuild / baseDirectory).value}",
+      Test / fork := true,
+      Test / javaOptions ++= Seq(
+        "-Dglass.platform=Monocle",
+        "-Dmonocle.platform=Headless",
+        "-Dheadless.geometry=1600x1200-32",
+        "-Dprism.order=sw",
+        "-Djava.awt.headless=true",
+        s"-Dintaglio.repo=${(ThisBuild / baseDirectory).value}"
+      )
+    )
 
 /** Executable documentation. Every fenced block marked `mdoc` in `docs/` is compiled against the
   * real modules, so a guide cannot drift from the API it documents, and the gallery writes its own
@@ -482,12 +518,12 @@ addCommandAlias(
 
 addCommandAlias(
   "compileAll",
-  ";coreJVM/compile;coreJS/compile;interactionJVM/compile;interactionJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;browserJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile"
+  ";coreJVM/compile;coreJS/compile;interactionJVM/compile;interactionJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;browserJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile;javafxExample/compile"
 )
 
 addCommandAlias(
   "testAll",
-  ";coreJVM/test;coreJS/test;interactionJVM/test;interactionJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;browserJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test"
+  ";coreJVM/test;coreJS/test;interactionJVM/test;interactionJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;browserJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test;javafxExample/test"
 )
 
 addCommandAlias(
