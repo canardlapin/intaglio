@@ -255,7 +255,8 @@ object NativeEvidence:
       "reset" -> Json.Str(reset.toString)
     )
 
-    // Disposal on the live stage, then repeated mount/dispose cycles that must leave nothing.
+    // Disposal on the live stage, then repeated mount/dispose cycles after which garbage
+    // collection must reclaim all but at most one host, the headless leak test's tolerance.
     Fx.fx {
       built.dispose()
       stage.close()

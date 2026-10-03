@@ -12,6 +12,7 @@ import _root_.javafx.stage.Stage
 import java.nio.file.{Files, Path, Paths}
 import java.security.MessageDigest
 import java.util.concurrent.{CountDownLatch, ExecutionException, FutureTask, TimeUnit}
+import scala.jdk.CollectionConverters.*
 
 /** The JavaFX toolkit for a runner thread: start once, run work on the FX application thread. */
 object Fx:
@@ -249,6 +250,40 @@ object TraceRunner:
   def script(page: String): (Json, String) =
     val bytes = Files.readAllBytes(repo.resolve(s"tools/trace/$page.json"))
     (Json.parse(new String(bytes, "UTF-8")), sha256(bytes))
+
+  /** The browser-side sources a recorded trace depends on, by repository-relative path: the browser
+    * widget and its trace fixture (main Scala sources), the fixture pages and the recorder.
+    * tools/check-host-trace-browser.cjs records the same digest as `sourcesSha256`, so a changed
+    * widget fails parity until its traces are re-recorded. Shared interaction code is not listed:
+    * the JavaFX replay runs it live, so a change there shows as a step difference instead.
+    */
+  def browserSources: Vector[String] =
+    def under(dir: String, keep: String => Boolean): Vector[String] =
+      val root = repo.resolve(dir)
+      if !Files.isDirectory(root) then Vector.empty
+      else
+        val stream = Files.walk(root)
+        try
+          stream.iterator.asScala
+            .filter(Files.isRegularFile(_))
+            .map(file => repo.relativize(file).toString.replace('\\', '/'))
+            .filter(keep)
+            .toVector
+        finally stream.close()
+    val scala = (path: String) =>
+      path.contains("/src/main/") && !path.contains("/target/") && path.endsWith(".scala")
+    (under("modules/browser", scala) ++ under("modules/browser-fixture", scala) ++
+      under("tools/browser", _.endsWith(".html")) :+
+      "tools/check-host-trace-browser.cjs").sorted
+
+  /** One digest of [[browserSources]]: SHA-256 over `path NUL sha256(content) LF` per file. */
+  def browserSourcesSha256: String =
+    sha256(
+      browserSources
+        .map(path => path + "\u0000" + sha256(Files.readAllBytes(repo.resolve(path))) + "\n")
+        .mkString
+        .getBytes("UTF-8")
+    )
 
   /** A recorded browser trace for `page` and `renderer`, if present. */
   def browser(page: String, renderer: String): Option[Json] =

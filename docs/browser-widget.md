@@ -65,7 +65,10 @@ reconciles the selection by entity key, reporting dropped entities in a `Reconci
   `onError`. A widget belongs to at most one live link;
 - a change that adds or removes no observation keys the plot draws, such as selecting, toggling
   or clearing histogram bins as bins, stays in its plot. A bin is never reported as its member
-  observations (exact members are a later capability).
+  observations (exact members are a later capability);
+- a new group starts from the union of its members' selections, and that union is not projected
+  into the members at connect: each shows its own selection until a reader's change updates the
+  group.
 
 A plot keyed by another space, even one with the same namespace text, never feeds the group and
 is reported missing for every key. `InteractionBehavior.withLegendLink(LegendLink(legend, space))`

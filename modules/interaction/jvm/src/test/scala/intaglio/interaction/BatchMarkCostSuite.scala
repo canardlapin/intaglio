@@ -9,6 +9,8 @@ import java.nio.file.{Files, Path}
   * assertions are structural.
   */
 class BatchMarkCostSuite extends munit.FunSuite:
+  // The measured runs are receipts, not gates; munit's 30 s default fails them on a loaded machine.
+  override val munitTimeout = scala.concurrent.duration.Duration(300, "s")
   private def ok[A](result: Either[IntaglioError, A]): A =
     result.fold(error => fail(error.message), identity)
   private val context = RenderContext.unsafe(width = 1000, height = 1000)

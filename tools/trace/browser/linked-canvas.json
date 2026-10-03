@@ -5,6 +5,7 @@
   "script": "linked.json",
   "scriptSha256": "beeed5b36fa64bebc195137244ecdee24a2d742b992564f8d83bba148bd29c4c",
   "fixtureSha256": "2cfb404f8018acec6ab5a996bfcd13989adc01d36de764fd0a7be640d9e7f40d",
+  "sourcesSha256": "8377fb89d15ada214d365ed32e885f4880f61237fb186636ac3e13578353a10d",
   "steps": [
     {
       "step": 0,

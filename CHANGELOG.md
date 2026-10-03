@@ -74,10 +74,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   navigation run is one entry; projected input is never recorded), snapshots,
   `inspector(sample)` and `subscribeState`; `JavaFxInspector` renders
   `InspectorModel` and filter reports as text. `update` refuses a view that
-  mounting would refuse, without changing anything.
+  mounting would refuse, without changing anything. Application code that
+  throws (event, state, hover and part listeners; tooltip and description
+  functions) is reported as `CallbackFailed` through `lastError`/`onError`;
+  `JavaFxLink` projects every member before calling back, reports a throwing
+  `onMissing` through its `onError`, and ignores an `onError` that throws.
+  Two boundaries are stricter than the browser widget's (see "Differences from
+  the browser widget" in the JavaFX guide): a pan drag is one history entry from
+  press to release however long the reader pauses, where the browser records a
+  pan at a 400 ms pause; and `restore` refuses, with `SnapshotError.Invalid`, a
+  viewport the view cannot draw, which the browser accepts.
   Shared trace scripts (`tools/trace`, `tools/check-host-trace-browser.cjs`)
   yield equal events, selected keys, tooltips and announcements in the browser
-  (SVG and Canvas) and JavaFX; the unpublished `javafxExample` project holds the
+  (SVG and Canvas) and JavaFX, and recordings carry a digest of the browser
+  sources so a stale recording fails parity; the unpublished `javafxExample` project holds the
   runnable desktop example (`sbt javafxExample/run`), the trace parity suite and
   the native evidence runner. See [docs/javafx-interaction.md](docs/javafx-interaction.md).
 

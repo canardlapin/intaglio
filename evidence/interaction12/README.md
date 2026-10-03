@@ -5,6 +5,15 @@ undo/redo, snapshots), was qualified at source **`0ea82eb242dcbef1c5b2520f5c9e0f
 (clean tree, on main `5e1b10f`) by three separate courts. None is inferred from another, and the
 headless results are not offered as desktop proof.
 
+**Provenance.** `0ea82eb` is a branch commit that was rebased before landing and is not an ancestor
+of main; its main equivalent is `5982894`, whose tree differs from it only in `docs/gallery*` and
+`.mote/ops`. The host has changed since (review fixes: pan drags held still, callback failure
+and description failure reporting, a bounded outline cache, accessible text after focus,
+per-listener state reports, refused undrawable restores, no entry for a restore that changes
+nothing). The native desktop run below has **not** been repeated on that
+source; a native re-run at the commit that carries those fixes is pending. The headless suites and
+the shared-trace comparison are current with it.
+
 ## Native desktop (this directory)
 
 `sbt "javafxExample/runMain intaglio.javafx.example.NativeEvidence <dir>"`, which wrote
@@ -39,7 +48,7 @@ Results:
 - **Navigation**: keyboard zoom twice, a pan drag and `0` reset, through `DataWindowNavigator` and
   `InteractionCompiler.rezoom`.
 - **Disposal**: the live hosts dispose; 200 further build/dispose cycles leave 0 hosts reachable
-  after GC.
+  after GC (the check accepts at most 1).
 
 Screenshots are snapshots of the real stages' scene graphs at output scale 2 (not screen grabs);
 `evidence.json` lists exactly these nine:
@@ -59,12 +68,16 @@ multi-monitor scale changes, and Windows/Linux desktops.
 `tools/check-host-trace-browser.cjs` recorded [`tools/trace/browser`](../../tools/trace/browser) in
 Playwright Chromium 151.0.7922.34 on SVG and Canvas, from the fixture built at `5e1b10f` (the browser
 and fixture sources are unchanged on this branch). Each record carries the script and fixture
-SHA-256. `JavaFxTraceParitySuite` requires the SVG and Canvas recordings to agree with each other
+SHA-256 and, since the review fixes, `sourcesSha256`: a digest of the browser widget and fixture
+sources, the fixture pages and the recorder, which `JavaFxTraceParitySuite` recomputes so that a
+changed widget fails parity until re-recorded. Re-recorded to add it, from a fixture rebuilt at
+`0f6a0a0`: the fixture build was byte-identical (`fixtureSha256` unchanged) and every step equal to
+the earlier recording. `JavaFxTraceParitySuite` requires the SVG and Canvas recordings to agree with each other
 and the JavaFX replay to equal them, through both the Glass robot and scene events, and checks that
 one changed event, key or announcement is detected.
 
 ## Headless toolkit
 
-Monocle with software Prism: `JavaFxInteractionHostSuite`, `JavaFxHostCapabilitySuite`, `JavaFxHistorySuite` and
-`JavaFxHostContractSuite` on a simulated 2x screen, and `JavaFxTraceParitySuite` on a 1x screen. This is
+Monocle with software Prism: `JavaFxInteractionHostSuite`, `JavaFxHostCapabilitySuite`, `JavaFxHistorySuite`,
+`JavaFxHostContractSuite` and `JavaFxHostRobustnessSuite` on a simulated 2x screen, and `JavaFxTraceParitySuite` on a 1x screen. This is
 toolkit evidence only. Gate results for the final commit are recorded in its commit message.

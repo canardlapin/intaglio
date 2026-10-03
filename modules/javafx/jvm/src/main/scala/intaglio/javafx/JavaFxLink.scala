@@ -3,6 +3,7 @@ package intaglio.javafx
 import intaglio.*
 import intaglio.interaction.*
 import _root_.javafx.application.Platform
+import scala.util.control.NonFatal
 
 /** A group of linked JavaFX hosts over one key space, with the browser `WidgetLink`'s rules.
   *
@@ -17,8 +18,10 @@ import _root_.javafx.application.Platform
   *
   * Projection arrives as `Projected` input, which emits no event, and emphasis is display only, so
   * a link can never echo or loop. A projection a member refuses (several keys into a
-  * single-selection plot) is reported through `onError`. A host belongs to at most one live link.
-  * Create, use and dispose a link on the FX application thread.
+  * single-selection plot) is reported through `onError`, as is an `onMissing` that throws (as
+  * `CallbackFailed`); every member is projected before either callback runs, and an `onError` that
+  * itself throws is ignored so it cannot interrupt the group. A host belongs to at most one live
+  * link. Create, use and dispose a link on the FX application thread.
   */
 final class JavaFxLink[A] private (
     space: KeySpace[A],
@@ -57,7 +60,7 @@ final class JavaFxLink[A] private (
             hosts
               .patch(i, Nil, 1)
               .filterNot(_.isDisposed)
-              .foreach(other => other.setLinkedEmphasis(emphasis).left.foreach(onError(other, _)))
+              .foreach(other => other.setLinkedEmphasis(emphasis).left.foreach(report(other, _)))
           )
         yield unhook = unhook :+ stop
       }
@@ -73,21 +76,36 @@ final class JavaFxLink[A] private (
     shown += i -> mine
     if added.nonEmpty || removed.nonEmpty then
       shared = (shared ++ added) -- removed
+      // Every member is projected before the application hears of missing keys or refusals, so a
+      // callback that throws can neither stop the projection nor leave `shown` half-updated.
+      var missing = Vector.empty[(JavaFxInteractionHost[A], Set[EntityKey[A]])]
+      var refused = Vector.empty[(JavaFxInteractionHost[A], IntaglioError)]
       // A disposed member no longer takes part; it is skipped, not reported.
       hosts.indices.filter(j => j != i && !hosts(j).isDisposed).foreach { j =>
         val member = hosts(j)
         member.state match
-          case Left(error)  => onError(member, error)
+          case Left(error)  => refused :+= member -> error
           case Right(state) =>
             val projected = SelectionProjection.into(Selection(shared), state.domain)
             // Keep the member's own plot-local targets (bins); replace only its observations.
             val next = projected.selection.copy(targets = state.selection.targets)
             member.setSelection(next) match
-              case Left(error) => onError(member, error)
+              case Left(error) => refused :+= member -> error
               case Right(_)    =>
                 shown += j -> inSpace(next.entities)
-                if projected.missing.nonEmpty then onMissing(member, projected.missing)
+                if projected.missing.nonEmpty then missing :+= member -> projected.missing
       }
+      missing.foreach { (member, keys) =>
+        try onMissing(member, keys)
+        catch case NonFatal(_) => report(member, InteractionError.CallbackFailed("onMissing"))
+      }
+      refused.foreach((member, error) => report(member, error))
+
+  /** Tell the application of a member's error; an `onError` that throws is not allowed to escape.
+    */
+  private def report(member: JavaFxInteractionHost[A], error: IntaglioError): Unit =
+    try onError(member, error)
+    catch case NonFatal(_) => ()
 
   /** Unhook the group, clear the linked emphasis it set, and leave each selection as it is.
     * Idempotent; throws `IllegalStateException` off the FX application thread.

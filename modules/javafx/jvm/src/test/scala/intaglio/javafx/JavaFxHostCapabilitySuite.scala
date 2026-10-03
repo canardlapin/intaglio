@@ -291,25 +291,59 @@ class JavaFxHostCapabilitySuite extends munit.FunSuite:
       JavaFxInteractionHost.mount(v, InteractionBehavior.default[String]).left.toOption,
       Some(JavaFxHostError.WrongThread)
     )
-    val host = fx(ok(JavaFxInteractionHost.mount(v, InteractionBehavior.default[String])))
-    val wrong = Some(JavaFxHostError.WrongThread)
-    assertEquals(host.state.left.toOption, wrong)
-    assertEquals(host.setSelection(Selection[String]()).left.toOption, wrong)
-    assertEquals(host.navigate(PanelWindow.full).left.toOption, wrong)
-    assertEquals(host.zoomBy(0.5).left.toOption, wrong)
-    assertEquals(host.setGestureMode(GestureMode.Pan).left.toOption, wrong)
-    assertEquals(host.tooltip.left.toOption, wrong)
-    assertEquals(host.companionRows.left.toOption, wrong)
-    assertEquals(host.subscribe(_ => ()).left.toOption, wrong)
-    assertEquals(host.update(v).left.toOption, wrong)
-    assertEquals(host.dispose().left.toOption, wrong)
-    assertEquals(JavaFxLink.connect(space, Vector(host)).left.toOption, wrong)
+    val (host, saved) = fx {
+      val host = ok(JavaFxInteractionHost.mount(v, InteractionBehavior.default[String]))
+      (host, ok(host.snapshot))
+    }
+    val name = SelectionName.unsafe("n")
+    val point = DevicePoint(10, 10)
+    val panel = GraphicsName.unsafe(PlotRegion.Panel.value)
+    // Every public method that returns Either; the plain getters are documented unchecked reads.
+    def entryPoints: Vector[(String, () => Either[IntaglioError, Any])] = Vector(
+      "state" -> (() => host.state),
+      "currentView" -> (() => host.currentView),
+      "setOverlayStyle" -> (() => host.setOverlayStyle(JavaFxOverlayStyle.default)),
+      "subscribe" -> (() => host.subscribe(_ => ())),
+      "subscribeParts" -> (() => host.subscribeParts(_ => ())),
+      "subscribeHover" -> (() => host.subscribeHover(_ => ())),
+      "subscribeState" -> (() => host.subscribeState(_ => ())),
+      "setLinkedEmphasis" -> (() => host.setLinkedEmphasis(LinkedEmphasis.none[String])),
+      "setSelection" -> (() => host.setSelection(Selection[String]())),
+      "setHover" -> (() => host.setHover(None)),
+      "setGestureMode" -> (() => host.setGestureMode(GestureMode.Pan)),
+      "navigate" -> (() => host.navigate(PanelWindow.full)),
+      "zoomBy" -> (() => host.zoomBy(0.5)),
+      "resetWindow" -> (() => host.resetWindow()),
+      "saveSelection" -> (() => host.saveSelection(name)),
+      "recallSelection" -> (() => host.recallSelection(name, SelectionOperation.Replace)),
+      "combineSelections" -> (() => host.combineSelections(name, name, SetCombination.Union, name)),
+      "deleteSelection" -> (() => host.deleteSelection(name)),
+      "snapshot" -> (() => host.snapshot),
+      "restore" -> (() => host.restore(saved)),
+      "undo" -> (() => host.undo()),
+      "redo" -> (() => host.redo()),
+      "inspector" -> (() => host.inspector()),
+      "inspector(-1)" -> (() => host.inspector(-1)),
+      "tooltip" -> (() => host.tooltip),
+      "tooltipBounds" -> (() => host.tooltipBounds),
+      "announcement" -> (() => host.announcement),
+      "companionRows" -> (() => host.companionRows),
+      "update" -> (() => host.update(v)),
+      "toDevice" -> (() => host.toDevice(1, 1)),
+      "toLocal" -> (() => host.toLocal(point)),
+      "pickNative" -> (() => host.pickNative(panel, point))
+    )
+    for (method, call) <- entryPoints do
+      assertEquals(call().left.toOption, Some(JavaFxHostError.WrongThread), method)
+    assertEquals(host.dispose().left.toOption, Some(JavaFxHostError.WrongThread))
+    assertEquals(
+      JavaFxLink.connect(space, Vector(host)).left.toOption,
+      Some(JavaFxHostError.WrongThread)
+    )
     fx {
       ok(host.dispose())
-      val gone = Some(JavaFxHostError.Disposed)
-      assertEquals(host.state.left.toOption, gone)
-      assertEquals(host.navigate(PanelWindow.full).left.toOption, gone)
-      assertEquals(host.tooltip.left.toOption, gone)
+      for (method, call) <- entryPoints do
+        assertEquals(call().left.toOption, Some(JavaFxHostError.Disposed), method)
       assertEquals(host.node.getChildren.size, 0)
       assertEquals(host.dispose(), Right(()))
     }

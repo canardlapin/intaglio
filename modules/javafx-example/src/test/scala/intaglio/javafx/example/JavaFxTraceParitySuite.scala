@@ -65,6 +65,12 @@ class JavaFxTraceParitySuite extends munit.FunSuite:
           sha,
           s"$page-$renderer.json was recorded from another script; re-record it"
         )
+        assertEquals(
+          trace.get("sourcesSha256").flatMap(_.strOpt),
+          Some(TraceRunner.browserSourcesSha256),
+          s"$page-$renderer.json was recorded from other browser widget sources; re-record it " +
+            "with tools/check-host-trace-browser.cjs"
+        )
         renderer -> trace("steps").items
       }
       assertEquals(

@@ -47,13 +47,12 @@ final class JavaFxInteractionView[A] private[javafx] (
 
   /** The text a target is described by: its tooltip as plain text, else its reading position. */
   def describe(target: TargetInfo[A], behavior: InteractionBehavior[A]): String =
-    behavior
-      .tooltip(target)
-      .map(_.plainText)
-      .getOrElse {
-        val index = navigation.targets.indexWhere(_.target.id == target.id)
-        s"mark ${index + 1} of ${navigation.targets.size}"
-      }
+    behavior.tooltip(target).map(_.plainText).getOrElse(position(target))
+
+  /** A target's reading position, "mark 3 of 12": its description when it has no tooltip. */
+  private[javafx] def position(target: TargetInfo[A]): String =
+    val index = navigation.targets.indexWhere(_.target.id == target.id)
+    s"mark ${index + 1} of ${navigation.targets.size}"
 
   /** One row per target in reading order, then one per plot part: the text companion, as the
     * browser widget's table shows it.
@@ -239,8 +238,11 @@ final class JavaFxInteractionHost[A] private (
   private var failure = Option.empty[IntaglioError]
   private var style = JavaFxOverlayStyle.default
   private var spoken = ""
+
+  /** Traced outlines by target and device-pixel inset, for the output scale they were traced at. */
   private val outlines =
     scala.collection.mutable.HashMap.empty[(VisualTargetId, Double), Vector[Vector[DevicePoint]]]
+  private var outlineScale = Double.NaN
   private var geometries = Map.empty[VisualTargetId, TargetGeometry[A]]
   private var entities = Map.empty[EntityKey[A], Vector[TargetGeometry[A]]]
 
@@ -258,6 +260,9 @@ final class JavaFxInteractionHost[A] private (
   private var tooltipSource = Option.empty[TooltipSource]
   private var tooltipShown = Option.empty[TargetContent]
   private var tooltipTimer = Option.empty[PauseTransition]
+
+  /** The focused mark whose tooltip or description already failed; reset on every focus change. */
+  private var failedDescription = Option.empty[VisualTargetId]
 
   /** The live link this host belongs to, if any; a host joins at most one. */
   private[javafx] var link: Option[AnyRef] = None
@@ -283,9 +288,11 @@ final class JavaFxInteractionHost[A] private (
   private var history: InteractionHistory[A] = InteractionHistory.empty[A]().toOption.get
   private var stateListeners = Vector.empty[(Long, InteractionState[A] => Unit)]
 
-  /** What state listeners last saw: data revision and durable state. Hover and focus are not news.
+  /** What each state listener last saw: data revision and durable state. Hover and focus are not
+    * news. Kept per listener, so one subscribed during a delivery cannot hide that delivery's
+    * change from the listeners before it.
     */
-  private var lastReported: Option[Any] = None
+  private var lastReported = Map.empty[Long, Any]
 
   /** The viewport the drawn window records; a restored state viewport that differs is drawn. */
   private var drawnViewport = Option.empty[PanelViewport]
@@ -298,9 +305,7 @@ final class JavaFxInteractionHost[A] private (
 
   node.setAccessibleRole(AccessibleRole.PARENT)
   node.setAccessibleRoleDescription("interactive plot")
-  node.setAccessibleText(
-    "Plot. Arrows move spatially; Page Up/Down traverse all marks; Enter selects; Escape clears."
-  )
+  node.setAccessibleText(JavaFxInteractionHost.plotDescription)
   node.setFocusTraversable(true)
   base.setManaged(false)
   overlay.setManaged(false)
@@ -353,6 +358,10 @@ final class JavaFxInteractionHost[A] private (
     }
   def lastError: Option[IntaglioError] = failure
   def isDisposed: Boolean = view.isEmpty
+
+  /** How many traced outlines the overlay keeps; bounded by the targets drawn at the current scale.
+    */
+  private[javafx] def outlineCacheSize: Int = outlines.size
 
   def state: Either[IntaglioError, InteractionState[A]] = checked.flatMap(_ => controller.state)
 
@@ -479,14 +488,49 @@ final class JavaFxInteractionHost[A] private (
   /** Restore a snapshot taken of this plot (possibly in an earlier session): checked against what
     * is shown now, refused with a typed `SnapshotError` when it cannot mean the same thing, and
     * applied as one recorded change that follows no link and asks no resolver. A restored viewport
-    * is drawn.
+    * is drawn, brought inside the axis bounds as `navigate` brings a window; a snapshot whose
+    * viewport this view cannot draw (one for a plot that cannot navigate, for a panel it does not
+    * have, or one that would show a single value) is refused with `SnapshotError.Invalid` before
+    * anything changes.
     */
   def restore(saved: InteractionSnapshot): Either[IntaglioError, Unit] =
     for
       current <- state
       resolved <- InteractionSnapshot.resolve(saved, current.domain)
+      _ <- drawable(resolved.viewports)
       _ <- dispatch(InteractionAction.RestoreSnapshot(resolved), InputCause.Programmatic)
     yield ()
+
+  /** Whether this view can draw `viewports`: only its one navigable panel has a viewport. */
+  private def drawable(viewports: Map[SemanticId, PanelViewport]): Either[IntaglioError, Unit] =
+    val others = (viewports.keySet - JavaFxInteractionHost.panelId).map(_.value).toVector.sorted
+    if others.nonEmpty then
+      Left(SnapshotError.Invalid(s"this view has no panel ${others.mkString(", ")} to draw"))
+    else
+      viewports.get(JavaFxInteractionHost.panelId).fold(Right(())) { saved =>
+        navigator match
+          case None =>
+            Left(
+              SnapshotError.Invalid(s"its viewport cannot be drawn: $unnavigable cannot navigate")
+            )
+          case Some(nav) =>
+            windowOf(nav, saved).left
+              .map(e => SnapshotError.Invalid(s"its viewport cannot be drawn: ${e.message}"))
+              .map(_ => ())
+      }
+
+  /** The window that shows `saved` on the navigable axes; categorical axes keep their extent. */
+  private def windowOf(
+      nav: DataWindowNavigator,
+      saved: PanelViewport
+  ): Either[IntaglioError, PanelWindow] =
+    val (nx, ny) = nav.navigable
+    nav.normalize(
+      PanelWindow(
+        Option.when(nx)((saved.xMin, saved.xMax)),
+        Option.when(ny)((saved.yMin, saved.yMax))
+      )
+    )
 
   /** Whether `undo()` would change anything: a recorded entry, or a navigation run still open
     * (which undo records first). A pure read: asking never ends a run. Read on the FX thread.
@@ -516,8 +560,10 @@ final class JavaFxInteractionHost[A] private (
     * marks and aggregates, coverage, exact members, unresolved keys, saved selections.
     */
   def inspector(sample: Int = 20): Either[IntaglioError, InspectorModel[A]] =
-    if sample < 0 then Left(InteractionError.InvalidValue("inspector sample", sample.toString))
-    else state.map(InspectorModel.of(_, sample))
+    state.flatMap { current =>
+      if sample < 0 then Left(InteractionError.InvalidValue("inspector sample", sample.toString))
+      else Right(InspectorModel.of(current, sample))
+    }
 
   /** Called with the state now, and again whenever the data revision or the durable state
     * (selection mode, selection, saved selections, viewports, unresolved keys) changes, including
@@ -529,12 +575,13 @@ final class JavaFxInteractionHost[A] private (
       val id = nextListener
       nextListener += 1
       stateListeners = stateListeners :+ (id -> listener)
-      lastReported = Some(durable(current))
+      lastReported += id -> durable(current)
       try listener(current)
       catch case NonFatal(_) => accept(Left(InteractionError.CallbackFailed("state listener")))
       () =>
         JavaFxInteractionHost.onFxThread("unsubscribing a state listener") {
           stateListeners = stateListeners.filterNot(_._1 == id)
+          lastReported -= id
         }
     }
 
@@ -605,12 +652,14 @@ final class JavaFxInteractionHost[A] private (
     * per plot part, as the browser widget's table shows it. [[inspector]] describes the selection.
     */
   def companionRows: Either[IntaglioError, Vector[(String, String)]] =
-    checked.map { _ =>
+    checked.flatMap { _ =>
       val current = view.get
-      current.navigation.targets.map { g =>
-        val text = current.describe(g.target, behavior)
-        ("mark", coverageNote(g.target).fold(text)(note => s"$text ($note)"))
-      } ++ current.parts.toVector.flatMap(_.parts).map(part => ("part", part.part.describe))
+      try
+        Right(current.navigation.targets.map { g =>
+          val text = current.describe(g.target, behavior)
+          ("mark", coverageNote(g.target).fold(text)(note => s"$text ($note)"))
+        } ++ current.parts.toVector.flatMap(_.parts).map(part => ("part", part.part.describe)))
+      catch case NonFatal(_) => Left(InteractionError.CallbackFailed("describing a mark"))
     }
 
   /** Show a new view of the same plot (new data or a new render size). Selection is reconciled by
@@ -634,7 +683,7 @@ final class JavaFxInteractionHost[A] private (
               next.domain,
               MissingEntityPolicy.Drop
             )
-            .map(_ => ())
+            .map(delivered)
     yield
       setHoveredPart(None)
       emitHover(LinkedEmphasis.none[A])
@@ -723,6 +772,7 @@ final class JavaFxInteractionHost[A] private (
         navigationTimer = None
         navigationBefore = None
         stateListeners = Vector.empty
+        lastReported = Map.empty
         subscriptions.foreach(_.cancel())
         subscriptions = Vector.empty
         hoverListeners = Vector.empty
@@ -775,16 +825,25 @@ final class JavaFxInteractionHost[A] private (
     checked.flatMap { _ =>
       if record then commitNavigation()
       controller.state.flatMap { before =>
-        controller.dispatch(stamp(before, cause), action).map { _ =>
-          controller.state.foreach { after =>
-            if record then history = history.record(before, after, cause)
-            followViewport(after)
-          }
+        controller.dispatch(stamp(before, cause), action).map { result =>
+          delivered(result)
+          controller.state.foreach(followViewport)
+          // Recorded once the viewport drawn is in the state, so a change that ends where it began
+          // (a restore brought back to the window shown) is no entry.
+          if record then
+            controller.state.foreach(after => history = history.record(before, after, cause))
           redrawOverlay()
           reportState()
         }
       }
     }
+
+  /** A listener that threw during delivery (an application subscriber, a link, or this host's own
+    * reaction calling the behaviour's tooltip, link or description) is reported, not dropped. The
+    * committed change stands, and the other listeners were still told.
+    */
+  private def delivered(result: DispatchResult[A]): Unit =
+    if result.failures.nonEmpty then accept(Left(InteractionError.CallbackFailed("event listener")))
 
   /** Record a run of continuous navigation as one entry: the state before it to the state now. */
   private def commitNavigation(): Unit =
@@ -795,16 +854,23 @@ final class JavaFxInteractionHost[A] private (
       controller.state.foreach(after => history = history.record(before, after, cause))
     }
 
-  /** Show one frame of continuous navigation; the run is recorded when it ends or pauses. */
+  /** Show one frame of continuous navigation. A pan drag's run is recorded on release (or when the
+    * drag is abandoned), however long the reader holds still; a wheel, pinch or key run when it
+    * pauses.
+    */
   private def continuous(value: PanelWindow, cause: InputCause): Either[IntaglioError, Unit] =
     if navigationBefore.isEmpty then navigationBefore = controller.state.toOption.map(_ -> cause)
     val shown = showWindow(value, cause, record = false)
     navigationTimer.foreach(_.stop())
-    val pause = new PauseTransition(Duration.millis(JavaFxInteractionHost.navigationPauseMs))
-    pause.setOnFinished(_ => if navigationTimer.contains(pause) then commitNavigation())
-    navigationTimer = Some(pause)
-    pause.play()
+    navigationTimer = None
+    if !panning then
+      val pause = new PauseTransition(Duration.millis(JavaFxInteractionHost.navigationPauseMs))
+      pause.setOnFinished(_ => if navigationTimer.contains(pause) then commitNavigation())
+      navigationTimer = Some(pause)
+      pause.play()
     shown
+
+  private def panning: Boolean = drag.exists(_.isInstanceOf[Drag.Panning])
 
   /** Draw the window the state records when it differs from the one drawn: a restore, undo or redo
     * changed the viewport. Nothing new is recorded in history.
@@ -812,21 +878,36 @@ final class JavaFxInteractionHost[A] private (
   private def followViewport(current: InteractionState[A]): Unit =
     val wanted = current.viewports.get(JavaFxInteractionHost.panelId)
     if wanted != drawnViewport then
-      navigator.foreach { nav =>
-        // A categorical axis always shows its compiled extent, so only navigable axes are asked.
-        val (nx, ny) = nav.navigable
-        val target = wanted.fold[Either[IntaglioError, PanelWindow]](Right(PanelWindow.full))(v =>
-          nav.normalize(
-            PanelWindow(Option.when(nx)((v.xMin, v.xMax)), Option.when(ny)((v.yMin, v.yMax)))
-          )
-        )
-        accept(target.flatMap { w =>
-          if w == window then
-            drawnViewport = wanted
-            Right(())
-          else showWindow(w, InputCause.Programmatic, record = false)
-        })
-      }
+      navigator match
+        // `restore` refuses this; a state recorded under a navigable view of the same revision can
+        // still reach a view that cannot navigate, and is reported rather than silently not drawn.
+        // It is reported once, and the state is brought back to the full window drawn.
+        case None =>
+          if wanted.nonEmpty then
+            accept(Left(InteractionError.UnsupportedCapability(unnavigable)))
+            accept(
+              dispatch(
+                InteractionAction.SetViewport(JavaFxInteractionHost.panelId, None),
+                InputCause.Programmatic,
+                record = false
+              )
+            )
+        case Some(nav) =>
+          // A categorical axis always shows its compiled extent, so only navigable axes are asked.
+          val target =
+            wanted.fold[Either[IntaglioError, PanelWindow]](Right(PanelWindow.full))(
+              windowOf(nav, _)
+            )
+          // The state then records the viewport drawn, so a later snapshot names what was seen.
+          accept(target.flatMap { w =>
+            if w == window then
+              dispatch(
+                InteractionAction.SetViewport(JavaFxInteractionHost.panelId, drawnViewport),
+                InputCause.Programmatic,
+                record = false
+              )
+            else showWindow(w, InputCause.Programmatic, record = false)
+          })
 
   private def durable(now: InteractionState[A]): Any =
     (
@@ -842,12 +923,13 @@ final class JavaFxInteractionHost[A] private (
   private def reportState(): Unit =
     controller.state.foreach { now =>
       val seen = durable(now)
-      if !lastReported.contains(seen) then
-        lastReported = Some(seen)
-        stateListeners.foreach { (_, listener) =>
+      stateListeners.foreach { (id, listener) =>
+        // One unsubscribed by an earlier listener during this report is neither called nor kept.
+        if stateListeners.exists(_._1 == id) && !lastReported.get(id).contains(seen) then
+          lastReported += id -> seen
           try listener(now)
           catch case NonFatal(_) => accept(Left(InteractionError.CallbackFailed("state listener")))
-        }
+      }
     }
 
   /** Map input through the shared contract against the live viewport and dispatch it; true when it
@@ -902,6 +984,13 @@ final class JavaFxInteractionHost[A] private (
         viewport = PickViewport
           .fit(current.deviceScene.width, current.deviceScene.height, 0, 0, width, height)
           .toOption
+        // Insets are logical pixels over the scale, so outlines traced at another scale never
+        // match again: drop them rather than keep one set per size the window passes through.
+        viewport.foreach { fitted =>
+          if fitted.cssPixelsPerDevicePixel != outlineScale then
+            outlines.clear()
+            outlineScale = fitted.cssPixelsPerDevicePixel
+        }
         input = viewport.map(fitted =>
           HostInput(
             current.picking,
@@ -1030,9 +1119,11 @@ final class JavaFxInteractionHost[A] private (
             outline(gc, mapping, g, style.focus, style.focusOffsetLogicalPx)
           }
         }
-        current.focus
+        // The focused mark's description while one is focused; the plot's own once none is.
+        val accessible = current.focus
           .flatMap(geometries.get)
-          .foreach(g => node.setAccessibleText(describeWithCoverage(g.target)))
+          .fold(JavaFxInteractionHost.plotDescription)(g => describeWithCoverage(g.target))
+        if node.getAccessibleText != accessible then node.setAccessibleText(accessible)
       overlayDraws += 1
 
   /** Redraw the emphasized targets in their original paint over the dimmed base, clipped to their
@@ -1182,6 +1273,9 @@ final class JavaFxInteractionHost[A] private (
 
   private def gestureStart(x: Double, y: Double): Unit =
     moved = false
+    // A pan drag is its own entry: a wheel, pinch or key run still open ends here. (The press is
+    // usually recorded first anyway; this does not depend on it.)
+    if mode == GestureMode.Pan then commitNavigation()
     device(x, y).foreach { start =>
       drag = mode match
         case GestureMode.Rectangle | GestureMode.ZoomRectangle =>
@@ -1257,6 +1351,8 @@ final class JavaFxInteractionHost[A] private (
     withInput((in, s) => Right(in.region(s, area, AreaRule.CenterInside, operation)))
 
   private def cancelGesture(): Unit =
+    // An abandoned pan keeps the window it reached, as one entry.
+    if panning then commitNavigation()
     drag = None
     pinch = None
     clearGesture()
@@ -1381,6 +1477,7 @@ final class JavaFxInteractionHost[A] private (
       else if drag.nonEmpty && code == KeyCode.ESCAPE then
         // Escape first abandons a drag in progress; a second Escape clears the selection.
         event.consume()
+        if panning then commitNavigation()
         drag = None
         clearGesture()
         withInput((in, s) =>
@@ -1561,13 +1658,13 @@ final class JavaFxInteractionHost[A] private (
   private def emitPart(event: JavaFxPartEvent): Unit =
     partListeners.foreach { (_, listener) =>
       try listener(event)
-      catch case NonFatal(_) => ()
+      catch case NonFatal(_) => accept(Left(InteractionError.CallbackFailed("part listener")))
     }
 
   private def emitHover(value: LinkedEmphasis[A]): Unit =
     hoverListeners.foreach { (_, listener) =>
       try listener(value)
-      catch case NonFatal(_) => ()
+      catch case NonFatal(_) => accept(Left(InteractionError.CallbackFailed("hover listener")))
     }
 
   // ---------------------------------------------------------------------------------------------
@@ -1593,11 +1690,28 @@ final class JavaFxInteractionHost[A] private (
           )
     }
 
+  /** The focused mark's description. A tooltip or description function that throws is reported as
+    * `CallbackFailed` and the mark is described by its reading position instead, so focus, drawing
+    * and state reports carry on.
+    */
   private def describeWithCoverage(target: TargetInfo[A]): String =
-    val described = describeTarget match
-      case Some(describe) => behavior.tooltip(target).map(_.plainText).getOrElse(describe(target))
-      case None           => view.fold("")(_.describe(target, behavior))
+    val described =
+      try
+        describeTarget match
+          case Some(describe) =>
+            behavior.tooltip(target).map(_.plainText).getOrElse(describe(target))
+          case None => view.fold("")(_.describe(target, behavior))
+      catch
+        case NonFatal(_) =>
+          describeFailed(target)
+          view.fold("")(_.position(target))
     coverageNote(target).fold(described)(note => s"$described ($note)")
+
+  /** Report a failed description once per focus change, not on every overlay redraw. */
+  private def describeFailed(target: TargetInfo[A]): Unit =
+    if !failedDescription.contains(target.id) then
+      failedDescription = Some(target.id)
+      accept(Left(InteractionError.CallbackFailed("describing a mark")))
 
   private def react(record: EventRecord[A]): Unit =
     record.event match
@@ -1618,14 +1732,22 @@ final class JavaFxInteractionHost[A] private (
       case InteractionEvent.HoverChanged(None) =>
         if hoveredPart.isEmpty then emitHover(LinkedEmphasis.none[A])
         hideTooltip(TooltipSource.Hover)
+      // The overlay redraw after this delivery gives the node back the plot's accessible text.
+      case InteractionEvent.FocusChanged(None)         => failedDescription = None
       case InteractionEvent.FocusChanged(Some(target)) =>
+        failedDescription = None
         spoken = describeWithCoverage(target)
         // Keyboard focus points at a mark as hover does, so linked views show it too.
         if record.stamp.cause == InputCause.Keyboard then
           emitHover(LinkedEmphasis[A](entities = target.entity.toSet))
           hideTooltip()
-          behavior
-            .tooltip(target)
+          val content =
+            try behavior.tooltip(target)
+            catch
+              case NonFatal(_) =>
+                describeFailed(target)
+                None
+          content
             .map(withCoverage(_, target))
             .foreach(showTooltip(_, None, anchorOf(target), immediate = true, TooltipSource.Focus))
       case InteractionEvent.Activated(target) =>
@@ -1746,6 +1868,10 @@ object JavaFxInteractionHost:
   /** The panel's identity in the interaction state's viewport map, as the browser widget names it.
     */
   private[javafx] val panelId: SemanticId = SemanticId.unsafe(PlotRegion.Panel.value)
+
+  /** The node's accessible text while no mark is focused. */
+  private[javafx] val plotDescription: String =
+    "Plot. Arrows move spatially; Page Up/Down traverse all marks; Enter selects; Escape clears."
 
   /** How long navigation must pause before its run is recorded as one history entry. */
   private[javafx] val navigationPauseMs = 400.0

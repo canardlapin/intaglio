@@ -22,6 +22,37 @@ const pages = {
   members: { template: 'membership.html', api: 'intaglioMembers', slots: ['a', 'b', 'h', 'd'] },
 };
 
+// The browser-side sources a trace depends on, as TraceRunner.browserSources lists them: the widget
+// and fixture main Scala sources, the fixture pages and this recorder. Their digest is recorded as
+// sourcesSha256; JavaFxTraceParitySuite recomputes it and fails on a stale recording.
+const repo = path.resolve(__dirname, '..');
+async function walk(dir) {
+  const out = [];
+  let entries;
+  try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return out; }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...await walk(full));
+    else if (entry.isFile()) out.push(path.relative(repo, full).split(path.sep).join('/'));
+  }
+  return out;
+}
+async function sourcesSha256() {
+  const scala = p => p.includes('/src/main/') && !p.includes('/target/') && p.endsWith('.scala');
+  const files = [
+    ...(await walk(path.join(repo, 'modules/browser'))).filter(scala),
+    ...(await walk(path.join(repo, 'modules/browser-fixture'))).filter(scala),
+    ...(await walk(path.join(repo, 'tools/browser'))).filter(p => p.endsWith('.html')),
+    'tools/check-host-trace-browser.cjs',
+  ].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const digest = crypto.createHash('sha256');
+  for (const file of files) {
+    const content = await fs.readFile(path.join(repo, file));
+    digest.update(`${file}\u0000${crypto.createHash('sha256').update(content).digest('hex')}\n`, 'utf8');
+  }
+  return digest.digest('hex');
+}
+
 async function main() {
   assert.equal(process.argv.length, 6, 'Pass the fixture main.js, a script, an output file and a renderer');
   const fixture = path.resolve(process.argv[2]);
@@ -47,6 +78,7 @@ async function main() {
     script: path.basename(scriptPath),
     scriptSha256: crypto.createHash('sha256').update(scriptText).digest('hex'),
     fixtureSha256: crypto.createHash('sha256').update(await fs.readFile(fixture)).digest('hex'),
+    sourcesSha256: await sourcesSha256(),
     steps: [],
   };
   try {

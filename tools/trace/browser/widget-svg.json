@@ -5,6 +5,7 @@
   "script": "widget.json",
   "scriptSha256": "6bc4fd8b3dac9f4059f71a4ffabd6992b8b25ffe24ce18ef5ac4fbd24f07b74c",
   "fixtureSha256": "2cfb404f8018acec6ab5a996bfcd13989adc01d36de764fd0a7be640d9e7f40d",
+  "sourcesSha256": "8377fb89d15ada214d365ed32e885f4880f61237fb186636ac3e13578353a10d",
   "steps": [
     {
       "step": 0,

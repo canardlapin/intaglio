@@ -5,6 +5,7 @@
   "script": "members.json",
   "scriptSha256": "08dd96d4533043e3c3cd372e537d8c2a77e1796767b0b54e744ededcb7e80157",
   "fixtureSha256": "2cfb404f8018acec6ab5a996bfcd13989adc01d36de764fd0a7be640d9e7f40d",
+  "sourcesSha256": "8377fb89d15ada214d365ed32e885f4880f61237fb186636ac3e13578353a10d",
   "steps": [
     {
       "step": 0,

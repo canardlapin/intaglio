@@ -5,7 +5,9 @@ is normalized into the shared `HostInput` contract and dispatched to the shared
 `InteractionController`, so hover, focus, selection, activation, navigation and linked state mean
 what they mean in the [browser widget](browser-widget.md): the same script of input produces the
 same events and selected keys in both hosts (see [Evidence](#evidence)). The host reads the same
-`InteractionBehavior` value as the browser. JavaFX remains outside core and shared interaction, and
+`InteractionBehavior` value as the browser. Two history and snapshot boundaries are stricter than
+the browser's today; [Differences from the browser widget](#differences-from-the-browser-widget)
+lists them. JavaFX remains outside core and shared interaction, and
 static rendering (`JavaFxRenderer`) needs none of this.
 
 A runnable desktop example — a navigable scatter linked to a histogram whose bins select their
@@ -139,7 +141,9 @@ thread: every method that returns an `Either` returns `JavaFxHostError.WrongThre
 `currentWindow`, `canUndo`, `canRedo`, `drawnEntities`, `selectableEntities`, `isDisposed`,
 `profile`, `overlayStyle`, `lastError`) and the shared `InteractionSubscription.cancel` are not
 checked: call them on the FX thread. `lastError` and the optional `onError` callback expose
-rejected event inputs. `update` checks the new view as `mount` does (links need `onLink`, deferred
+rejected event inputs and, as `InteractionError.CallbackFailed`, application code that threw: an
+event, state, hover or part listener, or the behaviour's tooltip, link or description. A listener
+that throws never stops the others or undoes the committed change. `update` checks the new view as `mount` does (links need `onLink`, deferred
 members a resolver, legend links a drawn legend) and refuses it without changing anything.
 
 ## Behaviour: tooltips, links, emphasis and members
@@ -196,8 +200,9 @@ child parts.
 
 ## Saved selections, history, snapshots and the inspector
 
-The host exposes [Interaction 10](selection-history.md) through the shared state, with the same
-boundaries as the browser widget:
+The host exposes [Interaction 10](selection-history.md) through the shared state, with the browser
+widget's boundaries except the two listed under
+[Differences from the browser widget](#differences-from-the-browser-widget):
 
 ```scala mdoc:silent
 def keepAndUndo(host: JavaFxInteractionHost[Int]): Either[IntaglioError, Boolean] =
@@ -215,13 +220,18 @@ def keepAndUndo(host: JavaFxInteractionHost[Int]): Either[IntaglioError, Boolean
 - **Undo and redo**: `undo()`, `redo()`, `canUndo`, `canRedo`, and from the keyboard Ctrl/Cmd+Z,
   Shift+Ctrl/Cmd+Z and Ctrl+Y. An entry is the durable state before a change by this plot's reader
   or by an application command; projected input (a link, `setSelection`) records nothing; a pan
-  drag, a run of wheel, pinch or key zoom (until a 400 ms pause) is one entry; a new recorded change
-  clears redo; `update` with a new data revision clears both stacks. Undo and redo apply a
-  `RestoreSnapshot`, so they follow no link and ask no resolver, and a restored viewport is drawn.
+  drag is one entry from press to release (or until Escape or lost focus abandons it), however long
+  the reader holds still; a run of wheel, pinch or key zoom (until a 400 ms pause) is one entry; a
+  new recorded change clears redo; `update` with a new data revision clears both stacks. Undo and
+  redo apply a `RestoreSnapshot`, so they follow no link and ask no resolver, and a restored
+  viewport is drawn.
   Undo in one linked host is carried to the group like any reader change.
 - **Snapshots**: `snapshot` captures the durable state; `restore(snapshot)` checks it with
   `InteractionSnapshot.resolve` and refuses another plan or data revision with a typed
-  `SnapshotError`.
+  `SnapshotError`. A restored viewport is drawn, brought inside the axis bounds as `navigate` brings
+  a window, and recorded as drawn; a viewport the view cannot draw (on a plot that cannot navigate,
+  for a panel it does not have, or one showing a single value) is refused with
+  `SnapshotError.Invalid` before anything changes.
 - **Inspector**: `host.inspector(sample)` is `InspectorModel.of(state, sample)`;
   `host.subscribeState(listener)` fires with the current state and then only when the data revision
   or durable state changes (projected changes included; hover and focus are not news).
@@ -235,7 +245,23 @@ def keepAndUndo(host: JavaFxInteractionHost[Int]): Either[IntaglioError, Boolean
 group selection of observation keys; a reader's change in one plot (among the keys it can select)
 is projected into the others as silent `Projected` input; keys a plot lacks are reported through
 `onMissing`, never invented; hover and keyboard focus are shown elsewhere as dashed linked rings;
-bins chosen as bins stay local; a host joins at most one live link.
+bins chosen as bins stay local; a host joins at most one live link. A new link group starts from
+the union of its members' selections, and that union is not projected into the members at
+connect: each shows its own selection until a reader's change updates the group.
+
+## Differences from the browser widget
+
+The shared contracts are the same, but two JavaFX boundaries are deliberately stricter than the
+browser widget's today:
+
+- **Pan history.** A JavaFX pan drag is one undo entry from press to release, however long the
+  reader holds still. In the browser a pan held still past the 400 ms pause is recorded there, so
+  one drag can become several entries ([browser widget history](browser-widget.md#named-selections-history-and-snapshots)).
+- **Restored viewports.** JavaFX `restore` refuses, with `SnapshotError.Invalid`, a snapshot whose
+  viewport it cannot draw (a plot that cannot navigate, a panel it does not have, a window showing
+  a single value). The browser accepts such a snapshot and records the viewport.
+
+Shared trace parity does not exercise either case.
 
 ## Capabilities
 
@@ -295,7 +321,9 @@ keys, part events, missing-key reports, membership requests, tooltips, announcem
 links after every step (`tools/trace/browser/`). `JavaFxTraceParitySuite` replays the same scripts
 against JavaFX twins of the fixture pages and requires equality step by step, through both the
 Glass robot and scene-event dispatch, and checks that the comparison detects a single changed
-event, key or announcement. The three scripts cover keyboard roving and choosing, pointer hover with
+event, key or announcement. Each recording carries `sourcesSha256`, a digest of the browser widget
+and fixture sources, the fixture pages and the recorder; the suite recomputes it, so a recording
+made from other browser sources fails until it is re-recorded with the commands below. The three scripts cover keyboard roving and choosing, pointer hover with
 delayed tooltips, click and additive toggle, application selection without echo, a press released
 outside, legend parts, keyboard zoom and reset, single-selection histograms, four linked plots
 including an impostor key space, and aggregate members with complete, short and failed deferred
