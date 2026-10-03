@@ -842,7 +842,8 @@ final class SvgWidget[A] private (
                 view.context,
                 view.idPrefix,
                 view.title,
-                view.fonts
+                view.fonts,
+                view.policy
               )
             yield compiled
         _ <- swap(next)

@@ -174,8 +174,9 @@ line, histogram, text labels, facets, clipping, transforms, composition and type
 
 Default hollow-point picking includes the unpainted interior. P verifies nearby ring ink centred
 on the expected anchor independently of centre picking, at both DPRs; C verifies it in the
-external application. An explicit browser outline-only `PickPolicy` remains **Gap**, tracked
-separately as `bd-01M3ZTJXDBAPTSPDX5ECXRQ3CA`; it is not a required reference-baseline behaviour.
+external application. Outline-only picking in the browser is a `policy` on `SvgWidgetView.compile`
+and `compileComposition`, kept across re-windowing and repainting; `SvgWidgetViewSuite` checks that
+it misses a hollow point's centre where the default hits it (unit evidence; no browser check).
 
 These receipts qualify the tested Chromium version. Other browser engines, hosted browser CI,
 large-workload performance/capacity, analytical extensions and the later Interaction 09–12

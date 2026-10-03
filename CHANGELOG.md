@@ -479,8 +479,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `Picking.compile`, `Picking.composition`, `Picking.fromResolved`,
   `NamedPicking.compile`/`fromResolved`, and on JavaFX by
   `JavaFxInteractionView.compile(plan, context, policy)` (new), `named` and
-  `namedResolved`; the browser widget does not take a policy yet and always
-  uses the default. Points drawn from individual `Grob.points` in a named
+  `namedResolved`, and in the browser by `SvgWidgetView.compile` and
+  `compileComposition` (`policy`, kept across re-windowing and repainting). Points drawn from individual `Grob.points` in a named
   (grob-only) scene cannot be told apart from circles and still follow
   `hollow`, and in `Picking.fromResolved` any mark a hand-built scene routes to
   a point layer's group is picked as a point.

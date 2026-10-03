@@ -24,7 +24,9 @@ final class SvgWidgetView[A] private (
     val parts: PartPicking,
     val title: Option[String],
     val panelFrame: Option[DeviceFrame],
-    val fonts: SvgFonts
+    val fonts: SvgFonts,
+    /** How marks are hit; re-windowing and repainting keep it. */
+    val policy: PickPolicy
 ):
   /** A single plot can navigate its data window; a composition has several independent plans. */
   def singlePlan: Option[InteractionPlan[A]] = Option.when(plans.size == 1)(plans.head)
@@ -66,7 +68,7 @@ final class SvgWidgetView[A] private (
       for
         painted <- WidgetTargetStyle.paint(this, styles)
         device <- DeviceScene.fromScene(painted, context)
-        picking <- Picking.fromResolved(device, plans.flatMap(_.groups), context)
+        picking <- Picking.fromResolved(device, plans.flatMap(_.groups), context, policy)
         parts <- PartPicking.fromParts(this.parts.parts, device, context)
         markup <- SvgRenderer.render(RenderPlan(painted, context), title, fonts, idPrefix)
         emphasis <- SvgRenderer.render(
@@ -88,7 +90,8 @@ final class SvgWidgetView[A] private (
         parts,
         title,
         panelFrame,
-        fonts
+        fonts,
+        policy
       )
 
   /** A short description of a target for the text companion and the live region. */
@@ -107,18 +110,23 @@ final class SvgWidgetView[A] private (
       parts.parts.map(part => ("part", part.part.describe))
 
 object SvgWidgetView:
-  /** Resolve `plan` at `context`. `plan` must have been compiled for the same context. */
+  /** Resolve `plan` at `context`. `plan` must have been compiled for the same context. `policy`
+    * decides how marks are hit; `PickPolicy.default.withHollowPoints(HollowPicking.Outline)` hits a
+    * hollow point only on its outline, as for bubble charts whose small points show through large
+    * rings.
+    */
   def compile[A](
       plan: InteractionPlan[A],
       context: RenderContext,
       idPrefix: String,
       title: Option[String] = None,
-      fonts: SvgFonts = SvgFonts.empty
+      fonts: SvgFonts = SvgFonts.empty,
+      policy: PickPolicy = PickPolicy.default
   ): Either[IntaglioError, SvgWidgetView[A]] =
     val renderPlan = RenderPlan(plan.scene, context)
     for
       device <- DeviceScene.fromScene(plan.scene, context)
-      picking <- Picking.fromResolved(device, plan.groups, context)
+      picking <- Picking.fromResolved(device, plan.groups, context, policy)
       parts <- PartPicking.fromResolved(plan.trained, device, context)
       markup <- SvgRenderer.render(renderPlan, title, fonts, idPrefix)
       emphasis <- SvgRenderer.render(renderPlan, None, fonts, s"$idPrefix-emphasis")
@@ -137,7 +145,8 @@ object SvgWidgetView:
         parts,
         title,
         panel,
-        fonts
+        fonts,
+        policy
       )
 
   /** Mount a composed figure without discarding any child identity or source revision. Figure-wide
@@ -148,7 +157,8 @@ object SvgWidgetView:
       revision: PlanRevision,
       idPrefix: String,
       title: Option[String] = None,
-      fonts: SvgFonts = SvgFonts.empty
+      fonts: SvgFonts = SvgFonts.empty,
+      policy: PickPolicy = PickPolicy.default
   ): Either[IntaglioError, SvgWidgetView[A]] =
     val context = composed.composition.context
     // Children share plot-level part names; the scoped scene keeps each child's parts its own.
@@ -157,7 +167,7 @@ object SvgWidgetView:
     val plan = RenderPlan(scene, context)
     for
       device <- DeviceScene.fromScene(scene, context)
-      picking <- Picking.fromResolved(device, composed.groups, context)
+      picking <- Picking.fromResolved(device, composed.groups, context, policy)
       parts <- PartPicking.fromParts(scoped.parts, device, context)
       markup <- SvgRenderer.render(plan, title, fonts, idPrefix)
       emphasis <- SvgRenderer.render(plan, None, fonts, s"$idPrefix-emphasis")
@@ -174,5 +184,6 @@ object SvgWidgetView:
       parts,
       title,
       None,
-      fonts
+      fonts,
+      policy
     )

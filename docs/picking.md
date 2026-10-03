@@ -139,8 +139,9 @@ hollow glyphs, pick with `PickPolicy.default.withHollowPoints(HollowPicking.Outl
 These entry points take the policy: `Picking.compile`, `Picking.composition` and
 `Picking.fromResolved` for plots; `NamedPicking.compile` and `NamedPicking.fromResolved` for named
 scenes; and on JavaFX, `JavaFxInteractionView.compile(plan, context, policy)`,
-`JavaFxInteractionView.named` and `JavaFxInteractionView.namedResolved`. The browser widget does not
-take a policy yet, so it always picks under `PickPolicy.default`.
+`JavaFxInteractionView.named` and `JavaFxInteractionView.namedResolved`. In the browser,
+`SvgWidgetView.compile` and `compileComposition` take the same `policy`, which the widget keeps
+across re-windowing and repainting.
 
 ## Keyboard navigation and interaction state
 

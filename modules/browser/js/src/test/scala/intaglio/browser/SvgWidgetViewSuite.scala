@@ -75,3 +75,38 @@ class SvgWidgetViewSuite extends munit.FunSuite:
   test("mounting without a DOM container is a typed error") {
     assert(SvgWidget.mount(js.undefined.asInstanceOf[js.Dynamic], view).isLeft)
   }
+
+  test("a view's picking policy decides whether a hollow point's centre hits it") {
+    val points = ok(
+      InteractionCompiler.compile(
+        ok(plot(trials).aes(_.rt, _.accuracy).size(8).geomPoint().build).plot,
+        space,
+        ok(DataRevision("d")),
+        SemanticId.unsafe("hollow"),
+        ok(PlanRevision("p")),
+        PlotCompilerOptions(renderContext = Some(context), guides = GuidePolicy.Derived())
+      )(_.id)
+    )
+    val byDefault = ok(SvgWidgetView.compile(points, context, "hollow-a"))
+    val outline = ok(
+      SvgWidgetView.compile(
+        points,
+        context,
+        "hollow-b",
+        policy = PickPolicy.default.withHollowPoints(HollowPicking.Outline)
+      )
+    )
+    assertEquals(outline.policy.hollowPoints, HollowPicking.Outline)
+    byDefault.navigation.targets.foreach { geometry =>
+      val centre = DevicePoint(
+        (geometry.left + geometry.right) / 2,
+        (geometry.top + geometry.bottom) / 2
+      )
+      assertEquals(
+        ok(byDefault.picking.hits(centre)).map(_.target.id).headOption,
+        Some(geometry.target.id),
+        "the default hits a hollow point anywhere on its disc"
+      )
+      assertEquals(ok(outline.picking.hits(centre)), Vector.empty, "outline-only misses its centre")
+    }
+  }
