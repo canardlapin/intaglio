@@ -35,6 +35,20 @@ async function main() {
     await tab.waitForFunction(() => window.intaglioLinked && window.intaglioLinked.ready);
     const fx = (body, ...args) => tab.evaluate(body, ...args);
     const L = name => fx(n => window.intaglioLinked[n], name);
+    // SVG: the legend key's drawn DOM box is the oracle, and the model point that a Canvas run
+    // (which has no DOM marks) clicks must fall inside it. Canvas: the model point, checked here.
+    const legendCentre = async slot => {
+      const model = await fx(s => window.intaglioLinked.legendPoint(s), slot);
+      if (renderer === 'canvas') return model;
+      const box = await fx(s => {
+        const key = document.querySelector(`[data-intaglio-widget=${s}] [data-name="block-legend-entry-0-key"]`);
+        const r = key.getBoundingClientRect();
+        return [r.left, r.top, r.right, r.bottom];
+      }, slot);
+      assert.ok(model[0] >= box[0] && model[0] <= box[2] && model[1] >= box[1] && model[1] <= box[3],
+        `model legend point ${model} outside the drawn key ${box}`);
+      return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
+    };
     const point = (slot, i) => fx(([s, n]) => window.intaglioLinked.markPoint(s, n), [slot, i]);
     const selected = slot => fx(s => window.intaglioLinked.selected(s), slot);
     const rings = (slot, kind) => fx(([s, k]) => window.intaglioLinked.rings(s, k), [slot, kind]);
@@ -124,7 +138,7 @@ async function main() {
     await check('a legend in a foreign key space selects only its own plot\'s marks', async () => {
       const a = await selected('a');
       const before = await counts();
-      const centre = await fx(() => window.intaglioLinked.legendPoint('d'));
+      const centre = await legendCentre('d');
       await tab.mouse.click(centre[0], centre[1]);
       await settle();
       assert.deepEqual(await selected('a'), a);
@@ -137,7 +151,7 @@ async function main() {
 
     await check('a linked legend entry emphasizes and selects its category in both scatters', async () => {
       const blockA = await fx(() => window.intaglioLinked.blockCount('A'));
-      const centre = await fx(() => window.intaglioLinked.legendPoint('a'));
+      const centre = await legendCentre('a');
       await tab.mouse.move(centre[0], centre[1]);
       await settle();
       assert.equal(await rings('a', 'linked'), blockA);

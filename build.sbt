@@ -293,9 +293,9 @@ lazy val canvas =
 
 lazy val canvasJS = canvas.js
 
-/** Browser interaction host: mounts an interactive SVG widget over the shared interaction plan,
-  * state, picking and behaviour contracts. Scala.js only; DOM access goes through hand-written
-  * dynamic facades, so it adds no library dependency.
+/** Browser interaction host: mounts an interactive widget, painted either as SVG or natively on a
+  * Canvas, over the shared interaction plan, state, picking and behaviour contracts. Scala.js only;
+  * DOM access goes through hand-written dynamic facades, so it adds no third-party dependency.
   */
 lazy val browser =
   crossProject(JSPlatform)

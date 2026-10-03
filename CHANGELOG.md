@@ -12,6 +12,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Breaking
 
+- `SvgWidgetView.plan` was replaced by `plans: Vector[InteractionPlan[A]]` and
+  `singlePlan: Option[InteractionPlan[A]]`, so one view type can hold a
+  composed figure (`SvgWidgetView.compileComposition`). `WidgetOptions` gained
+  trailing defaulted `renderer` and `appearance` fields, changing its
+  `apply`/`copy`/`unapply` descriptors. See [MIGRATION.md](MIGRATION.md).
+
 - `PlotCompilerOptions` gained a trailing defaulted `framing: PanelFraming`
   field, changing its `apply`/`copy`/`unapply` descriptors. Named and defaulted
   construction still compiles; code compiled against the old class must be
@@ -43,6 +49,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   [MIGRATION.md](MIGRATION.md).
 
 ### Added
+
+- A native Canvas renderer for the browser widget
+  (`WidgetOptions(renderer = WidgetRenderer.Canvas)`), sharing input, selection,
+  linking, parts and the text companion with SVG; `intaglio-browser` now
+  depends on `intaglio-canvas`. Typed `WidgetAppearance`, runtime per-target
+  paint (`SvgWidget.setTargetStyles` with `WidgetTargetStyle`), and
+  `ComposedParts`, which keeps each composed child's titles, axes and
+  annotations its own parts. See [docs/canvas-widget.md](docs/canvas-widget.md).
 
 - **Standalone browser packages, configurable controls and PNG export.**
   `tools/package-widget.cjs` packages a Scala.js NoModule application into one

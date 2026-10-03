@@ -188,7 +188,7 @@ final class SvgWidget[A] private (
     else
       unstyledView.withTargetStyles(styles).map { painted =>
         targetStyles = styles
-        paintView(painted)
+        paintView(painted, keepTooltip = true)
       }
 
   /** Show a new view of the same plot (new data or a new render size). Selection is reconciled by
@@ -791,7 +791,7 @@ final class SvgWidget[A] private (
                 view.fonts
               )
             yield compiled
-        _ = swap(next)
+        _ <- swap(next)
         // The window drawn, which a temporal axis snaps to whole days or milliseconds: it is what
         // the reader sees, what is recorded, and what the next increment builds on.
         shown = next.panelFrame.fold(value)(frame =>
@@ -816,15 +816,21 @@ final class SvgWidget[A] private (
         )
       yield ()
 
-  /** Show `next` (the same plan at another window) without touching state. */
-  private def swap(next: SvgWidgetView[A]): Unit =
-    unstyledView = next
-    next.withTargetStyles(targetStyles) match
-      case Left(error)    => report(error)
-      case Right(painted) => paintView(painted)
+  /** Show `next` (the same plan at another window) without touching state. Nothing changes unless
+    * the current target styles also apply to it, so the window recorded by the caller is always the
+    * one painted.
+    */
+  private def swap(next: SvgWidgetView[A]): Either[IntaglioError, Unit] =
+    next.withTargetStyles(targetStyles).map { painted =>
+      unstyledView = next
+      paintView(painted)
+    }
 
-  private def paintView(next: SvgWidgetView[A]): Unit =
-    hideTooltip()
+  /** A restyle keeps every target where it was, so a visible tooltip stays; a new window moves
+    * them, so it goes.
+    */
+  private def paintView(next: SvgWidgetView[A], keepTooltip: Boolean = false): Unit =
+    if !keepTooltip then hideTooltip()
     view = next
     input = HostInput(view.picking, view.navigation, unitViewport, behavior)
     renderPlot()

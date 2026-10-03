@@ -63,13 +63,15 @@ git worktree add --quiet --detach "$work/source" "$commit"
     "set coreJS / Compile / packageDoc / publishArtifact := false" \
     "set interactionJS / Compile / packageDoc / publishArtifact := false" \
     "set svgJS / Compile / packageDoc / publishArtifact := false" \
+    "set canvasJS / Compile / packageDoc / publishArtifact := false" \
     "set browserJS / Compile / packageDoc / publishArtifact := false" \
-    coreJS/publishLocal interactionJS/publishLocal svgJS/publishLocal browserJS/publishLocal
+    coreJS/publishLocal interactionJS/publishLocal svgJS/publishLocal canvasJS/publishLocal \
+    browserJS/publishLocal
 ) >"$out/publish.log" 2>&1 || { tail -40 "$out/publish.log" >&2; exit 1; }
 
 ivy="${HOME}/.ivy2/local/io.github.canardlapin"
 artifacts=()
-for module in intaglio-core intaglio-interaction intaglio-svg intaglio-browser; do
+for module in intaglio-core intaglio-interaction intaglio-svg intaglio-canvas intaglio-browser; do
   jar="$ivy/${module}_sjs1_3/$version/jars/${module}_sjs1_3.jar"
   [[ -f $jar ]] || { echo "missing published artifact $jar" >&2; exit 1; }
   artifacts+=("$jar")

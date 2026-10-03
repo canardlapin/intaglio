@@ -63,6 +63,20 @@ async function main() {
     await tab.waitForFunction(() => window.intaglioFixture && window.intaglioFixture.ready);
     const fx = (body, ...args) => tab.evaluate(body, ...args);
     const last = slot => fx(s => window.intaglioFixture.events[s].slice(-6), slot);
+    // SVG: the legend key's drawn DOM box is the oracle, and the model point that a Canvas run
+    // (which has no DOM marks) clicks must fall inside it. Canvas: the model point, checked here.
+    const legendCentre = async slot => {
+      const model = await fx(s => window.intaglioFixture.legendPoint(s), slot);
+      if (renderer === 'canvas') return model;
+      const box = await fx(s => {
+        const key = document.querySelector(`[data-intaglio-widget=${s}] [data-name="block-legend-entry-0-key"]`);
+        const r = key.getBoundingClientRect();
+        return [r.left, r.top, r.right, r.bottom];
+      }, slot);
+      assert.ok(model[0] >= box[0] && model[0] <= box[2] && model[1] >= box[1] && model[1] <= box[3],
+        `model legend point ${model} outside the drawn key ${box}`);
+      return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
+    };
     const point = (slot, i) => fx(([s, n]) => window.intaglioFixture.markPoint(s, n), [slot, i]);
     const tooltipBox = slot => fx(s => {
       const root = document.querySelector(`[data-intaglio-widget=${s}]`);
@@ -278,7 +292,7 @@ async function main() {
     });
 
     await check('a legend entry is a typed part under the pointer', async () => {
-      const centre = await fx(() => window.intaglioFixture.legendPoint('left'));
+      const centre = await legendCentre('left');
       await tab.mouse.move(centre[0], centre[1]);
       await tab.waitForTimeout(50);
       const parts = await fx(() => window.intaglioFixture.parts.slice(-3));

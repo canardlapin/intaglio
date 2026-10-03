@@ -151,17 +151,16 @@ object SvgWidgetView:
       fonts: SvgFonts = SvgFonts.empty
   ): Either[IntaglioError, SvgWidgetView[A]] =
     val context = composed.composition.context
-    val scene = composed.scene
+    // Children share plot-level part names; the scoped scene keeps each child's parts its own.
+    val scoped = ComposedParts.of(composed)
+    val scene = scoped.scene
+    val plan = RenderPlan(scene, context)
     for
       device <- DeviceScene.fromScene(scene, context)
       picking <- Picking.fromResolved(device, composed.groups, context)
-      parts <- PartPicking.fromParts(
-        composed.plans.flatMap(p => PlotParts.of(p.trained)).distinct,
-        device,
-        context
-      )
-      markup <- SvgRenderer.render(composed.renderPlan, title, fonts, idPrefix)
-      emphasis <- SvgRenderer.render(composed.renderPlan, None, fonts, s"$idPrefix-emphasis")
+      parts <- PartPicking.fromParts(scoped.parts, device, context)
+      markup <- SvgRenderer.render(plan, title, fonts, idPrefix)
+      emphasis <- SvgRenderer.render(plan, None, fonts, s"$idPrefix-emphasis")
     yield new SvgWidgetView(
       composed.plans,
       scene,

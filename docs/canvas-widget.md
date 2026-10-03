@@ -68,13 +68,21 @@ These typed paint overrides work on Canvas without creating DOM nodes for marks.
 ## Compositions, resizing and export
 
 `SvgWidgetView.compileComposition(composed, revision, idPrefix)` retains every
-child plan's identity and picking geometry. `view.plans` lists those plans;
+child plan's identity and picking geometry. Each child's titles, axes and
+annotations stay its own parts: the widget draws the composed scene with those
+part names scoped to the child's cell or inset (`composition-cell-1-plot-title`),
+so hovering one child's title never reports or outlines a sibling's. A legend
+collected to figure level is one shared part. Part events carry the part's value,
+which two children can share (two `Annotation(1)` layers); use the target events
+for child identity. `view.plans` lists those plans;
 `view.singlePlan` returns an option for callers that require one plot. A composed
 figure has independent scales, so figure-wide pan and zoom are unavailable.
 Faceted plots likewise do not expose a single navigable panel.
 
-Canvas backing dimensions follow the displayed width and device pixel ratio,
-within the same bounded image dimensions used by PNG export. Embedded fonts load
+Canvas backing dimensions follow the displayed width and device pixel ratio.
+Where that would exceed the bounds PNG export also uses (16384 pixels per axis,
+16777216 in total), as in fullscreen on a dense display, the bitmap is reduced
+to the largest size within them and the browser scales it to the box. Embedded fonts load
 before painting; failures reach the host error callback and visible error text.
 Dispose a widget to release its listeners, font faces and backing buffers.
 
@@ -83,6 +91,8 @@ fullscreen and explicit original/current viewport PNG export work with either
 renderer. PNG export re-renders the selected scene, with an explicit choice to
 include selection; transient hover and focus decorations are omitted.
 
-See the [backend capability matrix](browser-capabilities.md) for qualification
-scope and named checks. Canvas performance measurements are tracked separately;
+The paired SVG/Canvas browser checks are `tools/check-canvas-*.cjs`, and
+`INTAGLIO_TEST_RENDERER=canvas` runs the widget and linked-view checks on Canvas.
+The [backend capability matrix](browser-capabilities.md) records which rows
+each backend has qualified. Canvas performance measurements are tracked separately;
 functional parity does not establish a throughput claim.

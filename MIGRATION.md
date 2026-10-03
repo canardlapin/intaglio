@@ -8,6 +8,21 @@ given release preserves, and what moving the baseline requires — is
 
 ## Unreleased
 
+### `SvgWidgetView.plan` became `plans` and `singlePlan`
+
+A view can now hold a composed figure, which has one plan per child. Code that
+read `view.plan` fails with
+
+```
+value plan is not a member of intaglio.browser.SvgWidgetView[A]
+```
+
+Use `view.singlePlan` (an `Option`, empty for a composition) where one plot is
+required, or `view.plans` for every child. `WidgetOptions` also gained two
+trailing defaulted fields, `renderer` and `appearance`: named construction and
+`copy` still compile, code compiled against the old class must be recompiled,
+and a positional pattern over all of its fields must name the two new ones.
+
 ### `PlotCompilerOptions` gained a `framing` field
 
 `PlotCompilerOptions` has a tenth, defaulted field, `framing`. Construction by

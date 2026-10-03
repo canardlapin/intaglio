@@ -41,6 +41,33 @@ object SvgWidgetExport:
       )
     else Right((w.toInt, h.toInt))
 
+  /** Backing-store dimensions for an on-screen canvas: `requested` (CSS scale times DPR), reduced
+    * as far as needed to stay within the same per-axis and total-pixel bounds as an export. A
+    * fullscreen widget on a dense display then paints at the largest bitmap the bounds allow, and
+    * the browser scales it to the box, rather than failing. Fails only for a non-positive or
+    * non-finite request.
+    */
+  private[browser] def backingDimensions(
+      width: Int,
+      height: Int,
+      requested: Double
+  ): Either[WidgetExportError, (Int, Int)] =
+    if !requested.isFinite || requested <= 0 then dimensions(width, height, requested)
+    else
+      val limit = Vector(
+        16384.0 / width,
+        16384.0 / height,
+        math.sqrt(MaximumPixels.toDouble / (width.toDouble * height))
+      ).min
+      // `dimensions` rounds up, so a scale exactly at a bound can land one pixel past it.
+      val start = math.min(requested, limit)
+      Iterator
+        .iterate(start)(_ * 0.999)
+        .take(16)
+        .map(dimensions(width, height, _))
+        .collectFirst { case right @ Right(_) => right }
+        .getOrElse(dimensions(width, height, start))
+
   /** A self-contained SVG snapshot. Selected marks outside this view simply have no ring. */
   def svg[A](view: SvgWidgetView[A], selection: Selection[A] = Selection[A]()): String =
     val rings = view.navigation.targets.flatMap { geometry =>

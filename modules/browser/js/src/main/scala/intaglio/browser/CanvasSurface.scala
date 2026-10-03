@@ -31,12 +31,16 @@ private[browser] final class CanvasSurface[A](
   private var pendingFonts = 0
   private var fontFailed = false
   private var disposed = false
+  private var sizeFailure: Option[IntaglioError] = None
 
   def update(next: SvgWidgetView[A]): Unit =
     view = Some(next)
     program = CanvasRenderer.compile(RenderPlan(next.scene, next.context)) match
       case Right(value) => Some(value)
-      case Left(error)  => report(error); None
+      case Left(error)  =>
+        base.setAttribute("data-render-state", "error")
+        report(error)
+        None
     base.style.aspectRatio = s"${next.width} / ${next.height}"
     loadFonts(next.fonts)
     resize(force = true)
@@ -98,9 +102,15 @@ private[browser] final class CanvasSurface[A](
         val cssWidth = box.width.asInstanceOf[Double]
         val ratio = g.window.devicePixelRatio.asInstanceOf[Double]
         val scale = (if cssWidth > 0 then cssWidth / current.width else 1.0) * ratio
-        SvgWidgetExport.dimensions(current.width, current.height, scale) match
-          case Left(error)            => report(error)
+        SvgWidgetExport.backingDimensions(current.width, current.height, scale) match
+          case Left(error) =>
+            // Reported once per distinct failure, not on every hover redraw.
+            if !sizeFailure.contains(error) then
+              sizeFailure = Some(error)
+              base.setAttribute("data-render-state", "error")
+              report(error)
           case Right((width, height)) =>
+            sizeFailure = None
             val changed =
               base.width.asInstanceOf[Int] != width || base.height.asInstanceOf[Int] != height
             if changed then
