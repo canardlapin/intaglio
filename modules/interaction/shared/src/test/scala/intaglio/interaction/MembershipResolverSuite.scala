@@ -105,14 +105,14 @@ class MembershipResolverSuite extends munit.FunSuite:
     assert(done.events.exists(_.event.isInstanceOf[InteractionEvent.SelectionChanged[?]]))
     // The same reply again is late: rejected, nothing changes.
     val late = reply(done.state, 1, MembershipReply.Complete(keys(binMembers)))
-    assert(outcomes(late).head.isInstanceOf[MembershipOutcome.Rejected])
+    assertEquals(outcomes(late).head, MembershipOutcome.Superseded)
     assertEquals(late.state.selection, done.state.selection)
   }
 
   test("a superseded request's reply is rejected; the newer request still completes") {
     val twice = request(request(initial(), 1), 2)
     val stale = reply(twice, 1, MembershipReply.Complete(keys(binMembers)))
-    assert(outcomes(stale).head.isInstanceOf[MembershipOutcome.Rejected])
+    assertEquals(outcomes(stale).head, MembershipOutcome.Superseded)
     assertEquals(stale.state.selection, Selection[Int]())
     assertEquals(stale.state.pendingMembers(bin.id).id, 2L)
     val current = reply(stale.state, 2, MembershipReply.Complete(keys(binMembers)))
@@ -172,7 +172,7 @@ class MembershipResolverSuite extends munit.FunSuite:
     ).state
     assert(replaced.pendingMembers.isEmpty)
     val late = reply(replaced, 1, MembershipReply.Complete(keys(binMembers)))
-    assert(outcomes(late).head.isInstanceOf[MembershipOutcome.Rejected])
+    assertEquals(outcomes(late).head, MembershipOutcome.Superseded)
     assertEquals(late.state.selection, Selection[Int]())
   }
 
@@ -223,7 +223,7 @@ class MembershipResolverSuite extends munit.FunSuite:
     )
     val renewed = request(failed, 2)
     val duplicate = reply(renewed, 1, MembershipReply.Complete(keys(binMembers)))
-    assert(outcomes(duplicate).head.isInstanceOf[MembershipOutcome.Rejected])
+    assertEquals(outcomes(duplicate).head, MembershipOutcome.Superseded)
     assertEquals(duplicate.state.selection, Selection[Int]())
     // Scenario: the domain is replaced while request 3 is pending; ids stay spent across it.
     val pending = request(duplicate.state, 3)
@@ -246,7 +246,7 @@ class MembershipResolverSuite extends munit.FunSuite:
     )
     val fresh = request(replaced, 4)
     val oldReply = reply(fresh, 3, MembershipReply.Complete(keys(binMembers)))
-    assert(outcomes(oldReply).head.isInstanceOf[MembershipOutcome.Rejected])
+    assertEquals(outcomes(oldReply).head, MembershipOutcome.Superseded)
     assertEquals(
       reply(fresh, 4, MembershipReply.Complete(keys(binMembers))).state.selection.entities
         .map(_.value),

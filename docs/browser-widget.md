@@ -102,6 +102,10 @@ keeps only counts, and deferred members without a resolver.
   or `EmphasisRule.fraction(p)`) gets a dashed outline and counts toward inverse emphasis. A bin
   whose members are not known exactly shows no count, never "0 of n".
 - Pointing at an observation in a linked plot emphasizes the bins that hold it.
+- In Members mode a bin's observations are the reader's own: choosing a bin, or clearing the plot
+  with Escape, changes the linked group's selection. In the default mode a bin is a plot-local
+  target, and nothing a reader does to bins reaches the other plots. A deferred plot treats every
+  source observation as selectable, including rows no mark draws.
 
 Checked on SVG and Canvas by `tools/check-membership-browser.cjs`, against bins recomputed from the
 raw values.

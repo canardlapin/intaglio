@@ -194,6 +194,10 @@ recomputed from the raw values, and the shared suites `MemberSelectionSuite`,
 | A bin selects exactly its members; the bin itself stays a separate, plot-local selection | Pass | Pass | "clicking each bin selects exactly its members, in the histogram and both scatters" |
 | Counts, representatives, partial or stale membership never become a selection | Pass | Pass | `MemberSelectionSuite`; "superseded, short and failed replies change nothing" |
 | Deferred members: pending, unavailable, failed and complete replies; late replies rejected | Pass | Pass | `MembershipResolverSuite`; the two deferred-bin browser checks |
-| Linked plots show partial-selection counts and any/all/fraction emphasis | Pass | Pass | "an area selected in a scatter shows each bin's covered count and rings bins covered by half" (counts 3/7, 4/8, 4/8, 4/7) |
+| Linked plots show partial-selection counts in the tooltip, the text companion and on keyboard focus | Pass | Pass | "an area selected in a scatter shows each bin's covered count and rings bins covered by half" (counts 3/7, 4/8, 4/8, 4/7) |
+| Emphasis by a fraction of members, exactly at the threshold | Pass | Pass | the same check: 4/8 is ringed under the half rule, 3/7 is not |
+| Emphasis by any or all members | Unit | Unit | `MemberCoverageSuite` thresholds; no browser check selects those rules |
+| Pointing at an observation emphasizes the bins that hold it | Pass | Pass | the same check: hovering a scatter mark rings exactly one bin |
+| Clearing a Members-mode plot clears the linked group | Pass | Pass | "clicking each bin selects exactly its members…" (Escape at the end) |
 | Filtering or recomputing a statistic from a selection | Gap | Gap | an explicit application action; not part of this extension |
 

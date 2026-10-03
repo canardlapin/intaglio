@@ -177,6 +177,8 @@ final class SvgWidget[A] private (
   def setSelection(value: Selection[A]): Either[IntaglioError, Unit] =
     val result =
       dispatch(InteractionAction.Select(value, SelectionOperation.Replace), InputCause.Projected)
+    // Projected input emits no event, so coverage counts in an open companion refresh here.
+    if companion.open.asInstanceOf[Boolean] then fillCompanion()
     scheduleRedraw()
     result
 
@@ -263,26 +265,31 @@ final class SvgWidget[A] private (
   def drawnEntities: Set[EntityKey[A]] =
     view.navigation.targets.flatMap(_.target.entity).toSet
 
-  /** The observation keys a reader can select in this plot: those it draws as marks, and the exact
-    * members of aggregates that select their members (every source observation of a plot whose
-    * aggregates resolve their members on request). A linked group takes a reader's change in these
-    * keys only, so keys merely projected into a histogram never flow back out of it.
+  /** The observation keys a reader can select in this plot: those it draws as marks, and the
+    * members of aggregates in [[AggregateSelection.Members]] mode. For exact membership those are
+    * the aggregates' members; for deferred membership, which is unknown until asked, every source
+    * observation of the plot (so it also includes rows no mark draws, such as non-finite values). A
+    * linked group takes a reader's change in these keys only: keys merely projected into a plot
+    * whose bins are selected as bins never flow back out of it, but in Members mode the bins'
+    * observations are the reader's, so clearing such a plot clears them in the group.
     */
   def selectableEntities: Set[EntityKey[A]] =
-    val members = view.navigation.targets.iterator.map(_.target).flatMap { info =>
-      if info.entity.nonEmpty || behavior.aggregates(info) != AggregateSelection.Members then
-        Iterator.empty
-      else
-        info.membership.capability match
-          case MembershipCapability.Exact =>
-            view.plans.find(_.id == info.id.plan).iterator.flatMap { plan =>
-              info.membership.exactKeys(plan.sourceRevision).toOption.iterator.flatten
-            }
-          case MembershipCapability.Deferred =>
-            view.plans.find(_.id == info.id.plan).iterator.flatMap(_.sourceEntities)
-          case _ => Iterator.empty
+    val members = view.navigation.targets.map(_.target).filter { info =>
+      info.entity.isEmpty && behavior.aggregates(info) == AggregateSelection.Members
     }
-    drawnEntities ++ members
+    val exact = members.iterator
+      .filter(_.membership.capability == MembershipCapability.Exact)
+      .flatMap { info =>
+        view.plans.find(_.id == info.id.plan).iterator.flatMap { plan =>
+          info.membership.exactKeys(plan.sourceRevision).toOption.iterator.flatten
+        }
+      }
+    val deferredPlans = members
+      .filter(_.membership.capability == MembershipCapability.Deferred)
+      .map(_.id.plan)
+      .toSet
+    val deferred = view.plans.iterator.filter(p => deferredPlans(p.id)).flatMap(_.sourceEntities)
+    drawnEntities ++ exact ++ deferred
 
   /** "k of n selected" for an aggregate whose members are known exactly. */
   private def coverageNote(target: TargetInfo[A]): Option[String] =
@@ -1202,7 +1209,8 @@ final class SvgWidget[A] private (
         if hoveredPart.isEmpty then emitHover(LinkedEmphasis.none[A])
         hideTooltip(TooltipSource.Hover)
       case InteractionEvent.FocusChanged(Some(target)) =>
-        live.textContent = view.describe(target, behavior)
+        val described = view.describe(target, behavior)
+        live.textContent = coverageNote(target).fold(described)(note => s"$described ($note)")
         // Keyboard focus points at a mark as hover does, so linked views show it too.
         if record.stamp.cause == InputCause.Keyboard then
           emitHover(LinkedEmphasis[A](entities = target.entity.toSet))
@@ -1210,6 +1218,7 @@ final class SvgWidget[A] private (
           hideTooltip()
           behavior
             .tooltip(target)
+            .map(withCoverage(_, target))
             .foreach(showTooltip(_, None, anchorOf(target), immediate = true, TooltipSource.Focus))
       case InteractionEvent.FocusChanged(None)    => ()
       case InteractionEvent.GestureModeChanged(_) => refreshToolbar()
@@ -1224,6 +1233,7 @@ final class SvgWidget[A] private (
             else g.window.location.assign(link.url)
           }
       case InteractionEvent.MembershipRequested(request) =>
+        live.textContent = "Retrieving members"
         resolver.foreach { service =>
           // A reply may come at once, during this delivery, or much later; it is always
           // dispatched on a later task, and the reducer rejects one that is no longer current.
@@ -1241,12 +1251,14 @@ final class SvgWidget[A] private (
       case InteractionEvent.MembershipResolved(_, _, outcome) =>
         outcome match
           case MembershipOutcome.Complete(count) =>
-            live.textContent = s"$count observations selected"
+            live.textContent = s"The $count members of the bin are applied to the selection"
           case MembershipOutcome.Unavailable(reason) =>
             live.textContent = s"Members unavailable: $reason"
           case MembershipOutcome.Failed(reason) =>
             live.textContent = s"Members could not be retrieved: $reason"
-          case MembershipOutcome.Pending | MembershipOutcome.Rejected(_) => ()
+          case MembershipOutcome.Rejected(reason) =>
+            live.textContent = s"Members could not be applied: $reason"
+          case MembershipOutcome.Pending | MembershipOutcome.Superseded => ()
         if companion.open.asInstanceOf[Boolean] then fillCompanion()
       case InteractionEvent.SelectionChanged(_) =>
         // Coverage counts in the companion follow the selection.
@@ -1363,9 +1375,11 @@ final class SvgWidget[A] private (
               legendEmphasis.matches(geometry.target) =>
           geometry.target.id
       }
+      // Coverage needs exact members, so only aggregates that keep them are measured, once each.
       val coveredIds = view.navigation.targets.collect {
         case geometry
             if geometry.target.entity.isEmpty &&
+              geometry.target.membership.capability == MembershipCapability.Exact &&
               !current.selection.targets.contains(geometry.target.id) &&
               behavior.aggregateEmphasis.triggered(
                 MemberCoverage.of(geometry.target, current.selection.entities, current.domain)

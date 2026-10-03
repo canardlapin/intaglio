@@ -166,16 +166,20 @@ final case class InteractionBehavior[A] private (
       .flatMap(group => Iterator.range(0, group.size).flatMap(i => group.at(i).toOption))
       .find { info =>
         info.entity.isEmpty && aggregates(info) == AggregateSelection.Members &&
-        info.membership.capability != MembershipCapability.Exact &&
-        info.membership.capability != MembershipCapability.Deferred
+        (info.membership.capability != MembershipCapability.Exact &&
+          info.membership.capability != MembershipCapability.Deferred ||
+          // A single-selection plot can never hold an aggregate of several members.
+          selection == SelectionMode.Single && info.membership.total.exists(_ > 1))
       }
     offending.fold(Right(())) { info =>
       Left(
         InteractionError.InvalidValue(
           "aggregate member selection",
           s"target ${info.id.scope.value}#${info.id.ordinal} has " +
-            s"${info.membership.capability.toString.toLowerCase} membership; compile with " +
-            "MembershipRetention.ExactKeys or Deferred"
+            s"${info.membership.capability.toString.toLowerCase} membership of " +
+            s"${info.membership.total.getOrElse(0)} under ${selection.toString.toLowerCase} " +
+            "selection; member selection needs MembershipRetention.ExactKeys or Deferred and, " +
+            "for aggregates of several members, multiple selection"
         )
       )
     }

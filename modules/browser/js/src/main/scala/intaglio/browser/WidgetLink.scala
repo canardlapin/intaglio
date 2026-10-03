@@ -10,9 +10,10 @@ import intaglio.interaction.*
   * group's selection, and every other member is shown the group's selection projected into the keys
   * it contains. A key one member lacks therefore survives a reader's additive change in another,
   * and keys a member lacks are reported through `onMissing`, never invented. A change that adds or
-  * removes no observation keys the plot draws as marks (selecting, toggling or clearing histogram
-  * bins as bins) stays in its plot. What the reader points at is shown in the other members as
-  * linked emphasis.
+  * removes no observation keys the plot can select (selecting, toggling or clearing histogram bins
+  * as bins) stays in its plot; in `AggregateSelection.Members` mode a bin's observations are the
+  * reader's, so choosing or clearing there changes the group. What the reader points at is shown in
+  * the other members as linked emphasis.
   *
   * Projection arrives as `Projected` input, which emits no event, and emphasis is display only, so
   * a link can never echo or loop. A projection a member refuses (for instance several keys into a
@@ -61,8 +62,10 @@ final class WidgetLink[A] private (
   /** Member `i`'s reader changed its observation keys to `now`. */
   private def changed(i: Int, now: Set[EntityKey[A]]): Unit =
     val before = shown.getOrElse(i, Set.empty)
-    // A reader can only add or remove observations this plot draws as marks; keys it holds only
-    // because they were projected into it (a histogram holds them all, drawing none) are not its.
+    // A reader can only add or remove observations this plot can select (SvgWidget.
+    // selectableEntities): its marks, plus the members of aggregates chosen in Members mode. Keys it
+    // holds only because they were projected into it (a histogram whose bins are bins holds them
+    // all, drawing none) are not its.
     // Only keys of the link's space count; a member keyed by another space never feeds the group.
     val drawn = inSpace(widgets(i).selectableEntities)
     val mine = inSpace(now)

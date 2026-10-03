@@ -55,14 +55,19 @@ async function main() {
         const after = { a: await eventsOf('a'), b: await eventsOf('b') };
         assert.ok(after.a.slice(before.a).every(e => !e.startsWith('SelectionChanged')), after.a.join(' '));
         assert.ok(after.b.slice(before.b).every(e => !e.startsWith('SelectionChanged')), after.b.join(' '));
+        // In Members mode the bin's observations are the reader's: clearing the histogram clears
+        // them in the linked scatters too.
         await tab.keyboard.press('Escape');
+        await settle();
+        assert.deepEqual(await m('selected', 'h'), []);
+        assert.deepEqual(await m('selected', 'a'), [], 'Escape in a Members-mode histogram clears the group');
+        assert.deepEqual(await m('selected', 'b'), []);
         return { bins: bins.map(b => b[2].length) };
       });
 
       await check('an area selected in a scatter shows each bin\'s covered count and rings bins covered by half', async () => {
-        // Clear everything first, then sweep the left part of scatter a.
-        await m('setSelection', 'a', []);
-        await m('setSelection', 'h', []);
+        // Open the histogram's text companion first: it must follow the linked change.
+        await tab.locator('[data-intaglio-widget=h] summary').click();
         await tab.locator('[data-intaglio-widget=a] .intaglio-toolbar button', { hasText: 'Select area' }).click();
         const r = await fx(() => document.querySelector('[data-intaglio-widget=a] .intaglio-base').getBoundingClientRect().toJSON());
         // A band of accuracy (the y axis) across every RT bin, so bins are partly covered.
@@ -78,6 +83,12 @@ async function main() {
         const bins = await m('bins', 'h');
         const expected = bins.filter(([, , members]) => members.filter(id => swept.has(id)).length * 2 >= members.length).length;
         assert.equal(await m('covered', 'h'), expected, 'covered rings by the half rule');
+        assert.equal(await m('covered', 'd'), 0, 'deferred bins show no coverage: their members are unknown');
+        const companion = await fx(() => [...document.querySelectorAll('[data-intaglio-widget=h] details td')].map(td => td.textContent).join(' | '));
+        for (const [, , members] of bins) {
+          const k = members.filter(id => swept.has(id)).length;
+          assert.ok(companion.includes(`${k} of ${members.length} selected`), `companion: ${companion}`);
+        }
         // Hovering a bin states its coverage.
         const counts = [];
         for (const [x, y, members] of bins) {
@@ -90,6 +101,18 @@ async function main() {
         }
         await tab.mouse.move(5, 5);
         await tab.locator('[data-intaglio-widget=a] .intaglio-toolbar button', { hasText: 'Inspect' }).click();
+        // Keyboard focus on a bin announces its coverage.
+        await fx(() => document.querySelector('[data-intaglio-widget=h] .intaglio-plot').focus());
+        await tab.keyboard.press('Home');
+        await settle();
+        assert.match(await m('live', 'h'), /\d+ of \d+ selected/, 'focus announces coverage');
+        // Pointing at an observation in scatter a emphasizes the bin that holds it.
+        const [id, px, py] = (await m('marks', 'a'))[0];
+        await tab.mouse.move(px, py);
+        await settle(120);
+        const linkedRings = await fx(() => document.querySelectorAll('[data-intaglio-widget=h] .intaglio-ring-linked').length);
+        assert.equal(linkedRings, 1, `hovering ${id} rings its one bin`);
+        await tab.mouse.move(5, 5);
         await tab.screenshot({ path: path.join(out, `${renderer}-coverage.png`) });
         assert.ok(counts.some(c => { const [k, n] = c.split('/').map(Number); return k > 0 && k < n; }),
           `some bin is partly covered: ${counts}`);
@@ -108,7 +131,7 @@ async function main() {
         const dState = { live: await m('live', 'd'), events: (await eventsOf('d')).slice(-6) };
         assert.deepEqual(await m('selected', 'd'), sorted(members), JSON.stringify(dState));
         assert.deepEqual(await m('selected', 'a'), sorted(members), 'resolved members link like exact ones');
-        assert.match(await m('live', 'd'), new RegExp(`${members.length} observations selected`));
+        assert.match(await m('live', 'd'), new RegExp(`The ${members.length} members of the bin are applied`));
         return { members: members.length };
       });
 
@@ -125,6 +148,7 @@ async function main() {
         await m('reply', 2, 'short'); // the current one, one member short
         await settle(120);
         assert.deepEqual(await m('selected', 'd'), before, 'a partial reply is not applied');
+        assert.match(await m('live', 'd'), /could not be applied/, 'a malformed current reply is announced');
         await tab.mouse.click(x, y); // request 4
         await settle();
         await m('reply', 3, 'failed');

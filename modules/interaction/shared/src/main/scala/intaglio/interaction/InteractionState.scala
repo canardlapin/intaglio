@@ -215,8 +215,15 @@ enum MembershipOutcome:
   /** The members, `count` of them, were selected. */
   case Complete(count: Int)
 
-  /** The reply was not applied: late, superseded, malformed, or refused by the selection mode. */
+  /** The reply answered the current request but was not applied: malformed (not exactly the
+    * members) or refused by the selection mode. Worth telling the reader.
+    */
   case Rejected(reason: String)
+
+  /** The reply answered no pending request: late, superseded, or after the domain changed. Hosts
+    * ignore it quietly.
+    */
+  case Superseded
 
 /** A host-side service that answers membership requests, possibly asynchronously: the host
   * dispatches `RequestMembers`, hands the recorded request to `resolve`, and dispatches each reply
@@ -566,7 +573,7 @@ object InteractionState:
               Right(
                 outcome(
                   state.pendingMembers,
-                  MembershipOutcome.Rejected(s"request $requestId for this target is not pending")
+                  MembershipOutcome.Superseded
                 )
               )
         case InteractionAction.SetSelectionMode(mode) =>

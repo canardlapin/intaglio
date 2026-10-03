@@ -113,6 +113,8 @@ class MemberCoverageSuite extends munit.FunSuite:
     assert(members.validateAggregates(Vector(plan(MembershipRetention.CountOnly))).isLeft)
     assert(members.validateAggregates(Vector(exact)).isRight)
     assert(members.validateAggregates(Vector(plan(MembershipRetention.Deferred))).isRight)
+    // A single-selection plot can never hold a bin of several members.
+    assert(members.withSelection(SelectionMode.Single).validateAggregates(Vector(exact)).isLeft)
     assert(
       InteractionBehavior
         .default[Int]
