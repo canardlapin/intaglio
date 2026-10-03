@@ -465,6 +465,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   change size; text elements and plates without an embedded face are
   byte-identical.
 
+- **Target membership follows the statistic's declared contract.** Under
+  `MembershipRetention.ExactKeys`, only statistics that keep exactly their
+  contributing observations (`OneToOne`, `AggregateMembers`: points, bins,
+  counts, summaries, quantile summaries, ecdf) offer exact members. A density
+  grid point (`WholeBatch`) now reports unavailable membership instead of
+  claiming every observation, and a `Custom` contract keeps only the count;
+  a custom statistic whose members are its contributing rows declares
+  `AggregateMembers`, which the extension laws check.
+
 - **Zoomed axes are broken for the window they show.** Under `coordZoom` or
   data-window navigation, a continuous, date or date-time axis now chooses
   breaks for its visible window, as ggplot2 does under `coord_cartesian`;

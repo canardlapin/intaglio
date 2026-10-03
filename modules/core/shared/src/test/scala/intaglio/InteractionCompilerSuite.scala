@@ -265,3 +265,93 @@ class InteractionCompilerSuite extends munit.FunSuite:
       Left(InteractionError.UnsupportedCapability("geom 'external-point' target lowering"))
     )
   }
+
+  /** Bins recomputed from the raw values by the documented right-closed rule, independently of the
+    * statistic: bin j holds (b(j), b(j+1)], and the first bin also holds b(0).
+    */
+  private def binOracle(data: Vector[Row], breaks: Vector[Double]): Vector[Vector[Int]] =
+    val assigned = data.groupBy { row =>
+      if row.x == breaks.head then 0
+      else breaks.indices.dropRight(1).find(j => breaks(j) < row.x && row.x <= breaks(j + 1)).get
+    }
+    breaks.indices.dropRight(1).flatMap(j => assigned.get(j).map(_.map(_.id))).toVector
+
+  test("histogram bins under exact retention hold exactly their contributing observations") {
+    // Repeated, equal x values and values on the boundaries, each a distinct observation.
+    val data = Vector(
+      Row(1, 0, 0, "A"),
+      Row(2, 10, 0, "A"),
+      Row(3, 10, 0, "A"),
+      Row(4, 10.5, 0, "B"),
+      Row(5, 20, 0, "B"),
+      Row(6, 33, 0, "A"),
+      Row(7, 33, 0, "A"),
+      Row(8, 40, 0, "B")
+    )
+    val breaks = Vector(0.0, 10.0, 20.0, 30.0, 40.0)
+    val plot =
+      ok(Plot(data).addLayer(Layer.histogram[Row](_.x, bins = HistogramBins.breaksUnsafe(breaks))))
+    val bins = infos(compile(plot, MembershipRetention.ExactKeys))
+    assertEquals(bins.map(_.membership.capability).distinct, Vector(MembershipCapability.Exact))
+    assertEquals(
+      bins.map(info => ok(info.membership.exactKeys(revision)).map(_.value).sorted),
+      binOracle(data, breaks).map(_.sorted)
+    )
+    assertEquals(bins.map(_.membership.total), binOracle(data, breaks).map(b => Some(b.size)))
+    // Under the default retention the same bins report counts only, never members.
+    val counted = infos(compile(plot))
+    assert(counted.forall(_.membership.exactKeys(revision).isLeft))
+  }
+
+  test("a density grid point is not composed of the batch: its membership is unavailable") {
+    val data = Vector.tabulate(20)(i => Row(i, i * 0.5, 0, "A"))
+    val plot = ok(Plot(data).addLayer(Layer.density[Row](_.x)))
+    val targets = infos(compile(plot, MembershipRetention.ExactKeys))
+    assert(targets.nonEmpty)
+    assert(
+      targets.forall(_.membership.capability == MembershipCapability.Unavailable),
+      targets.map(_.membership.capability).distinct.toString
+    )
+    assert(targets.forall(_.membership.exactKeys(revision).isLeft))
+    assert(targets.forall(_.membership.total.isEmpty))
+  }
+
+  test("a custom statistic's free-text contract keeps only the count, even under exact retention") {
+    final class Described extends Stat[Row]:
+      val label = "described-identity"
+      val contract = Stat.Identity.contract.copy(
+        inputPreservation = StatInputPreservation.Custom("one output per input, probably")
+      )
+      def compute[Input <: Row](
+          batch: StatBatch[Input],
+          context: StatContext
+      ): Either[StatError, StatResult[Input]] =
+        Stat.Identity.compute(batch, context)
+    val layer = ok(
+      Layer.fromMapping(
+        Geom.Point,
+        AesSpec.empty[Row].withPosition(_.x, _.y),
+        inheritMapping = false,
+        stat = Described()
+      )
+    )
+    val targets = infos(compile(ok(Plot(rows).addLayer(layer)), MembershipRetention.ExactKeys))
+    assert(targets.forall(_.membership.capability == MembershipCapability.CountOnly))
+    assertEquals(targets.map(_.membership.total), Vector.fill(rows.size)(Some(1)))
+  }
+
+  test("faceted bins keep the members of their own panel only") {
+    val data = Vector(Row(1, 1, 0, "A"), Row(2, 2, 0, "B"), Row(3, 3, 0, "A"), Row(4, 3.5, 0, "B"))
+    val breaks = Vector(0.0, 2.0, 4.0)
+    val plot = ok(
+      Plot(data)
+        .addLayer(Layer.histogram[Row](_.x, bins = HistogramBins.breaksUnsafe(breaks)))
+        .map(_.withFacet(ok(FacetSpec.wrap[Row](_.panel))))
+    )
+    val members = infos(compile(plot, MembershipRetention.ExactKeys))
+      .map(info => ok(info.membership.exactKeys(revision)).map(_.value).sorted)
+      .toSet
+    val expected =
+      data.groupBy(_.panel).values.flatMap(panel => binOracle(panel, breaks)).map(_.sorted).toSet
+    assertEquals(members, expected)
+  }

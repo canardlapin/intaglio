@@ -246,7 +246,13 @@ object InteractionCompiler:
                         .UnknownEntity(layer.layerIndex, rows.headOption.fold(0)(_.rowIndex))
                     )
                     unique = keys.distinct
-                    membership <- retain(input.space, revision, unique, retention)
+                    membership <- retain(
+                      input.space,
+                      revision,
+                      unique,
+                      retention,
+                      layer.stat.contract.inputPreservation
+                    )
                     projections <- traverse(members)(row =>
                       traverse(input.links)(projection => projection(row))
                     )
@@ -341,7 +347,27 @@ object InteractionCompiler:
         plan.training
       )
 
+  /** The membership a target may claim. Only a statistic whose outputs keep exactly their
+    * contributing observations (one-to-one, or aggregate members) can offer exact or representative
+    * members. A whole-batch output (a density grid point) is not composed of the batch, so its
+    * membership is unavailable rather than a misleading count; a custom contract is free text and
+    * cannot certify its members, so it retains only the count. A custom statistic whose members are
+    * its contributing rows declares `AggregateMembers`, which the extension laws check.
+    */
   private def retain[A](
+      space: KeySpace[A],
+      revision: DataRevision,
+      keys: Vector[EntityKey[A]],
+      retention: MembershipRetention,
+      preservation: StatInputPreservation
+  ): Either[InteractionError, Membership[A]] =
+    preservation match
+      case StatInputPreservation.WholeBatch => Right(Membership.unavailable(space, revision))
+      case StatInputPreservation.Custom(_)  => Membership.countOnly(space, revision, keys.length)
+      case StatInputPreservation.OneToOne | StatInputPreservation.AggregateMembers =>
+        retainDeclared(space, revision, keys, retention)
+
+  private def retainDeclared[A](
       space: KeySpace[A],
       revision: DataRevision,
       keys: Vector[EntityKey[A]],
