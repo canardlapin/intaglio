@@ -28,8 +28,7 @@ object Consumer:
           plot(data)
             .aes(_.x, _.y)
             .size(5)
-            // Filled, so a mark is hit anywhere on its disc (hollow marks pick their outline).
-            .fill(Rgba.unsafe(40, 90, 160))
+            // The default hollow glyph: the smoke check points at its unpainted centre.
             .geomPoint()
             .title(s"Plot $slot")
             .build

@@ -46,7 +46,7 @@ async function main() {
       return { a, live };
     });
 
-    await check('the pointer hits a drawn mark and shows its tooltip', async () => {
+    await check('the pointer at a hollow point\'s unpainted centre hits it and shows its tooltip', async () => {
       const centre = await fx(() => {
         const c = document.querySelector('#b svg.intaglio-base circle').getBoundingClientRect();
         return [(c.left + c.right) / 2, (c.top + c.bottom) / 2];
