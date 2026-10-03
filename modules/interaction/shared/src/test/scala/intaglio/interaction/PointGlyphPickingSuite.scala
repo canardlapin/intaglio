@@ -242,3 +242,91 @@ class PointGlyphPickingSuite extends munit.FunSuite:
     val chosen = PickPolicy.default.withHollowPoints(HollowPicking.InteriorOf(Set.empty))
     assertEquals(entities(pick(plan, chosen), middle), Vector.empty)
   }
+
+  test("hollow square, triangle and diamond glyphs are hit inside; a cross has no inside") {
+    for
+      (label, options) <- lowerings
+      shape <- Vector(PointShape.Square, PointShape.Triangle, PointShape.Diamond, PointShape.Cross)
+    do
+      val plan = compile(
+        Vector(0, 1, 2, 3, 4),
+        Layer.point[Int](
+          _.toDouble,
+          _.toDouble,
+          mapping = AesSpec.empty[Int].withShape(shape),
+          params = Some(hollow)
+        ),
+        options,
+        s"shape-$shape"
+      )
+      assert(plan.groups.forall(_.pointGlyphs), s"$label $shape")
+      val byDefault = pick(plan)
+      val outlineOnly = pick(plan, outlinePoints)
+      val geometry = geometryOf(outlineOnly, 2)
+      val middle = centre(geometry)
+      if shape == PointShape.Cross then
+        // The bars cross at the centre, so it is ink; a point between the bars is not.
+        val between = DevicePoint(
+          middle.x + (geometry.right - middle.x) / 2,
+          middle.y + (geometry.bottom - middle.y) / 2
+        )
+        assertEquals(entities(byDefault, middle), Vector(2), s"$label cross centre")
+        assertEquals(entities(byDefault, between), Vector.empty, s"$label cross")
+        assertEquals(entities(outlineOnly, between), Vector.empty, s"$label cross")
+      else
+        assertEquals(entities(byDefault, middle), Vector(2), s"$label $shape")
+        assertEquals(entities(outlineOnly, middle), Vector.empty, s"$label $shape")
+  }
+
+  test("a summary's hollow centre point is hit inside, beside its interval") {
+    val thin = GraphicParams.unsafe(stroke = Some(Rgba.Black), fill = None, lineWidth = 0.5)
+    val plan = compile(
+      Vector.tabulate(12)(identity),
+      Layer.summary[Int](i => (i % 3).toDouble, i => (i % 4).toDouble, params = Some(thin)),
+      full,
+      "summary-hit"
+    )
+    val byDefault = pick(plan)
+    val outlineOnly = pick(plan, outlinePoints)
+    // The middle x position: its interval is symmetric, so the bounds centre is the mean point.
+    val target = byDefault.prepareNavigation().targets.sortBy(_.left).apply(1)
+    val middle = centre(target)
+    val radius = (target.right - target.left) / 2
+    val beside = DevicePoint(middle.x + radius / 2, middle.y)
+    def ids(plan: PickingPlan[Int]) = ok(plan.hits(beside)).map(_.target.id)
+    assertEquals(ids(byDefault), Vector(target.target.id))
+    assertEquals(ids(outlineOnly), Vector.empty, "off the interval and inside the ring")
+  }
+
+  test("an annotation-style point layer with its own data is a point glyph route") {
+    val plot = ok(
+      Plot(Vector(0, 1, 2, 3, 4))
+        .addLayer(Layer.point[Int](_.toDouble, _.toDouble, params = Some(filled)))
+        .flatMap(
+          _.addLayer(
+            Layer.point[Int](
+              _ => 1.0,
+              _ => 3.0,
+              data = Some(Vector(7)),
+              inheritMapping = false,
+              params = Some(hollow)
+            )
+          )
+        )
+    )
+    val plan = ok(
+      InteractionCompiler.compile(
+        plot,
+        keys,
+        ok(DataRevision("d")),
+        SemanticId.unsafe("annotated"),
+        ok(PlanRevision("r")),
+        full
+      )(identity)
+    )
+    assert(plan.groups.forall(_.pointGlyphs))
+    val byDefault = pick(plan)
+    val middle = centre(geometryOf(byDefault, 7))
+    assertEquals(entities(byDefault, middle), Vector(7))
+    assertEquals(entities(pick(plan, outlinePoints), middle), Vector.empty)
+  }

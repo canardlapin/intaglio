@@ -415,6 +415,21 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
         assertEquals(ok(host.state).selection.entities.map(_.value), Set(2))
         ok(host.dispose())
       }
+      val outlineView = ok(
+        JavaFxInteractionView.compile(
+          plan,
+          context,
+          PickPolicy.default.withHollowPoints(HollowPicking.Outline)
+        )
+      )
+      fx {
+        val host = ok(JavaFxInteractionHost.attach(outlineView, toleranceLogicalPx = 0))
+        mouse(host, MouseEvent.MOUSE_MOVED, x, y)
+        assertEquals(ok(host.state).hover, None, "the explicit Outline policy misses the centre")
+        mouse(host, MouseEvent.MOUSE_MOVED, mark.right - 0.25, y)
+        assertEquals(ok(host.state).hover, Some(mark.target.id), "and still hits the outline")
+        ok(host.dispose())
+      }
   }
 
   test("projected selection and hover redraw visible overlay without emitting user events") {

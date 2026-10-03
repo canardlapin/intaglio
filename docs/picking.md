@@ -121,12 +121,26 @@ pointOutline.map(_.hits(centre).map(_.map(_.name.value)))
 ```
 
 A point glyph is recognised by its kind, not its shape: every mark of a point batch, and in plot
-picking every mark of a target whose grobs are point grobs, alongside at most lines, segments, text
-or images, as for a summary's centre and interval. Rectangles, tiles, polygons, ribbons and circle
-grobs keep the `hollow` rule. One gap remains in named picking: a point drawn from an individual
-`Grob.points` is lowered to the same circle, square or closed path as any grob of that shape, so a
-named scene cannot tell it apart and it follows `hollow`. Draw such points as a `Grob.pointBatch` to
-give them point semantics.
+picking every primitive routed to a target whose grobs are point grobs, alongside at most lines,
+segments, text or images, as for a summary's centre and interval. Rectangles, tiles, polygons,
+ribbons and circle grobs keep the `hollow` rule. Because the route decides, a hand-built
+`DeviceScene` given to `Picking.fromResolved` that routes a rectangle or polygon to a point layer's
+group has that mark's inside picked as a point's. One gap remains in named picking: a point drawn
+from an individual `Grob.points` is lowered to the same circle, square or closed path as any grob
+of that shape, so a named scene cannot tell it apart and it follows `hollow`. Draw such points as a
+`Grob.pointBatch` to give them point semantics.
+
+The default has a cost where hollow glyphs overlap. A large hollow glyph drawn later, such as a
+bubble, is at distance 0 over its whole disc and wins the draw-order tie, so a small point seen
+through its ring cannot be hovered or clicked at its centre, and an `Intersecting` lasso or
+rectangle inside the bubble selects the bubble. For bubble charts and other dense overlapping
+hollow glyphs, pick with `PickPolicy.default.withHollowPoints(HollowPicking.Outline)`.
+
+These entry points take the policy: `Picking.compile`, `Picking.composition` and
+`Picking.fromResolved` for plots; `NamedPicking.compile` and `NamedPicking.fromResolved` for named
+scenes; and on JavaFX, `JavaFxInteractionView.compile(plan, context, policy)`,
+`JavaFxInteractionView.named` and `JavaFxInteractionView.namedResolved`. The browser widget does not
+take a policy yet, so it always picks under `PickPolicy.default`.
 
 ## Keyboard navigation and interaction state
 
@@ -193,7 +207,8 @@ marks names its batches instead. Lowering refuses a count mismatch as
 `GraphicsError.BatchColumnLengthMismatch("mark names", ...)`. A host that filters or splits a batch
 itself slices the names with the points (`BatchMarks.slice`); `BatchMarkLaws` in `intaglio-laws`
 checks such a splitter. Picking treats each mark as a target named by its mark name, inside the
-batch's own name, so clipping, hit order and hollow interiors work exactly as for named grobs.
+batch's own name, so clipping and hit order work exactly as for named grobs. Its marks are point
+glyphs, so their hollow interiors follow `PickPolicy.hollowPoints` rather than `hollow`.
 
 Identity never changes what is drawn: every backend draws the batch as before, and the renderer
 conformance contract includes an identified batch. The SVG backend writes each mark's text as a

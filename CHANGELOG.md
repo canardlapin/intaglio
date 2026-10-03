@@ -185,6 +185,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   unchanged.
   `PickPolicy.withHollowPoints` sets the same choice for point glyphs alone
   (`PickPolicy.hollowPoints`, default `Interior`; see Changed).
+  `JavaFxInteractionView.compile(plan, context, policy)` hosts a compiled plot
+  under a chosen `PickPolicy`.
 
 - **Resolve a hand-built scene once for drawing and picking.**
   `NamedPicking.fromResolved` and `JavaFxProgram.fromResolved` accept a
@@ -419,9 +421,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   hover, navigation anchors and area selection follow the new regions: a hit
   inside a hollow point reports distance 0, and an `Intersecting` area inside
   its ring selects it. `PickPolicy.default.withHollowPoints(HollowPicking.Outline)`
-  restores the previous behaviour. Points drawn from individual `Grob.points`
-  in a named (grob-only) scene cannot be told apart from circles and still
-  follow `hollow`.
+  restores the previous behaviour; it is the remedy for bubble charts, where a
+  later-drawn large hollow glyph is now at distance 0 over its whole disc, wins
+  the draw-order tie over a small point seen through its ring, and is selected
+  by an `Intersecting` area inside it. The policy is accepted by
+  `Picking.compile`, `Picking.composition`, `Picking.fromResolved`,
+  `NamedPicking.compile`/`fromResolved`, and on JavaFX by
+  `JavaFxInteractionView.compile(plan, context, policy)` (new), `named` and
+  `namedResolved`; the browser widget does not take a policy yet and always
+  uses the default. Points drawn from individual `Grob.points` in a named
+  (grob-only) scene cannot be told apart from circles and still follow
+  `hollow`, and in `Picking.fromResolved` any mark a hand-built scene routes to
+  a point layer's group is picked as a point.
 
 - **Zoomed axes are broken for the window they show.** Under `coordZoom` or
   data-window navigation, a continuous, date or date-time axis now chooses

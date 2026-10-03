@@ -167,7 +167,8 @@ For SVG, before the baseline can be called complete:
    data-label part kind.
 4. Coverage entries for the five uncovered geoms, and picking tests per entry.
 5. A browser check that a hollow point is hit at its centre. The shared picking plan now hits the
-   inside of hollow point glyphs by default, but the widget passes no `PickPolicy`, so it cannot
-   restore outline-only point picking.
+   inside of hollow point glyphs by default, but the widget takes no `PickPolicy`, so it cannot
+   restore outline-only point picking (which bubble charts want); JavaFX can, through
+   `JavaFxInteractionView.compile(plan, context, policy)`.
 
 For Canvas, every row.

@@ -63,12 +63,21 @@ enum HollowPicking:
   * `hollow` decides whether closed hollow marks are hit inside; it defaults to
   * [[HollowPicking.Outline]], so a hollow rectangle, polygon, ribbon or circle grob is hit on its
   * outline. `hollowPoints` decides the same for point glyphs and defaults to
-  * [[HollowPicking.Interior]], so pointing at the centre of a hollow point hits it, on every host
-  * that picks through this policy. A point glyph is identified by kind, never by shape: every mark
-  * of a point batch, and every mark of a plot target whose grobs are point grobs (with any
-  * intervals or lines beside them, as for a summary). A named scene drawn from individual
-  * `Grob.points` loses that kind when it is lowered, so in [[NamedPicking]] those marks follow
-  * `hollow`. `withHollowPoints(HollowPicking.Outline)` restores outline-only point picking.
+  * [[HollowPicking.Interior]], so pointing at the centre of a hollow point hits it.
+  *
+  * A point glyph is identified by kind, never by shape: every mark of a point batch, and in plot
+  * picking every primitive routed to a target whose grobs are point grobs, alongside at most lines,
+  * segments, text or images (as for a summary's centre and interval). The route decides, so a
+  * hand-built [[DeviceScene]] passed to [[Picking.fromResolved]] that routes a rectangle or polygon
+  * to a point layer's group has that mark's inside picked as a point's. A named scene drawn from
+  * individual `Grob.points` loses the kind when it is lowered, so in [[NamedPicking]] those marks
+  * follow `hollow`.
+  *
+  * With the inside included, a large hollow glyph drawn later — a bubble — is at distance 0 over
+  * its whole disc and wins the draw-order tie, so a smaller point seen through its ring is not hit
+  * at its centre, and an area inside the bubble intersects it.
+  * `withHollowPoints(HollowPicking.Outline)` restores outline-only point picking, which suits
+  * bubble charts.
   */
 final class PickPolicy private (
     val includeTransparent: Boolean,
@@ -77,16 +86,8 @@ final class PickPolicy private (
     val hollow: HollowPicking,
     val hollowPoints: HollowPicking
 ):
-  private def this(
-      includeTransparent: Boolean,
-      dashes: DashPicking,
-      miterLimit: Double,
-      hollow: HollowPicking
-  ) =
-    this(includeTransparent, dashes, miterLimit, hollow, HollowPicking.Interior)
-
   private def this(includeTransparent: Boolean, dashes: DashPicking, miterLimit: Double) =
-    this(includeTransparent, dashes, miterLimit, HollowPicking.Outline)
+    this(includeTransparent, dashes, miterLimit, HollowPicking.Outline, HollowPicking.Interior)
 
   /** The same policy with `value` deciding whether hollow marks are hit inside. */
   def withHollow(value: HollowPicking): PickPolicy =
@@ -134,8 +135,10 @@ object PickArea:
 
 final case class PickHit[A](target: TargetInfo[A], distanceDevicePx: Double, drawOrder: Int)
 
-/** Visible device geometry for one logical target. Bounds include all of its clipped painted parts;
-  * `anchor` is always in that visible geometry.
+/** Visible device geometry for one logical target. Bounds include all of its clipped hit parts.
+  * `anchor` lies in the target's hit geometry under the plan's [[PickPolicy]]: the bounds centre
+  * when a part contains it, else the nearest point of a part, so a hollow mark picked outline-only
+  * is anchored on its outline and a hollow point picked inside is anchored at its centre.
   */
 final case class TargetGeometry[A](
     target: TargetInfo[A],

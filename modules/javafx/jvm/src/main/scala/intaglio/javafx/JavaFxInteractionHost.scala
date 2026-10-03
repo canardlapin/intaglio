@@ -22,14 +22,26 @@ final class JavaFxInteractionView[A] private[javafx] (
 )
 
 object JavaFxInteractionView:
+  /** Host a compiled plot under the default [[intaglio.interaction.PickPolicy]]. */
   def compile[A](
       plan: InteractionPlan[A],
       context: RenderContext
   ): Either[IntaglioError, JavaFxInteractionView[A]] =
+    compile(plan, context, PickPolicy.default)
+
+  /** Host a compiled plot whose pointer, hover and area queries pick under `policy`, for example
+    * `PickPolicy.default.withHollowPoints(HollowPicking.Outline)` to hit hollow points only on
+    * their outline.
+    */
+  def compile[A](
+      plan: InteractionPlan[A],
+      context: RenderContext,
+      policy: PickPolicy
+  ): Either[IntaglioError, JavaFxInteractionView[A]] =
     for
       device <- DeviceScene.fromScene(plan.scene, context)
       _ <- PatternTile.validate(device)
-      picking <- Picking.fromResolved(device, plan.groups, context)
+      picking <- Picking.fromResolved(device, plan.groups, context, policy)
       domain <- InteractionDomain(Vector(plan), plan.revision)
     yield new JavaFxInteractionView(
       device,

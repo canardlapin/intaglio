@@ -57,17 +57,6 @@ final class TargetGroup[A] private[interaction] (
     private[interaction] val raster: Boolean,
     private[interaction] val pointGlyphs: Boolean
 ):
-  /** Bridge for the constructor descriptor from before point-glyph routes. */
-  private[interaction] def this(
-      name: SemanticId,
-      series: TargetSeries,
-      entities: Vector[Option[EntityKey[A]]],
-      memberships: Vector[Membership[A]],
-      links: Vector[LinkKeys],
-      rasterCells: Vector[Option[RasterCell]],
-      raster: Boolean
-  ) = this(name, series, entities, memberships, links, rasterCells, raster, false)
-
   private[interaction] def this(
       name: SemanticId,
       series: TargetSeries,
