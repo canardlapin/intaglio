@@ -5,96 +5,96 @@ Layer 0 (intaglio-plot-layer-0): geom=line, stat=identity, input=26, resolved=26
 Layer 1 (intaglio-plot-layer-1): geom=point, stat=identity, input=26, resolved=26, dropped=0.
 Scale color (channel): kind=discrete, domain=ordered [left, right].</desc>
   <g data-name="plot-panel" clip-path="url(#clip-0)">
-    <rect data-name="plot-panel-background" stroke="none" fill="#ffffff" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" x="58.6" y="45.3333" width="394.2" height="247.6667" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="76.5182,293 76.5182,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="136.2455,293 136.2455,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="195.9727,293 195.9727,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="255.7,293 255.7,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="315.4273,293 315.4273,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="375.1545,293 375.1545,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="434.8818,293 434.8818,45.3333" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,281.7424 452.8,281.7424" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,240.9541 452.8,240.9541" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,200.1658 452.8,200.1658" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,159.3775 452.8,159.3775" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,118.5892 452.8,118.5892" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,77.8008 452.8,77.8008" />
-    <polyline stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="76.5182,281.7424 106.3818,254.0064 136.2455,227.9018 166.1091,203.4289 195.9727,180.5874 225.8364,159.3775 255.7,139.7991 285.5636,121.8522 315.4273,105.5369 345.2909,90.8531 375.1545,77.8008 405.0182,66.3801 434.8818,56.5909" />
-    <polyline stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="76.5182,281.7424 106.3818,263.9995 136.2455,247.8881 166.1091,233.4083 195.9727,220.5599 225.8364,209.3432 255.7,199.7579 285.5636,191.8042 315.4273,185.482 345.2909,180.7913 375.1545,177.7322 405.0182,176.3046 434.8818,176.5086" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="76.5182" cy="281.7424" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="106.3818" cy="254.0064" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="136.2455" cy="227.9018" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="166.1091" cy="203.4289" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="195.9727" cy="180.5874" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="225.8364" cy="159.3775" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="255.7" cy="139.7991" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="285.5636" cy="121.8522" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="315.4273" cy="105.5369" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="345.2909" cy="90.8531" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="375.1545" cy="77.8008" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="405.0182" cy="66.3801" r="5.3333" />
-    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="434.8818" cy="56.5909" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="76.5182" cy="281.7424" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="106.3818" cy="263.9995" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="136.2455" cy="247.8881" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="166.1091" cy="233.4083" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="195.9727" cy="220.5599" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="225.8364" cy="209.3432" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="255.7" cy="199.7579" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="285.5636" cy="191.8042" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="315.4273" cy="185.482" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="345.2909" cy="180.7913" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="375.1545" cy="177.7322" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="405.0182" cy="176.3046" r="5.3333" />
-    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="434.8818" cy="176.5086" r="5.3333" />
+    <rect data-name="plot-panel-background" stroke="none" fill="#ffffff" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" x="48.52" y="41.3333" width="416.5067" height="262.1667" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="67.4521,303.5 67.4521,41.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="130.5592,303.5 130.5592,41.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="193.6663,303.5 193.6663,41.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="256.7733,303.5 256.7733,41.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="319.8804,303.5 319.8804,41.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="382.9875,303.5 382.9875,41.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="446.0945,303.5 446.0945,41.3333" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,291.5833 465.0267,291.5833" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,248.407 465.0267,248.407" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,205.2307 465.0267,205.2307" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,162.0543 465.0267,162.0543" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,118.878 465.0267,118.878" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,75.7017 465.0267,75.7017" />
+    <polyline stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" points="67.4521,291.5833 99.0057,262.2234 130.5592,234.5906 162.1127,208.6848 193.6663,184.506 225.2198,162.0543 256.7733,141.3297 288.3269,122.3321 319.8804,105.0616 351.4339,89.5181 382.9875,75.7017 414.541,63.6123 446.0945,53.25" />
+    <polyline stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" points="67.4521,291.5833 99.0057,272.8016 130.5592,255.747 162.1127,240.4194 193.6663,226.8188 225.2198,214.9454 256.7733,204.7989 288.3269,196.3795 319.8804,189.6872 351.4339,184.7219 382.9875,181.4837 414.541,179.9725 446.0945,180.1884" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="67.4521" cy="291.5833" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="99.0057" cy="262.2234" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="130.5592" cy="234.5906" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="162.1127" cy="208.6848" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="193.6663" cy="184.506" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="225.2198" cy="162.0543" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="256.7733" cy="141.3297" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="288.3269" cy="122.3321" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="319.8804" cy="105.0616" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="351.4339" cy="89.5181" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="382.9875" cy="75.7017" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="414.541" cy="63.6123" r="3.7333" />
+    <circle stroke="#000000" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="446.0945" cy="53.25" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="67.4521" cy="291.5833" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="99.0057" cy="272.8016" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="130.5592" cy="255.747" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="162.1127" cy="240.4194" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="193.6663" cy="226.8188" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="225.2198" cy="214.9454" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="256.7733" cy="204.7989" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="288.3269" cy="196.3795" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="319.8804" cy="189.6872" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="351.4339" cy="184.7219" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="382.9875" cy="181.4837" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="414.541" cy="179.9725" r="3.7333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1.2" stroke-linecap="butt" stroke-linejoin="miter" cx="446.0945" cy="180.1884" r="3.7333" />
   </g>
   <g data-name="x-axis">
-    <polyline data-name="x-axis-baseline" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,293 452.8,293" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="76.5182,293 76.5182,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="136.2455,293 136.2455,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="195.9727,293 195.9727,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="255.7,293 255.7,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="315.4273,293 315.4273,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="375.1545,293 375.1545,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="434.8818,293 434.8818,298.3333" />
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="76.5182" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">0</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="136.2455" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">2</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="195.9727" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">4</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="255.7" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">6</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="315.4273" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">8</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="375.1545" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">10</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="434.8818" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">12</text>
-    <text data-name="x-axis-title" fill="#000000" stroke="none" font-size="14.6667" x="255.7" y="337.5" text-anchor="middle" dominant-baseline="middle">Minute</text>
+    <polyline data-name="x-axis-baseline" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,303.5 465.0267,303.5" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="67.4521,303.5 67.4521,307.5" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="130.5592,303.5 130.5592,307.5" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="193.6663,303.5 193.6663,307.5" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="256.7733,303.5 256.7733,307.5" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="319.8804,303.5 319.8804,307.5" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="382.9875,303.5 382.9875,307.5" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="446.0945,303.5 446.0945,307.5" />
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="67.4521" y="311.5" text-anchor="middle" dominant-baseline="text-before-edge">0</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="130.5592" y="311.5" text-anchor="middle" dominant-baseline="text-before-edge">2</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="193.6663" y="311.5" text-anchor="middle" dominant-baseline="text-before-edge">4</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="256.7733" y="311.5" text-anchor="middle" dominant-baseline="text-before-edge">6</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="319.8804" y="311.5" text-anchor="middle" dominant-baseline="text-before-edge">8</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="382.9875" y="311.5" text-anchor="middle" dominant-baseline="text-before-edge">10</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="446.0945" y="311.5" text-anchor="middle" dominant-baseline="text-before-edge">12</text>
+    <text data-name="x-axis-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="13.3333" x="256.7733" y="341" text-anchor="middle" dominant-baseline="middle">Minute</text>
   </g>
   <g data-name="y-axis">
-    <polyline data-name="y-axis-baseline" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,293 58.6,45.3333" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,281.7424 53.2667,281.7424" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,240.9541 53.2667,240.9541" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,200.1658 53.2667,200.1658" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,159.3775 53.2667,159.3775" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,118.5892 53.2667,118.5892" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,77.8008 53.2667,77.8008" />
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="281.7424" text-anchor="end" dominant-baseline="middle">4</text>
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="240.9541" text-anchor="end" dominant-baseline="middle">5</text>
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="200.1658" text-anchor="end" dominant-baseline="middle">6</text>
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="159.3775" text-anchor="end" dominant-baseline="middle">7</text>
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="118.5892" text-anchor="end" dominant-baseline="middle">8</text>
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="77.8008" text-anchor="end" dominant-baseline="middle">9</text>
-    <text data-name="y-axis-title" fill="#000000" stroke="none" font-size="14.6667" x="22.5" y="169.1667" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 22.5 169.1667)">Level</text>
+    <polyline data-name="y-axis-baseline" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,303.5 48.52,41.3333" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,291.5833 44.52,291.5833" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,248.407 44.52,248.407" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,205.2307 44.52,205.2307" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,162.0543 44.52,162.0543" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,118.878 44.52,118.878" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="48.52,75.7017 44.52,75.7017" />
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="40.52" y="291.5833" text-anchor="end" dominant-baseline="middle">4</text>
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="40.52" y="248.407" text-anchor="end" dominant-baseline="middle">5</text>
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="40.52" y="205.2307" text-anchor="end" dominant-baseline="middle">6</text>
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="40.52" y="162.0543" text-anchor="end" dominant-baseline="middle">7</text>
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="40.52" y="118.878" text-anchor="end" dominant-baseline="middle">8</text>
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="40.52" y="75.7017" text-anchor="end" dominant-baseline="middle">9</text>
+    <text data-name="y-axis-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="13.3333" x="19" y="172.4167" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 19 172.4167)">Level</text>
   </g>
   <g data-name="channel-legend">
-    <text data-name="channel-legend-title" fill="#000000" stroke="none" font-size="13.3333" x="480.8" y="53.3333" text-anchor="start" dominant-baseline="text-before-edge">channel</text>
-    <circle data-name="channel-legend-entry-0-key" stroke="#000000" fill="#000000" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="480.8" cy="83.6667" r="6.1667" />
-    <text data-name="channel-legend-entry-0-label" fill="#000000" stroke="none" font-size="13.3333" x="494.1333" y="83.6667" text-anchor="start" dominant-baseline="middle">left</text>
-    <circle data-name="channel-legend-entry-1-key" stroke="#e69f00" fill="#e69f00" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="480.8" cy="105.6667" r="6.1667" />
-    <text data-name="channel-legend-entry-1-label" fill="#000000" stroke="none" font-size="13.3333" x="494.1333" y="105.6667" text-anchor="start" dominant-baseline="middle">right</text>
+    <text data-name="channel-legend-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="600" font-size="12.6667" x="487.6933" y="48" text-anchor="start" dominant-baseline="text-before-edge">channel</text>
+    <circle data-name="channel-legend-entry-0-key" stroke="#000000" fill="#000000" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="487.6933" cy="77.0833" r="4.8333" />
+    <text data-name="channel-legend-entry-0-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="498.36" y="77.0833" text-anchor="start" dominant-baseline="middle">left</text>
+    <circle data-name="channel-legend-entry-1-key" stroke="#e69f00" fill="#e69f00" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="487.6933" cy="96.9167" r="4.8333" />
+    <text data-name="channel-legend-entry-1-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="498.36" y="96.9167" text-anchor="start" dominant-baseline="middle">right</text>
   </g>
   <g data-name="plot-title">
-    <text data-name="plot-title" fill="#000000" stroke="none" font-size="21.3333" x="58.6" y="26.6667" text-anchor="start" dominant-baseline="middle">Level over time</text>
+    <text data-name="plot-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="600" font-size="21.3333" x="48.52" y="24" text-anchor="start" dominant-baseline="middle">Level over time</text>
   </g>
   <defs>
     <clipPath id="clip-0">
-      <rect x="58.6" y="45.3333" width="394.2" height="247.6667" />
+      <rect x="48.52" y="41.3333" width="416.5067" height="262.1667" />
     </clipPath>
   </defs>
 </svg>

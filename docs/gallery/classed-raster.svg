@@ -4,145 +4,145 @@
 Layer 0 (intaglio-plot-layer-0): geom=raster, stat=identity, input=96, resolved=96, dropped=0.
 Scale fill (value): kind=continuous, domain=unspecified.</desc>
   <g data-name="plot-panel" clip-path="url(#clip-0)">
-    <rect data-name="plot-panel-background" stroke="none" fill="#ffffff" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" x="58.6" y="45.3333" width="367.8" height="247.6667" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="75.3182,293 75.3182,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="131.0455,293 131.0455,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="186.7727,293 186.7727,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="242.5,293 242.5,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="298.2273,293 298.2273,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="353.9545,293 353.9545,45.3333" />
-    <polyline data-name="plot-panel-grid-x" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="409.6818,293 409.6818,45.3333" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,281.7424 426.4,281.7424" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,225.4545 426.4,225.4545" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,169.1667 426.4,169.1667" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,112.8788 426.4,112.8788" />
-    <polyline data-name="plot-panel-grid-y" stroke="#e0e4ea" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,56.5909 426.4,56.5909" />
-    <image data-name="geom-raster" data-pixel-width="12" data-pixel-height="8" x="75.3182" y="56.5909" width="334.3636" height="225.1515" preserveAspectRatio="none" image-rendering="pixelated" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAICAYAAADN5B7xAAABk0lEQVR4AQGIAXf+AHdVd/9vWX7/b1h+/3hVdv+DUGv/iUxk/4hNZf+AUW7/cXFx/5eXl/+8vLz/4eHh/wBpW4T/RmOd/0dinP9sWoH/kEdc/6UyQf+iNkX/iUxk/2tra/+QkJD/tra2/9vb2/8AYV2K/yFmrP8mZqv/ZVyH/5dCVP+yGCv/ryEy/45JX/9lZWX/ioqK/6+vr//V1dX/AGNciP8wZaf/M2Wm/2dbhf+VRFf/riMz/6spOP+MSmH/X19f/4SEhP+pqan/zs7O/wBvWX7/Wl+Q/1tfj/9xWHz/i0tj/5k/Uf+YQVP/hk5o/1lZWf9+fn7/o6Oj/8jIyP8AflJw/4FRbf+BUW3/flJw/3pUdP94VXb/eFV2/3tUc/9SUlL/eHh4/52dnf/CwsL/AIxKYf+fOkr/njtL/4pMZP9pW4P/TmGX/1Jglf9xWH3/TExM/3Fxcf+Xl5f/vLy8/wCTRVn/rx8w/64iMv+QR1z/Xl6N/yRmq/8wZaf/alqD/0ZGRv9ra2v/kJCQ/7a2tv//uuSmDfOICwAAAABJRU5ErkJggg==" />
+    <rect data-name="plot-panel-background" stroke="none" fill="#ffffff" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" x="56.52" y="45.3333" width="374.4267" height="250.1667" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="73.5394,295.5 73.5394,45.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="130.2707,295.5 130.2707,45.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="187.002,295.5 187.002,45.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="243.7333,295.5 243.7333,45.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="300.4646,295.5 300.4646,45.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="357.196,295.5 357.196,45.3333" />
+    <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="413.9273,295.5 413.9273,45.3333" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,284.1288 430.9467,284.1288" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,227.2727 430.9467,227.2727" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,170.4167 430.9467,170.4167" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,113.5606 430.9467,113.5606" />
+    <polyline data-name="plot-panel-grid-y" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,56.7045 430.9467,56.7045" />
+    <image data-name="geom-raster" data-pixel-width="12" data-pixel-height="8" x="73.5394" y="56.7045" width="340.3879" height="227.4242" preserveAspectRatio="none" image-rendering="pixelated" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAICAYAAADN5B7xAAABk0lEQVR4AQGIAXf+AHdVd/9vWX7/b1h+/3hVdv+DUGv/iUxk/4hNZf+AUW7/cXFx/5eXl/+8vLz/4eHh/wBpW4T/RmOd/0dinP9sWoH/kEdc/6UyQf+iNkX/iUxk/2tra/+QkJD/tra2/9vb2/8AYV2K/yFmrP8mZqv/ZVyH/5dCVP+yGCv/ryEy/45JX/9lZWX/ioqK/6+vr//V1dX/AGNciP8wZaf/M2Wm/2dbhf+VRFf/riMz/6spOP+MSmH/X19f/4SEhP+pqan/zs7O/wBvWX7/Wl+Q/1tfj/9xWHz/i0tj/5k/Uf+YQVP/hk5o/1lZWf9+fn7/o6Oj/8jIyP8AflJw/4FRbf+BUW3/flJw/3pUdP94VXb/eFV2/3tUc/9SUlL/eHh4/52dnf/CwsL/AIxKYf+fOkr/njtL/4pMZP9pW4P/TmGX/1Jglf9xWH3/TExM/3Fxcf+Xl5f/vLy8/wCTRVn/rx8w/64iMv+QR1z/Xl6N/yRmq/8wZaf/alqD/0ZGRv9ra2v/kJCQ/7a2tv//uuSmDfOICwAAAABJRU5ErkJggg==" />
   </g>
   <g data-name="x-axis">
-    <polyline data-name="x-axis-baseline" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,293 426.4,293" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="75.3182,293 75.3182,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="131.0455,293 131.0455,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="186.7727,293 186.7727,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="242.5,293 242.5,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="298.2273,293 298.2273,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="353.9545,293 353.9545,298.3333" />
-    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="409.6818,293 409.6818,298.3333" />
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="75.3182" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">0</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="131.0455" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">2</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="186.7727" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">4</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="242.5" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">6</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="298.2273" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">8</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="353.9545" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">10</text>
-    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="409.6818" y="303.6667" text-anchor="middle" dominant-baseline="text-before-edge">12</text>
-    <text data-name="x-axis-title" fill="#000000" stroke="none" font-size="14.6667" x="242.5" y="337.5" text-anchor="middle" dominant-baseline="middle">regressor</text>
+    <polyline data-name="x-axis-baseline" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,295.5 430.9467,295.5" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="73.5394,295.5 73.5394,300.8333" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="130.2707,295.5 130.2707,300.8333" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="187.002,295.5 187.002,300.8333" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="243.7333,295.5 243.7333,300.8333" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="300.4646,295.5 300.4646,300.8333" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="357.196,295.5 357.196,300.8333" />
+    <polyline data-name="x-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="413.9273,295.5 413.9273,300.8333" />
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="73.5394" y="306.1667" text-anchor="middle" dominant-baseline="text-before-edge">0</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="130.2707" y="306.1667" text-anchor="middle" dominant-baseline="text-before-edge">2</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="187.002" y="306.1667" text-anchor="middle" dominant-baseline="text-before-edge">4</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="243.7333" y="306.1667" text-anchor="middle" dominant-baseline="text-before-edge">6</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="300.4646" y="306.1667" text-anchor="middle" dominant-baseline="text-before-edge">8</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="357.196" y="306.1667" text-anchor="middle" dominant-baseline="text-before-edge">10</text>
+    <text data-name="x-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="413.9273" y="306.1667" text-anchor="middle" dominant-baseline="text-before-edge">12</text>
+    <text data-name="x-axis-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="13.3333" x="243.7333" y="338.3333" text-anchor="middle" dominant-baseline="middle">regressor</text>
   </g>
   <g data-name="y-axis">
-    <polyline data-name="y-axis-baseline" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,293 58.6,45.3333" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,281.7424 53.2667,281.7424" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,225.4545 53.2667,225.4545" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,169.1667 53.2667,169.1667" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,112.8788 53.2667,112.8788" />
-    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="58.6,56.5909 53.2667,56.5909" />
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="281.7424" text-anchor="end" dominant-baseline="middle">0</text>
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="225.4545" text-anchor="end" dominant-baseline="middle">2</text>
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="169.1667" text-anchor="end" dominant-baseline="middle">4</text>
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="112.8788" text-anchor="end" dominant-baseline="middle">6</text>
-    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="47.9333" y="56.5909" text-anchor="end" dominant-baseline="middle">8</text>
-    <text data-name="y-axis-title" fill="#000000" stroke="none" font-size="14.6667" x="22.5" y="169.1667" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 22.5 169.1667)">voxel</text>
+    <polyline data-name="y-axis-baseline" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,295.5 56.52,45.3333" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,284.1288 51.1867,284.1288" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,227.2727 51.1867,227.2727" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,170.4167 51.1867,170.4167" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,113.5606 51.1867,113.5606" />
+    <polyline data-name="y-axis-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="56.52,56.7045 51.1867,56.7045" />
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="45.8533" y="284.1288" text-anchor="end" dominant-baseline="middle">0</text>
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="45.8533" y="227.2727" text-anchor="end" dominant-baseline="middle">2</text>
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="45.8533" y="170.4167" text-anchor="end" dominant-baseline="middle">4</text>
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="45.8533" y="113.5606" text-anchor="end" dominant-baseline="middle">6</text>
+    <text data-name="y-axis-label" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="45.8533" y="56.7045" text-anchor="end" dominant-baseline="middle">8</text>
+    <text data-name="y-axis-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="13.3333" x="21.6667" y="170.4167" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 21.6667 170.4167)">voxel</text>
   </g>
   <g data-name="value-class-0-colorbar">
-    <rect data-name="value-class-0-colorbar-swatch-0" stroke="none" fill="#2766aa" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="148.25" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-1" stroke="none" fill="#3165a7" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="146.1667" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-2" stroke="none" fill="#3a64a3" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="144.0833" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-3" stroke="none" fill="#41639f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="142" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-4" stroke="none" fill="#47629c" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="139.9167" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-5" stroke="none" fill="#4d6198" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="137.8333" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-6" stroke="none" fill="#536094" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="135.75" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-7" stroke="none" fill="#585f91" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="133.6667" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-8" stroke="none" fill="#5d5e8d" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="131.5833" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-9" stroke="none" fill="#625d89" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="129.5" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-10" stroke="none" fill="#675b85" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="127.4167" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-11" stroke="none" fill="#6b5a82" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="125.3333" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-12" stroke="none" fill="#6f597e" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="123.25" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-13" stroke="none" fill="#73577a" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="121.1667" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-14" stroke="none" fill="#775577" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="119.0833" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-15" stroke="none" fill="#7b5473" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="117" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-16" stroke="none" fill="#7f526f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="114.9167" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-17" stroke="none" fill="#83506b" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="112.8333" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-18" stroke="none" fill="#864e67" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="110.75" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-19" stroke="none" fill="#8a4c63" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="108.6667" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-20" stroke="none" fill="#8d495f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="106.5833" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-21" stroke="none" fill="#91475c" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="104.5" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-22" stroke="none" fill="#944457" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="102.4167" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-23" stroke="none" fill="#984153" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="100.3333" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-24" stroke="none" fill="#9b3e4f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="98.25" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-25" stroke="none" fill="#9e3b4b" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="96.1667" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-26" stroke="none" fill="#a13747" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="94.0833" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-27" stroke="none" fill="#a43342" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="92" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-28" stroke="none" fill="#a72f3d" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="89.9167" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-29" stroke="none" fill="#aa2a39" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="87.8333" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-30" stroke="none" fill="#ae2433" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="85.75" width="16" height="2.0833" />
-    <rect data-name="value-class-0-colorbar-swatch-31" stroke="none" fill="#b11c2e" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="83.6667" width="16" height="2.0833" />
-    <polyline data-name="value-class-0-colorbar-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="463.7333,135.2668 469.0667,135.2668" />
-    <polyline data-name="value-class-0-colorbar-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="463.7333,117.3462 469.0667,117.3462" />
-    <polyline data-name="value-class-0-colorbar-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="463.7333,99.4256 469.0667,99.4256" />
-    <text data-name="value-class-0-colorbar-label-0" fill="#000000" stroke="none" font-size="13.3333" x="474.4" y="135.2668" text-anchor="start" dominant-baseline="middle">-0.5</text>
-    <text data-name="value-class-0-colorbar-label-1" fill="#000000" stroke="none" font-size="13.3333" x="474.4" y="117.3462" text-anchor="start" dominant-baseline="middle">0</text>
-    <text data-name="value-class-0-colorbar-label-2" fill="#000000" stroke="none" font-size="13.3333" x="474.4" y="99.4256" text-anchor="start" dominant-baseline="middle">0.5</text>
-    <text data-name="value-class-0-colorbar-title" fill="#000000" stroke="none" font-size="13.3333" x="447.7333" y="70" text-anchor="start" dominant-baseline="text-after-edge">task effect</text>
+    <rect data-name="value-class-0-colorbar-swatch-0" stroke="none" fill="#2766aa" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="147" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-1" stroke="none" fill="#3165a7" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="144.9167" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-2" stroke="none" fill="#3a64a3" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="142.8333" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-3" stroke="none" fill="#41639f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="140.75" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-4" stroke="none" fill="#47629c" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="138.6667" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-5" stroke="none" fill="#4d6198" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="136.5833" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-6" stroke="none" fill="#536094" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="134.5" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-7" stroke="none" fill="#585f91" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="132.4167" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-8" stroke="none" fill="#5d5e8d" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="130.3333" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-9" stroke="none" fill="#625d89" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="128.25" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-10" stroke="none" fill="#675b85" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="126.1667" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-11" stroke="none" fill="#6b5a82" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="124.0833" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-12" stroke="none" fill="#6f597e" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="122" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-13" stroke="none" fill="#73577a" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="119.9167" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-14" stroke="none" fill="#775577" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="117.8333" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-15" stroke="none" fill="#7b5473" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="115.75" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-16" stroke="none" fill="#7f526f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="113.6667" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-17" stroke="none" fill="#83506b" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="111.5833" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-18" stroke="none" fill="#864e67" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="109.5" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-19" stroke="none" fill="#8a4c63" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="107.4167" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-20" stroke="none" fill="#8d495f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="105.3333" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-21" stroke="none" fill="#91475c" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="103.25" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-22" stroke="none" fill="#944457" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="101.1667" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-23" stroke="none" fill="#984153" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="99.0833" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-24" stroke="none" fill="#9b3e4f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="97" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-25" stroke="none" fill="#9e3b4b" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="94.9167" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-26" stroke="none" fill="#a13747" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="92.8333" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-27" stroke="none" fill="#a43342" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="90.75" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-28" stroke="none" fill="#a72f3d" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="88.6667" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-29" stroke="none" fill="#aa2a39" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="86.5833" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-30" stroke="none" fill="#ae2433" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="84.5" width="16" height="2.0833" />
+    <rect data-name="value-class-0-colorbar-swatch-31" stroke="none" fill="#b11c2e" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="82.4167" width="16" height="2.0833" />
+    <polyline data-name="value-class-0-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="468.28,134.0168 473.6133,134.0168" />
+    <polyline data-name="value-class-0-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="468.28,116.0962 473.6133,116.0962" />
+    <polyline data-name="value-class-0-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="468.28,98.1756 473.6133,98.1756" />
+    <text data-name="value-class-0-colorbar-label-0" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="478.9467" y="134.0168" text-anchor="start" dominant-baseline="middle">-0.5</text>
+    <text data-name="value-class-0-colorbar-label-1" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="478.9467" y="116.0962" text-anchor="start" dominant-baseline="middle">0</text>
+    <text data-name="value-class-0-colorbar-label-2" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="478.9467" y="98.1756" text-anchor="start" dominant-baseline="middle">0.5</text>
+    <text data-name="value-class-0-colorbar-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="600" font-size="12.6667" x="452.28" y="69.1667" text-anchor="start" dominant-baseline="text-after-edge">task effect</text>
   </g>
   <g data-name="value-class-1-colorbar">
-    <rect data-name="value-class-1-colorbar-swatch-0" stroke="none" fill="#484848" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="269.5833" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-1" stroke="none" fill="#4d4d4d" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="267.5" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-2" stroke="none" fill="#525252" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="265.4167" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-3" stroke="none" fill="#575757" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="263.3333" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-4" stroke="none" fill="#5c5c5c" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="261.25" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-5" stroke="none" fill="#616161" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="259.1667" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-6" stroke="none" fill="#656565" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="257.0833" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-7" stroke="none" fill="#6a6a6a" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="255" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-8" stroke="none" fill="#6f6f6f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="252.9167" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-9" stroke="none" fill="#747474" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="250.8333" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-10" stroke="none" fill="#797979" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="248.75" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-11" stroke="none" fill="#7e7e7e" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="246.6667" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-12" stroke="none" fill="#838383" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="244.5833" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-13" stroke="none" fill="#878787" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="242.5" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-14" stroke="none" fill="#8c8c8c" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="240.4167" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-15" stroke="none" fill="#919191" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="238.3333" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-16" stroke="none" fill="#969696" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="236.25" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-17" stroke="none" fill="#9b9b9b" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="234.1667" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-18" stroke="none" fill="#a0a0a0" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="232.0833" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-19" stroke="none" fill="#a4a4a4" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="230" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-20" stroke="none" fill="#a9a9a9" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="227.9167" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-21" stroke="none" fill="#aeaeae" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="225.8333" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-22" stroke="none" fill="#b3b3b3" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="223.75" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-23" stroke="none" fill="#b8b8b8" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="221.6667" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-24" stroke="none" fill="#bdbdbd" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="219.5833" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-25" stroke="none" fill="#c2c2c2" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="217.5" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-26" stroke="none" fill="#c6c6c6" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="215.4167" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-27" stroke="none" fill="#cbcbcb" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="213.3333" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-28" stroke="none" fill="#d0d0d0" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="211.25" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-29" stroke="none" fill="#d5d5d5" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="209.1667" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-30" stroke="none" fill="#dadada" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="207.0833" width="16" height="2.0833" />
-    <rect data-name="value-class-1-colorbar-swatch-31" stroke="none" fill="#dfdfdf" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="447.7333" y="205" width="16" height="2.0833" />
-    <polyline data-name="value-class-1-colorbar-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="463.7333,262.3333 469.0667,262.3333" />
-    <polyline data-name="value-class-1-colorbar-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="463.7333,249 469.0667,249" />
-    <polyline data-name="value-class-1-colorbar-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="463.7333,235.6667 469.0667,235.6667" />
-    <polyline data-name="value-class-1-colorbar-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="463.7333,222.3333 469.0667,222.3333" />
-    <polyline data-name="value-class-1-colorbar-ticks" stroke="#000000" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="463.7333,209 469.0667,209" />
-    <text data-name="value-class-1-colorbar-label-0" fill="#000000" stroke="none" font-size="13.3333" x="474.4" y="262.3333" text-anchor="start" dominant-baseline="middle">95</text>
-    <text data-name="value-class-1-colorbar-label-1" fill="#000000" stroke="none" font-size="13.3333" x="474.4" y="249" text-anchor="start" dominant-baseline="middle">100</text>
-    <text data-name="value-class-1-colorbar-label-2" fill="#000000" stroke="none" font-size="13.3333" x="474.4" y="235.6667" text-anchor="start" dominant-baseline="middle">105</text>
-    <text data-name="value-class-1-colorbar-label-3" fill="#000000" stroke="none" font-size="13.3333" x="474.4" y="222.3333" text-anchor="start" dominant-baseline="middle">110</text>
-    <text data-name="value-class-1-colorbar-label-4" fill="#000000" stroke="none" font-size="13.3333" x="474.4" y="209" text-anchor="start" dominant-baseline="middle">115</text>
-    <text data-name="value-class-1-colorbar-title" fill="#000000" stroke="none" font-size="13.3333" x="447.7333" y="191.3333" text-anchor="start" dominant-baseline="text-after-edge">nuisance</text>
+    <rect data-name="value-class-1-colorbar-swatch-0" stroke="none" fill="#484848" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="266.6667" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-1" stroke="none" fill="#4d4d4d" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="264.5833" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-2" stroke="none" fill="#525252" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="262.5" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-3" stroke="none" fill="#575757" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="260.4167" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-4" stroke="none" fill="#5c5c5c" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="258.3333" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-5" stroke="none" fill="#616161" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="256.25" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-6" stroke="none" fill="#656565" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="254.1667" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-7" stroke="none" fill="#6a6a6a" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="252.0833" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-8" stroke="none" fill="#6f6f6f" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="250" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-9" stroke="none" fill="#747474" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="247.9167" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-10" stroke="none" fill="#797979" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="245.8333" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-11" stroke="none" fill="#7e7e7e" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="243.75" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-12" stroke="none" fill="#838383" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="241.6667" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-13" stroke="none" fill="#878787" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="239.5833" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-14" stroke="none" fill="#8c8c8c" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="237.5" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-15" stroke="none" fill="#919191" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="235.4167" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-16" stroke="none" fill="#969696" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="233.3333" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-17" stroke="none" fill="#9b9b9b" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="231.25" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-18" stroke="none" fill="#a0a0a0" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="229.1667" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-19" stroke="none" fill="#a4a4a4" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="227.0833" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-20" stroke="none" fill="#a9a9a9" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="225" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-21" stroke="none" fill="#aeaeae" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="222.9167" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-22" stroke="none" fill="#b3b3b3" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="220.8333" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-23" stroke="none" fill="#b8b8b8" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="218.75" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-24" stroke="none" fill="#bdbdbd" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="216.6667" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-25" stroke="none" fill="#c2c2c2" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="214.5833" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-26" stroke="none" fill="#c6c6c6" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="212.5" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-27" stroke="none" fill="#cbcbcb" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="210.4167" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-28" stroke="none" fill="#d0d0d0" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="208.3333" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-29" stroke="none" fill="#d5d5d5" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="206.25" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-30" stroke="none" fill="#dadada" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="204.1667" width="16" height="2.0833" />
+    <rect data-name="value-class-1-colorbar-swatch-31" stroke="none" fill="#dfdfdf" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="452.28" y="202.0833" width="16" height="2.0833" />
+    <polyline data-name="value-class-1-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="468.28,259.4167 473.6133,259.4167" />
+    <polyline data-name="value-class-1-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="468.28,246.0833 473.6133,246.0833" />
+    <polyline data-name="value-class-1-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="468.28,232.75 473.6133,232.75" />
+    <polyline data-name="value-class-1-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="468.28,219.4167 473.6133,219.4167" />
+    <polyline data-name="value-class-1-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="468.28,206.0833 473.6133,206.0833" />
+    <text data-name="value-class-1-colorbar-label-0" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="478.9467" y="259.4167" text-anchor="start" dominant-baseline="middle">95</text>
+    <text data-name="value-class-1-colorbar-label-1" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="478.9467" y="246.0833" text-anchor="start" dominant-baseline="middle">100</text>
+    <text data-name="value-class-1-colorbar-label-2" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="478.9467" y="232.75" text-anchor="start" dominant-baseline="middle">105</text>
+    <text data-name="value-class-1-colorbar-label-3" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="478.9467" y="219.4167" text-anchor="start" dominant-baseline="middle">110</text>
+    <text data-name="value-class-1-colorbar-label-4" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="12.6667" x="478.9467" y="206.0833" text-anchor="start" dominant-baseline="middle">115</text>
+    <text data-name="value-class-1-colorbar-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="600" font-size="12.6667" x="452.28" y="188.8333" text-anchor="start" dominant-baseline="text-after-edge">nuisance</text>
   </g>
   <g data-name="plot-title">
-    <text data-name="plot-title" fill="#000000" stroke="none" font-size="21.3333" x="58.6" y="26.6667" text-anchor="start" dominant-baseline="middle">Two palettes, one image</text>
+    <text data-name="plot-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="600" font-size="21.3333" x="56.52" y="26.6667" text-anchor="start" dominant-baseline="middle">Two palettes, one image</text>
   </g>
   <defs>
     <clipPath id="clip-0">
-      <rect x="58.6" y="45.3333" width="367.8" height="247.6667" />
+      <rect x="56.52" y="45.3333" width="374.4267" height="250.1667" />
     </clipPath>
   </defs>
 </svg>

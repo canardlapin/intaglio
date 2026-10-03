@@ -5,7 +5,9 @@ program, renders it through `intaglio-svg`, and writes `docs/gallery/<plate>.svg
 `tools/check-docs.sh` re-renders all of them and fails if a checked-in file differs from what the
 current library produces — so a stale image is a build failure, not a documentation bug.
 
-The plates share one fixture and one set of compiler options.
+The plates share one fixture and an explicit theme recipe. Typography, guide spacing, and
+mark size are chosen together for these 560 × 360 plates. The same immutable theme can be
+reused or adapted for a report.
 
 ```scala mdoc:silent
 import intaglio.*
@@ -44,11 +46,47 @@ val envelopes: Vector[Envelope] =
     Envelope(minute, mean, mean - halfWidth, mean + halfWidth)
   }
 
+def galleryText(sizePt: Double, bold: Boolean = false): GraphicParams =
+  GraphicParams.unsafe(
+    stroke = None,
+    fill = Some(Rgba.unsafe(45, 55, 68)),
+    fontFamily = Some("sans-serif"),
+    fontSize = Length.pointsUnsafe(sizePt),
+    fontWeight = Some(if bold then FontWeight.unsafe(600) else FontWeight.Regular)
+  )
+
+val galleryTheme = Theme.minimal.copy(
+  pointSizePt = 2.8,
+  geom = GraphicParams.unsafe(lineWidth = 1.2),
+  axis = AxisTheme(
+    line = GraphicParams.unsafe(stroke = Some(Rgba.unsafe(145, 153, 163)), lineWidth = 0.75),
+    tick = GraphicParams.unsafe(stroke = Some(Rgba.unsafe(145, 153, 163)), lineWidth = 0.75),
+    text = galleryText(9.5),
+    title = galleryText(10.0)
+  ),
+  legend = LegendTheme(text = galleryText(9.5), title = galleryText(9.5, bold = true)),
+  plotText = PlotTextTheme(title = galleryText(16.0, bold = true), subtitle = galleryText(11.0)),
+  panel = Theme.minimal.panel.copy(
+    grid = Some(GraphicParams.unsafe(stroke = Some(Rgba.unsafe(220, 225, 232)), fill = None, lineWidth = 0.6))
+  ),
+  layout = Theme.minimal.layout.copy(
+    outerMarginPt = 8.0,
+    tickLengthPt = 3.0,
+    tickLabelGapPt = 3.0,
+    axisTitleGapPt = 4.0,
+    plotLabelGapPt = 3.0,
+    legendKeyPt = 8.0,
+    legendGapPt = 8.0,
+    legendPaddingPt = 5.0,
+    legendRowGapPt = 3.0
+  )
+)
+
 val plateContext = RenderContext.unsafe(width = Gallery.width, height = Gallery.height)
 
 val plateOptions = PlotCompilerOptions(
   guides = GuidePolicy.Derived(),
-  theme = Theme.minimal,
+  theme = galleryTheme,
   renderContext = Some(plateContext)
 )
 ```
@@ -175,7 +213,7 @@ val ribbon =
         GraphicParams.unsafe(
           stroke = None,
           fill = Some(Rgba.unsafe(120, 150, 200)),
-          alpha = 0.45
+          alpha = 0.375
         )
       )
     )
@@ -438,7 +476,7 @@ val composed =
     options <- CompositionOptions(
       guides = CompositionGuidePolicy.CollectCompatible,
       layoutPolicy = Theme.minimal.layout,
-      theme = Theme.minimal,
+      theme = galleryTheme,
       columnGapPt = Some(14.0)
     )
     figure <- PlotComposition.row(Vector(left, right), plateContext, options)
