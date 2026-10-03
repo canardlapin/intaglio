@@ -9,8 +9,9 @@ embed it (a DejaVu Sans file is what earlier receipts used). Needs Node with Pla
 NODE_PATH and its Chromium installed. Audit browser ownership before and after (see AGENTS.md).
 
 Jobs: paired SVG/Canvas baseline, parity and navigation; widget, linked, export and standalone on
-each backend; the established SVG navigation suite; aggregate membership on both backends. Widget and linked traces must be identical
-across backends. Exits nonzero unless every job passes.
+each backend; the established SVG navigation suite; aggregate membership on both backends; named
+selections, history, snapshots and filters on each backend. Widget, linked and history traces must
+be identical across backends. Exits nonzero unless every job passes.
 """
 
 import hashlib
@@ -112,6 +113,8 @@ def run_suites(root: Path, commit: str, out: Path, font: Path) -> int:
     jobs.append(("navigation-svg", "navigation", "svg"))
     # Aggregate membership runs both backends itself.
     jobs.append(("membership", "membership", "svg"))
+    for renderer in ["svg", "canvas"]:
+        jobs.append((f"history-{renderer}", "history", renderer))
 
     def run(job):
         name, script, renderer = job
@@ -142,7 +145,7 @@ def run_suites(root: Path, commit: str, out: Path, font: Path) -> int:
         results = list(pool.map(run, jobs))
 
     traces = {}
-    for suite in ["widget", "linked"]:
+    for suite in ["widget", "linked", "history"]:
         reports = [out / f"{suite}-{r}" / "report.json" for r in ["svg", "canvas"]]
         if all(p.is_file() for p in reports):
             a, b = (json.loads(p.read_text()) for p in reports)

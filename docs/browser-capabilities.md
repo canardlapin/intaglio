@@ -200,5 +200,25 @@ recomputed from the raw values, and the shared suites `MemberSelectionSuite`,
 | Emphasis by any or all members | Unit | Unit | `MemberCoverageSuite` thresholds; no browser check selects those rules |
 | Pointing at an observation emphasizes the bins that hold it | Pass | Pass | the same check: hovering a scatter mark rings exactly one bin |
 | Clearing a Members-mode plot clears the linked group | Pass | Pass | "clicking each bin selects exactly its members…" (Escape at the end) |
-| Filtering or recomputing a statistic from a selection | Gap | Gap | an explicit application action; not part of this extension |
+| Filtering or recomputing a statistic from a selection | Pass | Pass | an explicit application command, not part of membership; see Interaction 10 below |
 
+## Analytical extension: named selections, history, snapshots and filters (Interaction 10)
+
+Beyond the baseline: selections saved by name and combined, undo and redo, snapshots that survive a
+reload, an inspector and an explicit filter. Receipts are `tools/check-history-browser.cjs` on SVG
+and Canvas (paired traces must match), against set and bin oracles computed in the check, and the
+shared suites `SelectionAlgebraSuite`, `InteractionSnapshotSuite`, `InteractionHistorySuite`,
+`InspectorModelSuite` and `FilterCommandSuite` (JVM and Scala.js). See
+[selection-history.md](selection-history.md).
+
+| Part | SVG | Canvas | Evidence |
+| --- | --- | --- | --- |
+| Save an area sweep and a bin's exact members by name | Pass | Pass | "a swept area and a bin's members are saved by name" |
+| Union, intersection and difference follow the set laws; incompatible operands are refused | Pass | Pass | the browser oracle check; `SelectionAlgebraSuite` (laws exhaustively, refusals) |
+| Recall a saved selection into the current one, carried to linked plots | Pass | Pass | "intersection, union and difference of saved selections match set oracles" |
+| Undo and redo by keyboard, followed by the linked plots, with no link or resolver effects | Pass | Pass | "keyboard undo and redo walk this plot's changes…"; `InteractionHistorySuite` boundaries |
+| A snapshot restores keys, saved selections and the window after a reload | Pass | Pass | "a snapshot survives a reload…" |
+| Tampered schema, codec, revision or text is refused with its reason, changing nothing | Pass | Pass | "a tampered snapshot is refused…"; `InteractionSnapshotSuite` for each `SnapshotError` |
+| Inspector: observations, targets, aggregate coverage, exact members, unresolved keys, saved selections | Pass | Pass | `InspectorModelSuite`; the panel text in the filter check |
+| Filter to a selection: input and statistical changes reported apart from emphasis, then reconciled | Pass | Pass | "filtering the histogram to a selection…" (bin totals against the oracle) |
+| Undo across a data replacement | Gap | Gap | history is cleared when the data is replaced, by design |

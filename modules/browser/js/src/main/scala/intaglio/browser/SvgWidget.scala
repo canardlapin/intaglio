@@ -88,6 +88,14 @@ final class SvgWidget[A] private (
   /** The unwindowed panel frame; a window's frame is this one with the window's position ranges. */
   private var basePanelFrame: Option[DeviceFrame] = view.panelFrame
   private var window: PanelWindow = PanelWindow.full
+
+  /** The viewport the drawn window records; a restored state viewport that differs is drawn. */
+  private var drawnViewport: Option[PanelViewport] = None
+
+  /** Undo/redo of this plot's durable state, with the `InteractionHistory` boundaries. */
+  private var history: InteractionHistory[A] = InteractionHistory.empty[A]().toOption.get
+  private var stateListeners = Vector.empty[(Long, InteractionState[A] => Unit)]
+  private var nextStateListener = 0L
   private var pendingCause: InputCause = InputCause.Pointer
   private var magnification = 1.0
   private var pendingWindow: Option[PanelWindow] = None
@@ -182,6 +190,81 @@ final class SvgWidget[A] private (
     scheduleRedraw()
     result
 
+  // ---- Saved selections, snapshots and history (Interaction 10) ----
+
+  /** Save the current selection as `name` (an application command, recorded in history). */
+  def saveSelection(name: SelectionName): Either[IntaglioError, Unit] =
+    dispatch(InteractionAction.SaveSelection(name), InputCause.Programmatic)
+
+  /** Apply the selection saved as `name` under `operation`. */
+  def recallSelection(
+      name: SelectionName,
+      operation: SelectionOperation
+  ): Either[IntaglioError, Unit] =
+    dispatch(InteractionAction.RecallSelection(name, operation), InputCause.Programmatic)
+
+  /** Save `left` combined with `right` as `into`; the current selection is unchanged. */
+  def combineSelections(
+      left: SelectionName,
+      right: SelectionName,
+      how: SetCombination,
+      into: SelectionName
+  ): Either[IntaglioError, Unit] =
+    dispatch(InteractionAction.CombineSelections(left, right, how, into), InputCause.Programmatic)
+
+  def deleteSelection(name: SelectionName): Either[IntaglioError, Unit] =
+    dispatch(InteractionAction.DeleteSelection(name), InputCause.Programmatic)
+
+  /** The durable state (selection, saved selections, viewport, mode) as a versioned snapshot. */
+  def snapshot: Either[IntaglioError, InteractionSnapshot] =
+    controller.state.map(InteractionSnapshot.capture)
+
+  /** Restore a snapshot taken of this plot (possibly in an earlier session): checked against what
+    * is shown now, refused with a typed `SnapshotError` when it cannot mean the same thing, and
+    * applied as one recorded change that follows no link and asks no resolver.
+    */
+  def restore(snapshot: InteractionSnapshot): Either[IntaglioError, Unit] =
+    for
+      current <- controller.state
+      resolved <- InteractionSnapshot.resolve(snapshot, current.domain)
+      _ <- dispatch(InteractionAction.RestoreSnapshot(resolved), InputCause.Programmatic)
+    yield scheduleRedraw()
+
+  def canUndo: Boolean = history.canUndo
+  def canRedo: Boolean = history.canRedo
+
+  /** Undo this plot's last recorded change; `false` when there is nothing to undo. */
+  def undo(): Either[IntaglioError, Boolean] = undo(InputCause.Programmatic)
+  def redo(): Either[IntaglioError, Boolean] = redo(InputCause.Programmatic)
+
+  private def undo(cause: InputCause): Either[IntaglioError, Boolean] = move(cause, history.undo)
+  private def redo(cause: InputCause): Either[IntaglioError, Boolean] = move(cause, history.redo)
+
+  private def move(
+      cause: InputCause,
+      step: InteractionState[A] => Option[(InteractionAction[A], InteractionHistory[A])]
+  ): Either[IntaglioError, Boolean] =
+    controller.state.flatMap { current =>
+      step(current) match
+        case None                  => Right(false)
+        case Some((action, after)) =>
+          dispatch(action, cause, record = false).map { _ =>
+            history = after
+            scheduleRedraw()
+            true
+          }
+    }
+
+  /** Called with the state after every redraw, including changes projected in by linked views
+    * (which emit no events). Returns an unsubscribe function.
+    */
+  def subscribeState(listener: InteractionState[A] => Unit): () => Unit =
+    val id = nextStateListener
+    nextStateListener += 1
+    stateListeners = stateListeners :+ (id -> listener)
+    scheduleRedraw()
+    () => stateListeners = stateListeners.filterNot(_._1 == id)
+
   /** Replace application-supplied target paint, or clear it with an empty map. This changes no
     * selection, viewport, or events. Invalid targets/styles fail atomically. Explicit data/view
     * updates clear these view-bound styles; ordinary pan/zoom retains them.
@@ -234,7 +317,8 @@ final class SvgWidget[A] private (
         clearGestureLayer()
         // A pointer still held open its gesture in the state; end it, or the mode cannot change.
         if controller.state.exists(_.gesture.nonEmpty) then
-          dispatch(InteractionAction.EndGesture(true), InputCause.Programmatic).left.foreach(report)
+          dispatch(InteractionAction.EndGesture(true), InputCause.Programmatic, record = false).left
+            .foreach(report)
         basePlan = next.singlePlan
         baseView = next
         unstyledView = next
@@ -242,17 +326,22 @@ final class SvgWidget[A] private (
         navigator = SvgWidget.navigatorOf(next)
         basePanelFrame = next.panelFrame
         window = PanelWindow.full
+        drawnViewport = None
+        // New data clears history, as InteractionHistory does on a domain replacement.
+        history = InteractionHistory.empty[A]().toOption.get
         pendingWindow = None
         // The state's recorded viewport and a navigation-only mode follow the new full view.
         dispatch(
           InteractionAction.SetViewport(SvgWidget.panelId, None),
-          InputCause.Programmatic
+          InputCause.Programmatic,
+          record = false
         ).left
           .foreach(report)
         if navigator.isEmpty && (mode == GestureMode.Pan || mode == GestureMode.ZoomRectangle) then
           dispatch(
             InteractionAction.SetGestureMode(GestureMode.Inspect),
-            InputCause.Programmatic
+            InputCause.Programmatic,
+            record = false
           ).left
             .foreach(report)
         refreshToolbar()
@@ -596,7 +685,20 @@ final class SvgWidget[A] private (
         case "0"                                =>
           Some(() => showWindow(PanelWindow.full, InputCause.Keyboard).left.foreach(report))
         case _ => None
-      if drag.nonEmpty && event.key.asInstanceOf[String] == "Escape" then
+      val keyName = event.key.asInstanceOf[String].toLowerCase
+      val command = event.ctrlKey.asInstanceOf[Boolean] || event.metaKey.asInstanceOf[Boolean]
+      val historyKey =
+        if command && keyName == "z" && !event.shiftKey.asInstanceOf[Boolean] then Some(true)
+        else if command && (keyName == "y" || (keyName == "z" && event.shiftKey
+            .asInstanceOf[Boolean]))
+        then Some(false)
+        else None
+      if historyKey.nonEmpty && drag.isEmpty then
+        event.preventDefault()
+        (if historyKey.contains(true) then undo(InputCause.Keyboard)
+         else redo(InputCause.Keyboard)).left
+          .foreach(report)
+      else if drag.nonEmpty && event.key.asInstanceOf[String] == "Escape" then
         // Escape first abandons a drag in progress; a second Escape clears the selection.
         event.preventDefault()
         cancelGesture()
@@ -824,7 +926,11 @@ final class SvgWidget[A] private (
   /** Re-window the base plan and show it. The plan's identity and revision are unchanged, so the
     * interaction state (selection, focus) stands; the viewport is recorded in it.
     */
-  private def showWindow(value: PanelWindow, cause: InputCause): Either[IntaglioError, Unit] =
+  private def showWindow(
+      value: PanelWindow,
+      cause: InputCause,
+      record: Boolean = true
+  ): Either[IntaglioError, Unit] =
     // A window shown now supersedes one still waiting for its animation frame.
     pendingWindow = None
     if disposed then Left(ControllerError.Disposed)
@@ -869,9 +975,11 @@ final class SvgWidget[A] private (
               frame.yScale.lower,
               frame.yScale.upper
             ).map(Some(_))
+        _ = drawnViewport = recorded
         _ <- dispatch(
           InteractionAction.SetViewport(SvgWidget.panelId, recorded),
-          cause
+          cause,
+          record
         )
       yield ()
 
@@ -1091,11 +1199,15 @@ final class SvgWidget[A] private (
 
   private def dispatch(
       action: InteractionAction[A],
-      cause: InputCause
+      cause: InputCause,
+      record: Boolean = true
   ): Either[IntaglioError, Unit] =
-    controller.state
-      .flatMap(current => controller.dispatch(stamp(current, cause), action))
-      .map(_ => ())
+    controller.state.flatMap { before =>
+      controller.dispatch(stamp(before, cause), action).map { _ =>
+        if record then
+          controller.state.foreach(after => history = history.record(before, after, cause))
+      }
+    }
 
   private def controlFailure(error: IntaglioError): Unit =
     if !disposed then
@@ -1407,7 +1519,31 @@ final class SvgWidget[A] private (
           ring(id, "intaglio-ring-focus-halo", 4.0)
           ring(id, "intaglio-ring-focus", 4.0)
         }
+      followViewport(current)
+      stateListeners.foreach((_, listener) => listener(current))
     }
+
+  /** Draw the window the state records when it differs from the one drawn: a restore, undo or redo
+    * changed the viewport. Both recorded axes are normalized, so an axis at its full extent is the
+    * compiled view; nothing new is recorded in history.
+    */
+  private def followViewport(current: InteractionState[A]): Unit =
+    val wanted = current.viewports.get(SvgWidget.panelId)
+    if wanted != drawnViewport then
+      navigator.foreach { nav =>
+        val target = wanted.fold(Right(PanelWindow.full))(v =>
+          nav.normalize(PanelWindow(Some((v.xMin, v.xMax)), Some((v.yMin, v.yMax))))
+        )
+        target
+          .flatMap(w =>
+            if w == window then
+              drawnViewport = wanted
+              Right(())
+            else showWindow(w, InputCause.Programmatic, record = false)
+          )
+          .left
+          .foreach(report)
+      }
 
   private def ring(target: VisualTargetId, className: String, offset: Double): Unit =
     view.picking.outline(target, offset).foreach(path(_, className))

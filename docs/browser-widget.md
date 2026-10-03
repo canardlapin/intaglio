@@ -110,6 +110,25 @@ keeps only counts, and deferred members without a resolver.
 Checked on SVG and Canvas by `tools/check-membership-browser.cjs`, against bins recomputed from the
 raw values.
 
+## Named selections, history and snapshots
+
+A widget keeps named selections, undo/redo history and snapshots (see
+[selection-history.md](selection-history.md) for the boundaries):
+
+- `saveSelection(name)`, `recallSelection(name, operation)`, `combineSelections(left, right, how,
+  into)` and `deleteSelection(name)` change saved selections through the reducer.
+- Ctrl/Cmd+Z undoes this plot's last change and Shift+Ctrl/Cmd+Z or Ctrl+Y redoes it; `undo()`,
+  `redo()`, `canUndo` and `canRedo` do the same from the application. A linked group follows, and
+  neither ever follows a link or asks a membership resolver. Updating the data clears the history.
+- `snapshot` captures the durable state (selection, saved selections, window, mode) and
+  `restore(snapshot)` applies one after checking it against the plot shown now; a snapshot with
+  another schema, codec, plan or data revision is refused with a typed `SnapshotError`.
+- `subscribeState` reports each new state; `InspectorPanel.mount(container, widgets)` uses it to
+  show, as plain tables, what each plot's selection means and, with `showFilter`, a
+  `FilterCommand`'s input and statistical report.
+
+Checked on SVG and Canvas by `tools/check-history-browser.cjs`.
+
 ## Selecting regions and navigating
 
 A toolbar above the plot chooses what a drag does: **Inspect** (point and click), **Select

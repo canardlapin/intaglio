@@ -69,3 +69,23 @@ dependency; the JVM and Scala.js write the same text. A snapshot is restored in 
   undoing to a selection that held them restores them as unresolved.
 
 The history depth is bounded (100 by default).
+
+## Inspecting and filtering
+
+`InspectorModel.of(state, sample)` describes what a selection means: observations (with a sample),
+selected marks and aggregates, each aggregate's `MemberCoverage` and its exact members when known,
+uncountable aggregates, unresolved keys and saved selections. It is pure and shared; the browser
+`InspectorPanel` renders it as text.
+
+`FilterCommand(rows, space, key, compile).keep(current, keys, dataRevision, planRevision)` is an
+explicit filter: it keeps the rows whose keys are given, recompiles the plot with new revisions and
+returns a `FilterResult` with the input change (rows before and after, observations removed) and,
+per target group, the target counts and member totals before and after. It selects and emphasizes
+nothing; applying the new plan (for example with `SvgWidget.update`) reconciles the selection as any
+data update does.
+
+## In the browser
+
+`SvgWidget` exposes all of this (see [browser-widget.md](browser-widget.md)), and
+`tools/check-history-browser.cjs` exercises it on SVG and Canvas.
+

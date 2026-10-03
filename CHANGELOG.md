@@ -63,6 +63,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ComposedParts`, which keeps each composed child's titles, axes and
   annotations its own parts. See [docs/canvas-widget.md](docs/canvas-widget.md).
 
+- **Analytical workflows in the browser widget.** `SvgWidget` saves, recalls,
+  combines and deletes named selections, undoes and redoes this plot's changes
+  (Ctrl/Cmd+Z, Shift+Ctrl/Cmd+Z or Ctrl+Y, or `undo()`/`redo()`) with linked
+  plots following, and captures and restores `InteractionSnapshot`s;
+  `subscribeState` reports each new state. `InspectorPanel` renders an
+  `InspectorModel` per plot as plain tables and shows a `FilterCommand`'s
+  report apart from selection and emphasis. Checked on SVG and Canvas by
+  `tools/check-history-browser.cjs`, now part of `tools/check-browser-suites.py`.
+
 - **Inspector model and explicit filters.** `InspectorModel.of(state)`
   separates what a selection means: observations, selected marks and
   aggregates, how far the selection reaches into each aggregate
