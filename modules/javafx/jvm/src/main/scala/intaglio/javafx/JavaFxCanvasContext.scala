@@ -5,7 +5,7 @@ import javafx.scene.canvas.GraphicsContext
 import javafx.scene.image.{Image, PixelFormat, WritableImage}
 import javafx.scene.paint.{Color, ImagePattern}
 import javafx.scene.shape.{StrokeLineCap, StrokeLineJoin}
-import javafx.scene.text.{Font, FontWeight as FxFontWeight, TextAlignment}
+import javafx.scene.text.{Font, FontWeight as FxFontWeight, TextAlignment, TextBoundsType}
 import java.lang.ref.WeakReference
 import scala.collection.mutable
 import intaglio.*
@@ -266,19 +266,26 @@ final class JavaFxCanvasContext(context: GraphicsContext, val cacheByteLimit: Lo
         case (None, Some(bold))       => Font.font(null, bold, sizePx)
         case (None, None)             => Font.font(sizePx)
     )
-    node.setTextOrigin(
-      vertical match
-        case VJust.Top    => VPos.TOP
-        case VJust.Center => VPos.CENTER
-        case VJust.Bottom => VPos.BOTTOM
-    )
-    val bounds = node.getLayoutBounds
-    val width = bounds.getWidth
+    // Measure both boxes at the alphabetic baseline. Switching bounds type with a top/center/
+    // bottom origin would also change that origin, moving the visual box relative to fillText.
+    node.setTextOrigin(VPos.BASELINE)
+    val logical = node.getLayoutBounds
+    node.setBoundsType(TextBoundsType.VISUAL)
+    val visual = node.getLayoutBounds
+    val minX = math.min(logical.getMinX, visual.getMinX)
+    val maxX = math.max(logical.getMaxX, visual.getMaxX)
+    val minY = math.min(logical.getMinY, visual.getMinY)
+    val maxY = math.max(logical.getMaxY, visual.getMaxY)
+    // Canvas positions the text from the logical advance, even when a glyph overhangs it.
     val left = horizontal match
       case HJust.Left   => 0.0
-      case HJust.Center => -width / 2.0
-      case HJust.Right  => -width
-    Some(JavaFxTextBox(left, bounds.getMinY, width, bounds.getHeight))
+      case HJust.Center => -logical.getWidth / 2.0
+      case HJust.Right  => -logical.getWidth
+    val baseline = vertical match
+      case VJust.Top    => -logical.getMinY
+      case VJust.Center => -(logical.getMinY + logical.getHeight / 2.0)
+      case VJust.Bottom => -logical.getMaxY
+    Some(JavaFxTextBox(left + minX, baseline + minY, maxX - minX, maxY - minY))
 
 object JavaFxCanvasContext:
   val DefaultCacheByteLimit: Long = 64L * 1024L * 1024L

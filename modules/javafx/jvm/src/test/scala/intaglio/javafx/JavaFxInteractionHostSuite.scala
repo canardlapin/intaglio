@@ -12,6 +12,8 @@ import _root_.javafx.scene.input.{KeyCode, KeyEvent, MouseButton, MouseEvent, Pi
 import java.lang.ref.WeakReference
 import java.util.concurrent.{CountDownLatch, FutureTask, TimeUnit}
 import java.nio.file.{Files, Path}
+import java.awt.image.BufferedImage
+import javax.imageio.ImageIO
 
 class JavaFxInteractionHostSuite extends munit.FunSuite:
   private def ok[A](result: Either[IntaglioError, A]): A =
@@ -531,6 +533,67 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
     assertEquals(plainCasing, Set.empty[(Int, Int)])
   }
 
+  test("native text plates include glyph overhangs for every anchor") {
+    val evidence = Path.of("target", "feature-evidence", "javafx-text-plate-overhang")
+    Files.createDirectories(evidence)
+    for
+      family <- Vector(Some("Serif"), None, Some("Intaglio No Such Face"))
+      label <- Vector("j", "f", "fj", "Wj", "A\u0301", "", "  ")
+      horizontal <- HJust.values
+      vertical <- VJust.values
+    do
+      val anchor = Anchor(horizontal, vertical)
+      val gp = GraphicParams.unsafe(
+        stroke = None,
+        fill = Some(Rgba.Black),
+        fontFamily = family,
+        fontSize = Length.pointsUnsafe(144)
+      )
+      val plateParams = gp
+        .withSolidFill(Some(Rgba.unsafe(0, 0, 0, 0)))
+        .withTextPlate(
+          TextPlate(Rgba.unsafe(0, 160, 0), StrokeWidth.devicePixelsUnsafe(4))
+        )
+      def pixels(params: GraphicParams): Vector[Int] = fx {
+        val text = ok(Grob.text(label, Point.npcUnsafe(0.5, 0.5), anchor = anchor, gp = params))
+        val options = JavaFxOptions.unsafe(width = 640, height = 480, pixelsPerInch = 72)
+        val program = ok(JavaFxRenderer.compile(Scene(Vector(text)), options))
+        val canvas = new Canvas(640, 480)
+        JavaFxRenderer.draw(program, new JavaFxCanvasContext(canvas.getGraphicsContext2D))
+        val parameters = new SnapshotParameters()
+        parameters.setFill(Color.TRANSPARENT)
+        val reader = canvas.snapshot(parameters, null).getPixelReader
+        (for y <- 0 until 480; x <- 0 until 640 yield reader.getArgb(x, y)).toVector
+      }
+      val ink = pixels(gp)
+      val plate = pixels(plateParams)
+      if family.contains("Serif") && label == "j" && anchor == Anchor.BottomLeft then
+        for (name, argb) <- Vector("ink" -> ink, "plate" -> plate) do
+          val image = new BufferedImage(640, 480, BufferedImage.TYPE_INT_ARGB)
+          image.setRGB(0, 0, 640, 480, argb.toArray, 0, 640)
+          ImageIO.write(image, "png", evidence.resolve(s"serif-j-$name.png").toFile)
+      val inkPoints = ink.zipWithIndex.collect {
+        case (argb, index) if (argb >>> 24) >= 128 => (index % 640, index / 640)
+      }
+      val platePoints = plate.zipWithIndex.collect {
+        case (argb, index) if (argb >>> 24) > 0 => (index % 640, index / 640)
+      }
+      def bounds(points: Seq[(Int, Int)]) =
+        (points.map(_._1).min, points.map(_._2).min, points.map(_._1).max, points.map(_._2).max)
+      val outside = ink.zip(plate).count { case (i, p) => (i >>> 24) >= 128 && (p >>> 24) == 0 }
+      assert(platePoints.nonEmpty, (family, label, anchor))
+      if label.isBlank then assertEquals(inkPoints, Vector.empty, (family, label, anchor))
+      else
+        assert(inkPoints.nonEmpty, (family, label, anchor))
+        val (pl, pt, pr, pb) = bounds(platePoints)
+        val (il, it, ir, ib) = bounds(inkPoints)
+        assert(
+          il - pl >= 3 && pr - ir >= 3 && it - pt >= 3 && pb - ib >= 3,
+          (family, label, anchor, outside, (pl, pt, pr, pb), (il, it, ir, ib))
+        )
+      assertEquals(outside, 0, (family, label, anchor))
+  }
+
   test("native canvas sizes a text plate from JavaFX's own layout, fallback face included") {
     for
       family <- Vector(None, Some("Intaglio No Such Face"))
@@ -551,7 +614,10 @@ class JavaFxInteractionHostSuite extends munit.FunSuite:
         val reader = canvas.snapshot(parameters, null).getPixelReader
         val pixels = for y <- 0 until 80; x <- 0 until 240 yield (x, y, reader.getArgb(x, y))
         (
-          pixels.collect { case (x, y, argb) if (argb >>> 24) > 0 => (x, y) },
+          // Glyph ink must not enlarge the plate's measured bounds.
+          pixels.collect {
+            case (x, y, argb) if (argb >>> 24) > 0 && ((argb >>> 8) & 0xff) > 100 => (x, y)
+          },
           pixels.collect {
             case (x, y, argb) if (argb >>> 24) == 0xff && ((argb >>> 8) & 0xff) < 100 => (x, y)
           }
