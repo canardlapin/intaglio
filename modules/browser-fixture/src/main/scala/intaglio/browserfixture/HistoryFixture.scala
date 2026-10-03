@@ -172,6 +172,8 @@ object HistoryFixture:
         message(
           widgets(slot).combineSelections(name(l), name(r), SetCombination.valueOf(how), name(into))
         ),
+      canUndo = (slot: String) => widgets(slot).canUndo,
+      canRedo = (slot: String) => widgets(slot).canRedo,
       undo = (slot: String) => widgets(slot).undo().fold(_.message, _.toString),
       redo = (slot: String) => widgets(slot).redo().fold(_.message, _.toString),
       zoom = (slot: String, lo: Double, hi: Double) =>

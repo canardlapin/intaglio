@@ -95,6 +95,17 @@ final class SvgWidget[A] private (
   /** Undo/redo of this plot's durable state, with the `InteractionHistory` boundaries. */
   private var history: InteractionHistory[A] = InteractionHistory.empty[A]().toOption.get
   private var stateListeners = Vector.empty[(Long, InteractionState[A] => Unit)]
+
+  /** What state listeners last saw: data revision and durable state. Hover and focus are not news.
+    */
+  private var lastReported: Option[Any] = None
+
+  /** The state before a run of continuous navigation (pan, pinch, wheel or key zoom frames), which
+    * is recorded as one history entry once the run pauses, not one per animation frame.
+    */
+  private var navigationBefore: Option[InteractionState[A]] = None
+  private var navigationCause: InputCause = InputCause.Pointer
+  private var navigationTimer: Option[js.Any] = None
   private var nextStateListener = 0L
   private var pendingCause: InputCause = InputCause.Pointer
   private var magnification = 1.0
@@ -244,6 +255,7 @@ final class SvgWidget[A] private (
       cause: InputCause,
       step: InteractionState[A] => Option[(InteractionAction[A], InteractionHistory[A])]
   ): Either[IntaglioError, Boolean] =
+    commitNavigation()
     controller.state.flatMap { current =>
       step(current) match
         case None                  => Right(false)
@@ -262,7 +274,7 @@ final class SvgWidget[A] private (
     val id = nextStateListener
     nextStateListener += 1
     stateListeners = stateListeners :+ (id -> listener)
-    scheduleRedraw()
+    controller.state.foreach(current => safely(listener(current)))
     () => stateListeners = stateListeners.filterNot(_._1 == id)
 
   /** Replace application-supplied target paint, or clear it with an empty map. This changes no
@@ -327,8 +339,11 @@ final class SvgWidget[A] private (
         basePanelFrame = next.panelFrame
         window = PanelWindow.full
         drawnViewport = None
-        // New data clears history, as InteractionHistory does on a domain replacement.
-        history = InteractionHistory.empty[A]().toOption.get
+        // New data clears history, as InteractionHistory does on a domain replacement; the same
+        // data at another size or look keeps it.
+        commitNavigation()
+        if current.domain.revision != domain.revision then
+          history = InteractionHistory.empty[A]().toOption.get
         pendingWindow = None
         // The state's recorded viewport and a navigation-only mode follow the new full view.
         dispatch(
@@ -496,6 +511,10 @@ final class SvgWidget[A] private (
       subscriptions = Vector.empty
       partListeners = Vector.empty
       hoverListeners = Vector.empty
+      stateListeners = Vector.empty
+      navigationTimer.foreach(t => g.clearTimeout(t))
+      navigationTimer = None
+      navigationBefore = None
       resizeObserver.foreach(_.disconnect())
       resizeObserver = None
       frame.foreach(handle => g.cancelAnimationFrame(handle))
@@ -685,13 +704,19 @@ final class SvgWidget[A] private (
         case "0"                                =>
           Some(() => showWindow(PanelWindow.full, InputCause.Keyboard).left.foreach(report))
         case _ => None
+      // Matched by key, or by physical key on layouts whose Z and Y keys type other letters.
       val keyName = event.key.asInstanceOf[String].toLowerCase
-      val command = event.ctrlKey.asInstanceOf[Boolean] || event.metaKey.asInstanceOf[Boolean]
+      val code = event.code.asInstanceOf[js.UndefOr[String]].getOrElse("")
+      val latin = keyName.length == 1 && keyName.head >= 'a' && keyName.head <= 'z'
+      def pressed(letter: String) =
+        keyName == letter || (!latin && code == s"Key${letter.toUpperCase}")
+      val ctrl = event.ctrlKey.asInstanceOf[Boolean]
+      val command = (ctrl || event.metaKey.asInstanceOf[Boolean]) && !event.altKey
+        .asInstanceOf[Boolean]
+      val shift = event.shiftKey.asInstanceOf[Boolean]
       val historyKey =
-        if command && keyName == "z" && !event.shiftKey.asInstanceOf[Boolean] then Some(true)
-        else if command && (keyName == "y" || (keyName == "z" && event.shiftKey
-            .asInstanceOf[Boolean]))
-        then Some(false)
+        if command && pressed("z") then Some(!shift)
+        else if command && ctrl && !shift && pressed("y") then Some(false)
         else None
       if historyKey.nonEmpty && drag.isEmpty then
         event.preventDefault()
@@ -919,7 +944,13 @@ final class SvgWidget[A] private (
       val callback: js.Function1[Double, Unit] = _ =>
         windowFrame = None
         pendingWindow.foreach { next =>
-          showWindow(next, pendingCause).left.foreach(report)
+          if navigationBefore.isEmpty then
+            navigationBefore = controller.state.toOption
+            navigationCause = pendingCause
+          showWindow(next, pendingCause, record = false).left.foreach(report)
+          navigationTimer.foreach(t => g.clearTimeout(t))
+          val pause: js.Function0[Unit] = () => commitNavigation()
+          navigationTimer = Some(g.setTimeout(pause, SvgWidget.navigationPauseMs))
         }
       windowFrame = Some(g.requestAnimationFrame(callback))
 
@@ -1202,12 +1233,27 @@ final class SvgWidget[A] private (
       cause: InputCause,
       record: Boolean = true
   ): Either[IntaglioError, Unit] =
+    if record then commitNavigation()
     controller.state.flatMap { before =>
       controller.dispatch(stamp(before, cause), action).map { _ =>
         if record then
           controller.state.foreach(after => history = history.record(before, after, cause))
       }
     }
+
+  /** Record a run of continuous navigation as one entry: the state before it to the state now. */
+  private def commitNavigation(): Unit =
+    navigationTimer.foreach(t => g.clearTimeout(t))
+    navigationTimer = None
+    navigationBefore.foreach { before =>
+      navigationBefore = None
+      controller.state.foreach(after => history = history.record(before, after, navigationCause))
+    }
+
+  /** Run an application callback; a failure is reported and does not stop the others. */
+  private def safely(callback: => Unit): Unit =
+    try callback
+    catch case error: Throwable => g.console.error(s"intaglio state listener failed: $error")
 
   private def controlFailure(error: IntaglioError): Unit =
     if !disposed then
@@ -1520,7 +1566,21 @@ final class SvgWidget[A] private (
           ring(id, "intaglio-ring-focus", 4.0)
         }
       followViewport(current)
-      stateListeners.foreach((_, listener) => listener(current))
+    }
+    // Listeners hear of a change of data or durable state (after the window follows it), not of
+    // hover, focus or gestures.
+    controller.state.foreach { now =>
+      val seen = (
+        now.domain.revision,
+        now.selectionMode,
+        now.selection,
+        now.named,
+        now.viewports,
+        now.unresolved
+      )
+      if !lastReported.contains(seen) then
+        lastReported = Some(seen)
+        stateListeners.foreach((_, listener) => safely(listener(now)))
     }
 
   /** Draw the window the state records when it differs from the one drawn: a restore, undo or redo
@@ -1531,8 +1591,15 @@ final class SvgWidget[A] private (
     val wanted = current.viewports.get(SvgWidget.panelId)
     if wanted != drawnViewport then
       navigator.foreach { nav =>
+        // A categorical axis always shows its compiled extent, so only navigable axes are asked.
+        val (nx, ny) = nav.navigable
         val target = wanted.fold(Right(PanelWindow.full))(v =>
-          nav.normalize(PanelWindow(Some((v.xMin, v.xMax)), Some((v.yMin, v.yMax))))
+          nav.normalize(
+            PanelWindow(
+              Option.when(nx)((v.xMin, v.xMax)),
+              Option.when(ny)((v.yMin, v.yMax))
+            )
+          )
         )
         target
           .flatMap(w =>
@@ -1588,6 +1655,9 @@ final class SvgWidget[A] private (
     overlay.appendChild(group)
 
 object SvgWidget:
+  /** How long navigation must pause before its run is recorded as one history entry. */
+  private val navigationPauseMs = 400.0
+
   /** Mount `view` into `container` (a DOM element). The widget owns everything it adds. */
   def mount[A](
       container: js.Dynamic,

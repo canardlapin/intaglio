@@ -91,22 +91,64 @@ async function main() {
       return Object.fromEntries(Object.entries(oracles).map(([k, v]) => [k, v.length]));
     });
 
+    const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+    const overlap = sorted(sweep.filter(x => bin.includes(x)));
     await check('keyboard undo and redo walk this plot\'s changes and the link follows, without effects', async () => {
-      const before = { a: (await eventsOf('a')).length, h: (await eventsOf('h')).length };
+      const before = Object.fromEntries(await Promise.all(['a', 'b', 'h'].map(async s => [s, (await eventsOf(s)).length])));
+      assert.equal(await h('canUndo', 'b'), false, 'projected input is not history in the linked plot');
       await fx(() => document.querySelector('[data-intaglio-widget=a] .intaglio-plot').focus());
-      const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
       await tab.keyboard.press(`${mod}+z`); // undo the Intersect recall
       await settle();
       assert.deepEqual(await h('selected', 'a'), bin);
       assert.deepEqual(await h('selected', 'b'), bin, 'the linked plot follows the undo');
+      assert.equal(await h('canRedo', 'a'), true);
       await tab.keyboard.press(`${mod}+Shift+z`); // redo it
       await settle();
-      const overlap = sorted(sweep.filter(x => bin.includes(x)));
       assert.deepEqual(await h('selected', 'a'), overlap);
-      const later = [...(await eventsOf('a')).slice(before.a), ...(await eventsOf('h')).slice(before.h)];
-      assert.ok(later.every(e => !e.startsWith('Activated') && !e.startsWith('MembershipRequested')), later.join(' '));
+      assert.deepEqual(await h('selected', 'b'), overlap, 'the linked plot follows the redo');
+      await tab.keyboard.press(`${mod}+z`);
+      await settle();
+      await tab.keyboard.press('Control+y'); // the other redo shortcut
+      await settle();
+      assert.deepEqual(await h('selected', 'a'), overlap);
+      assert.equal(await h('canRedo', 'a'), false);
+      assert.equal(await h('canUndo', 'b'), false, 'undo and redo carried by the link are not history there');
+      const later = [];
+      for (const [slot, n] of Object.entries(before)) later.push(...(await eventsOf(slot)).slice(n));
+      assert.ok(later.length > 0 && later.every(e => e.startsWith('SelectionChanged')), later.join(' '));
       report.trace.push(...later);
       return { events: later.length };
+    });
+
+    await check('a pan is one history entry, and undo restores each window in turn', async () => {
+      assert.equal(await h('zoom', 'a', 0.2, 0.5), 'ok'); // an application command: one entry
+      await settle();
+      const zoomed = await h('window', 'a');
+      await tab.locator('[data-intaglio-widget=a] .intaglio-toolbar button', { hasText: /^Pan$/ }).click();
+      const r = await fx(() => document.querySelector('[data-intaglio-widget=a] .intaglio-base').getBoundingClientRect().toJSON());
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      await tab.mouse.move(cx, cy); await tab.mouse.down();
+      for (let i = 1; i <= 20; i++) { await tab.mouse.move(cx - i * 6, cy, { steps: 1 }); await settle(20); }
+      await tab.mouse.up();
+      await settle(700); // the pause that ends a navigation run
+      const panned = await h('window', 'a');
+      assert.ok(panned[0] > zoomed[0] + 1e-9, JSON.stringify({ zoomed, panned }));
+      await fx(() => document.querySelector('[data-intaglio-widget=a] .intaglio-plot').focus());
+      await tab.keyboard.press(`${mod}+z`); // undo the whole pan
+      await settle(200);
+      const back = await h('window', 'a');
+      assert.ok(Math.abs(back[0] - zoomed[0]) < 1e-9 && Math.abs(back[1] - zoomed[1]) < 1e-9, JSON.stringify({ zoomed, back }));
+      await tab.keyboard.press(`${mod}+z`); // undo the zoom
+      await settle(200);
+      assert.equal(await h('window', 'a'), null);
+      assert.deepEqual(await h('selected', 'a'), overlap, 'navigation undo leaves the selection');
+      await tab.keyboard.press(`${mod}+Shift+z`);
+      await tab.keyboard.press(`${mod}+Shift+z`);
+      await settle(200);
+      const again = await h('window', 'a');
+      assert.ok(Math.abs(again[0] - panned[0]) < 1e-9, JSON.stringify({ panned, again }));
+      await tab.locator('[data-intaglio-widget=a] .intaglio-toolbar button', { hasText: 'Inspect' }).click();
+      return { zoomed, panned };
     });
 
     await check('a snapshot survives a reload and restores keys, saved selections and the window', async () => {
@@ -139,17 +181,36 @@ async function main() {
         malformed: json.slice(0, -2)
       };
       const messages = {};
+      const named = await h('named', 'a'), window = await h('window', 'a');
       for (const [k, bad] of Object.entries(cases)) messages[k] = await h('restore', 'a', bad);
       assert.match(messages.schema, /schema 2 is not supported/);
       assert.match(messages.codec, /codec/);
       assert.match(messages.revision, /data revision d0/);
       assert.match(messages.malformed, /not well formed/);
       assert.deepEqual(await h('selected', 'a'), before);
+      assert.deepEqual(await h('named', 'a'), named);
+      assert.deepEqual(await h('window', 'a'), window);
       return messages;
+    });
+
+    await check('the inspector shows each plot\'s selection, aggregate coverage and saved selections', async () => {
+      const keep = await h('selected', 'a');
+      const text = await h('inspector');
+      const plot = label => fx(l => document.querySelector(`#history-inspector [data-plot="${l}"]`).textContent, label);
+      const a = await plot('a');
+      assert.ok(a.includes(`Observations selected${keep.length}`), a);
+      for (const n of ['sweep', 'bin', 'intersection', 'union', 'difference'])
+        assert.ok(a.includes(n), `saved selection ${n}`);
+      // Each bin the selection reaches reads "k of n selected", against the bin oracle.
+      const counts = breaks.slice(0, -1).map((_, j) => [keep.filter(id => binOf(rts[ids.indexOf(id)]) === j).length, ids.filter((_, i) => binOf(rts[i]) === j).length]);
+      for (const [k, n] of counts.filter(([k]) => k > 0)) assert.ok(text.includes(`${k} of ${n} selected`), `${k} of ${n}`);
+      assert.ok(text.includes('Unresolved observationsnone'), text);
+      return { counts };
     });
 
     await check('filtering the histogram to a selection reports input and statistics, apart from emphasis', async () => {
       const keep = await h('selected', 'a');
+      const named = await h('named', 'a');
       const result = await h('filterToSelection', 'a');
       assert.ok(Array.isArray(result), String(result));
       const [rowsBefore, rowsAfter, totals] = result;
@@ -161,6 +222,12 @@ async function main() {
       const text = await h('inspector');
       assert.ok(text.includes(`${ids.length} → ${keep.length}`), text);
       assert.ok(text.includes('Statistical result'), text);
+      // The filter selected and emphasized nothing: the scatters keep their selection, and the
+      // recompiled histogram reconciles to the same observations.
+      assert.deepEqual(await h('selected', 'a'), keep);
+      assert.deepEqual(await h('selected', 'b'), keep);
+      assert.deepEqual(await h('selected', 'h'), keep);
+      assert.deepEqual(await h('named', 'a'), named);
       assert.deepEqual(errors, []);
       await tab.screenshot({ path: path.join(out, `${renderer}-history.png`) });
       return { rowsAfter, totals };

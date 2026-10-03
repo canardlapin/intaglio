@@ -117,15 +117,21 @@ A widget keeps named selections, undo/redo history and snapshots (see
 
 - `saveSelection(name)`, `recallSelection(name, operation)`, `combineSelections(left, right, how,
   into)` and `deleteSelection(name)` change saved selections through the reducer.
-- Ctrl/Cmd+Z undoes this plot's last change and Shift+Ctrl/Cmd+Z or Ctrl+Y redoes it; `undo()`,
-  `redo()`, `canUndo` and `canRedo` do the same from the application. A linked group follows, and
-  neither ever follows a link or asks a membership resolver. Updating the data clears the history.
+- Ctrl/Cmd+Z undoes this plot's last change and Shift+Ctrl/Cmd+Z or Ctrl+Y redoes it (by physical
+  key on layouts whose letters differ); `undo()`, `redo()`, `canUndo` and `canRedo` do the same
+  from the application. A linked group follows, and neither ever follows a link or asks a
+  membership resolver. A pan, pinch, or run of wheel or key zooms is one entry, recorded once the
+  window rests for 400 ms (or at once when another change, undo or redo comes first). Updating to
+  new data clears the history; an update of the same revision (a resize or restyle) keeps it.
 - `snapshot` captures the durable state (selection, saved selections, window, mode) and
   `restore(snapshot)` applies one after checking it against the plot shown now; a snapshot with
   another schema, codec, plan or data revision is refused with a typed `SnapshotError`.
-- `subscribeState` reports each new state; `InspectorPanel.mount(container, widgets)` uses it to
-  show, as plain tables, what each plot's selection means and, with `showFilter`, a
-  `FilterCommand`'s input and statistical report.
+- `subscribeState` calls its listener at once and then whenever the data revision or durable state
+  changes, including changes projected in by a link; hover and focus are not reported. A failing
+  listener is logged and does not stop the others. `InspectorPanel.mount(container, widgets)` uses
+  it to show, as plain tables, what each plot's selection means and, with `showFilter`, a
+  `FilterCommand`'s input and statistical report, which stays until `clearFilter` or the next
+  filter.
 
 Checked on SVG and Canvas by `tools/check-history-browser.cjs`.
 

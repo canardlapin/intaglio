@@ -139,6 +139,11 @@ final class InspectorPanel[A] private (
       )
     )
 
+  /** Hide the filter report, for example once the filtered view is replaced or undone. */
+  def clearFilter(): Unit =
+    filterBlock.textContent = ""
+    filterBlock.hidden = true
+
   def dispose(): Unit =
     unsubscribe.foreach(_())
     unsubscribe = Vector.empty

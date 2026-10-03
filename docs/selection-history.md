@@ -67,6 +67,12 @@ dependency; the JVM and Scala.js write the same text. A snapshot is restored in 
   carries to the other plots.
 - Unresolved observations (kept across a data replacement) are part of the recorded state, so
   undoing to a selection that held them restores them as unresolved.
+- Undo restores this plot's whole recorded selection. Observations another linked plot added after
+  that change are therefore removed from the group as well.
+- Asking for a deferred aggregate's members records nothing; the reply, when it is applied, is the
+  recorded change (an application-side event), and like any recorded change it clears redo.
+- In the browser widget a continuous navigation (pan, pinch, wheel or key zoom) is one entry, not one
+  per animation frame.
 
 The history depth is bounded (100 by default).
 
