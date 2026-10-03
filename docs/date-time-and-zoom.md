@@ -51,7 +51,9 @@ Scale limits and coordinate zoom act at different contracts:
 A coordinate window replaces only the panel range. Computed rows, statistic membership, grobs,
 trained domains, and provenance remain unchanged; the panel's explicit clipping policy determines
 what is visible. A requested axis is exact and is not padded by ordinary range expansion. An axis
-without a requested window keeps the configured expansion policy.
+without a requested window keeps the configured expansion policy. A windowed axis is broken for
+the window, with the scale's own break policy and labeler, as a scale trained on that window would
+be; the scale's `breaksResult` still describes its whole domain.
 
 Numeric zoom bounds are raw data-space values. If the position is unscaled, they are already native
 coordinates; if it has a trained continuous scale, Intaglio maps both bounds through that scale.

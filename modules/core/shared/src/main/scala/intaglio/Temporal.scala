@@ -831,6 +831,21 @@ private[intaglio] final case class TemporalBreakResult[A](
 private[intaglio] trait TemporalAxisScale:
   private[intaglio] def axisTicksResult: Either[GraphicsError, Vector[AxisTick]]
 
+  /** Ticks for the part of the domain a panel shows (`positions`, in unit positions): the whole
+    * domain gives [[axisTicksResult]]; a zoomed panel gets breaks chosen for its own window.
+    */
+  private[intaglio] def axisTicksWithin(
+      positions: Interval
+  ): Either[GraphicsError, Vector[AxisTick]] =
+    axisTicksResult
+
+private[intaglio] object TemporalAxisScale:
+  /** The unit-position window a panel shows inside the domain, or `None` for the whole domain. */
+  def visible(positions: Interval): Option[(Double, Double)] =
+    val lo = math.max(0.0, positions.lower)
+    val hi = math.min(1.0, positions.upper)
+    if lo <= 0.0 && hi >= 1.0 || !(hi > lo) then None else Some((lo, hi))
+
 /** Trained calendar-date position scale. */
 final case class DateScale private (
     name: GraphicsName,
@@ -926,6 +941,26 @@ final case class DateScale private (
       labels <- labelsResult
       ticks <- TemporalKernel.axisTicks(values, labels, mapValue)
     yield ticks
+
+  override private[intaglio] def axisTicksWithin(
+      positions: Interval
+  ): Either[GraphicsError, Vector[AxisTick]] =
+    TemporalAxisScale.visible(positions) match
+      case None           => axisTicksResult
+      case Some((lo, hi)) =>
+        for
+          a <- inverse(lo)
+          b <- inverse(hi)
+          window <- DateDomain(a, b)
+          values <- breakPolicy
+            .date(window)
+            .map(_.values.filter(v => v.compareTo(a) >= 0 && v.compareTo(b) <= 0))
+          labels = labeler(values)
+          _ <-
+            if labels.length == values.length then Right(())
+            else Left(GraphicsError.AxisLabelCountMismatch(values.length, labels.length))
+          ticks <- TemporalKernel.axisTicks(values, labels, mapValue)
+        yield ticks
 
 object DateScale:
   def train(
@@ -1065,6 +1100,28 @@ final case class DateTimeScale private (
       labels <- labelsResult
       ticks <- TemporalKernel.axisTicks(values, labels, mapValue)
     yield ticks
+
+  override private[intaglio] def axisTicksWithin(
+      positions: Interval
+  ): Either[GraphicsError, Vector[AxisTick]] =
+    TemporalAxisScale.visible(positions) match
+      case None           => axisTicksResult
+      case Some((lo, hi)) =>
+        for
+          a <- inverse(lo)
+          b <- inverse(hi)
+          window <- DateTimeDomain(a, b)
+          values <- breakPolicy
+            .dateTime(window)
+            .map(
+              _.values.filter(v => v.epochMillis >= a.epochMillis && v.epochMillis <= b.epochMillis)
+            )
+          labels = labeler(values)
+          _ <-
+            if labels.length == values.length then Right(())
+            else Left(GraphicsError.AxisLabelCountMismatch(values.length, labels.length))
+          ticks <- TemporalKernel.axisTicks(values, labels, mapValue)
+        yield ticks
 
 object DateTimeScale:
   def train(

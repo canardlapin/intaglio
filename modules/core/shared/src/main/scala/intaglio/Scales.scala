@@ -281,17 +281,46 @@ object Breaks:
         }
       )
 
+  /** Breaks for a log10 axis. With at least [[LogMinimumBreaks]] powers of ten in range, the powers
+    * alone (decade ticks). With fewer, as in a narrow or zoomed window, multiples within each
+    * decade are added from the ladder 1-3, 1-2-5, 1-2-3-5, 1-9, stopping at the first rung that
+    * gives enough breaks. A window inside a single decade that still has too few falls back to
+    * [[pretty]] breaks on the raw range. All outputs stay inside the range.
+    */
   val log10: Breaks =
     checked("log10") { range =>
-      val values =
-        if range.upper <= 0.0 then Vector.empty
-        else
-          val lo = math.ceil(math.log10(math.max(range.lower, Double.MinPositiveValue))).toInt
-          val hi = math.floor(math.log10(range.upper)).toInt
+      if range.upper <= 0.0 then validateOutput("log10", Vector.empty)
+      else
+        val lower = math.max(range.lower, Double.MinPositiveValue)
+        val lo = math.ceil(math.log10(lower)).toInt
+        val hi = math.floor(math.log10(range.upper)).toInt
+        // m * 10^k, divided rather than multiplied below 1 so 0.3 and 1e-5 are the doubles
+        // nearest those decimals. `log10` can round across a decade boundary, so every candidate
+        // is checked against the range.
+        def multiple(m: Int, k: Int): Double =
+          if k >= 0 then m * math.pow(10.0, k) else m / math.pow(10.0, -k)
+        val powers =
           if hi < lo then Vector.empty
-          else Vector.tabulate(hi - lo + 1)(i => math.pow(10.0, lo + i))
-      validateOutput("log10", values)
+          else Vector.tabulate(hi - lo + 1)(i => multiple(1, lo + i)).filter(range.contains)
+        if powers.size >= LogMinimumBreaks then validateOutput("log10", powers)
+        else
+          val first = math.floor(math.log10(lower)).toInt - 1
+          val last = math.floor(math.log10(range.upper)).toInt + 1
+          val rungs = Vector(Vector(1, 3), Vector(1, 2, 5), Vector(1, 2, 3, 5), (1 to 9).toVector)
+          val subDecade = rungs.iterator
+            .map { rung =>
+              (first to last).toVector
+                .flatMap(k => rung.map(m => multiple(m, k)))
+                .filter(range.contains)
+            }
+            .find(_.size >= LogMinimumBreaks)
+          subDecade match
+            case Some(values) => validateOutput("log10", values)
+            case None         => prettyUnsafe().generate(range)
     }
+
+  /** The fewest breaks a log10 axis shows before it adds multiples within a decade. */
+  private val LogMinimumBreaks = 3
 
   val default: Breaks =
     prettyUnsafe()
@@ -1021,6 +1050,25 @@ final case class ContinuousScale[A] private (
 
   def breaksResult: Either[GraphicsError, Vector[Double]] =
     transform.breaks.generate(domain).map(_.filter(domain.contains))
+
+  /** Breaks for the part of the domain a panel shows: `positions` is the panel's range in mapped
+    * unit positions. A panel that shows the whole domain (the usual, unzoomed case) gets exactly
+    * [[breaksResult]]; a zoomed panel gets breaks chosen for its own raw window, as a fresh scale
+    * over that window would, so a narrow window keeps readable ticks.
+    */
+  private[intaglio] def breaksWithin(positions: Interval): Either[GraphicsError, Vector[Double]] =
+    val lo = math.max(0.0, positions.lower)
+    val hi = math.min(1.0, positions.upper)
+    if lo <= 0.0 && hi >= 1.0 || !(hi > lo) then breaksResult
+    else
+      def raw(p: Double) =
+        transform.inverse(transformedDomain.lower + p * transformedDomain.width)
+      for
+        a <- raw(lo)
+        b <- raw(hi)
+        window <- Interval(math.min(a, b), math.max(a, b))
+        values <- transform.breaks.generate(window)
+      yield values.filter(window.contains)
 
   /** Explicit throwing convenience for callers that have already validated the break policy. */
   def breaks: Vector[Double] =

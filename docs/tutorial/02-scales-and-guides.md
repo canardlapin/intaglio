@@ -144,12 +144,16 @@ whose domain the compiler fills in. A spec never evaluates a row: its domain is
 | `Breaks.pretty(targetCount)` | zero-anchored 1/2/5 grid, *approximately* `targetCount` ticks. The default is `pretty(5)` |
 | `Breaks.count(n)` | exactly `n` equally spaced ticks |
 | `Breaks.width(width, offset)` | a fixed step |
-| `Breaks.log10` | decade ticks; the default for `Transform.log10` |
+| `Breaks.log10` | decade ticks when three or more decades show; in a narrower range, multiples within each decade (1-3, then 1-2-5, 1-2-3-5, 1-9); the default for `Transform.log10` |
 
 `Breaks.pretty` is deliberate about determinism: it avoids `log10` and `Double.toString` so JVM and
 Scala.js emit the same ticks and the same label strings. `Labeler.default` is the matching
 deterministic number format. Reach for `Breaks.count` when an exact tick count is part of your
 contract, because `pretty` will not honour one.
+
+An axis is broken for the range its panel shows. Unzoomed, that is the scale's whole domain; under
+`coordZoom` or data-window navigation it is the window, so a narrow window gets ticks of its own
+instead of the few domain ticks that happen to fall inside it.
 
 Attach them through a guide override rather than through the scale:
 

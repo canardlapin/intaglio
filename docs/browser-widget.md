@@ -132,8 +132,8 @@ around the data in the compiled view is reachable only by Reset, and marks at th
 data sit on the panel edge when the window touches it. A plot compiled with
 `PanelFraming.MarkInk` keeps its ink framing only in the full view: a re-windowed view draws an
 unwindowed axis with its expanded range. An application that recompiles and calls `update` on
-resize resets the reader's window. On a log axis, a narrow window inherits the
-transform's power-of-ten breaks and may show a single tick.
+resize resets the reader's window. Axes are broken for the window shown, so a narrow window
+keeps its own ticks (on a log axis, multiples within the decade).
 
 ## Keyboard and accessibility
 

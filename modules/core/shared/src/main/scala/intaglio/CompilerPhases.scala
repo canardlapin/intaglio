@@ -3018,7 +3018,7 @@ private[intaglio] object GuidePhase:
       case Some(trained) =>
         trained.scale match
           case continuous: ContinuousScale[?] =>
-            scaledTicks(continuous).map { ticks =>
+            scaledTicks(continuous, range).map { ticks =>
               Some(
                 GuideSpec.Axis(
                   side,
@@ -3029,7 +3029,7 @@ private[intaglio] object GuidePhase:
               )
             }
           case temporal: TemporalAxisScale =>
-            temporal.axisTicksResult.map { ticks =>
+            temporal.axisTicksWithin(range).map { ticks =>
               Some(
                 GuideSpec.Axis(
                   side,
@@ -3103,8 +3103,11 @@ private[intaglio] object GuidePhase:
   /** Ticks for a trained continuous scale: break values come from the scale's transform in the raw
     * data domain; positions are the mapped unit-space coordinates the rows were resolved into.
     */
-  private def scaledTicks(scale: ContinuousScale[?]): Either[GraphicsError, Vector[AxisTick]] =
-    scale.breaksResult.flatMap { breaks =>
+  private def scaledTicks(
+      scale: ContinuousScale[?],
+      positions: Interval
+  ): Either[GraphicsError, Vector[AxisTick]] =
+    scale.breaksWithin(positions).flatMap { breaks =>
       val labels = scale.transform.labeler(breaks)
       if labels.length != breaks.length then
         Left(GraphicsError.AxisLabelCountMismatch(breaks.length, labels.length))
@@ -3214,7 +3217,8 @@ private[intaglio] object GuidePhase:
       val colors = samples.collect { case color: Rgba => color }
       if colors.length != samples.length then Right(None)
       else
-        scaledTicks(scale).map { ticks =>
+        // A colorbar always shows the whole domain.
+        scaledTicks(scale, Interval.unsafe(0.0, 1.0)).map { ticks =>
           Some(
             GuideSpec.Colorbar(
               title = Some(scale.name.value),

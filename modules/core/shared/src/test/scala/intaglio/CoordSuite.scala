@@ -247,7 +247,13 @@ class CoordSuite extends munit.FunSuite:
         case ResolvedGuide(axis: GuideSpec.Axis, _) if axis.side == AxisSide.Bottom => axis
       }
       .getOrElse(fail("missing zoomed numeric axis"))
-    assertEquals(xAxis.ticks.toVector.flatten.map(_.label), Vector("20", "40"))
+    // The axis is broken for the window it shows, as a scale trained on 20..40 would be; the
+    // scale's own breaks over its whole domain are untouched.
+    assertEquals(
+      xAxis.ticks.toVector.flatten.map(_.label),
+      Vector("20", "25", "30", "35", "40")
+    )
+    assertEquals(xScale.breaks, Vector(0.0, 20.0, 40.0, 60.0, 80.0, 100.0))
   }
 
   test("typed date windows map after temporal scale training and retain every row") {

@@ -371,3 +371,41 @@ class ScaleSuite extends munit.FunSuite:
     assertEquals(Breaks.prettyUnsafe()(Interval.unsafe(42.0, 42.0)), Vector(42.0))
     assertEquals(Breaks.pretty(0).left.toOption, Some(GraphicsError.InvalidBreakCount(0)))
   }
+
+  test("log10 breaks keep decade ticks when three or more decades are visible") {
+    assertEquals(Breaks.log10(Interval.unsafe(1.0, 1000.0)), Vector(1.0, 10.0, 100.0, 1000.0))
+    assertEquals(Breaks.log10(Interval.unsafe(0.5, 150.0)), Vector(1.0, 10.0, 100.0))
+    assertEquals(Breaks.log10(Interval.unsafe(0.01, 1.0)), Vector(0.01, 0.1, 1.0))
+  }
+
+  test("a narrow log10 window gains ticks within its decades, from the first rung that suffices") {
+    // Two decades: 1-3.
+    assertEquals(Breaks.log10(Interval.unsafe(1.0, 50.0)), Vector(1.0, 3.0, 10.0, 30.0))
+    // The zoomed window that showed a single tick, 10, before.
+    assertEquals(Breaks.log10(Interval.unsafe(4.25, 21.35)), Vector(5.0, 10.0, 20.0))
+    // Inside one decade: 1-9.
+    assertEquals(Breaks.log10(Interval.unsafe(4.25, 9.5)), Vector(5.0, 6.0, 7.0, 8.0, 9.0))
+    // Below one, the values are the doubles nearest the decimal multiples.
+    assertEquals(Breaks.log10(Interval.unsafe(0.2, 4.0)), Vector(0.3, 1.0, 3.0))
+  }
+
+  test("a sliver of a decade falls back to pretty breaks on the raw range") {
+    val range = Interval.unsafe(4.25, 4.9)
+    assertEquals(Breaks.log10(range), Breaks.prettyUnsafe()(range))
+    assert(Breaks.log10(range).size >= 2)
+  }
+
+  test("log10 breaks are increasing and inside every range, across scales and widths") {
+    for
+      lowerExp <- -6 to 6
+      lowerMantissa <- Vector(1.0, 1.3, 2.7, 4.25, 9.9)
+      widthDecades <- Vector(0.01, 0.1, 0.4, 0.9, 1.3, 2.2, 5.0)
+    do
+      val lower = lowerMantissa * math.pow(10.0, lowerExp)
+      val range = Interval.unsafe(lower, lower * math.pow(10.0, widthDecades))
+      val values = Breaks.log10(range)
+      assert(values.nonEmpty, s"$range")
+      assert(values.forall(range.contains), s"$range -> $values")
+      assert(values.zip(values.drop(1)).forall(_ < _), s"$range -> $values")
+      if widthDecades >= 0.4 then assert(values.size >= 3, s"$range -> $values")
+  }

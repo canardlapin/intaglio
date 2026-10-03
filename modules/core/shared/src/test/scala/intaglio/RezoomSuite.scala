@@ -123,6 +123,44 @@ class RezoomSuite extends munit.FunSuite:
     oracle(logX, ok(CoordinateWindow.numeric(5, 50)))
   }
 
+  test("a narrow window on a log axis shows ticks within the decade, not one power of ten") {
+    val zoomed = ok(
+      InteractionCompiler.rezoom(
+        compile(plotWith(Stat.Identity, logX)),
+        Some(ok(CoordinateWindow.numeric(4.25, 21.35))),
+        None
+      )
+    )
+    val xTicks = ticks(zoomed).find(_.exists(_._2 == "10")).getOrElse(fail("no x axis"))
+    assertEquals(xTicks.map(_._2), Vector("5", "10", "20"))
+  }
+
+  test("a deep zoom keeps readable ticks: breaks are chosen for the window, not the domain") {
+    val linearZoom = ok(
+      InteractionCompiler.rezoom(
+        compile(plotWith(Stat.Identity, linear)),
+        Some(ok(CoordinateWindow.numeric(41.2, 42.9))),
+        None
+      )
+    )
+    val xs = ticks(linearZoom).find(_.exists(_._2.startsWith("41"))).getOrElse(fail("no x ticks"))
+    assert(xs.size >= 3, s"$xs")
+    assert(xs.forall((value, _) => value >= 0.0 && value <= 1.0), s"$xs")
+    val dateZoom = ok(
+      InteractionCompiler.rezoom(
+        compile(plotWith(Stat.Identity, dateX)),
+        Some(
+          ok(CoordinateWindow.date(ok(CalendarDate(2026, 1, 20)), ok(CalendarDate(2026, 1, 27))))
+        ),
+        None
+      )
+    )
+    val days =
+      ticks(dateZoom).find(_.exists(_._2.startsWith("2026-01-2"))).getOrElse(fail("no date ticks"))
+    assert(days.size >= 3, s"$days")
+    assert(days.forall((_, label) => label >= "2026-01-20" && label <= "2026-01-27"), s"$days")
+  }
+
   test("a date window keeps the date axis kind") {
     oracle(
       dateX,

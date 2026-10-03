@@ -396,6 +396,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Zoomed axes are broken for the window they show.** Under `coordZoom` or
+  data-window navigation, a continuous, date or date-time axis now chooses
+  breaks for its visible window, as ggplot2 does under `coord_cartesian`;
+  before, it kept only the whole domain's breaks that fell inside, so a deep
+  zoom could show one tick or none. A zoom of 0..100 to 20..40 now shows 20,
+  25, 30, 35, 40 rather than 20 and 40. Unzoomed axes and colorbars are
+  unchanged.
+
+- **`Breaks.log10` adds within-decade ticks to a narrow range.** With three
+  or more powers of ten in range it is unchanged; with fewer it adds the
+  first sufficient rung of multiples (1-3, 1-2-5, 1-2-3-5, 1-9), and a range
+  inside a single decade falls back to `Breaks.pretty`. Powers below one are
+  now the doubles nearest their decimals (`1.0E-5`, not
+  `9.999999999999999E-6`), and a range ending just under a power no longer
+  emits that power outside the range.
+
 - **The default theme palette is now colour-vision-measured.**
   `Theme.defaultPalettes.discrete` is the first six of
   `DiscretePalette.okabeItoColors` instead of the first six tab10 colours.
