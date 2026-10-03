@@ -88,6 +88,13 @@ class MemberCoverageSuite extends munit.FunSuite:
     )
     assertEquals(ok(EmphasisRule.fraction(1.0)), ok(EmphasisRule.fraction(1.0)))
     assert(!half.triggered(MemberCoverage.Stale))
+    // Thresholds that are exact in decimal but not in binary still trigger exactly.
+    Vector((0.28, 7, 25), (0.56, 14, 25), (0.14, 7, 50), (0.1, 1, 10), (0.3, 3, 10)).foreach {
+      (p, s, n) =>
+        val rule = ok(EmphasisRule.fraction(p))
+        assert(rule.triggered(MemberCoverage.Known(s, n)), s"$s of $n at $p")
+        assert(!rule.triggered(MemberCoverage.Known(s - 1, n)), s"${s - 1} of $n at $p")
+    }
   }
 
   test("linked emphasis covers an aggregate by rule, and keyed marks by key as before") {
@@ -98,4 +105,18 @@ class MemberCoverageSuite extends munit.FunSuite:
     assert(!some.covers(bin, EmphasisRule.AllMembers, domain))
     assert(LinkedEmphasis(entities = all).covers(bin, EmphasisRule.AllMembers, domain))
     assert(!LinkedEmphasis.none[Int].covers(bin, EmphasisRule.AnyMember, domain))
+  }
+
+  test("Members mode on a plan that cannot deliver members is refused at mount") {
+    val members =
+      InteractionBehavior.default[Int].withAggregateSelection(_ => AggregateSelection.Members)
+    assert(members.validateAggregates(Vector(plan(MembershipRetention.CountOnly))).isLeft)
+    assert(members.validateAggregates(Vector(exact)).isRight)
+    assert(members.validateAggregates(Vector(plan(MembershipRetention.Deferred))).isRight)
+    assert(
+      InteractionBehavior
+        .default[Int]
+        .validateAggregates(Vector(plan(MembershipRetention.CountOnly)))
+        .isRight
+    )
   }

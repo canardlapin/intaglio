@@ -149,6 +149,30 @@ final case class InteractionBehavior[A] private (
   def withAggregateSelection(value: TargetInfo[A] => AggregateSelection): InteractionBehavior[A] =
     copy(aggregates = value)
 
+  /** Checked at mount: every aggregate this behaviour selects by its members must be able to
+    * deliver them (exact or deferred membership), so a count-only plan fails here rather than at
+    * the reader's first click.
+    */
+  def validateAggregates(plans: Vector[InteractionPlan[A]]): Either[InteractionError, Unit] =
+    val offending = plans.iterator
+      .flatMap(_.groups)
+      .flatMap(group => Iterator.range(0, group.size).flatMap(i => group.at(i).toOption))
+      .find { info =>
+        info.entity.isEmpty && aggregates(info) == AggregateSelection.Members &&
+        info.membership.capability != MembershipCapability.Exact &&
+        info.membership.capability != MembershipCapability.Deferred
+      }
+    offending.fold(Right(())) { info =>
+      Left(
+        InteractionError.InvalidValue(
+          "aggregate member selection",
+          s"target ${info.id.scope.value}#${info.id.ordinal} has " +
+            s"${info.membership.capability.toString.toLowerCase} membership; compile with " +
+            "MembershipRetention.ExactKeys or Deferred"
+        )
+      )
+    }
+
   /** Link a keyed legend to the marks whose layer binding projects its entries' link keys. */
   def withLegendLink(value: LegendLink): InteractionBehavior[A] =
     copy(legendLinks = legendLinks.filterNot(_.legend == value.legend) :+ value)

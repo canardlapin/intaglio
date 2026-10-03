@@ -214,3 +214,80 @@ class MembershipResolverSuite extends munit.FunSuite:
     assert(outcomes(single).head.isInstanceOf[MembershipOutcome.Rejected])
     assertEquals(single.state.selection, Selection[Int]())
   }
+
+  test("request ids are never reused, so a duplicate of an old reply cannot answer a new request") {
+    // Scenario: request 1 fails; the host must not reuse id 1, and a duplicate of reply 1 is late.
+    val failed = reply(request(initial(), 1), 1, MembershipReply.Failed("timeout")).state
+    assert(
+      step(failed, InteractionAction.RequestMembers(bin.id, 1, SelectionOperation.Replace)).isLeft
+    )
+    val renewed = request(failed, 2)
+    val duplicate = reply(renewed, 1, MembershipReply.Complete(keys(binMembers)))
+    assert(outcomes(duplicate).head.isInstanceOf[MembershipOutcome.Rejected])
+    assertEquals(duplicate.state.selection, Selection[Int]())
+    // Scenario: the domain is replaced while request 3 is pending; ids stay spent across it.
+    val pending = request(duplicate.state, 3)
+    sequence += 1
+    val replaced = ok(
+      InteractionState.replaceDomain(
+        pending,
+        InputStamp(
+          pending.domain.revision,
+          SemanticId.unsafe("host"),
+          sequence,
+          InputCause.Programmatic
+        ),
+        ok(InteractionDomain(Vector(deferred), ok(PlanRevision("p3")))),
+        MissingEntityPolicy.Drop
+      )
+    ).state
+    assert(
+      step(replaced, InteractionAction.RequestMembers(bin.id, 3, SelectionOperation.Replace)).isLeft
+    )
+    val fresh = request(replaced, 4)
+    val oldReply = reply(fresh, 3, MembershipReply.Complete(keys(binMembers)))
+    assert(outcomes(oldReply).head.isInstanceOf[MembershipOutcome.Rejected])
+    assertEquals(
+      reply(fresh, 4, MembershipReply.Complete(keys(binMembers))).state.selection.entities
+        .map(_.value),
+      binMembers
+    )
+  }
+
+  test("a projected request is refused: no resolver would ever see it") {
+    sequence += 1
+    val projected = InteractionState.reduce(
+      initial(),
+      InputStamp(domain.revision, SemanticId.unsafe("link"), sequence, InputCause.Projected),
+      InteractionAction.RequestMembers(bin.id, 1, SelectionOperation.Replace)
+    )
+    assert(projected.isLeft)
+  }
+
+  test("a reply is checked against the target's own plot, not every plot in the domain") {
+    final case class Other(id: Int, x: Double)
+    val others = Vector.tabulate(binMembers.size)(i => Other(1000 + i, 5.0))
+    val otherPlan = ok(
+      InteractionCompiler.compile(
+        ok(Plot(others).addLayer(Layer.point[Other](_.x, _.x))),
+        space,
+        ok(DataRevision("d2")),
+        SemanticId.unsafe("other"),
+        ok(PlanRevision("p")),
+        retention = MembershipRetention.ExactKeys
+      )(_.id)
+    )
+    val both = ok(InteractionDomain(Vector(deferred, otherPlan), ok(PlanRevision("both"))))
+    sequence += 1
+    val asked = ok(
+      InteractionState.reduce(
+        ok(InteractionState.initial(both)),
+        InputStamp(both.revision, SemanticId.unsafe("host"), sequence, InputCause.Pointer),
+        InteractionAction.RequestMembers(bin.id, 1, SelectionOperation.Replace)
+      )
+    ).state
+    // As many keys as the bin counts, all source observations of the domain, but of the other plot.
+    val borrowed = reply(asked, 1, MembershipReply.Complete(keys(others.map(_.id))))
+    assert(outcomes(borrowed).head.isInstanceOf[MembershipOutcome.Rejected])
+    assertEquals(borrowed.state.selection, Selection[Int]())
+  }

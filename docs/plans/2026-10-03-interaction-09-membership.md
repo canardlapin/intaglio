@@ -84,9 +84,13 @@ coverage counts.
     and it then applies the selection;
   - anything else becomes `MembershipRejected(reason)`, with the selection untouched;
   - `replaceDomain` cancels pending requests.
-- `InteractionController.requestMembers(target, op)(resolve: MembershipRequest => (MembershipReply
-  => Unit) => Unit)` is a callback adapter, so hosts bring their own async layer on both
-  platforms. Nothing in the reducer has a clock or performs effects.
+- ~~`InteractionController.requestMembers` callback adapter~~ — dropped in execution: hosts
+  already dispatch with their own stamps, so a host observes `MembershipRequested`, calls its
+  `MembershipResolver`, and dispatches `ResolveMembers`. Nothing in the reducer has a clock or
+  performs effects.
+- Review fix: request ids are spent per target for the state's lifetime (a high-water mark that
+  survives replies and domain replacement), replies are checked against the target's own plot and
+  key space, and projected requests are refused.
 - Tests:
   - stale-revision, superseded-request and late-reply traces;
   - a short, duplicate or foreign `Complete` is rejected;

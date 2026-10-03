@@ -33,8 +33,12 @@ final case class LinkedEmphasis[A](
     * [[matches]] does. An aggregate whose membership is not exact is never emphasized by coverage.
     */
   def covers(target: TargetInfo[A], rule: EmphasisRule, domain: InteractionDomain[A]): Boolean =
-    matches(target) ||
-      (target.entity.isEmpty && rule.triggered(MemberCoverage.of(target, entities, domain)))
+    if target.entity.nonEmpty then matches(target)
+    else
+      // An aggregate's link keys come from its members, so with observations to count the rule
+      // alone decides; a pure category emphasis (a linked legend) still matches by link key.
+      rule.triggered(MemberCoverage.of(target, entities, domain)) ||
+      (entities.isEmpty && links.exists(target.links.contains))
 
 object LinkedEmphasis:
   def none[A]: LinkedEmphasis[A] = LinkedEmphasis[A]()
@@ -88,8 +92,10 @@ object EmphasisRule:
   /** At least `value` (in (0, 1]) of the members. */
   final class Fraction private[EmphasisRule] (val value: Double) extends EmphasisRule:
     def triggered(coverage: MemberCoverage): Boolean = coverage match
-      case MemberCoverage.Known(selected, total) => total > 0 && selected >= value * total
-      case _                                     => false
+      // A tolerance of one part in 10^9 of the count, so 7 of 25 meets 0.28 despite 0.28 * 25 > 7.
+      case MemberCoverage.Known(selected, total) =>
+        total > 0 && selected >= value * total * (1.0 - 1e-9)
+      case _ => false
     override def equals(other: Any): Boolean = other match
       case that: Fraction => value == that.value
       case _              => false

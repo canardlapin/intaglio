@@ -153,7 +153,9 @@ final class HostInput[A](
         .partition(info => behavior.aggregates(info) == AggregateSelection.Members)
       val selection = Selection[A](covered.flatMap(_.entity).toSet, targets.map(_.id).toSet)
       // A single-selection plot cannot hold a sweep of several marks: the sweep does nothing.
-      if state.selectionMode == SelectionMode.Single && covered.size > 1 then Vector.empty
+      // Several marks of one observation (a point and its label) are one selection.
+      if state.selectionMode == SelectionMode.Single && selection.size + aggregates.size > 1 then
+        Vector.empty
       else
         val action =
           if aggregates.isEmpty then InteractionAction.Select(selection, operation)

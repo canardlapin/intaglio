@@ -236,7 +236,8 @@ object InteractionAction:
   /** Select the exact contributing observations of aggregate `targets` (histogram bins, summary
     * intervals), together with `plus`, as one selection change under `operation`. Refused unless
     * every target's membership is exact and current; selecting the targets themselves is
-    * [[Select]].
+    * [[Select]]. Operations apply per observation key, as for [[Select]]: toggling a partly
+    * selected bin flips each of its members, so the selected and unselected halves swap.
     */
   final case class SelectMembers[A](
       targets: Set[VisualTargetId],
@@ -307,7 +308,12 @@ final class InteractionState[A] private[interaction] (
     private[interaction] val delivered: Map[SemanticId, Long],
     /** Membership requests awaiting a reply, at most one (the latest) per target. */
     val pendingMembers: Map[VisualTargetId, MembershipRequest[A]] =
-      Map.empty[VisualTargetId, MembershipRequest[A]]
+      Map.empty[VisualTargetId, MembershipRequest[A]],
+    /** The highest request id ever issued per target. It outlives replies and domain replacement,
+      * so an id is never reused and a duplicate of an old reply can never answer a newer request.
+      */
+    private[interaction] val requestMarks: Map[VisualTargetId, Long] =
+      Map.empty[VisualTargetId, Long]
 )
 
 final case class StateTransition[A](state: InteractionState[A], events: Vector[EventRecord[A]])
@@ -356,7 +362,8 @@ object InteractionState:
           gestureMode: GestureMode = state.gestureMode,
           gesture: Option[ActiveGesture] = state.gesture,
           viewports: Map[SemanticId, PanelViewport] = state.viewports,
-          pending: Map[VisualTargetId, MembershipRequest[A]] = state.pendingMembers
+          pending: Map[VisualTargetId, MembershipRequest[A]] = state.pendingMembers,
+          marks: Map[VisualTargetId, Long] = state.requestMarks
       ) =
         new InteractionState(
           state.domain,
@@ -369,7 +376,8 @@ object InteractionState:
           gesture,
           viewports,
           state.delivered.updated(stamp.origin, stamp.sequence),
-          pending
+          pending,
+          marks
         )
 
       def optional(id: Option[VisualTargetId]): Either[StateError, Option[TargetInfo[A]]] =
@@ -414,18 +422,24 @@ object InteractionState:
           keys: Vector[EntityKey[A]]
       ): Either[String, Set[EntityKey[A]]] =
         val set = keys.toSet
+        val space = state.domain.target(request.target).toOption.map(_.membership.space)
+        val sources = state.domain.plans
+          .find(_.id == request.target.plan)
+          .fold(Set.empty[EntityKey[A]])(_.sourceEntities.toSet)
         if set.size != keys.size then Left("the reply repeats a key")
-        else if keys.exists(key => !state.domain.accepts(key)) then
-          Left("the reply has a key from another key space")
-        else if !set.subsetOf(state.domain.entities) then
-          Left("the reply has a key that is not a source observation")
+        else if keys.exists(key => !space.exists(_ eq key.space)) then
+          Left("the reply has a key from another key space than the target's")
+        else if !set.subsetOf(sources) then
+          Left("the reply has a key that is not an observation of the target's plot")
         else if request.total.exists(_ != set.size) then
           Left(s"the reply has ${set.size} members, not ${request.total.getOrElse(0)}")
         else Right(set)
 
       /** Every target's exact members at the source revision its plan was compiled from. */
       def members(targets: Set[VisualTargetId]): Either[StateError, Set[EntityKey[A]]] =
-        targets.foldLeft[Either[StateError, Set[EntityKey[A]]]](Right(Set.empty)) { (acc, id) =>
+        // In a fixed order, so the first failing target reported does not depend on Set order.
+        val ordered = targets.toVector.sortBy(t => (t.plan.value, t.scope.value, t.ordinal))
+        ordered.foldLeft[Either[StateError, Set[EntityKey[A]]]](Right(Set.empty)) { (acc, id) =>
           for
             keys <- acc
             info <- state.domain.target(id)
@@ -481,9 +495,14 @@ object InteractionState:
               (),
               StateError.SelectionDisabled
             )
-            _ <- state.pendingMembers.get(id) match
-              case Some(previous) if requestId <= previous.id =>
-                Left(StateError.InvalidInput(s"request $requestId does not follow ${previous.id}"))
+            _ <- Either.cond(
+              stamp.cause != InputCause.Projected,
+              (),
+              StateError.InvalidInput("a projected request would never reach a resolver")
+            )
+            _ <- state.requestMarks.get(id) match
+              case Some(previous) if requestId <= previous =>
+                Left(StateError.InvalidInput(s"request $requestId does not follow $previous"))
               case _ => Right(())
             source <- state.domain
               .sourceRevision(id)
@@ -499,7 +518,10 @@ object InteractionState:
               operation
             )
             finish(
-              changed(pending = state.pendingMembers.updated(id, request)),
+              changed(
+                pending = state.pendingMembers.updated(id, request),
+                marks = state.requestMarks.updated(id, requestId)
+              ),
               Vector(InteractionEvent.MembershipRequested(request))
             )
         case InteractionAction.ResolveMembers(id, requestId, reply) =>
@@ -629,7 +651,10 @@ object InteractionState:
             state.gestureMode,
             None,
             Map.empty,
-            state.delivered.updated(stamp.origin, stamp.sequence)
+            state.delivered.updated(stamp.origin, stamp.sequence),
+            // A new domain cancels every pending request; request ids stay spent.
+            Map.empty,
+            state.requestMarks
           )
           val event = InteractionEvent.Reconciled(
             state.selection.entities -- retained,
