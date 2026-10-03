@@ -230,10 +230,11 @@ object SvgRenderer:
       serializeValidated(
         scene,
         options,
-        PlateMetrics(
+        new PlateMetrics(
           textMetrics,
           options.pixelsPerInch / 72.0,
-          fonts.faces.map(face => SvgFonts.familyKey(face.family)).toSet
+          fonts.faces.map(face => SvgFonts.familyKey(face.family)).toSet,
+          fonts
         ),
         fonts
       )
@@ -269,14 +270,108 @@ object SvgRenderer:
         }
         line(out, 1, "</style>")
 
-  /** An SVG renderer cannot see the viewer's font, so its own text measure is the render context's
-    * `TextMetrics`: the same measure layout and picking use for this target.
+  /** How a plate is measured. An SVG renderer cannot see the viewer's font, so without an embedded
+    * face its measure is the render context's `TextMetrics`: the same measure layout and picking
+    * use for this target. When the run's family and weight name an embedded TrueType or OpenType
+    * face, the plate is bounded from that face's own tables instead (see [[SvgTextExtent]]).
     */
-  private final case class PlateMetrics(
-      metrics: TextMetrics,
-      pixelsPerPoint: Double,
-      embeddedFamilies: Set[String]
-  )
+  private final class PlateMetrics(
+      val metrics: TextMetrics,
+      val pixelsPerPoint: Double,
+      val embeddedFamilies: Set[String],
+      fonts: SvgFonts
+  ):
+    private val parsed = scala.collection.mutable.HashMap.empty[Int, Option[SfntFont]]
+
+    /** The embedded face a viewer draws `family` at `weight` with, parsed once per document. CSS
+      * matches an exact weight first; any other weight could be synthesised, so it is not used.
+      */
+    def face(family: Option[String], weight: Option[FontWeight]): Option[SfntFont] =
+      family.flatMap { name =>
+        val key = SvgFonts.familyKey(name)
+        val wanted = weight.getOrElse(FontWeight.Regular).value
+        val index = fonts.faces.indexWhere(face =>
+          SvgFonts.familyKey(face.family) == key && face.weight.value == wanted
+        )
+        if index < 0 then None
+        else
+          parsed.getOrElseUpdate(
+            index, {
+              val face = fonts.faces(index)
+              val sfnt =
+                face.format == SvgFontFormat.TrueType || face.format == SvgFontFormat.OpenType
+              if sfnt then SfntFont.parse(face.bytes) else None
+            }
+          )
+      }
+
+  /** Extra room around bounded ink, in user units (device pixels at the document's own size), for
+    * anti-aliased edges and the viewer's rounding of font ascent and glyph origins.
+    */
+  private val InkMargin = 1.0
+
+  /** The plate's content box (left, top, right, bottom) from an embedded face: the union of the
+    * run's logical box (its widest possible advance by the face's ascent and descent) and the
+    * bounded ink of every layout the viewer may produce, for every baseline the viewer may place.
+    * `None` when the run is outside the model, so the caller uses the estimate.
+    */
+  private def embeddedPlateBox(
+      font: SfntFont,
+      label: String,
+      x: Double,
+      y: Double,
+      horizontal: HJust,
+      vertical: VJust,
+      fontSizePx: Double
+  ): Option[(Double, Double, Double, Double)] =
+    val fraction = horizontal match
+      case HJust.Left   => 0.0
+      case HJust.Center => 0.5
+      case HJust.Right  => 1.0
+    // Every table read is guarded: a face that proves malformed here falls back to the estimate.
+    SfntFont
+      .guard(SvgTextExtent.codePoints(label).flatMap { cps =>
+        val extents =
+          SvgTextExtent.whiteSpaceVariants(cps).map(SvgTextExtent.measure(font, _, fraction))
+        if extents.exists(_.isLeft) then None
+        else
+          val scale = fontSizePx / font.unitsPerEm.toDouble
+          val sets = font.verticalMetrics
+          val baselines: Vector[(Double, VerticalMetrics)] = vertical match
+            case VJust.Top    => sets.map(m => (m.ascent * scale, m))
+            case VJust.Bottom => sets.map(m => (-m.descent * scale, m))
+            case VJust.Center =>
+              val heights =
+                if font.xHeights.nonEmpty then font.xHeights.map(_.toDouble)
+                else sets.flatMap(m => Vector(0.0, m.ascent.toDouble))
+              for height <- heights; m <- sets yield (height / 2.0 * scale, m)
+          val boxes = for
+            extent <- extents.collect { case Right(extent) => extent }
+            (offset, set) <- baselines
+            box <- {
+              val baseline = y + offset
+              val width = extent.advance.hi * scale
+              val logical = (
+                x - fraction * width,
+                baseline - set.ascent * scale,
+                x + (1.0 - fraction) * width,
+                baseline + set.descent * scale
+              )
+              logical +: extent.ink.toVector.map { case (x0, y0, x1, y1) =>
+                (
+                  x + x0 * scale - InkMargin,
+                  baseline - y1 * scale - InkMargin,
+                  x + x1 * scale + InkMargin,
+                  baseline - y0 * scale + InkMargin
+                )
+              }
+            }
+          yield box
+          boxes.reduceOption { (a, b) =>
+            (math.min(a._1, b._1), math.min(a._2, b._2), math.max(a._3, b._3), math.max(a._4, b._4))
+          }
+      })
+      .flatten
 
   private def serializeValidated(
       scene: DeviceScene,
@@ -624,18 +719,25 @@ object SvgRenderer:
           if rotationDegrees == 0.0 then ""
           else s""" transform="rotate(${format(rotationDegrees)} ${format(x)} ${format(y)})""""
         gp.textPlate.foreach { plate =>
-          val style = TextStyle(fontFamily, fontSizePx / plates.pixelsPerPoint, gp.fontWeight)
-          val width = plates.metrics.widthPt(label, style) * plates.pixelsPerPoint
-          val height = plates.metrics.heightPt(style) * plates.pixelsPerPoint
-          val left = horizontal match
-            case HJust.Left   => x
-            case HJust.Center => x - width / 2.0
-            case HJust.Right  => x - width
-          val top = vertical match
-            case VJust.Top    => y
-            case VJust.Center => y - height / 2.0
-            case VJust.Bottom => y - height
-          val box = plate.around(left, top, width, height)
+          val measured = plates
+            .face(fontFamily, gp.fontWeight)
+            .flatMap(embeddedPlateBox(_, label, x, y, horizontal, vertical, fontSizePx))
+          val box = measured match
+            case Some((left, top, right, bottom)) =>
+              plate.around(left, top, right - left, bottom - top)
+            case None =>
+              val style = TextStyle(fontFamily, fontSizePx / plates.pixelsPerPoint, gp.fontWeight)
+              val width = plates.metrics.widthPt(label, style) * plates.pixelsPerPoint
+              val height = plates.metrics.heightPt(style) * plates.pixelsPerPoint
+              val left = horizontal match
+                case HJust.Left   => x
+                case HJust.Center => x - width / 2.0
+                case HJust.Right  => x - width
+              val top = vertical match
+                case VJust.Top    => y
+                case VJust.Center => y - height / 2.0
+                case VJust.Bottom => y - height
+              plate.around(left, top, width, height)
           val attrs = new StringBuilder
           appendPaint(attrs, "fill", Some(plate.fill))
           attrs.append(""" stroke="none"""")

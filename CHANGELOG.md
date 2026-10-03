@@ -434,6 +434,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `hollow`, and in `Picking.fromResolved` any mark a hand-built scene routes to
   a point layer's group is picked as a point.
 
+- **SVG text plates are sized from the embedded face.** When a run's family
+  and weight name an embedded TrueType or OpenType `SvgFontFace`, its plate is
+  the union of the run's logical box and the ink of every glyph the viewer may
+  draw from that face (italic overhangs, composed and anchored combining marks,
+  ligatures, kerning on or off, every anchor and rotation), read from the
+  face's own `cmap`, `hmtx`, `glyf`, `OS/2`, `GSUB`, `GPOS` and `kern` tables,
+  plus a one-pixel rasterisation allowance. Glyph placement is unchanged. In
+  Playwright Chromium the review court's embedded-face cases went from 22 of
+  104 escaping their plate to none. Without an embedded face (or for WOFF and
+  WOFF2 faces, missing glyphs, an unmatched weight, or shaping the model does
+  not cover) plates stay estimate-based and containment is not guaranteed; see
+  [docs/text-plates.md](docs/text-plates.md). Plates over embedded-face text
+  change size; text elements and plates without an embedded face are
+  byte-identical.
+
 - **Zoomed axes are broken for the window they show.** Under `coordZoom` or
   data-window navigation, a continuous, date or date-time axis now chooses
   breaks for its visible window, as ggplot2 does under `coord_cartesian`;

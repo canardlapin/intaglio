@@ -60,6 +60,14 @@ OS/2 `fsType` declares *restricted-licence embedding*. WOFF and WOFF2 compress t
 flag is not read for them: the licence remains your responsibility. `SvgFonts` refuses a family that
 repeats a weight.
 
+## Text plates
+
+A [text plate](text-plates.md) on a run that uses an embedded TrueType or OpenType face is sized
+from that face's own glyph boxes, so it contains the glyphs the viewer draws from it. Without an
+embedded face, or with a WOFF/WOFF2 face, it is sized from the estimate and containment is not
+guaranteed; [text plates](text-plates.md#svg-when-the-plate-is-guaranteed-to-contain-the-glyphs)
+lists every exclusion.
+
 ## Size
 
 The face is embedded whole; there is no glyph subsetting, so prefer WOFF2 and a face cut to the
