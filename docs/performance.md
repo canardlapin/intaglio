@@ -50,6 +50,9 @@ shared the machine during the runs.
 - **Disposal** checks the DOM listener count and widget root after `dispose`, then mounts and
   disposes five widgets over the same view. It holds them only through `WeakRef`, and after
   collection it requires that none survive.
+- **Replaced views** must be released by the widget's redraw caches. The check dims the plot once,
+  clears the selection, holds the current view only through `WeakRef`, and updates to a new view.
+  After collection, the old view must be gone. With the cache release removed, this check fails.
 
 ## Measurements
 
@@ -67,13 +70,24 @@ shared the machine during the runs.
 | Pointer to highlight (ms) | 56.9 | 4.6 | 197.6 | 6.7 |
 | Selecting 1,000: redraw (ms) | 131.4 | 43.3 | 81.1 | 52.1 |
 | Hover with 1,000 selected: redraw (ms) | — | 18.2 | 91.0 | 10.3 |
-| Re-window to the central half (ms) | 1,814 | 332 | 9,382 | 3,071 |
-| Restyle 100 targets (ms) | 1,752 | 398 | 9,833 | 4,052 |
+| Re-window to the central half: action (ms) | 1,814 | 332 | 9,382 | 3,071 |
+| ↳ its first frame (ms) | 99 | 91 | 56 | 246 |
+| ↳ action + first frame, sum of medians (ms) | 1,913 | 423 | 9,437 | 3,316 |
+| Restyle 100 targets: action (ms) | 1,752 | 398 | 9,833 | 4,052 |
+| ↳ action + first frame, loaded recording (ms) | — | 681 | — | 6,775 |
 | Update, same revision: show (ms) | 122.5 | 51.8 | 675 | 569 |
+| ↳ its first frame, loaded recording (ms) | — | 156 | — | 390 |
 | Update, new revision: compile next view (ms) | 1,978 | 489 | 10,840 | 5,090 |
 | Mount + dispose cycle (ms) | 162 | 71 | 765 | 683 |
 | Heap left after release (MiB) | 5.0 | 5.0 | 5.3 | 5.4 |
 | Surviving disposed widgets | 0 | 0 | 0 | 0 |
+
+On SVG, part of the view-compile saving is deferred rather than removed. The emphasis copy is no
+longer rendered when a view is compiled, so the first frame that dims a new view renders it and
+parses it. That is why the re-window and restyle rows show the first frame as well: a new view's
+cost is the action plus that frame. On Canvas the copy is never rendered, so the saving is real.
+Rows marked "loaded recording" come from the second recording (see
+[Budgets and the gate](#budgets-and-the-gate)), on a machine 1.3–1.5× slower than the first.
 
 "Before" for the SVG fixture comes from the first characterization run. The gate's emphasis-reuse
 assertion stops the SVG workload at `e891562` before its hover-with-selection measurement, so that
@@ -136,10 +150,18 @@ At 100,000 marks that is about 5.5 KiB per mark.
 ## Budgets and the gate
 
 [`performance/browser-budgets.json`](../performance/browser-budgets.json) records each budgeted
-metric's measured median (`recorded`) and its `budget`, with the source SHA, bundle, browser and
-machine. The headroom is:
+metric's measured median (`recorded`) and its `budget`, with the bundle, browser and machine. Two
+recordings feed it, and each metric names its own:
 
-- time: the larger of 2 × recorded and recorded + 5 ms (+20 µs for per-query microseconds);
+- the first, at `40fe101`, on a moderately busy machine, for the original metrics;
+- the second, at `3e2598a`, at a load average rising from 8.9 to 19.8, for the first-frame metrics
+  (`rezoomTotalMs`, `restyleRedrawMs`, `restyleTotalMs`, `updateSameRevisionRedrawMs`) added after
+  review.
+
+The second recording's shared metrics were 1.3–1.5× slower than the first's, so the budgets for
+the newer metrics are correspondingly looser. The headroom is:
+
+- time: the larger of 2 × recorded and recorded + 2 ms (+20 µs for per-query microseconds);
 - retained heap: 1.15 × recorded + 2 MiB;
 - heap left after release: max(recorded, 0) + 3 MiB, a leak tripwire.
 
@@ -147,8 +169,11 @@ Within one run the timings were steady; the worst three-run spread of any timed 
 13%. Machine load moves them together, though. A gate run at a load average of about 15 on the 14
 cores, from other builds on the same machine, slowed every timed metric by 1.3–1.75×. Under a 1.5×
 headroom, two metrics then failed: one `nearest` query at 100,000 points (489 µs) and the
-`ExactKeys` coverage redraw (34.5 ms). The time headroom is therefore 2×. That still catches a
-doubling, and the regressions removed here were 2× to 150×. Heap figures did not move with load.
+`ExactKeys` coverage redraw (34.5 ms). The time headroom is therefore 2×. For metrics recorded
+above 2 ms, that catches a doubling, and the regressions removed here were 2× to 150×. Below 2 ms
+the absolute floor dominates. The hover handler (0.5 ms on SVG, 1.1 ms on Canvas) and the Canvas
+hover redraw (0.4 ms) are caught only when a regression adds more than about 2 ms, that is 3–6×
+their recorded value. Heap figures did not move with load.
 The report records the load average at the start and end of each run. Read a failure together with
 it, and rerun on a quiet machine before moving a budget. The gate also fails, independently of
 time, on any of these:
@@ -156,6 +181,8 @@ time, on any of these:
 - a missing hover ring;
 - a lost selection on navigation or update;
 - re-parsing the emphasis copy within one view;
+- a replaced view that stays reachable;
+- wrong selected rings after restore, re-window or undo;
 - a listener or root left after dispose;
 - a surviving disposed widget;
 - coverage rings without exact members;
@@ -168,17 +195,19 @@ NODE_PATH=<dir with playwright> node tools/check-performance-browser.cjs \
 ```
 
 It writes `report.json`, which holds every run, the medians, the budget comparisons and the machine.
-It exits nonzero on any failure. `--record` writes `measured-budgets.json` instead of failing.
-Review that file before changing the committed budgets, and move a budget only with the reason in
-the commit. `INTAGLIO_PERF_RUNS` (default 3) and `INTAGLIO_PERF_ONLY` (comma-separated workload
+It exits nonzero on any failure. `--record` does not fail on a budget. Instead it writes
+`proposed-budgets.json`, applying the headroom above to every committed metric, and names its source
+from `INTAGLIO_PERF_SOURCE_SHA`. It still exits nonzero, and writes nothing, if any assertion fails or
+any workload did not complete every run. Review the proposal before changing the committed budgets,
+and move a budget only with the reason in the commit. `INTAGLIO_PERF_RUNS` (default 3) and `INTAGLIO_PERF_ONLY` (comma-separated workload
 names; partial runs skip the completeness check) are for exploration. The gate runs serially
 outside `tools/check-browser-suites.py` because parallel jobs would distort its timings. Audit
 browser ownership before and after it, as for every browser check.
 
 Before the rebase, at `29b5fa2811e37352a459351fb96be984c0d2824f`, which carries these budgets, the
 gate passed all 44 budget comparisons and every assertion over three runs. The load average was 9.1
-at the start and 7.7 at the end. After the rebase onto Interaction 10, the restore and undo
-assertions were added, and the gate was rerun on the rebased branch. Run against `e891562` with the same fixture, the gate fails. It stops the SVG
+at the start and 7.7 at the end. The verification after the review fixes is recorded below. Run
+against `e891562` with the same fixture, the gate fails. It stops the SVG
 workload at the emphasis-reuse assertion and exceeds 11 Canvas budgets, among them view compile
 (12.3 s), pointer to highlight (248 ms), hover redraw, re-window, restyle and retained heap
 (764 MiB).

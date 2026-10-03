@@ -590,7 +590,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **Large plots pick, hover and redraw without per-mark work per event.**
+- **Large plots pick, hover and redraw with less work per event.**
   Picking skips clip work that cannot cut a mark, resolves identities through a
   per-series table instead of scanning, and builds plot-part targets only for
   part names. The browser host no longer re-indexes every target on each
@@ -598,9 +598,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   emphasis outlines, and the SVG emphasis copy is parsed once per view and
   rendered only when first needed. On the 100,000-point Canvas fixture,
   pointer-to-highlight fell from 198 ms to 6.7 ms and view compilation from
-  9.5 s to 3.5 s. Every result is identical to the exhaustive oracles.
+  9.5 s to 3.5 s. Point and area queries, identity lookups, navigation and
+  clipped boundaries are identical to their exhaustive oracles. The redraw
+  cache has no oracle; browser checks of its rings after selection, restore,
+  re-window and undo stand in for one. Linked-emphasis frames still scan every
+  target, measuring exact coverage for aggregates. On SVG the emphasis copy's
+  render is deferred to the first dimmed frame of each new view, not removed.
   Re-windowing, restyling and updates still rebuild the whole view; see
   [docs/performance.md](docs/performance.md).
+
+- **Plot-part picking measures only the names a part claims.** As a result,
+  `PartPicking.compile`, `fromResolved` and `fromParts` no longer fail on a
+  malformed mark whose name no part claims, such as a non-finite path
+  coordinate or an unsupported painted dash. A malformed claimed mark still
+  fails, and `NamedPicking` still refuses every malformed mark. The plot
+  widget is unaffected, because `Picking.fromResolved` validates every routed
+  data mark first.
 
 - **Hollow point glyphs are hit on their whole disc.** Hovering or clicking the
   centre of a stroked, unfilled point now hits it on every host that picks

@@ -1,7 +1,19 @@
 {
   "description": "Release budgets for tools/check-performance-browser.cjs. Medians of the recorded runs; the gate fails when a median exceeds its budget. Fixture sizes are test workloads, not capacity guarantees.",
-  "headroom": "time: max(2 x recorded, recorded + 5 ms) (+20 us for per-query microseconds); retained heap: 1.15 x recorded + 2 MiB; retainedAfterReleaseMiB: max(recorded, 0) + 3 MiB",
-  "source_sha": "40fe10129676915a664a78f7e53ecac92a911add",
+  "headroom": "time: max(2 x recorded, recorded + 2 ms) (+20 us for per-query microseconds); retained heap: 1.15 x recorded + 2 MiB; retainedAfterReleaseMiB: max(recorded, 0) + 3 MiB; counts: exactly the recorded value",
+  "recordings": {
+    "first": {
+      "source_sha": "40fe10129676915a664a78f7e53ecac92a911add",
+      "load_average": "not recorded (first recording)",
+      "runs": 3
+    },
+    "second": {
+      "source_sha": "3e2598a760d22c446ac4ca9276d14adbfc1a6d60",
+      "load_average": "8.9 13.68 15.42 -> 19.81 19.39 17.57",
+      "runs": 3,
+      "note": "metrics added after review (first-frame costs); a loaded machine, about 1.3-1.5x slower than the first recording on shared metrics"
+    }
+  },
   "bundle": "browserFixture/fastLinkJS (modules/browser-fixture/target/scala-3.3.8/browserfixture-fastopt/main.js)",
   "browser": "Chromium 151.0.7922.34 (Playwright, headless)",
   "machine": {
@@ -11,190 +23,283 @@
     "memoryGiB": 36,
     "node": "v26.7.0"
   },
-  "runs": 3,
   "workloads": {
     "svg10k": {
       "viewCompileMs": {
         "recorded": 375.2,
-        "budget": 751.0
+        "budget": 751,
+        "recorded_at": "first"
       },
       "pickingBuildMs": {
         "recorded": 153.1,
-        "budget": 307.0
+        "budget": 307,
+        "recorded_at": "first"
       },
       "navigationBuildMs": {
         "recorded": 197.6,
-        "budget": 396.0
+        "budget": 396,
+        "recorded_at": "first"
       },
       "mountMs": {
         "recorded": 122.2,
-        "budget": 245.0
+        "budget": 245,
+        "recorded_at": "first"
       },
       "viewRetainedMiB": {
         "recorded": 58.15,
-        "budget": 68.9
+        "budget": 68.9,
+        "recorded_at": "first"
       },
       "totalRetainedMiB": {
         "recorded": 51.07,
-        "budget": 60.7
+        "budget": 60.7,
+        "recorded_at": "first"
       },
       "pickQueryUs": {
         "recorded": 58.65,
-        "budget": 118.0
+        "budget": 118,
+        "recorded_at": "first"
       },
       "pointerToHighlightMs": {
         "recorded": 4.6,
-        "budget": 10.0
+        "budget": 10,
+        "recorded_at": "first"
       },
       "hoverHandlerMs": {
         "recorded": 0.5,
-        "budget": 6.0
+        "budget": 3,
+        "recorded_at": "first"
       },
       "hoverRedrawMs": {
         "recorded": 4.2,
-        "budget": 10.0
+        "budget": 9,
+        "recorded_at": "first"
       },
       "select1000RedrawMs": {
         "recorded": 43.3,
-        "budget": 87.0
+        "budget": 87,
+        "recorded_at": "first"
       },
       "hoverWithSelectionRedrawMs": {
         "recorded": 18.2,
-        "budget": 37.0
+        "budget": 37,
+        "recorded_at": "first"
       },
       "rezoomMs": {
         "recorded": 331.6,
-        "budget": 664.0
+        "budget": 664,
+        "recorded_at": "first"
       },
       "restyleMs": {
         "recorded": 397.9,
-        "budget": 796.0
+        "budget": 796,
+        "recorded_at": "first"
       },
       "updateSameRevisionMs": {
         "recorded": 51.8,
-        "budget": 104.0
+        "budget": 104,
+        "recorded_at": "first"
       },
       "updateNewRevisionCompileMs": {
         "recorded": 489.2,
-        "budget": 979.0
+        "budget": 979,
+        "recorded_at": "first"
       },
       "cycleMountDisposeMs": {
         "recorded": 71.26,
-        "budget": 143.0
+        "budget": 143,
+        "recorded_at": "first"
       },
       "retainedAfterReleaseMiB": {
         "recorded": 5,
-        "budget": 8.0
+        "budget": 8,
+        "recorded_at": "first"
+      },
+      "rezoomRedrawMs": {
+        "recorded": 90.9,
+        "budget": 182,
+        "recorded_at": "first"
+      },
+      "rezoomTotalMs": {
+        "recorded": 553.9,
+        "budget": 1108,
+        "recorded_at": "second"
+      },
+      "restyleRedrawMs": {
+        "recorded": 157,
+        "budget": 314,
+        "recorded_at": "second"
+      },
+      "restyleTotalMs": {
+        "recorded": 680.9,
+        "budget": 1362,
+        "recorded_at": "second"
+      },
+      "updateSameRevisionRedrawMs": {
+        "recorded": 156.3,
+        "budget": 313,
+        "recorded_at": "second"
       }
     },
     "canvas100k": {
       "viewCompileMs": {
         "recorded": 3455.4,
-        "budget": 6911.0
+        "budget": 6911,
+        "recorded_at": "first"
       },
       "pickingBuildMs": {
         "recorded": 1292.5,
-        "budget": 2585.0
+        "budget": 2585,
+        "recorded_at": "first"
       },
       "navigationBuildMs": {
         "recorded": 1812.5,
-        "budget": 3625.0
+        "budget": 3625,
+        "recorded_at": "first"
       },
       "mountMs": {
         "recorded": 905.1,
-        "budget": 1811.0
+        "budget": 1811,
+        "recorded_at": "first"
       },
       "viewRetainedMiB": {
         "recorded": 540.73,
-        "budget": 623.8
+        "budget": 623.8,
+        "recorded_at": "first"
       },
       "totalRetainedMiB": {
         "recorded": 577.34,
-        "budget": 665.9
+        "budget": 665.9,
+        "recorded_at": "first"
       },
       "pickQueryUs": {
         "recorded": 319.35,
-        "budget": 639.0
+        "budget": 639,
+        "recorded_at": "first"
       },
       "pointerToHighlightMs": {
         "recorded": 6.7,
-        "budget": 14.0
+        "budget": 14,
+        "recorded_at": "first"
       },
       "hoverHandlerMs": {
         "recorded": 1.1,
-        "budget": 7.0
+        "budget": 4,
+        "recorded_at": "first"
       },
       "hoverRedrawMs": {
         "recorded": 0.4,
-        "budget": 6.0
+        "budget": 3,
+        "recorded_at": "first"
       },
       "select1000RedrawMs": {
         "recorded": 52.1,
-        "budget": 105.0
+        "budget": 105,
+        "recorded_at": "first"
       },
       "hoverWithSelectionRedrawMs": {
         "recorded": 10.3,
-        "budget": 21.0
+        "budget": 21,
+        "recorded_at": "first"
       },
       "rezoomMs": {
         "recorded": 3070.9,
-        "budget": 6142.0
+        "budget": 6142,
+        "recorded_at": "first"
       },
       "restyleMs": {
         "recorded": 4051.8,
-        "budget": 8104.0
+        "budget": 8104,
+        "recorded_at": "first"
       },
       "updateSameRevisionMs": {
         "recorded": 568.8,
-        "budget": 1138.0
+        "budget": 1138,
+        "recorded_at": "first"
       },
       "updateNewRevisionCompileMs": {
         "recorded": 5089.5,
-        "budget": 10179.0
+        "budget": 10179,
+        "recorded_at": "first"
       },
       "cycleMountDisposeMs": {
         "recorded": 682.7,
-        "budget": 1366.0
+        "budget": 1366,
+        "recorded_at": "first"
       },
       "retainedAfterReleaseMiB": {
         "recorded": 5.35,
-        "budget": 8.3
+        "budget": 8.3,
+        "recorded_at": "first"
+      },
+      "rezoomRedrawMs": {
+        "recorded": 245.5,
+        "budget": 491,
+        "recorded_at": "first"
+      },
+      "rezoomTotalMs": {
+        "recorded": 4972.9,
+        "budget": 9946,
+        "recorded_at": "second"
+      },
+      "restyleRedrawMs": {
+        "recorded": 445.4,
+        "budget": 891,
+        "recorded_at": "second"
+      },
+      "restyleTotalMs": {
+        "recorded": 6774.8,
+        "budget": 13550,
+        "recorded_at": "second"
+      },
+      "updateSameRevisionRedrawMs": {
+        "recorded": 390.1,
+        "budget": 781,
+        "recorded_at": "second"
       }
     },
     "membershipCountOnly100k": {
       "compileMs": {
         "recorded": 267.4,
-        "budget": 535.0
+        "budget": 535,
+        "recorded_at": "first"
       },
       "retainedMiB": {
         "recorded": 15.94,
-        "budget": 20.3
+        "budget": 20.3,
+        "recorded_at": "first"
       },
       "selectHalfRedrawMs": {
         "recorded": 0.3,
-        "budget": 6.0
+        "budget": 3,
+        "recorded_at": "first"
       },
       "retainedAfterReleaseMiB": {
         "recorded": -4.34,
-        "budget": 3.0
+        "budget": 3,
+        "recorded_at": "first"
       }
     },
     "membershipExactKeys100k": {
       "compileMs": {
         "recorded": 345.4,
-        "budget": 691.0
+        "budget": 691,
+        "recorded_at": "first"
       },
       "retainedMiB": {
         "recorded": 18.77,
-        "budget": 23.6
+        "budget": 23.6,
+        "recorded_at": "first"
       },
       "selectHalfRedrawMs": {
         "recorded": 19.8,
-        "budget": 40.0
+        "budget": 40,
+        "recorded_at": "first"
       },
       "retainedAfterReleaseMiB": {
         "recorded": -4.08,
-        "budget": 3.0
+        "budget": 3,
+        "recorded_at": "first"
       }
     }
   }

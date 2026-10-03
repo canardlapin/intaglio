@@ -253,12 +253,13 @@ fixture sizes are not capacity guarantees.
 | Measured | SVG, 10,000 marks | Canvas, 100,000 points | Evidence |
 | --- | --- | --- | --- |
 | Indexed picking agrees with the exhaustive oracle under overlap, clipping and rotation | Unit | Unit | `IndexedPickingScaleSuite` (JVM and Scala.js) |
-| View compile, including picking index and navigation geometry | 375 ms | 3,455 ms | `viewCompileMs`, `pickingBuildMs`, `navigationBuildMs` |
+| View compile, including picking index and navigation geometry (on SVG the emphasis copy is deferred to the first dimmed frame) | 375 ms | 3,455 ms | `viewCompileMs`, `pickingBuildMs`, `navigationBuildMs` |
 | Retained heap, view and widget | 51 MiB | 577 MiB | `totalRetainedMiB` |
 | Pointer to highlight (handler + redraw) | 4.6 ms | 6.7 ms | `pointerToHighlightMs`; ring asserted per sample |
 | Hover redraw over 1,000 selected marks | 18.2 ms | 10.3 ms | `hoverWithSelectionRedrawMs` |
 | Redraw after selecting 1,000 marks | 43 ms | 52 ms | `select1000RedrawMs` |
-| Re-window to the central half (full rebuild; statistics not recomputed) | 332 ms | 3,071 ms | `rezoomMs` |
+| Re-window to the central half (full rebuild; statistics not recomputed): action + first frame | 332 + 91 ms | 3,071 + 246 ms | `rezoomMs`, `rezoomRedrawMs` |
+| Replaced views are released by the redraw caches | Pass | Pass | `WeakRef` to the old view is cleared after an update |
 | Update to new data keeps surviving selected entities | Pass | Pass | 990 of 1,000 selected after every 100th row is removed |
 | Restore and undo redraw the cached selection layer (1,000 selected; restore, re-window, undo) | Pass | Pass | exact selected-ring counts after each step |
 | Dispose releases listeners, root and widget | Pass | Pass | 0 listeners, 0 roots, 0 of 5 `WeakRef` widgets survive collection |
