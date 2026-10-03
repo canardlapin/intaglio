@@ -1,174 +1,183 @@
 # Interactive baseline: capability matrix
 
-This matrix certifies Intaglio's interactive widgets against the ggiraph-derived baseline in
-[the interaction design](design/interaction.md#the-reference-baseline). Each required behaviour is
-split into the parts a reader can observe, and each part has a status for each backend.
+SVG and Canvas pass the eight feature areas in the
+[ggiraph-derived reference baseline](design/interaction.md#the-reference-baseline), within the
+limits stated below. **Pass** means a named browser check exercises that backend. Shared unit
+coverage is identified separately; a Canvas pass is never inferred from SVG output.
 
-| Status | Meaning |
-| --- | --- |
-| **Pass** | A named real-browser check exercises and asserts the behaviour at the source commit below |
-| **Unit** | Only JVM or Scala.js tests assert it; no browser check does yet |
-| **Untested** | Implemented, but no test asserts it |
-| **Gap** | Not implemented |
-| **Pending** | Work exists outside the source commit; it counts only once committed and re-checked there |
+## Source and receipts
 
-Statuses are never promoted from another backend, from serialized SVG, or from a demo of a
-different feature. A row passes only when every part of it passes.
+Browser and external-consumer source: **`13ed4a2b50097c7ec4995c8b1b0b080268f225b5`**, tested with
+Playwright Chromium **151.0.7922.34**. The browser runner builds a temporary `git archive` of that
+commit, excluding working-tree edits and untracked files, and retains its linked bundle and font
+with SHA-256 hashes. The source-isolation regression also covers a concurrent commit.
 
-**Source commit:** `829b03e`, in Playwright's Chromium 151.0.7922.34:
-`tools/check-widget-browser.cjs` 16/16, `tools/check-linked-browser.cjs` 11/11,
-`tools/check-navigation-browser.cjs` 15/15, `tools/check-standalone-browser.cjs` and
-`tools/check-export-browser.cjs` passing, and `node --test tools/package-widget.test.cjs` 2/2. Check
-names are quoted below as they appear in those scripts.
+The retained local evidence root is `.agent-work/interaction08-landing/`. Its
+`browser-13ed4a2/report.json` records **12/12 passing jobs**, bundle/font hashes, and equal SVG/Canvas
+widget and linked traces. Reports, normalized traces and screenshots live under each job directory.
+The following receipt keys identify those directories and the checked-in scripts that reproduce them:
 
-**Canvas:** the Scala.js Canvas renderer has no interaction at this commit. Canvas interaction is in
-progress in a separate Interaction 08 lane; every Canvas cell is **Gap** here until that work is
-committed and its receipts are re-run and independently verified (native pixels and normalized
-trace equality against SVG).
-
-## Summary
-
-| Area | SVG | Canvas |
+| Key | Report below `browser-13ed4a2/` | Check source |
 | --- | --- | --- |
-| Inspection | partial: rich tooltips, direct hover and pointer placement pass; nearest hover, anchored and fixed placement, delay are unit-only; appearance has no API | Gap |
-| Emphasis | partial: hover, selection, focus and inverse emphasis pass; configurable transitions and externally assigned styles are gaps | Gap |
-| Actions | partial: pointer activation, links and callbacks pass; keyboard activation is untested | Gap |
-| Selection | partial: add, replace, subtract, clear, lasso and external selection pass; disabled, single and toggle are unit-only; selection at mount is untested | Gap |
-| Plot parts | partial: marks and legend keys pass; colorbars, strips, axes, titles and annotations are unit-only | Gap |
-| Navigation | **pass** | Gap |
-| Composition | partial: linked plots pass; links across panels of one composed figure are unit-only | Gap |
-| Embedding | **pass**, including an outside application built against the exact published artifact | Gap |
+| B | `baseline/report.json`: 26 variants per backend, equal traces | [baseline](../tools/check-canvas-baseline-browser.cjs) |
+| P | `parity/report.json`: both backends at DPR 1 and 2 | [parity](../tools/check-canvas-parity-browser.cjs) |
+| W | `widget-svg/report.json`, `widget-canvas/report.json`: 16 checks each | [widget](../tools/check-widget-browser.cjs) |
+| L | `linked-svg/report.json`, `linked-canvas/report.json`: 11 checks each | [linked](../tools/check-linked-browser.cjs) |
+| N | `navigation-pair/report.json`: paired navigation | [paired navigation](../tools/check-canvas-navigation-browser.cjs) |
+| NS | `navigation-svg/report.json`: 15 SVG checks | [SVG navigation](../tools/check-navigation-browser.cjs) |
+| E | `export-svg/report.json`, `export-canvas/report.json` | [SVG export](../tools/check-export-browser.cjs), [Canvas export](../tools/check-canvas-export-browser.cjs) |
+| H | `standalone-svg/report.json`, `standalone-canvas/report.json` | [SVG standalone](../tools/check-standalone-browser.cjs), [Canvas standalone](../tools/check-canvas-standalone-browser.cjs) |
+| C | `consumer-13ed4a2/report.json` in the evidence root: 5 checks per backend, equal traces | [external consumer gate](../tools/check-browser-consumer.sh), [smoke checks](../tools/browser-consumer/smoke.cjs) |
 
-The baseline is therefore **not yet complete** on either backend. The gaps are listed under
-[What remains](#what-remains).
+C resolves five isolated published artifacts, including `intaglio-canvas`, at
+`0.0.0-consumer-13ed4a2b5009`; its report records artifact hashes and the resolved classpath. It
+compiles against public artifacts, mounts native Canvas as well as SVG, checks actual Canvas ink,
+and compares events, linked selection and navigation. No sibling source projects are used.
+
+The unchanged library, build and compatibility inputs were also checked at
+`3216a413adb7e0957d60007618849e3613ab2946`: `scalafmtCheckAll` and `testAll` passed **2,131 tests in
+16 reports**, the documentation gate passed, and the unchanged compatibility gate passed including
+12 TASTy checks. Exact-SHA logs are retained under `.agent-work/interaction08/review-fix-3216a41/`.
+`13ed4a2` changes only browser qualification tooling and the external consumer fixture; this matrix
+is a subsequent documentation-only update. These are local receipts, not hosted CI results.
 
 ## Inspection
 
-| Part | SVG | Evidence |
-| --- | --- | --- |
-| Plain-text tooltip | Unit | `InteractionBehaviorSuite` "content is text, never markup"; the fixture's histogram text tooltip is never hovered in a browser check |
-| Structured tooltip (labelled fields) | Pass | "pointer hover shows a delayed, escaped tooltip and inverse emphasis"; "long tooltip fields wrap within narrow widgets without losing text" (text, escaping and wrapping; the field structure itself is not asserted) |
-| Direct hover | Pass | "pointer hover shows a delayed, escaped tooltip and inverse emphasis"; "at device scale 2 the pointer still hits the drawn mark" |
-| Nearest hover | Unit | `HostInputSuite` "the nearest rule reaches a mark within its CSS distance"; no fixture uses `HoverRule.Nearest` |
-| Pointer-relative placement | Pass | "a tooltip at the right edge stays inside the widget" (containment; the offset from the pointer is unit-tested only) |
-| Mark-anchored placement | Unit | `HostInputSuite` tooltip placement test |
-| Fixed placement | Unit | `HostInputSuite` tooltip placement test |
-| Configurable appearance | Untested | CSS custom properties and the `.intaglio-tooltip` rule only; no API |
-| Configurable delay | Unit | `InteractionBehaviorSuite` "behaviour settings are checked"; the browser check waits out the delay but does not assert the tooltip is hidden before it |
-| Acceptance: dense scatter, line, histogram bin and facet strip without ambiguous target changes | partial | scatter only; no browser fixture has a line or a facet strip, and the histogram bin is selected but not inspected |
+| Required behaviour | SVG | Canvas | Named evidence |
+| --- | --- | --- | --- |
+| Plain-text tooltip | Pass | Pass | B: `plain histogram membership tooltip` |
+| Structured tooltip | Pass | Pass | W: `pointer hover shows a delayed, escaped tooltip and inverse emphasis`; long-field wrapping check |
+| Direct hover | Pass | Pass | B: `direct hover ignores empty space`; W: DPR 2 pointer hit |
+| Nearest hover | Pass | Pass | B: `nearest hover reaches sparse observation` |
+| Pointer-relative placement | Pass | Pass | B: `pointer placement` asserts the pointer offset; W: right-edge containment |
+| Mark-anchored placement | Pass | Pass | B: `anchored placement`; shared `HostInputSuite` checks the placement coordinate contract |
+| Fixed placement | Pass | Pass | B: `fixed placement` asserts the configured coordinates |
+| Configurable appearance | Pass | Pass | B: `typed appearance and transition options honor reduced motion` checks tooltip background; invalid appearance is refused before DOM mutation |
+| Configurable delay | Pass | Pass | B: `configured delay is observed before showing` |
+| Scatter, line, histogram and facet-strip inspection | Pass | Pass | W: scatter hover; B: `line inspected and selected as a target`, histogram tooltip, and strip tooltip/activation |
 
 ## Emphasis
 
-| Part | SVG | Evidence |
-| --- | --- | --- |
-| Hovered appearance | Pass | "pointer hover shows a delayed, escaped tooltip and inverse emphasis" |
-| Selected appearance | Pass | "click selects and activates; a link follows only real input" |
-| Focused appearance | Pass | "keyboard roves focus with a visible ring, announces it, chooses and clears" |
-| Inactive appearance, inverse emphasis | Pass | "pointer hover shows a delayed, escaped tooltip and inverse emphasis" |
-| Configurable transitions | Gap | a fixed transition; only the reduced-motion override exists ("reduced motion removes the emphasis transition") |
-| Externally assigned styles | Gap | no API assigns classes or styles to targets |
-| Acceptance: hover a legend key to emphasize its marks, then recover | partial | "a linked legend entry emphasizes and selects its category in both scatters" asserts the emphasis; recovery on pointer-out is not asserted |
+| Required behaviour | SVG | Canvas | Named evidence |
+| --- | --- | --- | --- |
+| Hovered appearance | Pass | Pass | W: delayed tooltip and inverse emphasis; B: `application appearance overrides` |
+| Selected appearance | Pass | Pass | W: `click selects and activates; a link follows only real input`; P: shared entity rings in both composed children |
+| Focused appearance | Pass | Pass | W: `keyboard roves focus with a visible ring, announces it, chooses and clears` |
+| Inactive appearance and inverse emphasis | Pass | Pass | W: inverse emphasis; B: configured dim opacity |
+| Configurable transitions | Pass | Pass | B: `typed appearance and transition options honor reduced motion` asserts duration and reduced-motion override |
+| Externally assigned styles | Pass | Pass | B: `application-assigned per-entity paint survives emphasis recovery`; runtime styles change exact marks atomically, clear without events, survive navigation/export, and clear on view replacement |
+| Linked legend emphasis and recovery | Pass | Pass | L: `a linked legend entry emphasizes and selects its category in both scatters`, including pointer-out recovery |
+
+Runtime styles use the typed `setTargetStyles` API: fill, stroke and opacity where the underlying
+paint supports them. Raster fill/opacity are supported; raster stroke and image fill/stroke return
+typed refusals. Arbitrary DOM classes are not the styling contract for Canvas.
 
 ## Actions
 
-| Part | SVG | Evidence |
-| --- | --- | --- |
-| Typed activation by pointer | Pass | "click selects and activates; a link follows only real input" |
-| Typed activation by keyboard | Untested | Enter activates through `HostInput`; neither the browser check nor `HostInputSuite` asserts the activation event |
-| Declarative links | Pass | "click selects and activates; a link follows only real input"; `InteractionBehaviorSuite` "links accept web, mail and relative" |
-| Host callbacks | Pass | event subscriptions read by every widget check; `InteractionControllerSuite` |
-| Acceptance: the same target and payload by pointer and keyboard | partial | keyboard activation is not asserted |
+| Required behaviour | SVG | Canvas | Named evidence |
+| --- | --- | --- | --- |
+| Pointer activation | Pass | Pass | W: `click selects and activates; a link follows only real input` |
+| Keyboard activation | Pass | Pass | B: `pointer and keyboard activate the same key` |
+| Declarative links | Pass | Pass | W: link follows real input, with no application-event echo |
+| Host callbacks | Pass | Pass | W/L/B record public events; C compares external-consumer event traces |
+| Same target and payload by pointer and keyboard | Pass | Pass | B: `pointer and keyboard activate the same key` asserts the same entity with distinct input origins |
 
 ## Selection
 
-| Part | SVG | Evidence |
-| --- | --- | --- |
-| Disabled mode | Unit | `HostInputSuite` "disabled selection still activates"; `InteractionStateSuite` |
-| Single mode | Unit | `InteractionStateSuite`; the histogram fixture is single-mode but no check exercises replacement or refusal |
-| Multiple mode, add | Pass | "click selects and activates; a link follows only real input"; "a rectangle selects exactly the marks it covers; Shift adds and Alt subtracts" |
-| Toggle | Unit | `HostInputSuite` additive-click toggle |
-| Replace | Pass | "a lasso selects the marks inside its polygon" |
-| Subtract | Pass | "a rectangle selects exactly the marks it covers; Shift adds and Alt subtracts" |
-| Clear | Pass | "keyboard roves focus with a visible ring, announces it, chooses and clears"; "clearing a bin with Escape leaves the linked observation selection alone" |
-| Lasso | Pass | "a lasso selects the marks inside its polygon" |
-| Externally supplied selection | Pass | "click selects and activates; a link follows only real input" (no echo); "update reconciles the selection by entity key" |
-| Initial selection at mount | Untested | `mount` takes a `selection` argument; no test asserts it |
-| Acceptance: accumulate, subtract a lasso region, restore from the application | partial | subtraction is asserted for a rectangle, not a lasso; restoring through `setSelection` is asserted separately |
+| Required behaviour | SVG | Canvas | Named evidence |
+| --- | --- | --- | --- |
+| Disabled mode | Pass | Pass | B: `disabled selection` |
+| Single mode | Pass | Pass | B: `single selection` |
+| Multiple mode and additive selection | Pass | Pass | W: click selection; B: `shift lasso adds exact middle row` |
+| Toggle | Pass | Pass | B: `additive click toggles selected observation` |
+| Replace | Pass | Pass | B: `lasso replaces with exact middle row`; P: exact rectangle membership |
+| Subtract | Pass | Pass | B: `alt lasso subtracts exact middle row` |
+| Clear | Pass | Pass | W: keyboard clear; L: `clearing a bin with Escape leaves the linked observation selection alone` |
+| Lasso | Pass | Pass | B: replace/add/subtract against independently specified keys `r3,r4,r5` |
+| Externally supplied selection | Pass | Pass | W: application selection without echo and update reconciliation; L: programmatic selection does not propagate |
+| Initial selection | Pass | Pass | B: `initial selection` asserts state before the first click |
+| Accumulate, subtract a lasso region, restore from application | Pass | Pass | B: consecutive replace/add/subtract with application-supplied `r0`; W/L: silent application selection |
 
 ## Plot parts
 
-| Part | SVG | Evidence |
-| --- | --- | --- |
-| Marks | Pass | most widget checks |
-| Legend keys | Pass | "a legend entry is a typed part under the pointer"; the linked legend checks |
-| Colorbar components | Unit | `PlotPartsSuite` "a colorbar is found through its title as well as its bar" |
-| Facet strips | Unit | `PlotPartsSuite` titled faceted plot |
-| Axes and titles | Unit | `PlotPartsSuite` |
-| Labels | Gap | no part kind for data labels beyond axis titles |
-| Authored annotations | Unit | `PlotPartsSuite` reference-line annotations; text annotations are not parts |
-| Acceptance: select a facet strip or legend key and identify its typed value | partial | legend key only; part activation is not asserted in a browser |
+| Required behaviour | SVG | Canvas | Named evidence |
+| --- | --- | --- | --- |
+| Marks | Pass | Pass | W/P/B: points, line, histogram and keyed text labels |
+| Legend keys | Pass | Pass | W: `a legend entry is a typed part under the pointer`; L: linked legend selection |
+| Colorbar components | Pass | Pass | B: `title subtitle strip axis colorbar annotation activation` checks description and typed activation |
+| Facet strips | Pass | Pass | Same B check: strip description and typed activation |
+| Axes and titles | Pass | Pass | Same B check: axis, plot title and subtitle |
+| Labels | Pass | Pass | B: `data labels are addressable keyed marks` |
+| Authored annotations | Pass | Pass | Same B parts check: reference-line annotation |
+| Identify a facet strip or legend key by typed value | Pass | Pass | B: strip description/activation; W/L: typed legend entry |
+
+Plot parts are inspected and activated; they are not added to the observation selection. Data
+labels are keyed text marks. The authored-annotation check covers reference lines, not arbitrary
+unkeyed text. Composed child parts have scoped identities; shared unit checks cover independent
+child titles and clashing collected legends. Public part events carry the typed part value;
+target events additionally carry child identity.
 
 ## Navigation
 
-| Part | SVG | Evidence |
-| --- | --- | --- |
-| Pan | Pass | "pan mode drags the window and stops at the data bounds; reset restores it" |
-| Wheel zoom | Pass | "wheel zoom keeps the data under the pointer, keeps the selection, and runs no statistic"; "a burst of wheel events in one frame is applied in full and drawn once" |
-| Pinch zoom | Pass | "a real two-finger pinch in Inspect mode zooms the plot, not the page" (real touch input; fails with the browser's own pinch-zoom left on) |
-| Rectangle zoom | Pass | "zoom to area on a log axis shows the rectangle's data range" |
-| Bounds | Pass | "an application window is validated and kept inside the data"; the pan check's clamp |
-| Reset | Pass | the pan check's Reset button; "a date axis keeps date labels when zoomed by keyboard; 0 resets" |
-| Explicit gesture activation | Pass | "without focus or Ctrl the wheel scrolls the page instead"; "browser zoom keys stay with the browser; zooming out of the full view scrolls the page" |
-| Toolbar controls | Pass | "mode and reset controls are visible and report their state" |
-| Acceptance: zoom, pan, reset without changing the statistic's input | Pass | the wheel and pan checks assert a counting statistic stays at one call; `RezoomSuite` |
+| Required behaviour | SVG | Canvas | Named evidence |
+| --- | --- | --- | --- |
+| Pan | Pass | Pass | N: pan preserves the grabbed datum and selection |
+| Wheel zoom | Pass | Pass | P: real wheel narrows the window, equal backend traces; NS additionally checks wheel bursts and page arbitration |
+| Pinch zoom | Pass | Pass | P: real two-finger touch input narrows the plot window while page scale stays 1 |
+| Rectangle zoom | Pass | Pass | N: logarithmic rectangle maps to the expected data edges |
+| Bounds | Pass | Pass | N: pan clamps at the lower bound; NS: application-window validation |
+| Reset | Pass | Pass | N: reset preserves selection; temporal keyboard zoom/reset |
+| Explicit gesture activation | Pass | Pass | P: focused Inspect mode receives wheel/pinch; N: explicit pan/zoom modes; NS additionally checks browser/page arbitration |
+| Toolbar controls | Pass | Pass | W: plot/toolbar tab stops; N/P: modes and reset; E: configurable controls |
+| Zoom, pan and reset without recomputing statistics | Pass | Pass | N: counting statistic remains unchanged; NS: wheel/pan statistic checks |
 
-Faceted and flipped plots refuse navigation by design; that is a stated limit, not a pass.
+Navigation supports a single panel with supported Cartesian scales. Faceted, flipped and composed
+figure navigation is explicitly refused; P checks the composed refusal. It is not a claim of
+independent navigation inside every facet or composed child.
 
 ## Composition
 
-| Part | SVG | Evidence |
-| --- | --- | --- |
-| Shared hover across plots | Pass | "hovering a mark emphasizes the same observation in the differently ordered scatter only" |
-| Shared selection across plots | Pass | "a reader selection is projected silently; missing and foreign keys are reported"; "a key only one plot has survives an additive change in the other" |
-| Explicit linking rules | Pass | "legend links that cannot link are refused at mount; links do not chain"; the foreign-key-space and application-controlled checks |
-| Across panels of one composed figure | Unit | `InteractionCompositionSuite`; the browser links separate widgets only |
-| Acceptance: hover one observation in two differently arranged plots | Pass | "hovering a mark emphasizes the same observation in the differently ordered scatter only" |
+| Required behaviour | SVG | Canvas | Named evidence |
+| --- | --- | --- | --- |
+| Shared hover across plots | Pass | Pass | L: `hovering a mark emphasizes the same observation in the differently ordered scatter only` |
+| Shared selection across plots | Pass | Pass | L: silent projection, missing/foreign keys, and additive preservation of a key present in only one plot |
+| Explicit linking rules | Pass | Pass | L: `legend links that cannot link are refused at mount; links do not chain`; foreign-key-space and application-controlled checks |
+| Across panels of one composed figure | Pass | Pass | P: transformed composed children select the same entity and display two selected rings; pointer/keyboard/touch traces match |
+| Same observation in differently arranged plots | Pass | Pass | L: two differently ordered scatters plus histogram; C: two linked external-consumer widgets |
 
 ## Embedding
 
-| Part | SVG | Evidence |
-| --- | --- | --- |
-| Standalone HTML | Pass | `tools/check-standalone-browser.cjs`: a one-file package opened from `file://` requests nothing but itself, keeps keyboard selection and application control, and refuses an unbundled resource with a visible diagnostic |
-| Application mounting, two independent widgets | Pass | "two widgets, no duplicate ids, one tab stop per plot and per toolbar"; "repeated mount and dispose retain no listeners, observers or nodes" |
-| Responsive sizing | Pass | `tools/check-standalone-browser.cjs` at 1200 px (device scale 1) and 390 px (device scale 2): the plots fit (480 and 342 px) without horizontal overflow |
-| Configurable toolbar | Pass | `tools/check-export-browser.cjs` controls: a control subset, bottom placement, hidden and floating toolbars, keyboard reach |
-| Fullscreen | Pass | `tools/check-export-browser.cjs`: fullscreen enters, and a browser without the API gets a typed refusal |
-| PNG export | Pass | `tools/check-export-browser.cjs`: original and current views, with and without the selection, at scale 1 and 2, read back as pixels; an unavailable canvas and an encoder failure are reported |
-| Programmatic event and state access | Pass | `setSelection`, `navigate`, event and part subscriptions across the widget, linked and navigation checks |
-| External consumer of the published artifact | Pass | `bash tools/check-browser-consumer.sh` at `5a27028`: the clean checkout's Scala.js artifacts, published as `0.0.0-consumer-5a27028108f6`, are the only intaglio jars on an outside application's classpath; its two linked widgets mount, select by keyboard, pick by pointer, navigate and dispose cleanly (5/5) |
+| Required behaviour | SVG | Canvas | Named evidence |
+| --- | --- | --- | --- |
+| Standalone HTML | Pass | Pass | H: a `file://` package requests only itself, supports keyboard selection/application control, and visibly refuses an unbundled resource |
+| Application mounting and independent widgets | Pass | Pass | W: duplicate IDs/prefix validation and 25 mount/dispose cycles; C: two public-API widgets |
+| Responsive sizing | Pass | Pass | H: 1200 px/DPR 1 and 390 px/DPR 2, without horizontal overflow; W: resize preserves revision/selection |
+| Configurable toolbar | Pass | Pass | E: control subset, bottom placement, hidden/floating controls and keyboard reach |
+| Fullscreen | Pass | Pass | E: entry and typed refusal when unavailable |
+| PNG export | Pass | Pass | E: original/current views, selection inclusion, scales 1/2, pixel readback, unavailable context and encoder failure |
+| Programmatic event/state access | Pass | Pass | W/L/N/B/C: selection, navigation, subscriptions, target styles and view replacement |
+| External consumer of exact artifacts | Pass | Pass | C: 10/10 checks, native Canvas ink, equal event/selection/window traces, clean disposal |
 
-## Per-geom coverage
+Canvas paints base marks directly and uses DOM/SVG companions for accessible focus, inspection,
+selection and gestures; it does not create an SVG node for every base mark. E separately checks
+embedded-font readiness and failure diagnostics. PNG export re-renders the selected scene through
+an SVG snapshot for both hosts; its pixels are export evidence, not evidence of native Canvas
+painting. Native Canvas painting is checked separately by B, P, N and C.
 
-[Interaction coverage](interaction-coverage.md) lists the target granularity of 15 built-in
-components and compiles one plot per entry. It counts compiled targets; it does not test picking,
-and browser fixtures use only points and histograms. These geoms have no entry yet:
-`geomContour`, `geomFilledContour`, `geomHeatmap`, `geomQuantileSummary` and `geomRasterByClass`.
+## Per-geom coverage and qualification limits
 
-## What remains
+[Interaction coverage](interaction-coverage.md) is generated from 20 built-in component entries,
+including contour, filled contour, heatmap, quantile summary and classed raster. The shared
+`InteractionCoverageSuite` compiles every entry and checks exact target counts. These are shared
+compiler checks, not 20 separate native-browser certifications. Browser specimens cover points,
+line, histogram, text labels, facets, clipping, transforms, composition and typed plot parts.
 
-For SVG, before the baseline can be called complete:
+Default hollow-point picking includes the unpainted interior. P verifies nearby ring ink centred
+on the expected anchor independently of centre picking, at both DPRs; C verifies it in the
+external application. An explicit browser outline-only `PickPolicy` remains **Gap**, tracked
+separately as `bd-01M3ZTJXDBAPTSPDX5ECXRQ3CA`; it is not a required reference-baseline behaviour.
 
-1. Browser checks for nearest hover, anchored and fixed placement, the tooltip delay, plain-text
-   tooltips, keyboard activation, toggle, single and disabled modes, selection at mount, lasso
-   subtraction, legend-emphasis recovery, and part activation for strips, axes, titles, colorbars
-   and annotations.
-2. A line and a faceted fixture for the inspection acceptance example.
-3. Configurable transitions, externally assigned target styles, a tooltip appearance API, and a
-   data-label part kind.
-4. Coverage entries for the five uncovered geoms, and picking tests per entry.
-5. A browser check that a hollow point is hit at its centre. The shared picking plan now hits the
-   inside of hollow point glyphs by default, but the widget takes no `PickPolicy`, so it cannot
-   restore outline-only point picking (which bubble charts want); JavaFX can, through
-   `JavaFxInteractionView.compile(plan, context, policy)`.
-
-For Canvas, every row.
+These receipts qualify the tested Chromium version. Other browser engines, hosted browser CI,
+large-workload performance/capacity, analytical extensions and the later Interaction 09–12
+qualification work are not certified here. See [Canvas widget contracts](canvas-widget.md) for
+backing-store bounds, supported paints, lifecycle and error behaviour.
