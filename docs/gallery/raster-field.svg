@@ -2,7 +2,7 @@
   <title id="intaglio-plot-title">One image, continuous fill</title>
   <desc id="intaglio-plot-description">Plot intaglio-plot: 1 layer, 1152 resolved marks, 1 scale.
 Layer 0 (intaglio-plot-layer-0): geom=raster, stat=identity, input=1152, resolved=1152, dropped=0.
-Scale fill (amplitude): kind=continuous, domain=[-0.9964954918038453, 0.9964954918038453].</desc>
+Scale fill (amplitude): kind=continuous, domain=[-0.9964954918038454, 0.9964954918038454].</desc>
   <g data-name="plot-panel" clip-path="url(#clip-0)">
     <rect data-name="plot-panel-background" stroke="none" fill="#ffffff" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" x="56.3733" y="41.3333" width="398.28" height="262.1667" />
     <polyline data-name="plot-panel-grid-x" stroke="#dce1e8" fill="none" stroke-width="0.6" stroke-linecap="butt" stroke-linejoin="miter" points="74.477,303.5 74.477,41.3333" />

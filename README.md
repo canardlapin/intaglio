@@ -150,6 +150,8 @@ Supported versions are the Scala 3 LTS and the current feature release, on
 JDK 17, 21 and 25, for the JVM and Scala.js. The published artifact is built with
 the LTS: TASTy is forward- but not backward-compatible, so an LTS build can be
 read by any later 3.x consumer.
+The JavaFX suites run under headless Monocle, which needs JDK 21 or later, so on
+JDK 17 `testAll` builds `intaglio-javafx` but skips its tests and says so.
 
 ```sh
 sbt "++3.9.0" testAll            # the feature-release court

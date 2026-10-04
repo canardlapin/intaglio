@@ -265,14 +265,16 @@ println(intaglio.docs.Gallery.plot("heatmap-field", heatmap))
 ## Raster field
 
 A dense field can use one image instead of one rectangle per cell. This 48 × 24 field
-uses the same fill-scale training and legend as `geomHeatmap`.
+uses the same fill-scale training and legend as `geomHeatmap`. The fixture fields use
+`StrictMath`: `math.sin` may differ by one ulp between processors, and the scale description
+prints the trained domain in full, so the checked-in plate would change with the machine.
 
 ```scala mdoc:silent
 val rasterField =
   for
     x <- RegularGridAxis.cellCentered(-3, 3, 48)
     y <- RegularGridAxis.cellCentered(-2, 2, 24)
-    field <- ScalarField2D.tabulate(x, y)((x, y) => math.sin(x) * math.cos(y))
+    field <- ScalarField2D.tabulate(x, y)((x, y) => StrictMath.sin(x) * StrictMath.cos(y))
     program <- plot(field)
       .geomRaster(name = "amplitude", missing = c => c.x * c.x + c.y * c.y < 0.16)
       .title("One image, continuous fill")
@@ -319,7 +321,7 @@ val classedRaster =
     x <- RegularGridAxis.cellCentered(0, 12, 12)
     y <- RegularGridAxis.cellCentered(0, 8, 8)
     field <- ScalarField2D.tabulate(x, y) { (x, y) =>
-      if x < 8 then math.sin(x * 0.8) * math.cos(y * 0.6) else 40.0 + 6.0 * x + y
+      if x < 8 then StrictMath.sin(x * 0.8) * StrictMath.cos(y * 0.6) else 40.0 + 6.0 * x + y
     }
     task <- ColorClass(
       "task effect",

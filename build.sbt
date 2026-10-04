@@ -139,6 +139,29 @@ lazy val javafxPlatformClassifier: String = {
   if (arch.contains("aarch64") && base != "win") base + "-aarch64" else base
 }
 
+/** The JavaFX suites run under headless Monocle, and `openjfx-monocle` 21.0.2 is Java 21 bytecode;
+  * no Monocle build for OpenJFX 21 loads on JDK 17. Below 21 the test sources are left out and the
+  * test task says so, rather than failing to compile. The modules themselves still build on 17.
+  */
+lazy val headlessJavaFxTests: Boolean =
+  sys.props.getOrElse("java.specification.version", "0").takeWhile(_ != '.').toInt >= 21
+
+lazy val headlessJavaFxTestSettings = Seq(
+  Test / unmanagedSourceDirectories := {
+    val dirs = (Test / unmanagedSourceDirectories).value
+    if (headlessJavaFxTests) dirs else Nil
+  },
+  Test / test := (Test / test)
+    .dependsOn(Def.task {
+      if (!headlessJavaFxTests)
+        streams.value.log.warn(
+          s"${name.value}: JavaFX tests skipped on JDK ${sys.props("java.specification.version")}; " +
+            "headless Monocle needs JDK 21 or later"
+        )
+    })
+    .value
+)
+
 lazy val interactionCompatibilityCheck = taskKey[Unit](
   "Validate reviewed additive API entries and calibrate forward-only filtering"
 )
@@ -395,6 +418,7 @@ lazy val javafx =
         "-Dprism.order=sw",
         "-Djava.awt.headless=true"
       ),
+      headlessJavaFxTestSettings,
       tastyMiMaConfig ~= { previous =>
         import java.util.Arrays.asList
         import tastymima.intf.{ProblemKind, ProblemMatcher}
@@ -450,7 +474,8 @@ lazy val javafxExample =
         "-Dprism.order=sw",
         "-Djava.awt.headless=true",
         s"-Dintaglio.repo=${(ThisBuild / baseDirectory).value}"
-      )
+      ),
+      headlessJavaFxTestSettings
     )
 
 /** Executable documentation. Every fenced block marked `mdoc` in `docs/` is compiled against the
