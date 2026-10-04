@@ -450,6 +450,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **The PDF renderer checks a glyph against the face's Unicode cmap.** It
+  passed each code point to `PDType0Font.hasGlyph`, which takes a character
+  code (for the Identity-H embedding, a glyph index). Text was refused with
+  `UnsupportedGlyph` when the face maps the code point but its value lies past
+  the last glyph index, such as U+2013 (en dash) or U+2212 (minus) in Liberation
+  Sans; and an unmapped code point inside the glyph index range passed the check
+  and failed as `PdfEncodingFailed` instead.
+
 - **A slow membership reply can no longer overwrite a newer selection.** A
   pending `RequestMembers` belongs to the selection it was made against: any
   later selection change (a reader's, an application's, a linked projection,

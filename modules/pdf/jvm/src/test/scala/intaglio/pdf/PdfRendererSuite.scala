@@ -210,6 +210,40 @@ class PdfRendererSuite extends munit.FunSuite:
     )
   }
 
+  // A code point is not a glyph index. The face's glyph index range says nothing about whether its
+  // Unicode cmap maps a code point: U+2013 and U+2212 lie past Liberation Sans's last glyph index
+  // yet are mapped, and U+0378 is unassigned yet lies inside that range.
+  test("glyph support is the face's Unicode cmap, not its glyph index range") {
+    val face = new org.apache.fontbox.ttf.TTFParser()
+      .parse(new org.apache.pdfbox.io.RandomAccessReadBuffer(bundledFontBytes()))
+    val glyphCount =
+      try face.getNumberOfGlyphs
+      finally face.close()
+    assert(0x2013 >= glyphCount && 0x2212 >= glyphCount, clues(glyphCount))
+    assert(0x0378 < glyphCount, clues(glyphCount))
+
+    val context = RenderContext.unsafe(fontRegistry = fonts.fontRegistry)
+    def scene(label: String) =
+      Scene(
+        Vector(
+          Grob.textUnsafe(
+            label,
+            Point.npcUnsafe(0.5, 0.5),
+            gp = GraphicParams.unsafe(fontFamily = Some("Liberation Sans"))
+          )
+        )
+      )
+
+    val label = "1–2 −3"
+    load(render(scene(label), context, fonts)) { parsed =>
+      assertEquals(new PDFTextStripper().getText(parsed).trim, label)
+    }
+    assertEquals(
+      PdfRenderer.render(RenderPlan(scene("a͸"), context), fonts).left.toOption,
+      Some(PdfRenderError.UnsupportedGlyph("Liberation Sans", 0x0378))
+    )
+  }
+
   test("vector marks and patterns stay vector; only explicit images create raster payloads") {
     val recipe = PatternRecipe
       .crossHatch(angleDegrees = 35.0, spacing = 12.0, lineWidth = 1.5)

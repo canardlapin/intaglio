@@ -673,11 +673,17 @@ object PdfRenderer:
       val bounds = font.getNormalizedPath(code).getBounds2D
       Option.when(!bounds.isEmpty)(bounds)
 
+    /** Refuses the first code point the face's Unicode cmap does not map, the lookup `showText`
+      * encodes through. `hasGlyph` takes a character code, which for an Identity-H embedding is a
+      * glyph index, so asking it about a code point tests the wrong number.
+      */
     private def validateGlyphs(label: String, family: String, font: PDType0Font): Unit =
+      val cmap = Option(font.getCmapLookup)
       var offset = 0
       while offset < label.length do
         val codePoint = label.codePointAt(offset)
-        if !font.hasGlyph(codePoint) then abort(PdfRenderError.UnsupportedGlyph(family, codePoint))
+        if !cmap.exists(_.getGlyphId(codePoint) > 0) then
+          abort(PdfRenderError.UnsupportedGlyph(family, codePoint))
         offset += Character.charCount(codePoint)
 
     private def drawImage(
