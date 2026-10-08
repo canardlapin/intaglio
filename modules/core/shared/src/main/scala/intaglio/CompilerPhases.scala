@@ -2813,8 +2813,7 @@ private[intaglio] object LayoutPhase:
             case _ => Iterator.empty
         }
         range = range.train(intervalValues)
-        if layer.rows.exists(_.statRow.isInstanceOf[StatRow.Ecdf[?]]) then
-          range = range.train(Iterator.single(0.0))
+        if containsEcdfRow(layer.rows) then range = range.train(Iterator.single(0.0))
     }
     if sawScaled && sawUnscaledData then Left(GraphicsError.MixedPositionScaling(aesthetic.label))
     else
@@ -2823,6 +2822,22 @@ private[intaglio] object LayoutPhase:
           Right(Interval.unsafe(0.0, 1.0))
         case result =>
           result
+
+  /** Whether any row is an ECDF step. This is an index loop, not `rows.exists(...)`, on purpose.
+    * The Scala.js emitter (every version tested, 1.19.0 to 1.22.0) folds an instance test against a
+    * class with no instances in the linked program to `false` and drops the tested expression, side
+    * effects included. In a fullLinkJS bundle the inlined `exists` (its element cast unchecked) put
+    * the iterator's `next()` inside that expression, so every program without an ECDF layer looped
+    * forever here (bd-01M41R5BTCMQ5R0NPGAZ0S504K). The index advances outside the instance test, so
+    * this loop terminates whatever the emitter folds. `tools/check-fulllink.sh` keeps it that way.
+    */
+  private def containsEcdfRow(rows: Vector[ResolvedRow[?]]): Boolean =
+    var found = false
+    var index = 0
+    while !found && index < rows.length do
+      found = rows(index).statRow.isInstanceOf[StatRow.Ecdf[?]]
+      index += 1
+    found
 
   private def positionValues(
       row: ResolvedRow[?],
