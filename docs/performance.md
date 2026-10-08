@@ -212,6 +212,25 @@ workload at the emphasis-reuse assertion and exceeds 11 Canvas budgets, among th
 (12.3 s), pointer to highlight (248 ms), hover redraw, re-window, restyle and retained heap
 (764 MiB).
 
+### Optimized (`fullLinkJS`) bundles
+
+Until `9b89be0`, every `fullLinkJS` bundle that compiled a plot without an ECDF layer hung in
+`LayoutPhase.positionRange`. The Scala.js emitter dropped the iterator's `next()` from an instance
+test against a class the program never instantiates (bd-01M41R5BTCMQ5R0NPGAZ0S504K). Since that
+fix, the performance page runs on the `fullLinkJS` fixture, and the budgets stay on `fastLinkJS`:
+
+- **The `fastLinkJS` budgets bound the optimized bundle.** One run of each bundle, back to back on
+  this machine at `9b89be0` (`INTAGLIO_PERF_RUNS=1`), passed every budget and assertion with both.
+  Under `fullLinkJS`, the compile-heavy metrics were 8–24% faster: view compile 0.86–0.88×,
+  re-window 0.82–0.89× and update 0.82–0.86× of the `fastLinkJS` value. Retained heap was within
+  1.5%. The sub-10 ms pointer and hover latencies were 0.84–1.25×, which is within run-to-run noise.
+  A second budget set would double the maintenance and catch no regression that this set misses.
+- **What `fullLinkJS` changes is behaviour, not cost.** Its unchecked casts change what the
+  optimizer inlines, and that is how the hang arose. `tools/check-fulllink.sh` checks this in CI
+  for core compile and Canvas paint. At a release rehearsal, also run this page once against
+  `browserFixture/fullLinkJS` (`browserfixture-opt/main.js`) for its assertions. Do not record
+  budgets from that run.
+
 ## Correctness evidence
 
 `IndexedPickingScaleSuite` runs on the JVM and on Scala.js. Its 10,000-target scene has 6,000 free
@@ -237,13 +256,10 @@ strokes and hollow polygons. The suite checks that:
 
 ## Known gaps
 
-- **Scala.js full optimization hangs this fixture.** With `fullLinkJS` (sbt-scalajs 1.22.0), both
-  `e891562` and this commit loop forever in `LayoutPhase.positionRange`. The optimizer folds
-  `layer.rows.exists(_.statRow.isInstanceOf[StatRow.Ecdf[?]])` to a loop that never advances its
-  iterator (`while (!res && it.hasNext()) { res = false }`), presumably because no `StatRow.Ecdf`
-  is instantiated in the program. Any optimized application that compiles a plot without an ECDF
-  layer is affected. The budgets are therefore for the `fastLinkJS` bundle, as every other browser
-  suite is. The defect is recorded on the Interaction 11 tracker item and is not fixed here.
+- **Optimized bundles are checked in CI only for compile and Canvas paint.**
+  [`tools/check-fulllink.sh`](../tools/check-fulllink.sh) runs plot compiles and Canvas paints in
+  a `fullLinkJS` bundle under Node. The widget, interaction and performance pages run against a
+  `fullLinkJS` fixture only by hand (see [Optimized bundles](#optimized-fulllinkjs-bundles)).
 - Only Chromium 151 on one machine is measured. Other engines, slower hardware and hosted CI are
   not characterized.
 - Re-window, restyle and update cost hundreds of milliseconds at 10,000 marks and seconds at

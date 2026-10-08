@@ -266,5 +266,6 @@ fixture sizes are not capacity guarantees.
 | Exact-member coverage cost (histogram, 100,000 rows) | — | 345 vs 267 ms compile, 18.8 vs 15.9 MiB, 19.8 ms coverage redraw | `membershipExactKeys100k` vs `membershipCountOnly100k` |
 
 Re-windowing, restyling and updates rebuild the whole view; only the overlay redraw is incremental.
-Optimized (`fullLinkJS`) bundles are not measured: Scala.js 1.22.0's optimizer turns a check in
-plot compilation into an infinite loop. See [Known gaps](performance.md#known-gaps).
+The budgets are measured on the `fastLinkJS` bundle. An optimized (`fullLinkJS`) bundle passed
+the same budgets, with compile phases 8–24% faster; see
+[Optimized bundles](performance.md#optimized-fulllinkjs-bundles).

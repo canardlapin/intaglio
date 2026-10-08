@@ -2,10 +2,11 @@
 # The optimized-bundle court.
 #
 # Every other Scala.js suite and the browser consumer gate link with fastLinkJS. A production
-# bundle is linked with fullLinkJS: unchecked semantics (casts, array bounds, null checks vanish),
-# a different optimizer outcome, then the Google Closure Compiler. Code that is correct under
-# fastLinkJS can therefore fail only in a production bundle; bd-01M41R5BTCMQ5R0NPGAZ0S504K made
-# every plot compile hang there.
+# bundle is linked with fullLinkJS: unchecked semantics (casts, array bounds and null checks
+# vanish), so the optimizer inlines differently, and member names are minified. (Scala.js 1.21
+# turned the Closure Compiler off by default; this build does not turn it back on.) Code that is
+# correct under fastLinkJS can therefore fail only in a production bundle;
+# bd-01M41R5BTCMQ5R0NPGAZ0S504K made every plot compile hang there.
 #
 # 1. Link modules/fulllink-smoke with fullLinkJS. It compiles one plot per representative layer
 #    family and paints each through the Canvas renderer onto a stub context.

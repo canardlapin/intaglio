@@ -6,7 +6,7 @@ import scala.scalajs.js
 
 /** Compiles one plot per representative layer family and paints each through the Canvas renderer
   * onto a recording stub context, printing a line per plot. `tools/check-fulllink.sh` links it with
-  * `fullLinkJS` (the optimizer with unchecked semantics, then Closure, as a production bundle is
+  * `fullLinkJS` (unchecked production semantics and minified names, as a production bundle is
   * built) and runs it under a wall-clock timeout. Every other Scala.js suite links with fastLinkJS.
   *
   * Keep this program free of ECDF layers. The Scala.js 1.22.0 emitter folds an instance test

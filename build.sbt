@@ -353,8 +353,9 @@ lazy val browserFixture =
     )
 
 /** A plot-compiling program used only by tools/check-fulllink.sh, which links it with `fullLinkJS`
-  * (the optimizer and Closure, as a production bundle is built) and runs it under a timeout. Every
-  * other Scala.js suite links with fastLinkJS. Not published and not part of the aggregate.
+  * (production semantics and minified names, as a production bundle is built) and runs it under a
+  * timeout. Every other Scala.js suite links with fastLinkJS. Not published and not part of the
+  * aggregate.
   */
 lazy val fullLinkSmoke =
   project
