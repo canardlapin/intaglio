@@ -119,16 +119,18 @@ final class NamedPickingPlan private[interaction] (
     * point exactly on an interior boundary belongs to the cell to its right (below). The image's
     * right and bottom edges belong to its last column and row. Cells are reported only where the
     * image is painted: inside its box (inclusive within the 1e-8 device-pixel tolerance of every
-    * picking boundary) and inside every clip around it, which are the points where `hits(point)`
-    * reports `name` at distance zero. A hit within a tolerance but outside the image has no cell.
-    * Every pixel counts, whatever its alpha, as it does for `hits`; nearest-neighbour and smooth
-    * interpolation share the cell grid. Where one name paints several images over the point, the
-    * last drawn wins. Grobs other than images never report a cell.
+    * picking boundary) and inside every clip around it: where one of `name`'s image parts makes
+    * `hits(point)` report `name` at distance zero. A hit within a tolerance but outside the image,
+    * or one on another grob of the same name, has no cell; and a later-drawn grob of the same name
+    * over the image does not hide its cell. Every pixel counts, whatever its alpha, as it does for
+    * `hits`; nearest-neighbour and smooth interpolation share the cell grid. Where one name paints
+    * several images over the point, the last drawn wins. Grobs other than images never report a
+    * cell.
     *
     * The arithmetic is plain IEEE double arithmetic, identical on the JVM and Scala.js. Without
-    * rotation the mapping is exact; under rotation it goes through `cos` and `sin`, whose last bit
-    * can differ between platforms, so only a point within rounding of a cell boundary or of an
-    * image or clip edge may differ.
+    * rotation the mapping is exact; under rotation it goes through `toRadians`, `cos` and `sin`,
+    * whose last bit can differ between platforms, so only a point within rounding of a cell
+    * boundary or of an image or clip edge may differ.
     */
   def cellAt(name: GraphicsName, point: DevicePoint): Either[PickingError, Option[ImageCell]] =
     if !point.x.isFinite || !point.y.isFinite then Left(PickingError.InvalidInput("query point"))

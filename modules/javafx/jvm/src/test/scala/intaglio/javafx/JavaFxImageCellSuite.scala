@@ -23,9 +23,10 @@ import java.awt.geom.{AffineTransform, Area, Point2D, Rectangle2D}
   * Two allowances belong to the headless software pipeline these tests run on, measured here rather
   * than assumed: near a cell boundary it samples a nearest-neighbour image a fraction of a device
   * pixel away from the pixel centre, and blends the two texels there, so pixels whose centre is
-  * within one device pixel of a cell boundary are counted, not compared; and under rotation it
-  * paints the image's top and left edge texels beyond the rotated quad, so a rotated scene checks
-  * the inside only. The exact, edge-by-edge comparison under rotation is
+  * within one device pixel of a cell boundary are counted, not compared (a per-cell centroid
+  * comparison bounds any systematic shift between drawn and reported cells instead); and under
+  * rotation it paints the image's top and left edge texels beyond the rotated quad, so a rotated
+  * scene checks the inside only. The exact, edge-by-edge comparison under rotation is
   * `ImageCellPixelOracleSuite` (Java2D) in the interaction module.
   */
 class JavaFxImageCellSuite extends munit.FunSuite:
@@ -124,7 +125,14 @@ class JavaFxImageCellSuite extends munit.FunSuite:
         .collectFirst { case Some(frame) => frame }
     walk(scene.elements, new AffineTransform(), None).getOrElse(fail("the scene draws no image"))
 
-  private final case class Tally(inside: Int, outside: Int, edge: Int, boundary: Int, beyond: Int)
+  private final case class Tally(
+      inside: Int,
+      outside: Int,
+      edge: Int,
+      boundary: Int,
+      beyond: Int,
+      registration: Double
+  )
 
   /** Compare every pixel of the host's base canvas with the reported cell. `exactOutside` asserts
     * that pixels wholly outside the visible region are unpainted; otherwise painted ones are
@@ -161,7 +169,17 @@ class JavaFxImageCellSuite extends munit.FunSuite:
           val v = (local.getY - frame.image.y) / cellHeight
           math.abs(u - math.rint(u)) * cellWidth < 1 ||
           math.abs(v - math.rint(v)) * cellHeight < 1
-        var tally = Tally(0, 0, 0, 0, 0)
+        var tally = Tally(0, 0, 0, 0, 0, 0)
+        // Per cell, over pixels wholly inside and painted with one cell's colour: the summed device
+        // centre of the pixels painted with its colour, and of those `cellAt` assigns to it. Their centroids must coincide, so a
+        // systematic shift between drawing and picking cannot hide inside the boundary allowance.
+        val drawnSum = Array.fill(rows * columns)(Array(0.0, 0.0, 0.0))
+        val pickedSum = Array.fill(rows * columns)(Array(0.0, 0.0, 0.0))
+        def add(sums: Array[Array[Double]], cell: ImageCell, p: DevicePoint): Unit =
+          val sum = sums(cell.row * columns + cell.column)
+          sum(0) += p.x
+          sum(1) += p.y
+          sum(2) += 1
         for py <- 0 until nodeHeight.toInt; px <- 0 until nodeWidth.toInt do
           val square =
             new Rectangle2D.Double((px - left) / scale, (py - top) / scale, 1 / scale, 1 / scale)
@@ -169,6 +187,9 @@ class JavaFxImageCellSuite extends munit.FunSuite:
           val centre = ok(host.toDevice(px + 0.5, py + 0.5))
           val reported = centre.flatMap(p => ok(plan.cellAt(n("grid"), p)))
           if frame.visible.contains(square) then
+            for p <- centre; drawnCell <- cellOf(argb) do
+              add(drawnSum, drawnCell, p)
+              reported.foreach(add(pickedSum, _, p))
             if centre.forall(nearCellBoundary) then
               tally = tally.copy(boundary = tally.boundary + 1)
             else
@@ -182,7 +203,21 @@ class JavaFxImageCellSuite extends munit.FunSuite:
             else if (argb >>> 24) != 0 then tally = tally.copy(beyond = tally.beyond + 1)
             tally = tally.copy(outside = tally.outside + 1)
           else tally = tally.copy(edge = tally.edge + 1)
-        tally
+        // The pixel-weighted mean of the per-cell centroid shifts: a systematic misregistration
+        // moves every cell the same way, while the renderer's sampling noise at single boundary
+        // pixels of small (clipped) cells averages out.
+        var (dx, dy, weight) = (0.0, 0.0, 0.0)
+        drawnSum.indices.foreach { i =>
+          val d = drawnSum(i)
+          val q = pickedSum(i)
+          if d(2) > 0 && q(2) > 0 then
+            dx += d(2) * (d(0) / d(2) - q(0) / q(2))
+            dy += d(2) * (d(1) / d(2) - q(1) / q(2))
+            weight += d(2)
+        }
+        tally.copy(registration =
+          if weight == 0 then Double.PositiveInfinity else math.hypot(dx, dy) / weight
+        )
       finally host.dispose()
     }
 
@@ -207,6 +242,10 @@ class JavaFxImageCellSuite extends munit.FunSuite:
     assert(tally.outside > 1000, clues(label, tally))
     assert(tally.boundary < tally.inside / 2, clues(label, tally))
     assert(tally.edge < tally.inside / 10, clues(label, tally))
+    // Measured on the software pipeline: 0 for the unclipped scaled image, 0.03 rotated, and 0.2
+    // device pixel where a clip cuts the image (Java2D, in ImageCellPixelOracleSuite, is exact
+    // there); a half-pixel origin error in drawing or picking would exceed the bound.
+    assert(tally.registration < 0.3, clues(label, tally))
 
   test("nested viewports at device scale 2 agree pixel for pixel at several host scales") {
     val inner =
@@ -240,7 +279,11 @@ class JavaFxImageCellSuite extends munit.FunSuite:
         angleDegrees = 27
       )
       val scene = nested(grid(Point.npcUnsafe(0.5, 0.5), Size.npcUnsafe(1.1, 0.9)), inner)
-      assertCovered(compare(scene, hidpi, 360, 240, exactOutside = false), clip.toString)
+      val tally = compare(scene, hidpi, 360, 240, exactOutside = false)
+      assertCovered(tally, clip.toString)
+      // The software pipeline's paint beyond the rotated quad (measured: under a third of the
+      // inside), bounded so a gross over-paint still fails.
+      assert(tally.beyond < tally.inside / 2, clues(tally))
     }
   }
 
@@ -403,6 +446,19 @@ class JavaFxImageCellSuite extends munit.FunSuite:
           JavaFxCellEvent.Selected(None)
         )
       )
+      host.dispose()
+    }
+  }
+
+  test("a new view keeps the selection by name but drops the chosen cell") {
+    fx {
+      val host = ok(JavaFxInteractionHost.attach(namedView(sheet, sheetContext)))
+      host.node.resize(240, 160)
+      click(host, 105, 95)
+      assertEquals(ok(host.selectedCell), cell(2, 3))
+      ok(host.update(namedView(sheet, sheetContext)))
+      assertEquals(ok(host.state).selection.entities.map(_.value), Set(n("grid")))
+      assertEquals(ok(host.selectedCell), None)
       host.dispose()
     }
   }

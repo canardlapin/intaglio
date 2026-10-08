@@ -180,18 +180,21 @@ that matrix's row as `height - 1 - row`.
 
 Cells are half-open: a point exactly on an interior boundary belongs to the cell to its right or
 below (`DevicePoint(160, 150)`, on a corner, is row 1, column 1), and the image's right and bottom
-edges belong to its last column and row. A cell is reported exactly where `hits(point)` reports the
-name at distance zero: inside the box, within the 1e-8 device-pixel tolerance of every picking
-boundary, and inside every clip around it. A hit that only a tolerance reaches, or a grob that is
-not an image, has no cell. Every pixel counts whatever its alpha, as it does for `hits`, and smooth
-interpolation does not change the grid. Where one name paints several images over the point, the
-last drawn reports. The mapping goes through the same rotation picking uses, in plain double
-arithmetic, so the JVM and Scala.js agree exactly without rotation and, under rotation, everywhere
-except within rounding of a cell boundary or an image or clip edge.
+edges belong to its last column and row. A cell is reported exactly where one of the name's image
+parts makes `hits(point)` report it at distance zero: inside the box, within the 1e-8 device-pixel
+tolerance of every picking boundary, and inside every clip around it. A hit that only a tolerance
+reaches, or a hit on a grob of the same name that is not an image, has no cell, and a later-drawn
+grob of the same name over the image does not hide its cell. Every pixel counts whatever its alpha,
+as it does for `hits`, and smooth interpolation does not change the grid. Where one name paints
+several images over the point, the last drawn reports. The mapping goes through the same rotation
+picking uses (`toRadians`, `cos`, `sin`), in plain double arithmetic, so the JVM and Scala.js agree
+exactly without rotation and, under rotation, everywhere except within rounding of a cell boundary
+or an image or clip edge.
 
-`ImageCellPixelOracleSuite` checks this against pixels drawn by Java2D under nested viewports at
-device scale 2, a clip that cuts the image, rotated viewports with and without their clip, and
-nested rotations; on JavaFX, `JavaFxImageCellSuite` checks it against the host's own canvas.
+`ImageCellPixelOracleSuite` checks this against pixels Java2D draws, through the same rotate, clip
+and placement calls as the Java2D backend, under nested viewports at device scale 2, a clip that
+cuts the image, rotated viewports with and without their clip, and nested rotations; on JavaFX,
+`JavaFxImageCellSuite` checks it against the host's own canvas.
 
 ## Keyboard navigation and interaction state
 

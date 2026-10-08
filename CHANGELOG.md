@@ -67,9 +67,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`JavaFxCellEvent.Hovered` / `Selected`, carrying a `NamedCell`) report the
   cell under the pointer and the cell of the last click while its name stays
   selected; keyboard navigation between cells is not provided. `NamedHit` and
-  every other grob pick as before. Java2D and JavaFX pixel oracles check the
-  cells against drawn pixels under nested viewports at device scale 2, a
-  cutting clip and rotated viewports. See
+  every other grob pick as before. Pixel oracles check the cells against
+  pixels Java2D draws through the Java2D backend's calls and against the JavaFX
+  host's canvas, under nested viewports at device scale 2, a cutting clip and
+  rotated viewports. See
   [docs/picking.md](docs/picking.md#report-the-cell-of-an-image).
 
 - The JavaFX interaction host covers the supported interactive behaviours

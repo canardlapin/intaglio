@@ -95,12 +95,12 @@ def followCells(
 scene; it is `None` when the hovered target is not an image or only the pointer tolerance reaches
 it, and keyboard focus has no cell. `host.selectedCell` is the cell of the most recent click while
 its name stays selected: a click that selects an image records the cell under the pointer, and the
-cell is dropped when the name leaves the selection (Escape, `setSelection`, undo, a new view).
-Selection, snapshots and history stay by name; the cell is host state. Keyboard navigation between
-cells is not provided: arrow keys move between names, as for any hand-built scene. Rows count from
-the image's top row; see [Report the cell of an image](picking.md#report-the-cell-of-an-image) for
-the convention and the tie rule at boundaries. A plot's view reports no cells (`names` is `None`);
-its rasters carry `TargetInfo.rasterCell`.
+cell is dropped when the name leaves the selection (Escape, `setSelection`, undo) and when `update`
+shows a new view. Selection, snapshots and history stay by name; the cell is host state. Keyboard
+navigation between cells is not provided: arrow keys move between names, as for any hand-built
+scene. Rows count from the image's top row; see [Report the cell of an
+image](picking.md#report-the-cell-of-an-image) for the convention and the tie rule at boundaries. A
+plot's view reports no cells (`names` is `None`); its rasters carry `TargetInfo.rasterCell`.
 
 ## Input and overlays
 
