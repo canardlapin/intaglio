@@ -352,6 +352,23 @@ lazy val browserFixture =
       publish / skip := true
     )
 
+/** A plot-compiling program used only by tools/check-fulllink.sh, which links it with `fullLinkJS`
+  * (the optimizer and Closure, as a production bundle is built) and runs it under a timeout. Every
+  * other Scala.js suite links with fastLinkJS. Not published and not part of the aggregate.
+  */
+lazy val fullLinkSmoke =
+  project
+    .in(file("modules/fulllink-smoke"))
+    .enablePlugins(ScalaJSPlugin)
+    .dependsOn(canvasJS)
+    .settings(
+      scalaVersion := scalaLts,
+      scalacOptions ++= Seq("-deprecation", "-feature", "-unchecked", "-Wconf:id=E029:e"),
+      scalaJSUseMainModuleInitializer := true,
+      scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.NoModule)),
+      publish / skip := true
+    )
+
 lazy val java2d =
   crossProject(JVMPlatform)
     .crossType(CrossType.Full)

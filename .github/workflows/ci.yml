@@ -77,6 +77,12 @@ jobs:
         run: >-
           sbt -Djava.awt.headless=true -Dsbt.supershell=false
           "++${{ matrix.scala }}" testAll
+      # testAll links Scala.js with fastLinkJS. A production bundle is linked with fullLinkJS, which
+      # can behave differently (bd-01M41R5BTCMQ5R0NPGAZ0S504K hung every plot compile). The smoke
+      # program is pinned to the published Scala line, so one cell runs it.
+      - name: Run a plot compile in a fullLinkJS bundle
+        if: matrix.scala == '3.3.8' && matrix.java == '17'
+        run: bash tools/check-fulllink.sh
       # A failed visual golden writes expected/actual/difference PNGs. Keep them: they are the only
       # way to review a Linux render, and a host-pinned golden's Linux copy is taken from here.
       - name: Keep visual golden failures for review
