@@ -4,8 +4,8 @@
   "browser": "151.0.7922.34",
   "script": "widget.json",
   "scriptSha256": "6bc4fd8b3dac9f4059f71a4ffabd6992b8b25ffe24ce18ef5ac4fbd24f07b74c",
-  "fixtureSha256": "5a572ab117a3da544ba973163b1e63545fac288107184e183b05898423f88094",
-  "sourcesSha256": "b6297f9d3fb7ecff5f424672edb6341fa718efd086c6ca2b4b552b13c69a0750",
+  "fixtureSha256": "6cb16cfdffbd4da41cc670b74768a93739a146af673c3ae9248b81f3edc24f0b",
+  "sourcesSha256": "5c2295bc7d19f138b628ad74fcf8c201fa8f272f657f2b8caeb8fd75798a3360",
   "steps": [
     {
       "step": 0,

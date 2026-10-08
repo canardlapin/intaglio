@@ -179,6 +179,18 @@ final class DataWindowNavigator private (x: NavigableAxis, y: NavigableAxis):
       narrowed(y, (y0, y1), math.min(ay, by), math.max(ay, by))
     )
 
+  /** The window that draws a saved `viewport`: its interval on each navigable axis, checked and
+    * brought inside the bounds as [[normalize]] does; a categorical axis keeps its compiled extent.
+    */
+  private[intaglio] def windowOf(viewport: PanelViewport): Either[IntaglioError, PanelWindow] =
+    val (nx, ny) = navigable
+    normalize(
+      PanelWindow(
+        Option.when(nx)((viewport.xMin, viewport.xMax)),
+        Option.when(ny)((viewport.yMin, viewport.yMax))
+      )
+    )
+
   /** Typed data windows for [[InteractionCompiler.rezoom]]; `None` where the axis is full. */
   def windows(
       window: PanelWindow
@@ -193,6 +205,37 @@ final class DataWindowNavigator private (x: NavigableAxis, y: NavigableAxis):
     yield (wx, wy)
 
 object DataWindowNavigator:
+  /** Whether a host can draw the viewports of a snapshot it is asked to restore, checked before
+    * anything changes. An interactive host draws at most one navigable panel, `panel`, through
+    * `navigator` (`None` when the view cannot navigate; `unnavigable` names it in the reason). A
+    * viewport for another panel, any viewport on a view that cannot navigate, and one that would
+    * show a single value are refused with `SnapshotError.Invalid`; a viewport outside the bounds is
+    * accepted, since it is drawn brought inside them.
+    */
+  private[intaglio] def drawable(
+      viewports: Map[SemanticId, PanelViewport],
+      panel: SemanticId,
+      navigator: Option[DataWindowNavigator],
+      unnavigable: String
+  ): Either[SnapshotError, Unit] =
+    val others = (viewports.keySet - panel).map(_.value).toVector.sorted
+    if others.nonEmpty then
+      Left(SnapshotError.Invalid(s"this view has no panel ${others.mkString(", ")} to draw"))
+    else
+      viewports.get(panel).fold(Right(())) { saved =>
+        navigator match
+          case None =>
+            Left(
+              SnapshotError.Invalid(s"its viewport cannot be drawn: $unnavigable cannot navigate")
+            )
+          case Some(nav) =>
+            nav
+              .windowOf(saved)
+              .left
+              .map(e => SnapshotError.Invalid(s"its viewport cannot be drawn: ${e.message}"))
+              .map(_ => ())
+      }
+
   /** A navigator for `plan` as compiled (its unwindowed panel gives the raw bounds). */
   def of[A](
       plan: InteractionPlan[A],

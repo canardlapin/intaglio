@@ -216,3 +216,71 @@ class DataWindowNavigatorSuite extends munit.FunSuite:
     assert(nav.normalize(PanelWindow(Some((0.5, 0.5 + day / 10)), None)).isLeft, "one value")
     assertEquals(shown.takeRight(5).distinct.size, 1, "further zoom-in keeps the last window")
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // Restored viewports: the check both hosts make before a restore changes anything
+
+  private val panelId = SemanticId.unsafe("panel")
+  private def viewport(x0: Double, x1: Double, y0: Double, y1: Double) =
+    ok(PanelViewport(x0, x1, y0, y1))
+  private def invalid(result: Either[SnapshotError, Unit]): String =
+    result match
+      case Left(SnapshotError.Invalid(reason)) => reason
+      case other => fail(s"expected SnapshotError.Invalid, got $other")
+
+  test("a restored viewport outside the bounds is drawable, brought inside with its width kept") {
+    val nav = ok(DataWindowNavigator.of(linear, context))
+    val far = viewport(1.2, 1.5, 0.1, 0.4)
+    assertEquals(
+      DataWindowNavigator.drawable(Map(panelId -> far), panelId, Some(nav), "it"),
+      Right(())
+    )
+    val drawn = ok(nav.windowOf(far))
+    val (x0, x1) = drawn.x.get
+    assertEqualsDouble(x1, 1.0, 1e-12)
+    assertEqualsDouble(x1 - x0, 0.3, 1e-12)
+    assertEquals(drawn.y, Some((0.1, 0.4)))
+    assertEquals(
+      ok(nav.windowOf(viewport(-5, 5, -5, 5))),
+      PanelWindow.full,
+      "wider than the data is the compiled view"
+    )
+    assertEquals(DataWindowNavigator.drawable(Map.empty, panelId, None, "it"), Right(()))
+  }
+
+  test(
+    "a restored viewport is refused when the view cannot navigate, for another panel, or as one value"
+  ) {
+    val nav = ok(DataWindowNavigator.of(linear, context))
+    val inside = viewport(0.1, 0.4, 0.1, 0.4)
+    val unnavigable =
+      invalid(DataWindowNavigator.drawable(Map(panelId -> inside), panelId, None, "this view"))
+    assert(unnavigable.contains("this view cannot navigate"), unnavigable)
+    val elsewhere = invalid(
+      DataWindowNavigator.drawable(
+        Map(SemanticId.unsafe("other") -> inside),
+        panelId,
+        Some(nav),
+        "it"
+      )
+    )
+    assert(elsewhere.contains("no panel other"), elsewhere)
+    val dated = compile(
+      plot(rows)
+        .aes(_.x, _.y)
+        .scaleXDate(_.day)
+        .encode(Aesthetic.Y, _.y, ok(ContinuousScaleSpec("y", Palette.numeric)))
+        .geomPoint()
+    )
+    val day = 1.0 / 58.0 // the domain spans 58 days
+    val oneDay = viewport(0.5, 0.5 + day / 10, 0.1, 0.4)
+    val single = invalid(
+      DataWindowNavigator.drawable(
+        Map(panelId -> oneDay),
+        panelId,
+        Some(ok(DataWindowNavigator.of(dated, context))),
+        "it"
+      )
+    )
+    assert(single.contains("shows one value"), single)
+  }

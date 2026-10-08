@@ -100,12 +100,17 @@ final class SvgWidget[A] private (
     */
   private var lastReported: Option[Any] = None
 
-  /** The state before a run of continuous navigation (pan, pinch, wheel or key zoom frames), which
-    * is recorded as one history entry once the run pauses, not one per animation frame.
+  /** The open run of continuous navigation (pan drag, pinch, wheel or key zoom frames), recorded as
+    * one history entry under the shared `NavigationRun` rules, not one per animation frame: a pan
+    * drag from press to release (or until it is abandoned), any other run until it pauses.
     */
-  private var navigationBefore: Option[InteractionState[A]] = None
-  private var navigationCause: InputCause = InputCause.Pointer
-  private var navigationTimer: Option[js.Any] = None
+  private val navigationRun = new NavigationRun[A](
+    SvgWidget.navigationPauseMs,
+    (ms, task) =>
+      val callback: js.Function0[Unit] = () => task()
+      val handle = g.setTimeout(callback, ms)
+      () => g.clearTimeout(handle)
+  )
   private var nextStateListener = 0L
   private var pendingCause: InputCause = InputCause.Pointer
   private var magnification = 1.0
@@ -238,11 +243,27 @@ final class SvgWidget[A] private (
     for
       current <- controller.state
       resolved <- InteractionSnapshot.resolve(snapshot, current.domain)
+      _ <- DataWindowNavigator.drawable(
+        resolved.viewports,
+        SvgWidget.panelId,
+        navigator,
+        SvgWidget.unnavigable
+      )
       _ <- dispatch(InteractionAction.RestoreSnapshot(resolved), InputCause.Programmatic)
     yield scheduleRedraw()
 
-  def canUndo: Boolean = history.canUndo
-  def canRedo: Boolean = history.canRedo
+  /** Whether `undo()` would change anything: a recorded entry, or a navigation run still open
+    * (which undo records first). Asking never ends a run.
+    */
+  def canUndo: Boolean = history.canUndo || runChanged
+
+  /** Whether `redo()` would change anything. An open navigation run that changed the state is a new
+    * change, which clears redo once recorded, so redo is unavailable while it is open.
+    */
+  def canRedo: Boolean = history.canRedo && !runChanged
+
+  /** A navigation run is open and has changed the durable state since it began. */
+  private def runChanged: Boolean = controller.state.toOption.exists(navigationRun.changed)
 
   /** Undo this plot's last recorded change; `false` when there is nothing to undo. */
   def undo(): Either[IntaglioError, Boolean] = undo(InputCause.Programmatic)
@@ -324,13 +345,11 @@ final class SvgWidget[A] private (
         setHoveredPart(None)
         emitHover(LinkedEmphasis.none[A])
         legendEmphasis = LinkedEmphasis.none[A]
-        // A new view from the application is the new compiled base; its window is full.
+        // A new view from the application is the new compiled base; its window is full. A window
+        // still waiting for its frame belongs to the old view and is dropped, not drawn.
+        pendingWindow = None
         cancelGesture()
         clearGestureLayer()
-        // A pointer still held open its gesture in the state; end it, or the mode cannot change.
-        if controller.state.exists(_.gesture.nonEmpty) then
-          dispatch(InteractionAction.EndGesture(true), InputCause.Programmatic, record = false).left
-            .foreach(report)
         basePlan = next.singlePlan
         baseView = next
         unstyledView = next
@@ -352,6 +371,10 @@ final class SvgWidget[A] private (
           record = false
         ).left
           .foreach(report)
+        // A pointer still held open its gesture in the state; end it, or the mode cannot change.
+        if controller.state.exists(_.gesture.nonEmpty) then
+          dispatch(InteractionAction.EndGesture(true), InputCause.Programmatic, record = false).left
+            .foreach(report)
         if navigator.isEmpty && (mode == GestureMode.Pan || mode == GestureMode.ZoomRectangle) then
           dispatch(
             InteractionAction.SetGestureMode(GestureMode.Inspect),
@@ -513,9 +536,7 @@ final class SvgWidget[A] private (
       partListeners = Vector.empty
       hoverListeners = Vector.empty
       stateListeners = Vector.empty
-      navigationTimer.foreach(t => g.clearTimeout(t))
-      navigationTimer = None
-      navigationBefore = None
+      navigationRun.end()
       resizeObserver.foreach(_.disconnect())
       resizeObserver = None
       frame.foreach(handle => g.cancelAnimationFrame(handle))
@@ -745,6 +766,10 @@ final class SvgWidget[A] private (
     }
     listeners.on(plotHost, "focus") { _ => scheduleRedraw() }
     listeners.on(plotHost, "blur") { _ =>
+      // Lost focus abandons a drag or pinch in progress, as Escape does.
+      if drag.nonEmpty || pinch.nonEmpty || controller.state.exists(_.gesture.nonEmpty) then
+        cancelGesture()
+        withInput(input.pointer(_, PointerInput.Cancel))
       if controller.state.toOption.forall(_.hover.isEmpty) && hoveredPart.isEmpty then
         emitHover(LinkedEmphasis.none[A])
       hideTooltip()
@@ -799,10 +824,14 @@ final class SvgWidget[A] private (
 
   private def gestureStart(event: js.Dynamic): Unit =
     moved = false
+    // A pan drag is its own entry: a wheel, pinch or key run still open ends here.
+    if mode == GestureMode.Pan then endNavigation()
     at(event).foreach { start =>
       if event.pointerType.asInstanceOf[String] == "touch" then
         touches(event.pointerId.asInstanceOf[Double]) = start
         if touches.size == 2 then
+          // A second finger turns a one-finger pan into a pinch: the pan ends as its own entry.
+          if panning then endNavigation()
           drag = None
           clearGestureLayer()
           val (distance, (mx, my)) = pinchState
@@ -861,7 +890,10 @@ final class SvgWidget[A] private (
 
   private def gestureEnd(event: js.Dynamic): Unit =
     touches.remove(event.pointerId.asInstanceOf[Double])
-    if touches.size < 2 then pinch = None
+    // A pinch ends when a finger lifts; its run is one entry.
+    if touches.size < 2 && pinch.nonEmpty then
+      pinch = None
+      endNavigation()
     val finished = drag
     drag = None
     clearGestureLayer()
@@ -878,7 +910,9 @@ final class SvgWidget[A] private (
             .foreach(area => sweep(area, event))
       case Drag.Trace(points) if moved && points.size >= 3 =>
         PickArea.lasso(points.map((x, y) => DevicePoint(x, y))).foreach(area => sweep(area, event))
-      case _ => ()
+      // A pan is one history entry, from press to release.
+      case Drag.Panning(_, _, _) => endNavigation()
+      case _                     => ()
     }
 
   /** Select what a band or lasso covers: Shift adds, Alt subtracts, otherwise it replaces. */
@@ -889,7 +923,9 @@ final class SvgWidget[A] private (
       else SelectionOperation.Replace
     withInput(state => Right(input.region(state, area, AreaRule.CenterInside, operation)))
 
+  /** Abandon a drag or pinch. An abandoned pan keeps the window it reached, as one entry. */
   private def cancelGesture(): Unit =
+    if panning then endNavigation()
     drag = None
     pinch = None
     touches.clear()
@@ -938,6 +974,8 @@ final class SvgWidget[A] private (
       base.copy(xScale = range(target.x, base.xScale), yScale = range(target.y, base.yScale))
     )
 
+  private def panning: Boolean = drag.exists(_.isInstanceOf[Drag.Panning])
+
   /** Coalesce window changes to one re-windowing per animation frame. */
   private def requestWindow(value: PanelWindow, cause: InputCause = InputCause.Pointer): Unit =
     pendingWindow = Some(value)
@@ -945,16 +983,29 @@ final class SvgWidget[A] private (
     if windowFrame.isEmpty && !disposed then
       val callback: js.Function1[Double, Unit] = _ =>
         windowFrame = None
-        pendingWindow.foreach { next =>
-          if navigationBefore.isEmpty then
-            navigationBefore = controller.state.toOption
-            navigationCause = pendingCause
-          showWindow(next, pendingCause, record = false).left.foreach(report)
-          navigationTimer.foreach(t => g.clearTimeout(t))
-          val pause: js.Function0[Unit] = () => commitNavigation()
-          navigationTimer = Some(g.setTimeout(pause, SvgWidget.navigationPauseMs))
-        }
+        showPendingWindow()
       windowFrame = Some(g.requestAnimationFrame(callback))
+
+  /** Show the window waiting for its animation frame as one frame of the open navigation run. A pan
+    * drag's run waits for the drag to end, however long the reader holds still; any other run is
+    * recorded when it pauses.
+    */
+  private def showPendingWindow(): Unit =
+    pendingWindow.foreach { next =>
+      navigationRun.frame(controller.state.toOption, pendingCause, held = panning)(() =>
+        commitNavigation()
+      )
+      showWindow(next, pendingCause, record = false).left.foreach(report)
+    }
+
+  /** End the open navigation run now, with any frame still waiting for its animation frame shown
+    * first, so the run is recorded as the window the reader last asked for.
+    */
+  private def endNavigation(): Unit =
+    windowFrame.foreach(handle => g.cancelAnimationFrame(handle))
+    windowFrame = None
+    if !disposed then showPendingWindow()
+    commitNavigation()
 
   /** Re-window the base plan and show it. The plan's identity and revision are unchanged, so the
     * interaction state (selection, focus) stands; the viewport is recorded in it.
@@ -1239,6 +1290,9 @@ final class SvgWidget[A] private (
     if record then commitNavigation()
     controller.state.flatMap { before =>
       controller.dispatch(stamp(before, cause), action).map { _ =>
+        controller.state.foreach(followViewport)
+        // Recorded once the viewport drawn is in the state, so a change that ends where it began
+        // (a restore brought back to the window shown) is no entry.
         if record then
           controller.state.foreach(after => history = history.record(before, after, cause))
       }
@@ -1246,11 +1300,8 @@ final class SvgWidget[A] private (
 
   /** Record a run of continuous navigation as one entry: the state before it to the state now. */
   private def commitNavigation(): Unit =
-    navigationTimer.foreach(t => g.clearTimeout(t))
-    navigationTimer = None
-    navigationBefore.foreach { before =>
-      navigationBefore = None
-      controller.state.foreach(after => history = history.record(before, after, navigationCause))
+    navigationRun.end().foreach { (before, cause) =>
+      controller.state.foreach(after => history = history.record(before, after, cause))
     }
 
   /** Run an application callback; a failure is reported and does not stop the others. */
@@ -1585,33 +1636,40 @@ final class SvgWidget[A] private (
     }
 
   /** Draw the window the state records when it differs from the one drawn: a restore, undo or redo
-    * changed the viewport. Both recorded axes are normalized, so an axis at its full extent is the
-    * compiled view; nothing new is recorded in history.
+    * changed the viewport. The viewport is brought inside the bounds (an axis at its full extent is
+    * the compiled view) and the state then records the viewport drawn, so a later snapshot names
+    * what was seen. Nothing new is recorded in history.
     */
   private def followViewport(current: InteractionState[A]): Unit =
     val wanted = current.viewports.get(SvgWidget.panelId)
-    if wanted != drawnViewport then
-      navigator.foreach { nav =>
-        // A categorical axis always shows its compiled extent, so only navigable axes are asked.
-        val (nx, ny) = nav.navigable
-        val target = wanted.fold(Right(PanelWindow.full))(v =>
-          nav.normalize(
-            PanelWindow(
-              Option.when(nx)((v.xMin, v.xMax)),
-              Option.when(ny)((v.yMin, v.yMax))
+    if wanted != drawnViewport && !disposed then
+      navigator match
+        // `restore` refuses this; a state recorded under a navigable view of the same revision can
+        // still reach a view that cannot navigate, and is reported rather than silently not drawn.
+        // It is reported once, and the state is brought back to the full window drawn.
+        case None =>
+          if wanted.nonEmpty then
+            report(InteractionError.UnsupportedCapability(SvgWidget.unnavigable))
+            dispatch(
+              InteractionAction.SetViewport(SvgWidget.panelId, None),
+              InputCause.Programmatic,
+              record = false
+            ).left.foreach(report)
+        case Some(nav) =>
+          // A categorical axis always shows its compiled extent, so only navigable axes are asked.
+          wanted
+            .fold[Either[IntaglioError, PanelWindow]](Right(PanelWindow.full))(nav.windowOf)
+            .flatMap(w =>
+              if w == window then
+                dispatch(
+                  InteractionAction.SetViewport(SvgWidget.panelId, drawnViewport),
+                  InputCause.Programmatic,
+                  record = false
+                )
+              else showWindow(w, InputCause.Programmatic, record = false)
             )
-          )
-        )
-        target
-          .flatMap(w =>
-            if w == window then
-              drawnViewport = wanted
-              Right(())
-            else showWindow(w, InputCause.Programmatic, record = false)
-          )
-          .left
-          .foreach(report)
-      }
+            .left
+            .foreach(report)
 
   /** What one selection draws over one view: its selected targets and the aggregates it covers,
     * their ring path data, and their emphasis outlines, each computed once on first use.
@@ -1873,6 +1931,10 @@ object SvgWidget:
 
   /** The panel's identity in the interaction state's viewport map. */
   private[browser] val panelId: SemanticId = SemanticId.unsafe(PlotRegion.Panel.value)
+
+  /** What a widget that cannot navigate is called in a refusal. */
+  private val unnavigable: String =
+    "this plot (navigation needs one plot panel with a numeric or temporal axis)"
 
   /** A navigator when the plot has a single panel with a numeric or temporal axis. */
   private[browser] def navigatorOf[A](view: SvgWidgetView[A]): Option[DataWindowNavigator] =

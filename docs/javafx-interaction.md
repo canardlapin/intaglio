@@ -5,9 +5,8 @@ is normalized into the shared `HostInput` contract and dispatched to the shared
 `InteractionController`, so hover, focus, selection, activation, navigation and linked state mean
 what they mean in the [browser widget](browser-widget.md): the same script of input produces the
 same events and selected keys in both hosts (see [Evidence](#evidence)). The host reads the same
-`InteractionBehavior` value as the browser. Two history and snapshot boundaries are stricter than
-the browser's today; [Differences from the browser widget](#differences-from-the-browser-widget)
-lists them. JavaFX remains outside core and shared interaction, and
+`InteractionBehavior` value as the browser, and keeps the browser widget's history and snapshot
+boundaries. JavaFX remains outside core and shared interaction, and
 static rendering (`JavaFxRenderer`) needs none of this.
 
 A runnable desktop example — a navigable scatter linked to a histogram whose bins select their
@@ -229,8 +228,7 @@ child parts.
 ## Saved selections, history, snapshots and the inspector
 
 The host exposes [Interaction 10](selection-history.md) through the shared state, with the browser
-widget's boundaries except the two listed under
-[Differences from the browser widget](#differences-from-the-browser-widget):
+widget's boundaries:
 
 ```scala mdoc:silent
 def keepAndUndo(host: JavaFxInteractionHost[Int]): Either[IntaglioError, Boolean] =
@@ -276,20 +274,6 @@ is projected into the others as silent `Projected` input; keys a plot lacks are 
 bins chosen as bins stay local; a host joins at most one live link. A new link group starts from
 the union of its members' selections, and that union is not projected into the members at
 connect: each shows its own selection until a reader's change updates the group.
-
-## Differences from the browser widget
-
-The shared contracts are the same, but two JavaFX boundaries are deliberately stricter than the
-browser widget's today:
-
-- **Pan history.** A JavaFX pan drag is one undo entry from press to release, however long the
-  reader holds still. In the browser a pan held still past the 400 ms pause is recorded there, so
-  one drag can become several entries ([browser widget history](browser-widget.md#named-selections-history-and-snapshots)).
-- **Restored viewports.** JavaFX `restore` refuses, with `SnapshotError.Invalid`, a snapshot whose
-  viewport it cannot draw (a plot that cannot navigate, a panel it does not have, a window showing
-  a single value). The browser accepts such a snapshot and records the viewport.
-
-Shared trace parity does not exercise either case.
 
 ## Capabilities
 

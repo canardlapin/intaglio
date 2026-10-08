@@ -316,11 +316,17 @@ final class JavaFxInteractionHost[A] private (
   /** The viewport the drawn window records; a restored state viewport that differs is drawn. */
   private var drawnViewport = Option.empty[PanelViewport]
 
-  /** The state before a run of continuous navigation (pan drag, wheel, pinch or key zoom), recorded
-    * as one history entry when the run ends or pauses, not one per event.
+  /** The open run of continuous navigation (pan drag, wheel, pinch or key zoom), recorded as one
+    * history entry under the shared `NavigationRun` rules, not one per event.
     */
-  private var navigationBefore = Option.empty[(InteractionState[A], InputCause)]
-  private var navigationTimer = Option.empty[PauseTransition]
+  private val navigationRun = new NavigationRun[A](
+    JavaFxInteractionHost.navigationPauseMs,
+    (ms, task) =>
+      val pause = new PauseTransition(Duration.millis(ms))
+      pause.setOnFinished(_ => task())
+      pause.play()
+      () => pause.stop()
+  )
 
   node.setAccessibleRole(AccessibleRole.PARENT)
   node.setAccessibleRoleDescription("interactive plot")
@@ -554,40 +560,14 @@ final class JavaFxInteractionHost[A] private (
     for
       current <- state
       resolved <- InteractionSnapshot.resolve(saved, current.domain)
-      _ <- drawable(resolved.viewports)
+      _ <- DataWindowNavigator.drawable(
+        resolved.viewports,
+        JavaFxInteractionHost.panelId,
+        navigator,
+        unnavigable
+      )
       _ <- dispatch(InteractionAction.RestoreSnapshot(resolved), InputCause.Programmatic)
     yield ()
-
-  /** Whether this view can draw `viewports`: only its one navigable panel has a viewport. */
-  private def drawable(viewports: Map[SemanticId, PanelViewport]): Either[IntaglioError, Unit] =
-    val others = (viewports.keySet - JavaFxInteractionHost.panelId).map(_.value).toVector.sorted
-    if others.nonEmpty then
-      Left(SnapshotError.Invalid(s"this view has no panel ${others.mkString(", ")} to draw"))
-    else
-      viewports.get(JavaFxInteractionHost.panelId).fold(Right(())) { saved =>
-        navigator match
-          case None =>
-            Left(
-              SnapshotError.Invalid(s"its viewport cannot be drawn: $unnavigable cannot navigate")
-            )
-          case Some(nav) =>
-            windowOf(nav, saved).left
-              .map(e => SnapshotError.Invalid(s"its viewport cannot be drawn: ${e.message}"))
-              .map(_ => ())
-      }
-
-  /** The window that shows `saved` on the navigable axes; categorical axes keep their extent. */
-  private def windowOf(
-      nav: DataWindowNavigator,
-      saved: PanelViewport
-  ): Either[IntaglioError, PanelWindow] =
-    val (nx, ny) = nav.navigable
-    nav.normalize(
-      PanelWindow(
-        Option.when(nx)((saved.xMin, saved.xMax)),
-        Option.when(ny)((saved.yMin, saved.yMax))
-      )
-    )
 
   /** Whether `undo()` would change anything: a recorded entry, or a navigation run still open
     * (which undo records first). A pure read: asking never ends a run. Read on the FX thread.
@@ -601,9 +581,7 @@ final class JavaFxInteractionHost[A] private (
 
   /** A navigation run is open and has changed the durable state since it began. */
   private def runChanged: Boolean =
-    navigationBefore.exists((before, _) =>
-      controller.state.toOption.exists(now => durable(now) != durable(before))
-    )
+    controller.state.toOption.exists(navigationRun.changed)
 
   /** Undo this plot's last recorded change; `false` when there is nothing to undo. Ctrl/Cmd+Z does
     * the same from the keyboard.
@@ -829,9 +807,7 @@ final class JavaFxInteractionHost[A] private (
         tooltipTimer.foreach(_.stop())
         tooltipTimer = None
         tooltipShown = None
-        navigationTimer.foreach(_.stop())
-        navigationTimer = None
-        navigationBefore = None
+        navigationRun.end()
         stateListeners = Vector.empty
         lastReported = Map.empty
         subscriptions.foreach(_.cancel())
@@ -909,10 +885,7 @@ final class JavaFxInteractionHost[A] private (
 
   /** Record a run of continuous navigation as one entry: the state before it to the state now. */
   private def commitNavigation(): Unit =
-    navigationTimer.foreach(_.stop())
-    navigationTimer = None
-    navigationBefore.foreach { (before, cause) =>
-      navigationBefore = None
+    navigationRun.end().foreach { (before, cause) =>
       controller.state.foreach(after => history = history.record(before, after, cause))
     }
 
@@ -921,16 +894,8 @@ final class JavaFxInteractionHost[A] private (
     * pauses.
     */
   private def continuous(value: PanelWindow, cause: InputCause): Either[IntaglioError, Unit] =
-    if navigationBefore.isEmpty then navigationBefore = controller.state.toOption.map(_ -> cause)
-    val shown = showWindow(value, cause, record = false)
-    navigationTimer.foreach(_.stop())
-    navigationTimer = None
-    if !panning then
-      val pause = new PauseTransition(Duration.millis(JavaFxInteractionHost.navigationPauseMs))
-      pause.setOnFinished(_ => if navigationTimer.contains(pause) then commitNavigation())
-      navigationTimer = Some(pause)
-      pause.play()
-    shown
+    navigationRun.frame(controller.state.toOption, cause, held = panning)(() => commitNavigation())
+    showWindow(value, cause, record = false)
 
   private def panning: Boolean = drag.exists(_.isInstanceOf[Drag.Panning])
 
@@ -958,7 +923,7 @@ final class JavaFxInteractionHost[A] private (
           // A categorical axis always shows its compiled extent, so only navigable axes are asked.
           val target =
             wanted.fold[Either[IntaglioError, PanelWindow]](Right(PanelWindow.full))(
-              windowOf(nav, _)
+              nav.windowOf
             )
           // The state then records the viewport drawn, so a later snapshot names what was seen.
           accept(target.flatMap { w =>

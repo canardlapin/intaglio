@@ -123,12 +123,20 @@ A widget keeps named selections, undo/redo history and snapshots (see
 - Ctrl/Cmd+Z undoes this plot's last change and Shift+Ctrl/Cmd+Z or Ctrl+Y redoes it (by physical
   key on layouts whose letters differ); `undo()`, `redo()`, `canUndo` and `canRedo` do the same
   from the application. A linked group follows, and neither ever follows a link or asks a
-  membership resolver. A pan, pinch, or run of wheel or key zooms is one entry, recorded once the
-  window rests for 400 ms (or at once when another change, undo or redo comes first). Updating to
-  new data clears the history; an update of the same revision (a resize or restyle) keeps it.
+  membership resolver. A pan drag is one entry from press to release, however long the reader
+  holds still; Escape, a cancelled or lost pointer capture, or lost focus abandons it, and the
+  abandoned pan keeps the window it reached as that one entry. A pinch, or a run of wheel or key
+  zooms, is one entry, recorded once the window rests for 400 ms (a pinch also when a finger
+  lifts). Another change, undo or redo records an open run first, and `canUndo` counts a run still
+  open. Updating to new data clears the history; an update of the same revision (a resize or
+  restyle) keeps it.
 - `snapshot` captures the durable state (selection, saved selections, window, mode) and
   `restore(snapshot)` applies one after checking it against the plot shown now; a snapshot with
-  another schema, codec, plan or data revision is refused with a typed `SnapshotError`.
+  another schema, codec, plan or data revision is refused with a typed `SnapshotError`. A restored
+  viewport is drawn at once, brought inside the axis bounds as `navigate` brings a window, and
+  recorded as drawn; a viewport the plot cannot draw (on a plot that cannot navigate, for a panel it
+  does not have, or one showing a single value) is refused with `SnapshotError.Invalid` before
+  anything changes.
 - `subscribeState` calls its listener at once and then whenever the data revision or durable state
   changes, including changes projected in by a link; hover and focus are not reported. A failing
   listener is logged and does not stop the others. `InspectorPanel.mount(container, widgets)` uses

@@ -113,11 +113,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   functions) is reported as `CallbackFailed` through `lastError`/`onError`;
   `JavaFxLink` projects every member before calling back, reports a throwing
   `onMissing` through its `onError`, and ignores an `onError` that throws.
-  Two boundaries are stricter than the browser widget's (see "Differences from
-  the browser widget" in the JavaFX guide): a pan drag is one history entry from
-  press to release however long the reader pauses, where the browser records a
-  pan at a 400 ms pause; and `restore` refuses, with `SnapshotError.Invalid`, a
-  viewport the view cannot draw, which the browser accepts.
+  A pan drag is one history entry from press to release, and `restore`
+  refuses, with `SnapshotError.Invalid`, a viewport the view cannot draw; the
+  browser widget now keeps the same boundaries (see Changed).
   Shared trace scripts (`tools/trace`, `tools/check-host-trace-browser.cjs`)
   yield equal events, selected keys, tooltips and announcements in the browser
   (SVG and Canvas) and JavaFX, and recordings carry a digest of the browser
@@ -623,6 +621,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Unfaceted plots are unchanged.
 
 ### Changed
+
+- **The browser widget keeps the JavaFX host's pan-history and restore
+  boundaries.** A pan drag in `SvgWidget` (SVG and Canvas) is now one history
+  entry from press to release, however long the reader holds still; Escape, a
+  cancelled or lost pointer capture, or lost focus abandons the drag, which
+  keeps the window it reached as that one entry. Before, a pan held still past
+  the 400 ms pause was recorded there, so one drag could become several
+  entries. Wheel and key zoom runs are still one entry each, ended by a 400 ms
+  pause; a pinch now also ends when a finger lifts. `canUndo` and `canRedo`
+  count a navigation run still open, as JavaFX does. `restore` now refuses,
+  with `SnapshotError.Invalid` and before anything changes, a snapshot whose
+  viewport the widget cannot draw: one on a plot that cannot navigate, one for
+  a panel the view does not have, or one that would show a single value. A
+  viewport outside the bounds is drawn shifted inside them, at once, and the
+  state and history record the viewport drawn. Both hosts share the rules
+  through `NavigationRun` and `DataWindowNavigator.drawable` in the interaction
+  module (package-private), and `tools/check-history-browser.cjs` checks them on
+  SVG and Canvas.
 
 - **Large plots pick, hover and redraw with less work per event.**
   Picking skips clip work that cannot cut a mark, resolves identities through a

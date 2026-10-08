@@ -71,8 +71,10 @@ dependency; the JVM and Scala.js write the same text. A snapshot is restored in 
   that change are therefore removed from the group as well.
 - Asking for a deferred aggregate's members records nothing; the reply, when it is applied, is the
   recorded change (an application-side event), and like any recorded change it clears redo.
-- In the browser widget a continuous navigation (pan, pinch, wheel or key zoom) is one entry, not one
-  per animation frame.
+- In the interactive hosts (the browser widget and JavaFX) a continuous navigation is one entry, not
+  one per frame: a pan drag from press to release (or until Escape, a lost pointer or lost focus
+  abandons it), however long the reader holds still; a pinch until it ends or pauses for 400 ms; a
+  run of wheel or key zooms until it pauses for 400 ms.
 
 The history depth is bounded (100 by default).
 
