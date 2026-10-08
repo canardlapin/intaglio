@@ -20,6 +20,11 @@ access; compilation (`JavaFxRenderer.compile`) is pure and thread-free. The
 OpenJFX dependency is `Provided`: host applications supply their own
 platform-specific JavaFX runtime.
 
+For layout that matches what JavaFX draws, measure with `JavaFxTextMetrics()`
+(as `LayoutPolicy.metrics` or a render context's `textMetrics`): AWT and JavaFX
+advances differ for the same family and size. See
+[Text measurement](../../docs/backends.md#text-measurement).
+
 Tests combine the shared renderer conformance contract with a recording
 implementation of the drawing contract, so the full interpreter runs headless
 without starting the JavaFX toolkit. The one behavior that cannot be pinned

@@ -882,9 +882,7 @@ object DeviceScene:
     * positive angles turn clockwise, so the handedness flips with the frame orientation.
     */
   private def deviceDegrees(degrees: Double, frame: DeviceFrame): Double =
-    frame.yDirection match
-      case YDirection.Up   => -degrees
-      case YDirection.Down => degrees
+    TextExtent.deviceDegrees(degrees, frame.yDirection)
 
   private def lower(
       grob: Grob,

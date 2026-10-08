@@ -72,6 +72,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   host's canvas, under nested viewports at device scale 2, a cutting clip and
   rotated viewports. See
   [docs/picking.md](docs/picking.md#report-the-cell-of-an-image).
+- **JavaFX text metrics and rotated text extents.** `JavaFxTextMetrics` is a
+  `TextMetrics` measured by JavaFX's own text layout, through the same
+  `Font.font` call the JavaFX renderer makes, so a JavaFX host lays out with
+  the advances JavaFX draws (family, weight and size; fallback included). It
+  also reports `ascentPt`, `descentPt` and the ink (`inkBounds`), and needs
+  neither the FX application thread nor a started toolkit. `TextExtent.rotated`
+  and `TextExtent.measure` give the axis-aligned extent of a text run at any
+  angle and anchor, relative to the anchor, with the geometry Java2D, JavaFX
+  and Canvas draw; `TextExtent.deviceDegrees` names the scene-to-device angle
+  convention that scene lowering now uses. Headless Java2D and JavaFX tests
+  check both against drawn pixels to within 1 px. AWT and JavaFX advances differ for the same
+  family and size; [docs/backends.md](docs/backends.md#measure-with-the-stack-that-draws)
+  says which provider to use with which backend.
 
 - The JavaFX interaction host covers the supported interactive behaviours
   (Interaction 12). `JavaFxInteractionHost.mount(view, behavior, ...)` reads the

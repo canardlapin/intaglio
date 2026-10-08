@@ -5,7 +5,7 @@ import javafx.scene.canvas.GraphicsContext
 import javafx.scene.image.{Image, PixelFormat, WritableImage}
 import javafx.scene.paint.{Color, ImagePattern}
 import javafx.scene.shape.{StrokeLineCap, StrokeLineJoin}
-import javafx.scene.text.{Font, FontWeight as FxFontWeight, TextAlignment, TextBoundsType}
+import javafx.scene.text.{TextAlignment, TextBoundsType}
 import java.lang.ref.WeakReference
 import scala.collection.mutable
 import intaglio.*
@@ -169,13 +169,7 @@ final class JavaFxCanvasContext(context: GraphicsContext, val cacheByteLimit: Lo
     context.setLineDashes(pattern.toArray*)
 
   override def setFont(family: Option[String], sizePx: Double, weight: Option[FontWeight]): Unit =
-    val resolved =
-      (family, weight.map(value => FxFontWeight.findByWeight(value.value))) match
-        case (Some(name), Some(face)) => Font.font(name, face, sizePx)
-        case (Some(name), None)       => Font.font(name, sizePx)
-        case (None, Some(face))       => Font.font(null, face, sizePx)
-        case (None, None)             => Font.font(sizePx)
-    context.setFont(resolved)
+    context.setFont(JavaFxTextMetrics.font(family, sizePx, weight))
 
   override def setTextAlign(horizontal: HJust): Unit =
     context.setTextAlign(
@@ -257,15 +251,8 @@ final class JavaFxCanvasContext(context: GraphicsContext, val cacheByteLimit: Lo
       horizontal: HJust,
       vertical: VJust
   ): Option[JavaFxTextBox] =
-    val face = weight.map(value => FxFontWeight.findByWeight(value.value))
     val node = new _root_.javafx.scene.text.Text(label)
-    node.setFont(
-      (family, face) match
-        case (Some(name), Some(bold)) => Font.font(name, bold, sizePx)
-        case (Some(name), None)       => Font.font(name, sizePx)
-        case (None, Some(bold))       => Font.font(null, bold, sizePx)
-        case (None, None)             => Font.font(sizePx)
-    )
+    node.setFont(JavaFxTextMetrics.font(family, sizePx, weight))
     // Measure both boxes at the alphabetic baseline. Switching bounds type with a top/center/
     // bottom origin would also change that origin, moving the visual box relative to fillText.
     node.setTextOrigin(VPos.BASELINE)

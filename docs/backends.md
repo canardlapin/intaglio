@@ -120,10 +120,11 @@ Layout has to know how wide a tick label is before any backend runs. The portabl
 `TextMetrics.estimate`, which is deterministic and identical on the JVM and Scala.js — that is what
 makes byte-identical cross-platform output possible.
 
-Two backends offer platform providers, and both are opt-in:
+Three backends offer platform providers, and all are opt-in:
 
 ```scala
 LayoutPolicy(metrics = Java2DTextMetrics())          // JVM, installed AWT fonts
+LayoutPolicy(metrics = JavaFxTextMetrics())          // JVM, JavaFX's own text layout
 LayoutPolicy(metrics = CanvasTextMetrics(context))   // browser, measureText
 ```
 
@@ -144,8 +145,75 @@ val context = RenderContext.unsafe(
 )
 ```
 
-A JavaFX application that wants installed-font-aware layout can depend on `intaglio-java2d` for
-`Java2DTextMetrics` alone; the JavaFX renderer does not change the shared default.
+### Measure with the stack that draws
+
+AWT and JavaFX lay text out independently, so the same family at the same size has different
+advances in each. Measured on macOS at 24 pt, the physical family Arial differs by 2.1 pt over
+"Mean response (ms)" (AWT 218.0, JavaFX 220.1), and the logical `SansSerif` family, which each stack
+maps to its own physical face, by 16 pt over "Quantile 0.95". A layout sized with one stack and
+drawn with the other is a layout error, most visibly in a header fitted to its longest label.
+Pick the provider by the backend that draws:
+
+| Backend | Provider |
+|---|---|
+| Java2D | `Java2DTextMetrics` |
+| JavaFX | `JavaFxTextMetrics` |
+| Canvas (browser) | `CanvasTextMetrics` |
+| SVG, or output that must be byte-identical across platforms | `TextMetrics.estimate` |
+
+`JavaFxTextMetrics` measures with an off-scene `javafx.scene.text.Text` node, calling the same
+`Font.font` the renderer calls, so family, weight and size resolve to the face JavaFX draws,
+fallback included. Its two TextMetrics measurements are the ones the canvas positions text on: the
+logical advance width and the line box (`ascentPt` plus `descentPt`). Neither is the ink, which
+`inkBounds` reports: glyphs sit inside the advance with side bearings and can overhang it. It needs
+neither the FX application thread nor a started toolkit, so the layout solver may call it from any
+thread; only the OpenJFX classes must be on the class path.
+
+```scala mdoc:compile-only
+import intaglio.*
+import intaglio.javafx.*
+
+val fxMetrics = JavaFxTextMetrics()
+val fxTarget = RenderContext.unsafe(width = 1200, height = 800, textMetrics = fxMetrics)
+```
+
+Headless JavaFX tests check the claim against drawn pixels: drawn left- and right-justified, a run's
+ink moves by `widthPt` to within 1 px, and drawn top- and bottom-justified by `heightPt` to within
+1 px. One exception concerns the ink, not layout: where JavaFX synthesizes a bold face (its
+`System` family on macOS reports the regular advances and outlines for bold), the drawn strokes are
+thickened past `inkBounds`, by up to 1.7 px at 24 px.
+
+### Rotated labels
+
+`TextExtent` is the geometry every backend uses to place a text run, as one pure function in core:
+it anchors the provider's width by height box at the `Anchor` and rotates it about the anchor,
+exactly as Java2D, JavaFX and the browser Canvas draw rotated text. Give it the angle and anchor you
+give `Grob.text`; in the default y-up scene frame a positive angle turns counterclockwise. The
+result is the axis-aligned box, relative to the anchor in device orientation (y down), that a
+header must reserve:
+
+```scala mdoc
+import intaglio.*
+
+val headerStyle = TextStyle(Some("SansSerif"), 10.0)
+val headerLabels = Vector("Reaction time (ms)", "Accuracy", "d-prime")
+
+// Columns read upward from a bottom-left anchor; the row must be as tall as the longest label.
+val headerHeightPt = headerLabels
+  .map(label => TextExtent.measure(TextMetrics.estimate, label, headerStyle, Anchor.BottomLeft, 90.0))
+  .map(_.map(_.height).getOrElse(0.0))
+  .max
+
+TextExtent.rotated(width = 40.0, height = 10.0, Anchor.Center, rotationDegrees = 45.0)
+```
+
+Pass the provider of the backend that draws in place of `TextMetrics.estimate`. The extent is the
+space to reserve, the same box a text plate with no padding fills; the ink sits inside it. Rendered
+at 0, 90, -90, 45, 180 and 30 degrees with three anchors, the plate Java2D and JavaFX draw matches
+`TextExtent` to within 1 px, and the glyphs stay inside it. The browser Canvas rotates and justifies
+the same way but places its top, middle and bottom baselines on the font's em box, which
+`CanvasTextMetrics.heightPt` (the ink height of "Mg") approximates; that case has no drawn-pixel
+check yet.
 
 ## One plan, several backends
 

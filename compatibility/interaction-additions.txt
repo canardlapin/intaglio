@@ -133,6 +133,8 @@ MissingClassProblem intaglio.ScaleObservation$Classed$
 MissingClassProblem intaglio.StrokeCasing
 MissingClassProblem intaglio.StrokeCasing$
 MissingClassProblem intaglio.TemporalAxisScale$
+MissingClassProblem intaglio.TextExtent
+MissingClassProblem intaglio.TextExtent$
 MissingClassProblem intaglio.TextPlate
 MissingClassProblem intaglio.TextPlate$
 MissingClassProblem intaglio.TextPlateBounds

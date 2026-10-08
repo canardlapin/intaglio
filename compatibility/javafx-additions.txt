@@ -91,6 +91,8 @@ MissingClassProblem intaglio.javafx.JavaFxRenderError$RasterTooLarge$
 MissingFieldProblem intaglio.javafx.JavaFxRenderError.RasterTooLarge
 MissingClassProblem intaglio.javafx.JavaFxTextBox
 MissingClassProblem intaglio.javafx.JavaFxTextBox$
+MissingClassProblem intaglio.javafx.JavaFxTextMetrics
+MissingClassProblem intaglio.javafx.JavaFxTextMetrics$
 MissingClassProblem intaglio.javafx.OverlayOutline
 MissingClassProblem intaglio.javafx.OverlayOutline$
 MissingClassProblem intaglio.javafx.OverlayStroke
