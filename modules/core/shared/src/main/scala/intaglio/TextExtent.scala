@@ -27,12 +27,15 @@ final case class TextExtent(left: Double, top: Double, width: Double, height: Do
   * browser Canvas all draw rotated text this way, so the axis-aligned extent of a rotated label is
   * a function of the provider's two measurements, the anchor and the angle alone. Java2D and JavaFX
   * position on the same line box their providers report; the browser Canvas positions its top,
-  * middle and bottom baselines on the font's em box, which `CanvasTextMetrics.heightPt` (the ink
-  * height of "Mg") approximates rather than equals.
+  * middle and bottom baselines on the run's own layout box, which `CanvasTextMetrics.heightPt` (the
+  * ink height of "Mg") approximates rather than equals; and because that box belongs to the run, it
+  * grows when a fallback face supplies some glyphs (CJK or emoji in a Latin face, for example),
+  * where any text-independent height falls short.
   *
   * The layout box is not the ink: glyphs usually sit inside it with side bearings, and italic or
-  * accented glyphs can overhang it. The extent is the space layout should reserve, the same box a
-  * text plate with no padding fills in Java2D and JavaFX.
+  * accented glyphs can overhang it. The extent is the space layout should reserve. A zero-padding
+  * text plate in Java2D or JavaFX fills exactly this box only while no glyph overhangs it: the
+  * renderers fill the union of the layout box and the glyphs' visual bounds.
   */
 object TextExtent:
   override def toString: String = "TextExtent"

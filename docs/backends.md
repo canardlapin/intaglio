@@ -165,9 +165,16 @@ Pick the provider by the backend that draws:
 `Font.font` the renderer calls, so family, weight and size resolve to the face JavaFX draws,
 fallback included. Its two TextMetrics measurements are the ones the canvas positions text on: the
 logical advance width and the line box (`ascentPt` plus `descentPt`). Neither is the ink, which
-`inkBounds` reports: glyphs sit inside the advance with side bearings and can overhang it. It needs
-neither the FX application thread nor a started toolkit, so the layout solver may call it from any
-thread; only the OpenJFX classes must be on the class path.
+`inkBounds` reports: glyphs sit inside the advance with side bearings and can overhang it.
+
+It does not start the JavaFX platform (`Platform.startup`) and does not need the FX application
+thread, so the layout solver may call it from any thread. The first measurement does initialize
+JavaFX's renderer (the Quantum toolkit, its renderer thread and a Prism pipeline), so the OpenJFX
+native libraries and a usable pipeline must be available; if they are not, every measurement fails
+with an explanatory `IllegalStateException`, which layout and `TextExtent.measure` report as
+`LayoutMeasurementFailed`. Its lock serializes this provider's measurements only, not JavaFX's own
+text work on its application and render threads; JavaFX does not document off-thread measurement
+as thread-safe, and concurrent use has matched on-thread results in tests without that guarantee.
 
 ```scala mdoc:compile-only
 import intaglio.*
@@ -177,11 +184,13 @@ val fxMetrics = JavaFxTextMetrics()
 val fxTarget = RenderContext.unsafe(width = 1200, height = 800, textMetrics = fxMetrics)
 ```
 
-Headless JavaFX tests check the claim against drawn pixels: drawn left- and right-justified, a run's
-ink moves by `widthPt` to within 1 px, and drawn top- and bottom-justified by `heightPt` to within
-1 px. One exception concerns the ink, not layout: where JavaFX synthesizes a bold face (its
-`System` family on macOS reports the regular advances and outlines for bold), the drawn strokes are
-thickened past `inkBounds`, by up to 1.7 px at 24 px.
+Headless JavaFX tests check the claim against drawn pixels, read at sub-pixel precision from the
+antialiased coverage: drawn left- and right-justified, a run's ink moves by `widthPt`, and drawn top-
+and bottom-justified by `heightPt`, each to within a few hundredths of a pixel on the development
+machine (the asserted bound is 1 px); `inkBounds` places every ink edge to within 1 px. One exception
+concerns the ink, not layout: where JavaFX synthesizes a bold face (its `System` family on macOS
+reports the regular advances and outlines for bold), the drawn strokes are thickened past
+`inkBounds`, by up to 1.7 px at 24 px.
 
 ### Rotated labels
 
@@ -208,12 +217,17 @@ TextExtent.rotated(width = 40.0, height = 10.0, Anchor.Center, rotationDegrees =
 ```
 
 Pass the provider of the backend that draws in place of `TextMetrics.estimate`. The extent is the
-space to reserve, the same box a text plate with no padding fills; the ink sits inside it. Rendered
+space to reserve; the ink of ordinary text sits inside it, though italic or accented glyphs can
+overhang it. A zero-padding text plate fills exactly this box only while no glyph overhangs it,
+because Java2D and JavaFX fill the union of the layout box and the glyphs' visual bounds. Rendered
 at 0, 90, -90, 45, 180 and 30 degrees with three anchors, the plate Java2D and JavaFX draw matches
-`TextExtent` to within 1 px, and the glyphs stay inside it. The browser Canvas rotates and justifies
-the same way but places its top, middle and bottom baselines on the font's em box, which
-`CanvasTextMetrics.heightPt` (the ink height of "Mg") approximates; that case has no drawn-pixel
-check yet.
+`TextExtent` to within 1 px (a few hundredths of a pixel measured), and the glyphs stay inside it.
+
+The browser Canvas rotates and justifies the same way but places its top, middle and bottom
+baselines on the run's own layout box. `CanvasTextMetrics.heightPt` (the ink height of "Mg") only
+approximates that box, and the box grows when a fallback face supplies some of the run's glyphs
+(CJK or emoji in a Latin face, for example), which no text-independent height can follow. That
+case has no drawn-pixel check yet.
 
 ## One plan, several backends
 

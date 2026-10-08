@@ -4,10 +4,15 @@ import intaglio.*
 import java.awt.image.BufferedImage
 
 /** [[intaglio.TextExtent]] against what the Java2D renderer draws for rotated text. A zero-padding
-  * text plate fills the layout box the renderer anchors on, so its drawn extent at any angle is the
-  * rotated extent of [[Java2DTextMetrics]]' width and height; the glyphs stay inside it. A pixel
-  * counts when it is covered at all (alpha above zero on a transparent canvas), so the sharp corner
-  * of a 45 degree box still registers. Drawn at 72 pixels per inch, one point per device pixel.
+  * text plate fills the layout box the renderer anchors on when no glyph overhangs it, so its drawn
+  * extent at any angle is the rotated extent of [[Java2DTextMetrics]]' width and height; the glyphs
+  * stay inside it. Drawn at 72 pixels per inch, one point per device pixel, on a transparent canvas
+  * whose alpha is the coverage.
+  *
+  * Both are read at sub-pixel precision. The plate is a filled rectangle, recovered from its
+  * coverage moments: its covariance, less the pixel's own 1/12 variance, has eigenvalues `w^2/12`
+  * and `h^2/12` along its sides, so no corner pixel is read. A glyph edge in a row is the first
+  * covered pixel `x` at coverage `a`, placed at `x + 1 - a` (the last at `x + a`).
   */
 class Java2DRotatedTextSuite extends munit.FunSuite:
   private val size = 480
@@ -15,10 +20,44 @@ class Java2DRotatedTextSuite extends munit.FunSuite:
   private val anchorY = 240.0
   private val metrics = Java2DTextMetrics()
   private val style = TextStyle(None, 24.0)
+  private val noise = 2.0 / 255.0
 
-  private final case class Ink(left: Int, top: Int, right: Int, bottom: Int)
+  private final class Coverage(image: BufferedImage):
+    def at(x: Int, y: Int): Double = (image.getRGB(x, y) >>> 24) / 255.0
+    private val cells =
+      for y <- 0 until size; x <- 0 until size if at(x, y) > 0.0 yield (x, y, at(x, y))
+    assert(cells.nonEmpty, "nothing was drawn")
+    private val mass = cells.map(_._3).sum
+    private val cx = cells.map((x, _, a) => a * (x + 0.5)).sum / mass
+    private val cy = cells.map((_, y, a) => a * (y + 0.5)).sum / mass
 
-  private def draw(label: String, anchor: Anchor, degrees: Double, plateOnly: Boolean): Ink =
+    def rectangleExtent: Vector[Double] =
+      val vxx = cells.map((x, _, a) => a * math.pow(x + 0.5 - cx, 2)).sum / mass - 1.0 / 12.0
+      val vyy = cells.map((_, y, a) => a * math.pow(y + 0.5 - cy, 2)).sum / mass - 1.0 / 12.0
+      val vxy = cells.map((x, y, a) => a * (x + 0.5 - cx) * (y + 0.5 - cy)).sum / mass
+      val mean = (vxx + vyy) / 2.0
+      val spread = math.sqrt(math.pow((vxx - vyy) / 2.0, 2) + vxy * vxy)
+      val long = math.sqrt(12.0 * (mean + spread))
+      val short = math.sqrt(12.0 * math.max(mean - spread, 0.0))
+      val angle = 0.5 * math.atan2(2.0 * vxy, vxx - vyy)
+      val c = math.abs(math.cos(angle))
+      val s = math.abs(math.sin(angle))
+      val w = long * c + short * s
+      val h = long * s + short * c
+      Vector(cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0)
+
+    def edges: Vector[Double] =
+      val covered = cells.filter(_._3 > noise)
+      val rows = covered.groupBy(_._2).values
+      val columns = covered.groupBy(_._1).values
+      Vector(
+        rows.map(row => row.minBy(_._1)).map((x, _, a) => x + 1.0 - a).min,
+        columns.map(column => column.minBy(_._2)).map((_, y, a) => y + 1.0 - a).min,
+        rows.map(row => row.maxBy(_._1)).map((x, _, a) => x + a).max,
+        columns.map(column => column.maxBy(_._2)).map((_, y, a) => y + a).max
+      )
+
+  private def draw(label: String, anchor: Anchor, degrees: Double, plateOnly: Boolean): Coverage =
     val gp = GraphicParams.unsafe(
       stroke = None,
       fill = Some(if plateOnly then Rgba.unsafe(0, 0, 0, 0) else Rgba.Black),
@@ -35,16 +74,11 @@ class Java2DRotatedTextSuite extends munit.FunSuite:
     val graphics = image.createGraphics()
     try Java2DRenderer.draw(program, graphics)
     finally graphics.dispose()
-    val inked = for
-      y <- 0 until size
-      x <- 0 until size
-      if (image.getRGB(x, y) >>> 24) > 0
-    yield (x, y)
-    assert(inked.nonEmpty, "nothing was drawn")
-    Ink(inked.map(_._1).min, inked.map(_._2).min, inked.map(_._1).max + 1, inked.map(_._2).max + 1)
+    new Coverage(image)
 
   test("the drawn layout box at 0, 90, -90, 45, 180 and 30 degrees is TextExtent, within 1 px") {
-    var worst = 0.0
+    var worstPlate = 0.0
+    var worstGlyph = Double.NegativeInfinity
     for
       label <- Vector("Header", "Mean response (ms)")
       degrees <- Vector(0.0, 90.0, -90.0, 45.0, 180.0, 30.0)
@@ -60,15 +94,23 @@ class Java2DRotatedTextSuite extends munit.FunSuite:
         anchorX + extent.right,
         anchorY + extent.bottom
       )
-      val plate = draw(label, anchor, degrees, plateOnly = true)
-      val drawn = Vector(plate.left, plate.top, plate.right, plate.bottom).map(_.toDouble)
-      val error = predicted.zip(drawn).map((p, d) => math.abs(p - d)).max
-      assert(error <= 1.0, clue((label, degrees, anchor, predicted, drawn)))
-      worst = math.max(worst, error)
-      val glyphs = draw(label, anchor, degrees, plateOnly = false)
-      assert(glyphs.left >= predicted(0) - 1.0 && glyphs.right <= predicted(2) + 1.0, clue(glyphs))
-      assert(glyphs.top >= predicted(1) - 1.0 && glyphs.bottom <= predicted(3) + 1.0, clue(glyphs))
-    println(f"Java2D rotated layout box vs TextExtent: max edge error $worst%.3f px")
+      val plate = draw(label, anchor, degrees, plateOnly = true).rectangleExtent
+      val error = predicted.zip(plate).map((p, d) => math.abs(p - d)).max
+      assert(error <= 1.0, clue((label, degrees, anchor, predicted, plate)))
+      worstPlate = math.max(worstPlate, error)
+      val glyphs = draw(label, anchor, degrees, plateOnly = false).edges
+      val outside = Vector(
+        predicted(0) - glyphs(0),
+        predicted(1) - glyphs(1),
+        glyphs(2) - predicted(2),
+        glyphs(3) - predicted(3)
+      ).max
+      assert(outside <= 1.0, clue((label, degrees, anchor, predicted, glyphs)))
+      worstGlyph = math.max(worstGlyph, outside)
+    println(
+      f"Java2D rotated layout box vs TextExtent: max edge error $worstPlate%.3f px; glyphs reach " +
+        f"at most $worstGlyph%+.3f px outside it"
+    )
   }
 
   test("goldens: a 90 degree header grows upward from a bottom-left anchor by its advance") {

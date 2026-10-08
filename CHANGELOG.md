@@ -76,8 +76,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `TextMetrics` measured by JavaFX's own text layout, through the same
   `Font.font` call the JavaFX renderer makes, so a JavaFX host lays out with
   the advances JavaFX draws (family, weight and size; fallback included). It
-  also reports `ascentPt`, `descentPt` and the ink (`inkBounds`), and needs
-  neither the FX application thread nor a started toolkit. `TextExtent.rotated`
+  also reports `ascentPt`, `descentPt` and the ink (`inkBounds`). It does not
+  start the JavaFX platform or need the FX thread; the first measurement
+  initializes JavaFX's renderer and a Prism pipeline, and when that fails every
+  measurement reports an explanatory error (`LayoutMeasurementFailed` in
+  layout) instead of JavaFX's linkage error. `TextExtent.rotated`
   and `TextExtent.measure` give the axis-aligned extent of a text run at any
   angle and anchor, relative to the anchor, with the geometry Java2D, JavaFX
   and Canvas draw; `TextExtent.deviceDegrees` names the scene-to-device angle

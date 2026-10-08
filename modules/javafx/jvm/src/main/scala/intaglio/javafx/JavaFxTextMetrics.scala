@@ -17,11 +17,12 @@ import intaglio.{FontWeight, TextMetrics, TextStyle}
   *   - `heightPt` is the logical line box, [[ascentPt]] plus [[descentPt]], which `fillText`
   *     positions on for top, centre and bottom baselines. It does not depend on the text.
   *
-  * Headless tests draw runs with [[JavaFxRenderer]] and find both within 1 px of the drawn ink:
-  * left- against right-justified, the ink moves by `widthPt`; top- against bottom-justified, by
-  * `heightPt`. Where JavaFX synthesizes a bold face (its `System` family on macOS reports regular
-  * advances and outlines for bold), the advance still holds but the drawn strokes extend past
-  * [[inkBounds]], by up to 1.7 px at 24 px.
+  * Headless tests draw runs with [[JavaFxRenderer]] and read the ink at sub-pixel precision: left-
+  * against right-justified, the ink moves by `widthPt`, and top- against bottom-justified by
+  * `heightPt`, each to within a small fraction of a pixel (well inside 1 px); [[inkBounds]] places
+  * every ink edge to within 1 px. Where JavaFX synthesizes a bold face (its `System` family on
+  * macOS reports regular advances and outlines for bold), the advance still holds but the drawn
+  * strokes extend past [[inkBounds]], by up to 1.7 px at 24 px.
   *
   * Family, weight and size are honoured; weight resolves to the nearest face JavaFX has, as the
   * renderer resolves it. `TextStyle` has no posture, and the JavaFX renderer draws no italic, so
@@ -34,10 +35,20 @@ import intaglio.{FontWeight, TextMetrics, TextStyle}
   * logical family such as `SansSerif`, which each stack maps to its own face. Use this provider for
   * layout that JavaFX draws, and AWT metrics (`Java2DTextMetrics` in `intaglio-java2d`) for Java2D.
   *
-  * Threading: measurement uses an off-scene `javafx.scene.text.Text` node. It needs neither the FX
-  * application thread nor a started toolkit, so the layout solver may call it from any thread; only
-  * the OpenJFX classes must be on the class path. Measurements through every instance are
-  * serialized on one lock, because JavaFX does not document its text layout as thread-safe.
+  * Threading and initialization: measurement uses an off-scene `javafx.scene.text.Text` node. It
+  * does not start the JavaFX platform (`Platform.startup`) and does not need the FX application
+  * thread, so the layout solver may call it from any thread. The first measurement does initialize
+  * JavaFX's renderer (the Quantum toolkit, its renderer thread and a Prism pipeline), which needs
+  * the OpenJFX classes and native libraries and a usable pipeline. If that initialization fails,
+  * every measurement throws an `IllegalStateException` that says so, which the layout solver and
+  * [[intaglio.TextExtent.measure]] report as `LayoutMeasurementFailed`, rather than JavaFX's raw
+  * linkage error.
+  *
+  * Measurements through this provider are serialized on one lock. That lock does not serialize
+  * JavaFX's own text work: JavaFX keeps shared font caches that its application and render threads
+  * use, and does not document off-thread measurement as thread-safe. Concurrent measurement off the
+  * FX thread has matched on-thread measurement in tests, but that is evidence, not a JavaFX
+  * guarantee.
   */
 final class JavaFxTextMetrics private () extends TextMetrics:
   override def widthPt(text: String, fontSizePt: Double): Double =
@@ -73,26 +84,44 @@ final class JavaFxTextMetrics private () extends TextMetrics:
 
   /** The family JavaFX resolves `requested` to, a fallback family when it is not installed. */
   def resolvedFamily(requested: Option[String]): String =
-    JavaFxTextMetrics.font(requested, 12.0, None).getFamily
+    JavaFxTextMetrics.guarded(JavaFxTextMetrics.font(requested, 12.0, None).getFamily)
 
   private def logical(text: String, style: TextStyle): Bounds =
     bounds(text, style, TextBoundsType.LOGICAL)
 
   private def bounds(text: String, style: TextStyle, kind: TextBoundsType): Bounds =
-    JavaFxTextMetrics.lock.synchronized {
-      val node = new Text(text)
-      node.setFont(JavaFxTextMetrics.font(style.fontFamily, style.fontSizePt, style.fontWeight))
-      node.setTextOrigin(VPos.BASELINE)
-      node.setBoundsType(kind)
-      node.getLayoutBounds
+    JavaFxTextMetrics.guarded {
+      JavaFxTextMetrics.lock.synchronized {
+        val node = new Text(text)
+        node.setFont(JavaFxTextMetrics.font(style.fontFamily, style.fontSizePt, style.fontWeight))
+        node.setTextOrigin(VPos.BASELINE)
+        node.setBoundsType(kind)
+        node.getLayoutBounds
+      }
     }
 
 object JavaFxTextMetrics:
-  /** A JavaFX-backed provider. Construction touches no toolkit state. */
+  /** A JavaFX-backed provider. Construction touches no JavaFX state; the first measurement does. */
   def apply(): JavaFxTextMetrics = new JavaFxTextMetrics()
 
   private val LineProbe = "Mg"
   private val lock = new Object
+
+  /** JavaFX reports a failed renderer initialization as a `LinkageError` (an
+    * `ExceptionInInitializerError` first, `NoClassDefFoundError` afterwards), which `NonFatal`
+    * handlers, including the layout solver's, deliberately let escape. Measurement turns it into an
+    * ordinary exception that names the cause.
+    */
+  private def guarded[A](body: => A): A =
+    try body
+    catch
+      case error: LinkageError =>
+        throw new IllegalStateException(
+          "JavaFX text measurement is unavailable: JavaFX could not initialize its renderer " +
+            s"($error). Check that the OpenJFX native libraries load and that a Prism pipeline " +
+            "(the prism.order system property) is usable on this machine.",
+          error
+        )
 
   /** One font construction for drawing and measurement, so a family JavaFX does not have resolves
     * to the same fallback face in both.
