@@ -4,8 +4,8 @@
   "browser": "151.0.7922.34",
   "script": "linked.json",
   "scriptSha256": "beeed5b36fa64bebc195137244ecdee24a2d742b992564f8d83bba148bd29c4c",
-  "fixtureSha256": "2cfb404f8018acec6ab5a996bfcd13989adc01d36de764fd0a7be640d9e7f40d",
-  "sourcesSha256": "8377fb89d15ada214d365ed32e885f4880f61237fb186636ac3e13578353a10d",
+  "fixtureSha256": "5a572ab117a3da544ba973163b1e63545fac288107184e183b05898423f88094",
+  "sourcesSha256": "b6297f9d3fb7ecff5f424672edb6341fa718efd086c6ca2b4b552b13c69a0750",
   "steps": [
     {
       "step": 0,
