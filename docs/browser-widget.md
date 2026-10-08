@@ -127,8 +127,9 @@ A widget keeps named selections, undo/redo history and snapshots (see
   holds still; Escape, a cancelled or lost pointer capture, or lost focus abandons it, and the
   abandoned pan keeps the window it reached as that one entry. A pinch, or a run of wheel or key
   zooms, is one entry, recorded once the window rests for 400 ms (a pinch also when a finger
-  lifts). Another change, undo or redo records an open run first, and `canUndo` counts a run still
-  open. Updating to new data clears the history; an update of the same revision (a resize or
+  lifts, or at once when it is abandoned in the same ways as a pan). Another change, undo or redo
+  records an open run first, together with any frame still waiting to be drawn, and `canUndo`
+  counts a run still open. Updating to new data clears the history; an update of the same revision (a resize or
   restyle) keeps it.
 - `snapshot` captures the durable state (selection, saved selections, window, mode) and
   `restore(snapshot)` applies one after checking it against the plot shown now; a snapshot with

@@ -1383,8 +1383,8 @@ final class JavaFxInteractionHost[A] private (
     withInput((in, s) => Right(in.region(s, area, AreaRule.CenterInside, operation)))
 
   private def cancelGesture(): Unit =
-    // An abandoned pan keeps the window it reached, as one entry.
-    if panning then commitNavigation()
+    // An abandoned pan or pinch keeps the window it reached, recorded at once as one entry.
+    if panning || pinch.nonEmpty then commitNavigation()
     drag = None
     pinch = None
     clearGesture()
@@ -1500,17 +1500,18 @@ final class JavaFxInteractionHost[A] private (
         else if command && event.isControlDown && !event.isShiftDown && code == KeyCode.Y then
           Some(false)
         else None
-      if historyKey.nonEmpty && drag.isEmpty then
+      if historyKey.nonEmpty && drag.isEmpty && pinch.isEmpty then
         event.consume()
         accept(
           (if historyKey.contains(true) then move(InputCause.Keyboard, undoing = true)
            else move(InputCause.Keyboard, undoing = false)).map(_ => ())
         )
-      else if drag.nonEmpty && code == KeyCode.ESCAPE then
-        // Escape first abandons a drag in progress; a second Escape clears the selection.
+      else if (drag.nonEmpty || pinch.nonEmpty) && code == KeyCode.ESCAPE then
+        // Escape first abandons a drag or pinch in progress; a second Escape clears the selection.
         event.consume()
-        if panning then commitNavigation()
+        if panning || pinch.nonEmpty then commitNavigation()
         drag = None
+        pinch = None
         clearGesture()
         withInput((in, s) =>
           in.key(s, KeyInput.Escape)

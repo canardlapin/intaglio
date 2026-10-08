@@ -117,7 +117,13 @@ async function main() {
         }));
         sizing.forEach(s=>assert.deepEqual(s.slice(0,2),s.slice(2)));
       }
-      result.events=await page.evaluate(()=>window.intaglioParity.events);
+      // CDP Input.dispatchTouchEvent sends one touch event per moved finger. Under load the two may
+      // reach the widget in separate animation frames, and the intermediate one-finger window is
+      // then drawn as one more ViewportChanged:Pointer. How many frames a pinch takes is timing,
+      // not logic, so a run of consecutive ViewportChanged:Pointer entries counts as one here; the
+      // window the pinch ends on is compared exactly as result.pinch.
+      const collapse=xs=>xs.filter((e,i)=>!(e==='ViewportChanged:Pointer'&&xs[i-1]==='ViewportChanged:Pointer'));
+      result.events=Object.fromEntries(Object.entries(await page.evaluate(()=>window.intaglioParity.events)).map(([k,v])=>[k,collapse(v)]));
       assert.deepEqual(await page.evaluate(()=>window.intaglioParity.errors),[]);
       assert.deepEqual(errors,[]);
       await page.screenshot({path:path.join(out,`${renderer}-${dpr}x.png`),fullPage:true});

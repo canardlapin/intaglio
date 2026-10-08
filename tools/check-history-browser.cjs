@@ -1,6 +1,8 @@
 // Real-browser evidence for Interaction 10: named selections and their algebra, undo/redo across
 // linked plots without host effects, a pan drag recorded as one entry however long it is held (and
-// when Escape abandons it) while a key-zoom run ends at its pause, snapshots that survive a reload
+// when Escape, a cancelled pointer, lost capture or lost focus abandons it), a pinch recorded when a
+// finger lifts (or Escape abandons it), a key-zoom run that ends at its pause or at the next recorded
+// change with its waiting frame, snapshots that survive a reload
 // and refuse tampering or a viewport the plot cannot draw, and an explicit filter whose report is
 // checked against an oracle. One renderer per run, chosen by
 // INTAGLIO_TEST_RENDERER (svg or canvas; default svg), so the suite runner can pair traces.
@@ -194,6 +196,111 @@ async function main() {
       assert.ok(near(await h('window', 'a'), zoomedIn));
       await tab.locator('[data-intaglio-widget=a] .intaglio-toolbar button', { hasText: 'Inspect' }).click();
       return { start, abandoned, zoomedIn };
+    });
+
+    const plotA = '[data-intaglio-widget=a] .intaglio-plot';
+    await check('a cancelled pointer, lost capture or lost focus abandons a pan as one entry', async () => {
+      await tab.locator('[data-intaglio-widget=a] .intaglio-toolbar button', { hasText: /^Pan$/ }).click();
+      await fx(() => document.addEventListener('pointerdown', e => { window.lastPointerId = e.pointerId; }, true));
+      const r = await fx(() => document.querySelector('[data-intaglio-widget=a] .intaglio-base').getBoundingClientRect().toJSON());
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const ends = {
+        pointercancel: sel => fx(s => document.querySelector(s).dispatchEvent(new PointerEvent('pointercancel', { pointerId: window.lastPointerId, pointerType: 'mouse', bubbles: true })), sel),
+        lostpointercapture: sel => fx(s => document.querySelector(s).releasePointerCapture(window.lastPointerId), sel),
+        blur: sel => fx(s => document.querySelector(s).blur(), sel)
+      };
+      const result = {};
+      for (const [how, end] of Object.entries(ends)) {
+        const start = await h('window', 'a');
+        await tab.mouse.move(cx, cy); await tab.mouse.down();
+        for (let i = 1; i <= 8; i++) { await tab.mouse.move(cx - i * 5, cy, { steps: 1 }); await settle(20); }
+        await end(plotA);
+        await settle(50);
+        const abandoned = await h('window', 'a');
+        assert.ok(!near(abandoned, start), `${how}: the pan moved ${JSON.stringify({ start, abandoned })}`);
+        for (let i = 9; i <= 12; i++) { await tab.mouse.move(cx - i * 5, cy, { steps: 1 }); await settle(20); }
+        await tab.mouse.up();
+        await settle(600);
+        assert.ok(near(await h('window', 'a'), abandoned), `${how}: the abandoned pan keeps its window and pans no further`);
+        assert.equal(await h('undo', 'a'), 'true');
+        assert.ok(near(await h('window', 'a'), start), `${how}: one undo takes back the whole abandoned pan`);
+        result[how] = abandoned;
+      }
+      return result;
+    });
+
+    await check('a recorded change ends a zoom run with its waiting frame, not as a second entry', async () => {
+      // Pan mode: a press records StartGesture. A key zoom drawn, a second one still waiting for its
+      // animation frame, then a press in the same task: the run must be one entry with both zooms.
+      const r = await fx(() => document.querySelector('[data-intaglio-widget=a] .intaglio-base').getBoundingClientRect().toJSON());
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      await fx(s => document.querySelector(s).focus(), plotA);
+      const start = await h('window', 'a');
+      await tab.keyboard.press('=');
+      await settle(60);
+      const first = await h('window', 'a');
+      assert.ok(!near(first, start), 'the first key zoom is drawn');
+      await fx(([s, x, y]) => {
+        const plot = document.querySelector(s);
+        plot.dispatchEvent(new KeyboardEvent('keydown', { key: '=', bubbles: true, cancelable: true }));
+        const init = { pointerId: 99, pointerType: 'mouse', button: 0, buttons: 1, isPrimary: true, clientX: x, clientY: y, bubbles: true };
+        plot.dispatchEvent(new PointerEvent('pointerdown', init));
+        plot.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
+      }, [plotA, cx, cy]);
+      await settle(700);
+      const second = await h('window', 'a');
+      assert.ok(second[1] - second[0] < first[1] - first[0] - 1e-9, JSON.stringify({ first, second }));
+      assert.equal(await h('undo', 'a'), 'true');
+      assert.ok(near(await h('window', 'a'), start), `both zooms are one entry ${JSON.stringify({ start, first, back: await h('window', 'a') })}`);
+      return { start, first, second };
+    });
+
+    await check('a pinch is one entry recorded when a finger lifts, counted by canUndo while open; Escape abandons one', async () => {
+      const cdp = await tab.context().newCDPSession(tab);
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      const r = await fx(() => document.querySelector('[data-intaglio-widget=a] .intaglio-base').getBoundingClientRect().toJSON());
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const points = d => [{ x: cx - d, y: cy, id: 1 }, { x: cx + d, y: cy, id: 2 }];
+      const touch = (type, d) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: d === undefined ? [] : points(d) });
+      // Make a redo available, so canRedo has something to withhold while the pinch is open.
+      assert.equal(await h('undo', 'a'), 'true');
+      assert.equal(await h('canRedo', 'a'), true);
+      const base = await h('window', 'a');
+      const selected = await h('selected', 'a');
+      await touch('touchStart', 20);
+      for (const d of [30, 40]) { await touch('touchMove', d); await settle(60); }
+      assert.ok(!near(await h('window', 'a'), base), 'the pinch zooms');
+      assert.equal(await h('canUndo', 'a'), true, 'the open pinch is undoable');
+      assert.equal(await h('canRedo', 'a'), false, 'the open pinch withholds redo');
+      await touch('touchMove', 55);
+      await touch('touchEnd'); // the last frame may still be waiting: lifting draws and records it
+      const lifted = await h('window', 'a');
+      await settle(100);
+      assert.ok(near(await h('window', 'a'), lifted), 'nothing of the pinch is drawn after the lift');
+      // A key zoom at once, closer than the pause: it is not merged into the pinch's entry.
+      await tab.keyboard.press('=');
+      await settle(700);
+      assert.equal(await h('undo', 'a'), 'true');
+      assert.ok(near(await h('window', 'a'), lifted), 'undo takes back the key zoom only');
+      assert.equal(await h('undo', 'a'), 'true');
+      assert.ok(near(await h('window', 'a'), base), 'then the whole pinch, as one entry');
+      // Escape abandons a pinch in progress: it keeps its window and does not clear the selection.
+      await touch('touchStart', 20);
+      for (const d of [30, 40]) { await touch('touchMove', d); await settle(60); }
+      await tab.keyboard.press('Escape');
+      await settle(50);
+      const abandoned = await h('window', 'a');
+      assert.ok(!near(abandoned, base));
+      await touch('touchMove', 70); await settle(60);
+      await touch('touchEnd'); await settle(600);
+      assert.ok(near(await h('window', 'a'), abandoned), 'the abandoned pinch zooms no further');
+      assert.deepEqual(await h('selected', 'a'), selected, 'the first Escape abandons, it does not clear');
+      assert.equal(await h('undo', 'a'), 'true');
+      assert.ok(near(await h('window', 'a'), base), 'the abandoned pinch is one entry');
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+      await cdp.detach();
+      await tab.locator('[data-intaglio-widget=a] .intaglio-toolbar button', { hasText: 'Inspect' }).click();
+      return { base, lifted, abandoned };
     });
 
     await check('a snapshot survives a reload and restores keys, saved selections and the window', async () => {

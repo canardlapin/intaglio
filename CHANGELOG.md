@@ -629,8 +629,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   keeps the window it reached as that one entry. Before, a pan held still past
   the 400 ms pause was recorded there, so one drag could become several
   entries. Wheel and key zoom runs are still one entry each, ended by a 400 ms
-  pause; a pinch now also ends when a finger lifts. `canUndo` and `canRedo`
-  count a navigation run still open, as JavaFX does. `restore` now refuses,
+  pause; a pinch now also ends when a finger lifts, and in both hosts Escape
+  or lost focus (in the browser also a cancelled pointer) abandons a pinch as
+  one entry that keeps its window. A recorded change, undo or redo ends an open run first, with a
+  frame still waiting for its animation frame drawn as part of it rather than
+  as a second entry. `canUndo` and `canRedo` count a navigation run still
+  open, as JavaFX does. `restore` now refuses,
   with `SnapshotError.Invalid` and before anything changes, a snapshot whose
   viewport the widget cannot draw: one on a plot that cannot navigate, one for
   a panel the view does not have, or one that would show a single value. A

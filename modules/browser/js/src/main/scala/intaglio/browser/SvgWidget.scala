@@ -276,7 +276,8 @@ final class SvgWidget[A] private (
       cause: InputCause,
       step: InteractionState[A] => Option[(InteractionAction[A], InteractionHistory[A])]
   ): Either[IntaglioError, Boolean] =
-    commitNavigation()
+    // An open navigation run, with a frame still waiting to be drawn, is recorded first.
+    endNavigation()
     controller.state.flatMap { current =>
       step(current) match
         case None                  => Right(false)
@@ -741,13 +742,13 @@ final class SvgWidget[A] private (
         if command && pressed("z") then Some(!shift)
         else if command && ctrl && !shift && pressed("y") then Some(false)
         else None
-      if historyKey.nonEmpty && drag.isEmpty then
+      if historyKey.nonEmpty && drag.isEmpty && pinch.isEmpty then
         event.preventDefault()
         (if historyKey.contains(true) then undo(InputCause.Keyboard)
          else redo(InputCause.Keyboard)).left
           .foreach(report)
-      else if drag.nonEmpty && event.key.asInstanceOf[String] == "Escape" then
-        // Escape first abandons a drag in progress; a second Escape clears the selection.
+      else if (drag.nonEmpty || pinch.nonEmpty) && event.key.asInstanceOf[String] == "Escape" then
+        // Escape first abandons a drag or pinch in progress; a second Escape clears the selection.
         event.preventDefault()
         cancelGesture()
         withInput(
@@ -824,8 +825,9 @@ final class SvgWidget[A] private (
 
   private def gestureStart(event: js.Dynamic): Unit =
     moved = false
-    // A pan drag is its own entry: a wheel, pinch or key run still open ends here.
-    if mode == GestureMode.Pan then endNavigation()
+    // A pan drag is its own entry: a wheel or key run still open ends here. A finger added to a
+    // pinch in progress (or to a one-finger pan, handled below) does not split its run.
+    if mode == GestureMode.Pan && pinch.isEmpty && touches.isEmpty then endNavigation()
     at(event).foreach { start =>
       if event.pointerType.asInstanceOf[String] == "touch" then
         touches(event.pointerId.asInstanceOf[Double]) = start
@@ -923,9 +925,11 @@ final class SvgWidget[A] private (
       else SelectionOperation.Replace
     withInput(state => Right(input.region(state, area, AreaRule.CenterInside, operation)))
 
-  /** Abandon a drag or pinch. An abandoned pan keeps the window it reached, as one entry. */
+  /** Abandon a drag or pinch. An abandoned pan or pinch keeps the window it reached, recorded at
+    * once as one entry.
+    */
   private def cancelGesture(): Unit =
-    if panning then endNavigation()
+    if panning || pinch.nonEmpty then endNavigation()
     drag = None
     pinch = None
     touches.clear()
@@ -1287,7 +1291,9 @@ final class SvgWidget[A] private (
       cause: InputCause,
       record: Boolean = true
   ): Either[IntaglioError, Unit] =
-    if record then commitNavigation()
+    // A recorded change ends an open navigation run first, with any frame still waiting for its
+    // animation frame drawn as part of that run rather than as a stray run after the change.
+    if record then endNavigation()
     controller.state.flatMap { before =>
       controller.dispatch(stamp(before, cause), action).map { _ =>
         controller.state.foreach(followViewport)
