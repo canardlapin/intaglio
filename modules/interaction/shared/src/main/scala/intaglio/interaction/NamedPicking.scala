@@ -8,6 +8,21 @@ import PickGeometry.*
   */
 final case class NamedHit(name: GraphicsName, distanceDevicePx: Double, drawOrder: Int)
 
+/** One cell of a named image grob, as [[NamedPickingPlan.cellAt]] reports it.
+  *
+  * `row` and `column` index the `RasterImage` the grob draws: row 0 is the image's first row, which
+  * `RasterImage` defines as its visual top row, so it is drawn along the top edge of the image's
+  * device box (before any rotation of an enclosing viewport, which turns the whole box); column 0
+  * is drawn along its left edge. This is the image's own row order, and it differs from
+  * [[RasterCell]]: a plot compiler's raster reports its source field's y-up row index, but a
+  * hand-built image has no field, so the image's rows are the only order the scene knows. A caller
+  * who filled the image from a y-up matrix reads that matrix's row as `image.height - 1 - row`.
+  */
+final case class ImageCell(row: Int, column: Int)
+
+/** An [[ImageCell]] of the named target that paints it. */
+final case class NamedCell(name: GraphicsName, cell: ImageCell)
+
 /** `orders(i)` is the draw order of `parts(i)`; `drawOrder` is the target's last-drawn part. */
 private[interaction] final case class NamedTarget(
     name: GraphicsName,
@@ -61,6 +76,8 @@ final class NamedPickingPlan private[interaction] (
 ):
   private val index: PickIndex = PickIndex.build(targets.map(_.bounds))
 
+  private lazy val byName: Map[GraphicsName, NamedTarget] = targets.map(t => t.name -> t).toMap
+
   def targetCount: Int = targets.size
 
   /** The accessible text a [[BatchMarks]] title gives the mark named `name`, if any. */
@@ -92,6 +109,56 @@ final class NamedPickingPlan private[interaction] (
       maximumDistanceDevicePx: Double
   ): Either[PickingError, Option[NamedHit]] =
     hits(point, maximumDistanceDevicePx).map(_.headOption)
+
+  /** The cell of `name`'s image grob drawn under `point`, or `None` when no image part of `name`
+    * covers the point.
+    *
+    * The point is mapped into the image's own frame through the rotation it was drawn with, and the
+    * cell is `floor((x - left) * columns / width)` across and `floor((y - top) * rows / height)`
+    * down, so each cell is the half-open interval from its left (top) edge to the next cell's: a
+    * point exactly on an interior boundary belongs to the cell to its right (below). The image's
+    * right and bottom edges belong to its last column and row. Cells are reported only where the
+    * image is painted: inside its box (inclusive within the 1e-8 device-pixel tolerance of every
+    * picking boundary) and inside every clip around it, which are the points where `hits(point)`
+    * reports `name` at distance zero. A hit within a tolerance but outside the image has no cell.
+    * Every pixel counts, whatever its alpha, as it does for `hits`; nearest-neighbour and smooth
+    * interpolation share the cell grid. Where one name paints several images over the point, the
+    * last drawn wins. Grobs other than images never report a cell.
+    *
+    * The arithmetic is plain IEEE double arithmetic, identical on the JVM and Scala.js. Without
+    * rotation the mapping is exact; under rotation it goes through `cos` and `sin`, whose last bit
+    * can differ between platforms, so only a point within rounding of a cell boundary or of an
+    * image or clip edge may differ.
+    */
+  def cellAt(name: GraphicsName, point: DevicePoint): Either[PickingError, Option[ImageCell]] =
+    if !point.x.isFinite || !point.y.isFinite then Left(PickingError.InvalidInput("query point"))
+    else
+      val p = P(point.x, point.y)
+      Right(byName.get(name).flatMap { target =>
+        var found = Option.empty[ImageCell]
+        var order = Int.MinValue
+        var i = 0
+        while i < target.parts.length do
+          val part = target.parts(i)
+          part.mark match
+            case Some(MarkSource(image: DevicePrimitive.Image, transform))
+                if target.orders(i) >= order && part.visible.contains(p) =>
+              found = Some(cellOf(image, transform.inverse(p)))
+              order = target.orders(i)
+            case _ => ()
+          i += 1
+        found
+      })
+
+  /** The cell under `local`, a point in the image's own frame inside its box (within epsilon). */
+  private def cellOf(image: DevicePrimitive.Image, local: P): ImageCell =
+    def index(offset: Double, extent: Double, count: Int): Int =
+      val at = math.floor(offset * count / extent)
+      if at < 0 then 0 else if at >= count then count - 1 else at.toInt
+    ImageCell(
+      index(local.y - image.y, image.height, image.image.height),
+      index(local.x - image.x, image.width, image.image.width)
+    )
 
   /** Rings that follow `name`'s marks `offsetDevicePx` outside their ink, as
     * [[PickingPlan.outline]]; `None` when no painted part carries the name.

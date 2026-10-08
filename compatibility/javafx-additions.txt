@@ -27,6 +27,12 @@ MissingClassProblem intaglio.javafx.JavaFxCapabilities
 MissingClassProblem intaglio.javafx.JavaFxCapabilities$
 MissingClassProblem intaglio.javafx.JavaFxCasing
 MissingClassProblem intaglio.javafx.JavaFxCasing$
+MissingClassProblem intaglio.javafx.JavaFxCellEvent
+MissingClassProblem intaglio.javafx.JavaFxCellEvent$
+MissingClassProblem intaglio.javafx.JavaFxCellEvent$Hovered
+MissingClassProblem intaglio.javafx.JavaFxCellEvent$Hovered$
+MissingClassProblem intaglio.javafx.JavaFxCellEvent$Selected
+MissingClassProblem intaglio.javafx.JavaFxCellEvent$Selected$
 DirectMissingMethodProblem intaglio.javafx.JavaFxGraphicsContext.measureText
 MissingClassProblem intaglio.javafx.JavaFxHostError
 MissingClassProblem intaglio.javafx.JavaFxHostError$

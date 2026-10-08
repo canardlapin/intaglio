@@ -55,6 +55,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Picking reports the cell of a named image grob, so a heatmap, design matrix
+  or confusion matrix drawn as a hand-built scene can drive a hover readout or a
+  selected column. `NamedPickingPlan.cellAt(name, point)` returns the
+  `ImageCell(row, column)` of `name`'s image drawn under a device point, through
+  the same rotation and clips as `hits`; row 0 is the `RasterImage`'s first
+  (visual top) row, unlike `RasterCell`'s y-up field row, and cells are
+  half-open, with the image's right and bottom edges in its last column and
+  row. On JavaFX, `JavaFxInteractionView.names` carries the plan, and
+  `JavaFxInteractionHost.hoveredCell`, `selectedCell` and `subscribeCells`
+  (`JavaFxCellEvent.Hovered` / `Selected`, carrying a `NamedCell`) report the
+  cell under the pointer and the cell of the last click while its name stays
+  selected; keyboard navigation between cells is not provided. `NamedHit` and
+  every other grob pick as before. Java2D and JavaFX pixel oracles check the
+  cells against drawn pixels under nested viewports at device scale 2, a
+  cutting clip and rotated viewports. See
+  [docs/picking.md](docs/picking.md#report-the-cell-of-an-image).
+
 - The JavaFX interaction host covers the supported interactive behaviours
   (Interaction 12). `JavaFxInteractionHost.mount(view, behavior, ...)` reads the
   browser widget's `InteractionBehavior` and routes input through the shared

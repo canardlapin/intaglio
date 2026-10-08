@@ -74,6 +74,34 @@ resolved with `DeviceScene.fromScene`. Without JavaFX, `NamedInteraction(plan, k
 revision)` gives the same typed `PickingPlan`, `InteractionDomain` and `NavigationPlan` for a
 `NamedPickingPlan`; see [Picking a hand-built scene](picking.md).
 
+A named image (a heatmap, design matrix or confusion matrix) is one target, selected by its name;
+the host also reports which of its cells the reader points at and chose.
+`JavaFxInteractionView.names` is the view's `NamedPickingPlan`, and the host follows it:
+
+```scala mdoc:silent
+def followCells(
+    host: JavaFxInteractionHost[GraphicsName],
+    readout: String => Unit,
+    chooseColumn: Option[Int] => Unit
+): Either[IntaglioError, () => Unit] =
+  host.subscribeCells {
+    case JavaFxCellEvent.Hovered(cell) =>
+      readout(cell.fold("")(c => s"${c.name.value}: row ${c.cell.row}, column ${c.cell.column}"))
+    case JavaFxCellEvent.Selected(cell) => chooseColumn(cell.map(_.cell.column))
+  }
+```
+
+`host.hoveredCell` is the hovered name's `cellAt` at the pointer, through the mapping that draws the
+scene; it is `None` when the hovered target is not an image or only the pointer tolerance reaches
+it, and keyboard focus has no cell. `host.selectedCell` is the cell of the most recent click while
+its name stays selected: a click that selects an image records the cell under the pointer, and the
+cell is dropped when the name leaves the selection (Escape, `setSelection`, undo, a new view).
+Selection, snapshots and history stay by name; the cell is host state. Keyboard navigation between
+cells is not provided: arrow keys move between names, as for any hand-built scene. Rows count from
+the image's top row; see [Report the cell of an image](picking.md#report-the-cell-of-an-image) for
+the convention and the tie rule at boundaries. A plot's view reports no cells (`names` is `None`);
+its rasters carry `TargetInfo.rasterCell`.
+
 ## Input and overlays
 
 The node is one keyboard focus stop. Arrow keys move to the nearest visible mark in that direction;

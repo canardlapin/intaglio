@@ -28,7 +28,8 @@ import scala.util.control.NonFatal
   * `plans` are the compiled interaction plans the view draws (empty for a hand-built named scene),
   * `parts` picks the typed plot parts (legend keys, strips, axes, titles, annotations) when the
   * view was compiled from a plot, and `panelFrame` is the single panel's resolved frame, from which
-  * data-window navigation starts.
+  * data-window navigation starts. `names` is the named picking plan of a hand-built scene (`None`
+  * for a plot or composition), which reports image cells through `NamedPickingPlan.cellAt`.
   */
 final class JavaFxInteractionView[A] private[javafx] (
     val deviceScene: DeviceScene,
@@ -40,8 +41,13 @@ final class JavaFxInteractionView[A] private[javafx] (
     val plans: Vector[InteractionPlan[A]],
     val parts: Option[PartPicking],
     val policy: PickPolicy,
-    val panelFrame: Option[DeviceFrame]
+    val panelFrame: Option[DeviceFrame],
+    val names: Option[NamedPickingPlan] = None,
+    private[javafx] val nameIds: Map[GraphicsName, VisualTargetId] = Map.empty
 ):
+  /** The name a hand-built scene's target stands for. */
+  private[javafx] lazy val nameOf: Map[VisualTargetId, GraphicsName] = nameIds.map(_.swap)
+
   /** A single plot can navigate its data window; a composition has several independent plans. */
   def singlePlan: Option[InteractionPlan[A]] = Option.when(plans.size == 1)(plans.head)
 
@@ -167,7 +173,9 @@ object JavaFxInteractionView:
       Vector.empty,
       None,
       policy,
-      None
+      None,
+      Some(names),
+      names.names.flatMap(name => bound.target(name).map(name -> _.id)).toMap
     )
 
 enum JavaFxHostError extends IntaglioError:
@@ -184,6 +192,13 @@ final case class JavaFxHostProfile(baseDraws: Long, overlayDraws: Long)
 enum JavaFxPartEvent:
   case Hovered(part: Option[PlotPart])
   case Activated(part: PlotPart, cause: InputCause)
+
+/** The image cell a reader points at or chose on a named image of a hand-built scene (see
+  * `JavaFxInteractionHost.hoveredCell` and `selectedCell`). Each event carries the new value.
+  */
+enum JavaFxCellEvent:
+  case Hovered(cell: Option[NamedCell])
+  case Selected(cell: Option[NamedCell])
 
 /** Host options that are not part of the shared behaviour. `toleranceLogicalPx` is the reach of
   * direct hover and clicks in JavaFX logical pixels (the browser widget's is 2 CSS pixels). Tooltip
@@ -205,11 +220,11 @@ final case class JavaFxHostOptions(
   *
   * Threading: the host belongs to the FX application thread. Every method returning `Either`
   * returns `JavaFxHostError.WrongThread` elsewhere; the unsubscribe functions returned by
-  * `subscribeParts`, `subscribeHover` and `subscribeState` throw `IllegalStateException` elsewhere.
-  * The plain getters (`isNavigable`, `currentWindow`, `canUndo`, `canRedo`, `drawnEntities`,
-  * `selectableEntities`, `isDisposed`, `profile`, `overlayStyle`, `lastError`) are unchecked reads
-  * of FX-thread state, and the shared `InteractionSubscription.cancel` is not checked either: call
-  * them on the FX thread.
+  * `subscribeParts`, `subscribeHover`, `subscribeCells` and `subscribeState` throw
+  * `IllegalStateException` elsewhere. The plain getters (`isNavigable`, `currentWindow`, `canUndo`,
+  * `canRedo`, `drawnEntities`, `selectableEntities`, `isDisposed`, `profile`, `overlayStyle`,
+  * `lastError`) are unchecked reads of FX-thread state, and the shared
+  * `InteractionSubscription.cancel` is not checked either: call them on the FX thread.
   */
 final class JavaFxInteractionHost[A] private (
     initialView: JavaFxInteractionView[A],
@@ -253,6 +268,9 @@ final class JavaFxInteractionHost[A] private (
   private var legendEmphasis = LinkedEmphasis.none[A]
   private var hoverListeners = Vector.empty[(Long, LinkedEmphasis[A] => Unit)]
   private var partListeners = Vector.empty[(Long, JavaFxPartEvent => Unit)]
+  private var cellListeners = Vector.empty[(Long, JavaFxCellEvent => Unit)]
+  private var hoverCell = Option.empty[NamedCell]
+  private var chosenCell = Option.empty[NamedCell]
   private var nextListener = 0L
   private var subscriptions = Vector.empty[InteractionSubscription]
   private enum TooltipSource:
@@ -381,6 +399,39 @@ final class JavaFxInteractionHost[A] private (
       () =>
         JavaFxInteractionHost.onFxThread("unsubscribing a part listener") {
           partListeners = partListeners.filterNot(_._1 == id)
+        }
+    }
+
+  /** The image cell under the pointer on the hovered target of a hand-built scene's view: the
+    * hovered name's `NamedPickingPlan.cellAt` at the pointer's device position, through the same
+    * mapping that draws the scene. `None` when nothing is hovered, the hovered target is not an
+    * image or the pointer is outside its painted cells (a hit within the pointer tolerance, or a
+    * projected `setHover`, has no cell), and always for a plot's view. Keyboard focus has no cell.
+    */
+  def hoveredCell: Either[IntaglioError, Option[NamedCell]] = checked.map(_ => hoverCell)
+
+  /** The image cell of the most recent pointer click on a hand-built scene's view, while the name
+    * it clicked stays selected: a click that selects an image target records the cell under the
+    * pointer, a click that leaves its target unselected or lands outside the image's cells records
+    * `None`, and the cell is dropped when its name leaves the selection by any route (Escape,
+    * `setSelection`, undo, a new view). Selection itself stays by name; the cell is host state the
+    * application reads, not part of `InteractionState`, snapshots or history. Keyboard choice does
+    * not move the cell; keyboard navigation between cells is not provided.
+    */
+  def selectedCell: Either[IntaglioError, Option[NamedCell]] = checked.map(_ => chosenCell)
+
+  /** Changes of `hoveredCell` and `selectedCell`, each delivered once per change; the returned
+    * function unsubscribes. A hover readout and a selected column of a heatmap or design matrix
+    * drawn as a scene follow these.
+    */
+  def subscribeCells(listener: JavaFxCellEvent => Unit): Either[IntaglioError, () => Unit] =
+    checked.map { _ =>
+      val id = nextListener
+      nextListener += 1
+      cellListeners = cellListeners :+ (id -> listener)
+      () =>
+        JavaFxInteractionHost.onFxThread("unsubscribing a cell listener") {
+          cellListeners = cellListeners.filterNot(_._1 == id)
         }
     }
 
@@ -758,6 +809,8 @@ final class JavaFxInteractionHost[A] private (
     else
       if view.nonEmpty then
         emitHover(LinkedEmphasis.none[A])
+        setCells(None, None)
+        cellListeners = Vector.empty
         node.removeEventHandler(MouseEvent.ANY, mouseHandler)
         node.removeEventHandler(KeyEvent.KEY_PRESSED, keyHandler)
         node.removeEventHandler(ScrollEvent.SCROLL, scrollHandler)
@@ -834,6 +887,7 @@ final class JavaFxInteractionHost[A] private (
             controller.state.foreach(after => history = history.record(before, after, cause))
           redrawOverlay()
           reportState()
+          refreshCells()
         }
       }
     }
@@ -1016,6 +1070,7 @@ final class JavaFxInteractionHost[A] private (
       else
         viewport = None
         input = None
+      refreshCells()
     }
 
   private def transformed(gc: GraphicsContext, mapping: PickViewport)(draw: => Unit): Unit =
@@ -1248,10 +1303,13 @@ final class JavaFxInteractionHost[A] private (
         if !gestureMove(x, y) then
           withInput((in, s) => in.pointer(s, PointerInput.Move(x, y)))
           hoverPart()
+        // A move within one image changes the cell without changing the hovered target.
+        refreshCells()
       else if kind == MouseEvent.MOUSE_EXITED then
         pointer = None
         withInput((in, s) => in.pointer(s, PointerInput.Leave))
         setHoveredPart(None)
+        refreshCells()
       else if kind == MouseEvent.MOUSE_PRESSED && event.getButton == MouseButton.PRIMARY then
         node.requestFocus()
         withInput((in, s) => in.pointer(s, PointerInput.Press))
@@ -1265,7 +1323,8 @@ final class JavaFxInteractionHost[A] private (
         else
           val handled =
             withInput((in, s) => in.pointer(s, PointerInput.Click(x, y, additive(event))))
-          if !handled then
+          if handled then chooseCell(x, y)
+          else
             hoveredPart.foreach { part =>
               emitPart(JavaFxPartEvent.Activated(part.part, InputCause.Pointer))
               legendLink(part.part).foreach(chooseLegend(_, additive(event)))
@@ -1654,6 +1713,69 @@ final class JavaFxInteractionHost[A] private (
       accept(
         dispatch(InteractionAction.Select(Selection(chosen.toSet), operation), InputCause.Pointer)
       )
+
+  // ---------------------------------------------------------------------------------------------
+  // Image cells of a hand-built scene
+
+  /** The cell of `name`'s image under the node-local point, through the draw mapping. */
+  private def cellUnder(name: GraphicsName, x: Double, y: Double): Option[NamedCell] =
+    for
+      current <- view
+      plan <- current.names
+      mapping <- viewport
+      point <- mapping.toDevice(x, y).toOption.flatten
+      cell <- plan.cellAt(name, point).toOption.flatten
+    yield NamedCell(name, cell)
+
+  /** Whether the target standing for `name` is selected, by target or by its entity. */
+  private def isSelected(name: GraphicsName): Boolean =
+    (for
+      current <- view
+      id <- current.nameIds.get(name)
+      now <- controller.state.toOption
+    yield now.selection.targets.contains(id) ||
+      geometries.get(id).flatMap(_.target.entity).exists(now.selection.entities.contains))
+      .getOrElse(false)
+
+  /** Bring the hovered cell up to date with the pointer and drop a chosen cell whose name is no
+    * longer selected.
+    */
+  private def refreshCells(): Unit =
+    val hovered = for
+      current <- view
+      now <- controller.state.toOption
+      id <- now.hover
+      name <- current.nameOf.get(id)
+      (x, y) <- pointer
+      cell <- cellUnder(name, x, y)
+    yield cell
+    setCells(hovered, chosenCell.filter(cell => isSelected(cell.name)))
+
+  /** A handled click focuses the target it chose; record its cell if the click left it selected. */
+  private def chooseCell(x: Double, y: Double): Unit =
+    val chosen = for
+      current <- view
+      now <- controller.state.toOption
+      id <- now.focus
+      name <- current.nameOf.get(id)
+      if isSelected(name)
+      cell <- cellUnder(name, x, y)
+    yield cell
+    setCells(hoverCell, chosen)
+
+  private def setCells(hovered: Option[NamedCell], chosen: Option[NamedCell]): Unit =
+    if hovered != hoverCell then
+      hoverCell = hovered
+      emitCell(JavaFxCellEvent.Hovered(hovered))
+    if chosen != chosenCell then
+      chosenCell = chosen
+      emitCell(JavaFxCellEvent.Selected(chosen))
+
+  private def emitCell(event: JavaFxCellEvent): Unit =
+    cellListeners.foreach { (_, listener) =>
+      try listener(event)
+      catch case NonFatal(_) => accept(Left(InteractionError.CallbackFailed("cell listener")))
+    }
 
   private def emitPart(event: JavaFxPartEvent): Unit =
     partListeners.foreach { (_, listener) =>

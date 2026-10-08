@@ -143,6 +143,56 @@ scenes; and on JavaFX, `JavaFxInteractionView.compile(plan, context, policy)`,
 `SvgWidgetView.compile` and `compileComposition` take the same `policy`, which the widget keeps
 across re-windowing and repainting.
 
+## Report the cell of an image
+
+A heatmap, design matrix or confusion matrix drawn as a scene is usually one image grob, so it
+picks as one name. `cellAt(name, point)` reports which cell of that image is drawn under a device
+point, for a hover readout or a selected column; looking up the value is the caller's, since the
+caller built the image:
+
+```scala mdoc:silent
+val confusion = RasterImage.tabulate(RasterDimensions.unsafe(3, 2)) { (column, row) =>
+  Rgba32.unsafe(80 * column, 120 * row, 160)
+}
+val matrixScene = Scene(
+  Vector(
+    Grob.imageUnsafe(confusion, Point.npcUnsafe(0.5, 0.5), Size.npcUnsafe(0.6, 0.4),
+      name = Some(GraphicsName.unsafe("confusion")))
+  )
+)
+val matrixPicking = NamedPicking.compile(matrixScene, context)
+```
+
+The image covers device pixels 80 to 320 across and 90 to 210 down, so each cell is 80 by 60:
+
+```scala mdoc
+matrixPicking.flatMap(_.cellAt(GraphicsName.unsafe("confusion"), DevicePoint(250, 100)))
+matrixPicking.flatMap(_.cellAt(GraphicsName.unsafe("confusion"), DevicePoint(160, 150)))
+matrixPicking.flatMap(_.cellAt(GraphicsName.unsafe("confusion"), DevicePoint(50, 150)))
+```
+
+`row` and `column` index the `RasterImage`: row 0 is the image's first row, which is its visual top
+row, drawn along the top of the image's box, and column 0 is drawn along its left edge. Under a
+rotated viewport the grid turns with the box. This is not the convention of the plot compiler's
+`RasterCell`, whose row is the source field's y-up index; a hand-built image has no field, so its
+own rows are the only order the scene knows. A caller who filled the image from a y-up matrix reads
+that matrix's row as `height - 1 - row`.
+
+Cells are half-open: a point exactly on an interior boundary belongs to the cell to its right or
+below (`DevicePoint(160, 150)`, on a corner, is row 1, column 1), and the image's right and bottom
+edges belong to its last column and row. A cell is reported exactly where `hits(point)` reports the
+name at distance zero: inside the box, within the 1e-8 device-pixel tolerance of every picking
+boundary, and inside every clip around it. A hit that only a tolerance reaches, or a grob that is
+not an image, has no cell. Every pixel counts whatever its alpha, as it does for `hits`, and smooth
+interpolation does not change the grid. Where one name paints several images over the point, the
+last drawn reports. The mapping goes through the same rotation picking uses, in plain double
+arithmetic, so the JVM and Scala.js agree exactly without rotation and, under rotation, everywhere
+except within rounding of a cell boundary or an image or clip edge.
+
+`ImageCellPixelOracleSuite` checks this against pixels drawn by Java2D under nested viewports at
+device scale 2, a clip that cuts the image, rotated viewports with and without their clip, and
+nested rotations; on JavaFX, `JavaFxImageCellSuite` checks it against the host's own canvas.
+
 ## Keyboard navigation and interaction state
 
 `NamedInteraction` binds a `NamedPickingPlan` to the identities the shared interaction state uses,
