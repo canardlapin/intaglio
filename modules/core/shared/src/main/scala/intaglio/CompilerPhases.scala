@@ -2830,6 +2830,7 @@ private[intaglio] object LayoutPhase:
     * the iterator's `next()` inside that expression, so every program without an ECDF layer looped
     * forever here (bd-01M41R5BTCMQ5R0NPGAZ0S504K). The index advances outside the instance test, so
     * this loop terminates whatever the emitter folds. `tools/check-fulllink.sh` keeps it that way.
+    * Upstream: https://github.com/scala-js/scala-js/issues/5436.
     */
   private def containsEcdfRow(rows: Vector[ResolvedRow[?]]): Boolean =
     var found = false

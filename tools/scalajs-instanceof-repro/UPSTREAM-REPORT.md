@@ -1,7 +1,9 @@
-# Draft upstream report (not filed)
+# Upstream report
 
-Ready to file at https://github.com/scala-js/scala-js/issues. Nothing has been filed. A search of
-the issue tracker on 2026-10-08 found no existing report.
+Filed on 2026-10-09 as [scala-js/scala-js#5436](https://github.com/scala-js/scala-js/issues/5436),
+after re-running `run.sh` (all three configurations hang) and confirming that Scala.js 1.22.0 is the
+latest release and that `SJSGen.genIsInstanceOfClass` on `main` still folds to `false`. The text
+below is what was filed, apart from the source path and project wording.
 
 ---
 
