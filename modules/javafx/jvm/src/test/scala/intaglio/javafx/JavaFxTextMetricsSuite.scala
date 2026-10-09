@@ -117,10 +117,12 @@ class JavaFxTextMetricsSuite extends munit.FunSuite:
   private def fx[A](body: => A): A = FxToolkit.fx(body)
 
   private val metrics = JavaFxTextMetrics()
+  // Square, with the anchor in the middle: a label turned 90 degrees needs as much room vertically as
+  // horizontally, and Linux faces run wider than macOS ones (CI clipped a 245 px label at 480 high).
   private val canvasWidth = 1000
-  private val canvasHeight = 480
+  private val canvasHeight = 1000
   private val anchorX = 500.0
-  private val anchorY = 240.0
+  private val anchorY = 500.0
   private val anchorPoint = Point.npcUnsafe(0.5, 0.5)
   private val transparent = Rgba.unsafe(0, 0, 0, 0)
 
@@ -351,6 +353,12 @@ class JavaFxTextMetricsSuite extends munit.FunSuite:
         anchorY + extent.top,
         anchorX + extent.right,
         anchorY + extent.bottom
+      )
+      // A box that leaves the canvas is clipped when drawn and would read as a measurement error.
+      assert(
+        predicted(0) >= 1 && predicted(1) >= 1 &&
+          predicted(2) <= canvasWidth - 1 && predicted(3) <= canvasHeight - 1,
+        clue(("predicted box leaves the canvas; enlarge it", label, degrees, anchor, predicted))
       )
       val plate = draw(label, style, anchor, degrees, plateOnly = true).rectangleExtent
       val error = predicted.zip(plate).map((p, d) => math.abs(p - d)).max

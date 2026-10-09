@@ -15,9 +15,11 @@ import java.awt.image.BufferedImage
   * covered pixel `x` at coverage `a`, placed at `x + 1 - a` (the last at `x + a`).
   */
 class Java2DRotatedTextSuite extends munit.FunSuite:
-  private val size = 480
-  private val anchorX = 240.0
-  private val anchorY = 240.0
+  // The anchor sits in the middle with room for the widest label at any angle: Linux faces run wider
+  // than macOS ones (AWT measured "Mean response (ms)" near 258 px at 24 pt on CI).
+  private val size = 1000
+  private val anchorX = 500.0
+  private val anchorY = 500.0
   private val metrics = Java2DTextMetrics()
   private val style = TextStyle(None, 24.0)
   private val noise = 2.0 / 255.0
@@ -93,6 +95,13 @@ class Java2DRotatedTextSuite extends munit.FunSuite:
         anchorY + extent.top,
         anchorX + extent.right,
         anchorY + extent.bottom
+      )
+      // A box that leaves the image is clipped when drawn and would read as a measurement error.
+      assert(
+        predicted(0) >= 1 && predicted(1) >= 1 && predicted(2) <= size - 1 && predicted(
+          3
+        ) <= size - 1,
+        clue(("predicted box leaves the image; enlarge it", label, degrees, anchor, predicted))
       )
       val plate = draw(label, anchor, degrees, plateOnly = true).rectangleExtent
       val error = predicted.zip(plate).map((p, d) => math.abs(p - d)).max
