@@ -6,14 +6,23 @@ package intaglio
   * light rather than bytes — perceptual mixing, colour-vision simulation, CIELAB distance — has to
   * name the encoding it is undoing. Naming it once means those operations cannot drift apart.
   */
-private[intaglio] object Srgb:
-  /** Decode one stored channel byte to linear light in `[0, 1]`. */
+object Srgb:
+  /** Decode one stored channel byte to linear light in `[0, 1]`.
+    *
+    * `channel` must be an unsigned byte value in `[0, 255]`. This boundary check keeps callers
+    * from accidentally treating an arbitrary integer as a stored sRGB channel.
+    */
   def toLinear(channel: Int): Double =
+    require(channel >= 0 && channel <= 255, "sRGB channel must be in [0, 255]")
     val encoded = channel.toDouble / 255.0
     if encoded <= 0.04045 then encoded / 12.92
     else math.pow((encoded + 0.055) / 1.055, 2.4)
 
   /** Encode linear light back to a stored channel byte, clamping into gamut and rounding half up.
+    *
+    * Finite values in `[0, 1]` are the direct transfer-function domain. Out-of-gamut finite
+    * values clamp to the nearest endpoint; `NaN` maps to zero and infinities to their signed
+    * endpoints, matching the established color conversion policy.
     */
   def toChannel(linear: Double): Int =
     val clamped = Oklab.clampUnit(linear)

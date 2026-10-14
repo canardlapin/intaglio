@@ -161,11 +161,12 @@ object DisplayOpacity:
   extension (opacity: DisplayOpacity) def toDouble: Double = DisplayOpacity.value(opacity)
 
 enum DisplayBlendMode:
-  case Normal, Additive, Multiply, Screen
+  case Normal, Additive, Multiply, Screen, PlusLighter
 
-  /** Composite `over` onto `under` using source-over alpha and this mode's separable channel blend.
-    * Computation is performed in the stored sRGB channel space because `Rgba32` deliberately
-    * carries display bytes rather than a linear-light color profile.
+  /** Composite `over` onto `under` in stored sRGB byte space. `Normal`, `Additive`, `Multiply`,
+    * and `Screen` use source-over alpha with a separable channel blend; `PlusLighter` adds encoded
+    * premultiplied channels directly. `Rgba32` deliberately carries display bytes rather than a
+    * linear-light color profile.
     */
   def composite(
       under: Rgba32,
@@ -174,31 +175,56 @@ enum DisplayBlendMode:
   ): Rgba32 =
     val underAlpha = under.alpha.toDouble / 255.0
     val overAlpha = over.alpha.toDouble / 255.0 * opacity.toDouble
-    val outAlpha = overAlpha + underAlpha * (1.0 - overAlpha)
 
-    if outAlpha == 0.0 then Rgba32.unsafe(0, 0, 0, 0)
-    else
-      def channel(underByte: Int, overByte: Int): Int =
-        val backdrop = underByte.toDouble / 255.0
-        val source = overByte.toDouble / 255.0
-        val blended =
-          this match
-            case Normal   => source
-            case Additive => math.min(1.0, backdrop + source)
-            case Multiply => backdrop * source
-            case Screen   => 1.0 - (1.0 - backdrop) * (1.0 - source)
-        val premultiplied =
-          (1.0 - overAlpha) * underAlpha * backdrop +
-            (1.0 - underAlpha) * overAlpha * source +
-            underAlpha * overAlpha * blended
-        math.round(premultiplied / outAlpha * 255.0).toInt.max(0).min(255)
+    this match
+      /** The canvas/CSS plus-lighter operation: add encoded premultiplied channels and alpha,
+        * clamping each sum. Unlike [[Additive]], this does not first apply a separable blend in
+        * source-over compositing.
+        */
+      case PlusLighter =>
+        val outAlpha = math.min(1.0, underAlpha + overAlpha)
+        if outAlpha == 0.0 then Rgba32.unsafe(0, 0, 0, 0)
+        else
+          def channel(underByte: Int, overByte: Int): Int =
+            val premultiplied = math.min(
+              1.0,
+              underByte.toDouble / 255.0 * underAlpha + overByte.toDouble / 255.0 * overAlpha
+            )
+            math.round(premultiplied / outAlpha * 255.0).toInt.max(0).min(255)
 
-      Rgba32.packUnsafe(
-        channel(under.red, over.red),
-        channel(under.green, over.green),
-        channel(under.blue, over.blue),
-        math.round(outAlpha * 255.0).toInt.max(0).min(255)
-      )
+          Rgba32.packUnsafe(
+            channel(under.red, over.red),
+            channel(under.green, over.green),
+            channel(under.blue, over.blue),
+            math.round(outAlpha * 255.0).toInt.max(0).min(255)
+          )
+
+      case _ =>
+        val outAlpha = overAlpha + underAlpha * (1.0 - overAlpha)
+        if outAlpha == 0.0 then Rgba32.unsafe(0, 0, 0, 0)
+        else
+          def channel(underByte: Int, overByte: Int): Int =
+            val backdrop = underByte.toDouble / 255.0
+            val source = overByte.toDouble / 255.0
+            val blended =
+              this match
+                case Normal   => source
+                case Additive => math.min(1.0, backdrop + source)
+                case Multiply => backdrop * source
+                case Screen   => 1.0 - (1.0 - backdrop) * (1.0 - source)
+                case PlusLighter => throw new IllegalStateException("handled before source-over blend")
+            val premultiplied =
+              (1.0 - overAlpha) * underAlpha * backdrop +
+                (1.0 - underAlpha) * overAlpha * source +
+                underAlpha * overAlpha * blended
+            math.round(premultiplied / outAlpha * 255.0).toInt.max(0).min(255)
+
+          Rgba32.packUnsafe(
+            channel(under.red, over.red),
+            channel(under.green, over.green),
+            channel(under.blue, over.blue),
+            math.round(outAlpha * 255.0).toInt.max(0).min(255)
+          )
 
 /** A value-to-pixel mapping.
   *

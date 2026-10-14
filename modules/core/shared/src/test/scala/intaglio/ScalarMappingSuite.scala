@@ -53,6 +53,37 @@ class ScalarMappingSuite extends munit.FunSuite:
     assertEquals(ramp.colorAt(-3.0), Rgba32.unsafe(0, 0, 0))
     assertEquals(ramp.colorAt(3.0), white)
 
+  test("discrete ramps select equal-width lookup-table bins"):
+    val colors = Vector(
+      Rgba32.unsafe(10, 0, 0, 10),
+      Rgba32.unsafe(0, 20, 0, 20),
+      Rgba32.unsafe(0, 0, 30, 30)
+    )
+    val ramp = ScalarRamp.discrete(colors).toOption.get
+
+    assertEquals(ramp.sampling, ScalarRampSampling.Discrete)
+    assertEquals(ramp.stops.map(_._1), Vector(0.0, 0.5, 1.0))
+    assertEquals(ramp.colorAt(0.0), colors(0))
+    assertEquals(ramp.colorAt(1.0), colors(2))
+    assertEquals(ramp.colorAt(0.01), colors(0))
+    assertEquals(ramp.colorAt(1.0 / 3.0), colors(1))
+    assertEquals(ramp.colorAt(2.0 / 3.0), colors(2))
+    assertEquals(ramp.colorAt(0.999999), colors(2))
+    assert(ScalarRamp.discrete(Vector(colors.head)).isLeft)
+
+  test("discrete sampling has its own boundaries and mapping identity"):
+    val colors = Vector(blue, white)
+    val linear = ScalarRamp.linear(colors(0), colors(1))
+    val discrete = ScalarRamp.discrete(colors).toOption.get
+    val window = DisplayWindow.unsafe(-4.0, 8.0)
+    val linearMapping = ScalarMapping(ScalarScale.sequential(window, linear))
+    val discreteMapping = ScalarMapping(ScalarScale.sequential(window, discrete))
+
+    assertEquals(linearMapping.boundaries, Vector(-4.0, 8.0))
+    assertEquals(discreteMapping.boundaries, Vector(-4.0, 2.0, 8.0))
+    assertNotEquals(linearMapping.canonicalKey, discreteMapping.canonicalKey)
+    assertEquals(discreteMapping.canonicalKey.takeRight("|sampling:Discrete".length), "|sampling:Discrete")
+
   test("every interval endpoint convention distinguishes edges and immediate neighbors"):
     for inclusion <- ScalarEndpointInclusion.values do
       val interval = ScalarInterval.make(-1.0, 2.0, inclusion).toOption.get

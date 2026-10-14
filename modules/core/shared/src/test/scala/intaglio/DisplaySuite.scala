@@ -53,6 +53,28 @@ class DisplaySuite extends munit.FunSuite:
     assertEquals(DisplayBlendMode.Multiply.composite(under, over), Rgba32.unsafe(32, 100, 40))
     assertEquals(DisplayBlendMode.Screen.composite(under, over), Rgba32.unsafe(160, 228, 255))
 
+  test("plus-lighter adds premultiplied display bytes independently of legacy additive"):
+    val under = Rgba32.unsafe(204, 0, 0)
+    val halfOver = Rgba32.unsafe(204, 0, 0, 128)
+
+    assertEquals(DisplayBlendMode.Additive.composite(under, halfOver), Rgba32.unsafe(230, 0, 0))
+    assertEquals(DisplayBlendMode.PlusLighter.composite(under, halfOver), Rgba32.unsafe(255, 0, 0))
+    assertEquals(
+      DisplayBlendMode.PlusLighter.composite(under, halfOver, DisplayOpacity.Transparent),
+      under
+    )
+    assertEquals(
+      DisplayBlendMode.PlusLighter.composite(Rgba32.unsafe(20, 30, 40, 0), halfOver),
+      Rgba32.unsafe(204, 0, 0, 128)
+    )
+
+  test("plus-lighter appends to the established blend-mode ordinals"):
+    assertEquals(DisplayBlendMode.Normal.ordinal, 0)
+    assertEquals(DisplayBlendMode.Additive.ordinal, 1)
+    assertEquals(DisplayBlendMode.Multiply.ordinal, 2)
+    assertEquals(DisplayBlendMode.Screen.ordinal, 3)
+    assertEquals(DisplayBlendMode.PlusLighter.ordinal, 4)
+
   test("graphics-owned colorizers preserve image-view threshold behavior"):
     val colorizer = ScalarColorizer(
       DisplayWindow.unsafe(-1.0, 1.0),

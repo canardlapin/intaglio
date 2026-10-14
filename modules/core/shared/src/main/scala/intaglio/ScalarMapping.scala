@@ -96,25 +96,41 @@ object ScalarVisibility:
   private def asInterval(band: ThresholdBand, endpoints: ScalarEndpointInclusion): ScalarInterval =
     ScalarInterval.make(band.lower, band.upper, endpoints).toOption.get
 
+enum ScalarRampSampling:
+  /** Interpolate explicitly positioned color stops, preserving the original ramp behavior. */
+  case Linear
+
+  /** Select evenly spaced lookup-table colors without interpolation. */
+  case Discrete
+
 /** Immutable, ordered stops. No arbitrary callback is needed to reconstruct this ramp. */
-final class ScalarRamp private (val stops: Vector[(Double, Rgba32)]):
+final class ScalarRamp private (
+    val stops: Vector[(Double, Rgba32)],
+    val sampling: ScalarRampSampling = ScalarRampSampling.Linear
+):
   def colorAt(fraction: Double): Rgba32 =
     require(fraction.isFinite, "ramp fraction must be finite")
-    if fraction <= 0.0 then stops.head._2
-    else if fraction >= 1.0 then stops.last._2
-    else
-      var index = 1
-      while stops(index)._1 < fraction do index += 1
-      val (lo, lowColor) = stops(index - 1)
-      val (hi, highColor) = stops(index)
-      val t = (fraction - lo) / (hi - lo)
-      def channel(a: Int, b: Int): Int = math.round(a + (b - a) * t).toInt
-      Rgba32.packUnsafe(
-        channel(lowColor.red, highColor.red),
-        channel(lowColor.green, highColor.green),
-        channel(lowColor.blue, highColor.blue),
-        channel(lowColor.alpha, highColor.alpha)
-      )
+    sampling match
+      case ScalarRampSampling.Discrete =>
+        if fraction <= 0.0 then stops.head._2
+        else if fraction >= 1.0 then stops.last._2
+        else stops(math.min((fraction * stops.length).toInt, stops.length - 1))._2
+      case ScalarRampSampling.Linear =>
+        if fraction <= 0.0 then stops.head._2
+        else if fraction >= 1.0 then stops.last._2
+        else
+          var index = 1
+          while stops(index)._1 < fraction do index += 1
+          val (lo, lowColor) = stops(index - 1)
+          val (hi, highColor) = stops(index)
+          val t = (fraction - lo) / (hi - lo)
+          def channel(a: Int, b: Int): Int = math.round(a + (b - a) * t).toInt
+          Rgba32.packUnsafe(
+            channel(lowColor.red, highColor.red),
+            channel(lowColor.green, highColor.green),
+            channel(lowColor.blue, highColor.blue),
+            channel(lowColor.alpha, highColor.alpha)
+          )
 
 object ScalarRamp:
   def make(stops: Vector[(Double, Rgba32)]): Either[ScalarMappingError, ScalarRamp] =
@@ -129,6 +145,19 @@ object ScalarRamp:
   def linear(low: Rgba32, high: Rgba32): ScalarRamp = new ScalarRamp(
     Vector(0.0 -> low, 1.0 -> high)
   )
+
+  /** Construct a lookup-table ramp whose colors occupy equal-width bins on `[0, 1]`. */
+  def discrete(colors: Vector[Rgba32]): Either[ScalarMappingError, ScalarRamp] =
+    if colors.length < 2 then Left(ScalarMappingError.InvalidRamp("at least two colors are required"))
+    else
+      val last = colors.length - 1
+      Right(
+        new ScalarRamp(
+          colors.zipWithIndex.map((color, index) => index.toDouble / last -> color),
+          ScalarRampSampling.Discrete
+        )
+      )
+
   def fromRamp(ramp: ColorRamp): ScalarRamp = linear(ramp.low, ramp.high)
 
 enum ScalarScaleKind:
@@ -317,7 +346,13 @@ final case class ScalarMapping(
   /** Physical ramp knots and visibility endpoints, in ascending scalar order. */
   lazy val boundaries: Vector[Double] =
     val knots = scale.segments.flatMap: segment =>
-      segment.ramp.stops.map: (t, _) =>
+      val fractions = segment.ramp.sampling match
+        case ScalarRampSampling.Linear => segment.ramp.stops.map(_._1)
+        case ScalarRampSampling.Discrete =>
+          Vector.tabulate(segment.ramp.stops.length + 1)(index =>
+            index.toDouble / segment.ramp.stops.length
+          )
+      fractions.map: t =>
         (1.0 - t) * segment.window.lower + t * segment.window.upper
     (knots ++ visibility.endpoints).distinct.sorted
 
@@ -343,7 +378,11 @@ final case class ScalarMapping(
         .map((position, color) => s"${number(position)}=${pixel(color)}")
         .mkString(",")
       s"${number(segment.window.lower)}:${number(segment.window.upper)}:$stops"
-    s"scalar-mapping-v1|${scale.kind}|${scale.center.fold("none")(number)}|${segments.mkString(";")}|$selection|$outOfRange|${pixel(hidden)}|${pixel(invalid)}"
+    val sampling = scale.segments.map(_.ramp.sampling)
+    val samplingKey =
+      if sampling.forall(_ == ScalarRampSampling.Linear) then ""
+      else s"|sampling:${sampling.mkString(",")}"
+    s"scalar-mapping-v1|${scale.kind}|${scale.center.fold("none")(number)}|${segments.mkString(";")}|$selection|$outOfRange|${pixel(hidden)}|${pixel(invalid)}$samplingKey"
 
 final class ScalarMappingColorizer private[intaglio] (val mapping: ScalarMapping)
     extends Colorizer[Double]:

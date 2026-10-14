@@ -5,6 +5,17 @@ class ColorSuite extends munit.FunSuite:
   private def hex(color: Rgba): String =
     f"#${color.red}%02X${color.green}%02X${color.blue}%02X"
 
+  test("public sRGB transfer uses the IEC byte and finite-unit policies"):
+    assertEqualsDouble(Srgb.toLinear(128), 0.21586050011389926, 1e-15)
+    assertEquals(Srgb.toChannel(0.5), 188)
+    assertEquals(Srgb.toChannel(Srgb.toLinear(128) / 2.0), 92)
+    for byte <- 0 to 255 do assertEquals(Srgb.toChannel(Srgb.toLinear(byte)), byte)
+    assertEquals(Srgb.toChannel(Double.NaN), 0)
+    assertEquals(Srgb.toChannel(Double.PositiveInfinity), 255)
+    assertEquals(Srgb.toChannel(Double.NegativeInfinity), 0)
+    intercept[IllegalArgumentException](Srgb.toLinear(-1))
+    intercept[IllegalArgumentException](Srgb.toLinear(256))
+
   test("oklab components must be finite"):
     Oklab(Double.NaN, 0.0, 0.0).left.toOption match
       case Some(GraphicsError.NonFiniteColorComponent(component, value)) =>
