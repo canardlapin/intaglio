@@ -100,7 +100,14 @@ enum ScalarRampSampling:
   /** Interpolate explicitly positioned color stops, preserving the original ramp behavior. */
   case Linear
 
-  /** Select evenly spaced lookup-table colors without interpolation. */
+  /** Select evenly spaced lookup-table colors without interpolation.
+    *
+    * Colors start at their indexed stop positions `i / (N - 1)`, so a stop itself selects its
+    * color and fractions below the next stop retain the preceding color. The comparison is against
+    * the stored IEEE-754 stop values. This deliberately differs from SurfViewJS's
+    * `floor(t * (N - 1))` at rare floating-point boundary products: no epsilon is introduced to
+    * imitate that multiplication-rounding artifact.
+    */
   case Discrete
 
 /** Immutable, ordered stops. No arbitrary callback is needed to reconstruct this ramp. */
@@ -114,7 +121,14 @@ final class ScalarRamp private (
       case ScalarRampSampling.Discrete =>
         if fraction <= 0.0 then stops.head._2
         else if fraction >= 1.0 then stops.last._2
-        else stops(math.min((fraction * stops.length).toInt, stops.length - 1))._2
+        else
+          var lower = 0
+          var upper = stops.length
+          while lower + 1 < upper do
+            val middle = lower + (upper - lower) / 2
+            if stops(middle)._1 <= fraction then lower = middle
+            else upper = middle
+          stops(lower)._2
       case ScalarRampSampling.Linear =>
         if fraction <= 0.0 then stops.head._2
         else if fraction >= 1.0 then stops.last._2
@@ -146,7 +160,7 @@ object ScalarRamp:
     Vector(0.0 -> low, 1.0 -> high)
   )
 
-  /** Construct a lookup-table ramp whose colors occupy equal-width bins on `[0, 1]`. */
+  /** Construct a lookup-table ramp whose colors begin at indexed stops `i / (N - 1)`. */
   def discrete(colors: Vector[Rgba32]): Either[ScalarMappingError, ScalarRamp] =
     if colors.length < 2 then Left(ScalarMappingError.InvalidRamp("at least two colors are required"))
     else
@@ -343,16 +357,12 @@ final case class ScalarMapping(
   /** Adapt only color evaluation. Resolve checked overrides first, then create this adapter. */
   def colorizer: Colorizer[Double] = new ScalarMappingColorizer(this)
 
-  /** Physical ramp knots and visibility endpoints, in ascending scalar order. */
+  /** Physical ramp knots and visibility endpoints, in ascending scalar order. Discrete lookup
+    * transitions occur at their stored indexed stops, just as color evaluation does.
+    */
   lazy val boundaries: Vector[Double] =
     val knots = scale.segments.flatMap: segment =>
-      val fractions = segment.ramp.sampling match
-        case ScalarRampSampling.Linear => segment.ramp.stops.map(_._1)
-        case ScalarRampSampling.Discrete =>
-          Vector.tabulate(segment.ramp.stops.length + 1)(index =>
-            index.toDouble / segment.ramp.stops.length
-          )
-      fractions.map: t =>
+      segment.ramp.stops.map: (t, _) =>
         (1.0 - t) * segment.window.lower + t * segment.window.upper
     (knots ++ visibility.endpoints).distinct.sorted
 
