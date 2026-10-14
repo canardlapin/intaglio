@@ -177,7 +177,30 @@ object ScalarRamp:
 enum ScalarScaleKind:
   case Sequential, Diverging, Split
 
-final case class ScalarRampSegment(window: DisplayWindow, ramp: ScalarRamp)
+final case class ScalarRampSegment(window: DisplayWindow, ramp: ScalarRamp):
+  /** Scalar coordinates of the ramp stops. For discrete ramps each entry after
+    * the first is the first representable scalar whose normalized value reaches
+    * that stop. Affine inversion alone can round to the wrong side of a stop.
+    * Entries can coincide when a window has fewer representable values than bins.
+    */
+  lazy val boundaries: Vector[Double] = ramp.stops.map: (stop, _) =>
+    if ramp.sampling == ScalarRampSampling.Linear then (1.0 - stop) * window.lower + stop * window.upper
+    else if stop == 0.0 then window.lower
+    else
+      def ordered(value: Double): Long =
+        val bits = java.lang.Double.doubleToLongBits(value)
+        if bits < 0 then Long.MinValue - bits else bits
+      def scalar(key: Long): Double =
+        java.lang.Double.longBitsToDouble(if key < 0 then Long.MinValue - key else key)
+      var low = ordered(window.lower)
+      var high = ordered(window.upper)
+      // The order-preserving integer domain gives a bounded (at most 64 step)
+      // search, including cancellation near zero and windows with infinite width.
+      while low + 1 < high do
+        val middle = (low & high) + ((low ^ high) >> 1)
+        if window.normalize(scalar(middle)) >= stop then high = middle
+        else low = middle
+      scalar(high)
 final case class ScalarRampCoordinate(segment: Int, fraction: Double)
 
 /** Validated scale geometry. Diverging segments meet at the explicit center; split segments leave
@@ -362,8 +385,9 @@ final case class ScalarMapping(
     */
   lazy val boundaries: Vector[Double] =
     val knots = scale.segments.flatMap: segment =>
-      segment.ramp.stops.map: (t, _) =>
-        (1.0 - t) * segment.window.lower + t * segment.window.upper
+      // A discrete final bin can start before the upper window endpoint; both
+      // coordinates matter for out-of-range and adjacent-segment classification.
+      segment.boundaries ++ Vector(segment.window.lower, segment.window.upper)
     (knots ++ visibility.endpoints).distinct.sorted
 
   /** Complete, versioned descriptor identity, identical on JVM and JS; not a lossy hash. Signed

@@ -100,9 +100,40 @@ class ScalarMappingSuite extends munit.FunSuite:
     val discreteMapping = ScalarMapping(ScalarScale.sequential(window, discrete))
 
     assertEquals(linearMapping.boundaries, Vector(-4.0, 2.0, 8.0))
-    assertEquals(discreteMapping.boundaries, Vector(-4.0, 2.0, 8.0))
+    assertEquals(discreteMapping.boundaries.head, -4.0)
+    assertEquals(discreteMapping.boundaries.last, 8.0)
     assertNotEquals(linearMapping.canonicalKey, discreteMapping.canonicalKey)
     assertEquals(discreteMapping.canonicalKey.takeRight("|sampling:Discrete".length), "|sampling:Discrete")
+
+  test("discrete physical transitions agree with normalized lookup at adjacent representable scalars"):
+    val colors = Vector.tabulate(4)(i => Rgba32.unsafe(i, 0, 0))
+    val ramp = ScalarRamp.discrete(colors).toOption.get
+    for window <- Vector(DisplayWindow.unsafe(-1, 1), DisplayWindow.unsafe(-4, 8),
+      DisplayWindow.unsafe(1e6, 1e6 + 3), DisplayWindow.unsafe(-1e308, 1e308)) do
+      val mapping = ScalarMapping(ScalarScale.sequential(window, ramp))
+      val transitions = mapping.scale.segments.head.boundaries
+      for index <- 1 until colors.length do
+        val boundary = transitions(index)
+        assertEquals(mapping.color(math.nextAfter(boundary, Double.NegativeInfinity)), colors(index - 1))
+        assertEquals(mapping.color(boundary), colors(index))
+        assertEquals(mapping.color(math.nextAfter(boundary, Double.PositiveInfinity)), colors(index))
+        assert(mapping.boundaries.contains(boundary))
+    val centered = ScalarMapping(ScalarScale.sequential(DisplayWindow.unsafe(-1, 1), ramp))
+    assertEquals(centered.scale.segments.head.boundaries(1), -0.33333333333333337)
+
+  test("discrete transition search handles cancellation and unreachable bins"):
+    val colors = Vector(blue, white, red)
+    val ramp = ScalarRamp.discrete(colors).toOption.get
+    val centered = ScalarMapping(ScalarScale.sequential(DisplayWindow.unsafe(-1, 1), ramp))
+    val middle = centered.scale.segments.head.boundaries(1)
+    assert(middle < 0 && math.abs(middle) < 1e-15)
+    assertEquals(centered.color(math.nextAfter(middle, Double.NegativeInfinity)), blue)
+    assertEquals(centered.color(middle), white)
+    val upper = math.nextAfter(1.0, Double.PositiveInfinity)
+    val narrow = ScalarMapping(ScalarScale.sequential(DisplayWindow.unsafe(1, upper), ramp))
+    assertEquals(narrow.scale.segments.head.boundaries, Vector(1.0, upper, upper))
+    assertEquals(narrow.color(1), blue)
+    assertEquals(narrow.color(upper), red)
 
   test("every interval endpoint convention distinguishes edges and immediate neighbors"):
     for inclusion <- ScalarEndpointInclusion.values do
