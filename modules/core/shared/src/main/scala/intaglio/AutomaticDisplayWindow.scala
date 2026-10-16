@@ -117,7 +117,12 @@ object AutomaticDisplayWindow:
     if eligible == 0 then configs.map(_ => Left(AutomaticWindowError.NoEligibleValues))
     else
       val retained = math.min(eligible, sample.length.toLong).toInt
-      val sorted = sample.take(retained).sorted
+      // Copy only the retained reservoir into another primitive array. ArrayOps.sorted boxes
+      // the values before delegating to TimSort; quickSort keeps this bounded hot path primitive
+      // on both platforms. The reservoir itself remains unchanged until this point.
+      val sorted = new Array[Double](retained)
+      Array.copy(sample, 0, sorted, 0, retained)
+      scala.util.Sorting.quickSort(sorted)
       def quantile(probability: Double): Double =
         val position = probability * (retained - 1)
         val index = position.toInt
