@@ -35,8 +35,11 @@ Hidden axes emit no line, tick, label or title and reserve no axis strip. Derive
 colorbars remain enabled. The same `withoutAxes` policy carries through facets; sides refer to the
 physical sides after coordinate flipping.
 
-Derived axes thin tick labels using the target's measured text extents and a half-em gap. Explicit
-axis overrides retain their caller-supplied ticks. Colorbars retain the true endpoints of fixed
+Derived axes thin tick labels using the target's measured text extents and a half-em gap. They
+retain the largest fitting stride across the original breaks, preferring zero when equally dense
+subsets fit. A shorter regular run is used only if no complete stride can fit two labels. Axis
+endpoints are not forced into the subset. Explicit axis overrides
+retain their caller-supplied ticks. Colorbars retain the true endpoints of fixed
 domains and thin labels to fit their height. A single continuous image replaces separate colorbar
 swatches, eliminating internal antialiasing seams. `Labeler.typographic` uses the Unicode minus
 sign for numbers and exponents; `Labeler.default` retains ASCII labels for compatibility.

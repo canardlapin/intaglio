@@ -327,7 +327,7 @@ object GuideSpec:
           yield
             val pxPerPt = device.pixelsPerInch / 72.0
             val style = TextStyle(gp.fontFamily, fontPx / pxPerPt, gp.fontWeight)
-            GuideTickSpacing.fit(
+            GuideTickSpacing.fitAxis(
               ticks,
               tick => range.rescale(tick.value) * length,
               tick =>
@@ -602,10 +602,53 @@ object GuideSpec:
 
 final case class ResolvedGuide(spec: GuideSpec, grob: Grob)
 
-/** Greedy measured spacing with stable priorities: endpoints, zero, then remaining ticks. A wide
-  * guide retains its original tick vector exactly. Explicit axis ticks opt out.
+/** Measured tick spacing. Axes retain a regular stride; colorbars prioritize endpoints. A wide
+  * guide retains its original tick vector exactly. Explicit axis overrides opt out.
   */
 private[intaglio] object GuideTickSpacing:
+  def fitAxis(
+      ticks: Vector[AxisTick],
+      position: AxisTick => Double,
+      extent: AxisTick => Double,
+      gap: Double
+  ): Vector[AxisTick] =
+    if ticks.size < 2 then ticks
+    else
+      val measured = ticks.map(t => (t, position(t), extent(t))).sortBy(_._2)
+      def clears(a: Int, b: Int): Boolean =
+        measured(b)._2 - measured(a)._2 + 1e-9 >=
+          (measured(a)._3 + measured(b)._3) / 2.0 + gap
+      if (1 until measured.size).forall(i => clears(i - 1, i)) then ticks
+      else
+        // Compiler-derived tick values are normalized positions, not the displayed data values.
+        val zero = measured.indexWhere(_._1.label.replace('−', '-').toDoubleOption.contains(0.0))
+        var best = Vector.empty[Int]
+        def consider(run: Vector[Int]): Unit =
+          if run.size > best.size ||
+            (run.size == best.size && run.contains(zero) && !best.contains(zero))
+          then best = run
+        // Compare complete stride/offset classes first, so a dense prefix cannot beat an even
+        // stride spanning the available breaks merely because its earlier labels are shorter.
+        for stride <- 1 until measured.size; offset <- 0 until stride do
+          val candidate = (offset until measured.size by stride).toVector
+          if candidate.sliding(2).filter(_.size == 2).forall(p => clears(p(0), p(1))) then
+            consider(candidate)
+        // Very wide exterior labels can block every complete class. Only then allow shorter
+        // clear runs, retaining two or more labels whenever any regularly strided run fits.
+        if best.size < 2 then
+          for stride <- 1 until measured.size; offset <- 0 until stride do
+            var run = Vector.empty[Int]
+            var index = offset
+            while index < measured.size do
+              if run.lastOption.exists(previous => !clears(previous, index)) then
+                consider(run)
+                run = Vector.empty
+              run = run :+ index
+              index += stride
+            consider(run)
+        val keep = best.map(i => measured(i)._1).toSet
+        ticks.filter(keep.contains)
+
   def fit(
       ticks: Vector[AxisTick],
       position: AxisTick => Double,

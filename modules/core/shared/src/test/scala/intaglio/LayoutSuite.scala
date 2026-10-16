@@ -14,6 +14,129 @@ class LayoutSuite extends munit.FunSuite:
       clip = Clip.On
     )
 
+  test("derived axis thinning keeps a regular stride and two labels whenever a pair fits") {
+    val metrics = TextMetrics.estimate
+    val style = TextStyle(Some("Helvetica"), 10.0)
+    val pxPerPt = 96.0 / 72.0
+    val fontPx = style.fontSizePt * pxPerPt
+    for
+      (lo, hi) <- Vector((0.0, 150.0), (-0.4, 0.4))
+      width <- ((100 to 400 by 20).toVector ++ Vector(250, 300)).distinct
+      side <- Vector(AxisSide.Bottom, AxisSide.Left)
+    do
+      val range = Interval.unsafe(lo, hi)
+      val ticks = Axis.ticks(range).orThrow
+      val panel = PanelLayout.unit(range, range)
+      val policy = LayoutPolicy(
+        referenceDevice = DeviceContext.unsafe(width, width),
+        metrics = metrics
+      )
+      val gp =
+        GraphicParams.unsafe(fontFamily = style.fontFamily, fontSize = Length.pointsUnsafe(10))
+      val spec = GuideSpec.Axis(side, ticks = Some(ticks), labelGp = Some(gp))
+      val fitted = GuideSpec
+        .lowerAxis(spec, panel, policy, Theme.minimal, avoidOverlap = true)
+        .orThrow
+        .spec
+        .asInstanceOf[GuideSpec.Axis]
+        .ticks
+        .get
+      if fitted.size >= 2 then
+        val indices = fitted.map(ticks.indexOf)
+        val stride = indices(1) - indices(0)
+        assert(
+          indices.head < stride && indices.last + stride >= ticks.size,
+          clues(width, side, fitted)
+        )
+      def extent(tick: AxisTick): Double =
+        (if side.isHorizontal then metrics.widthPt(tick.label, style)
+         else metrics.heightPt(style)) * pxPerPt
+      def clears(a: AxisTick, b: AxisTick): Boolean =
+        (range.rescale(b.value) - range.rescale(a.value)) * width + 1e-7 >=
+          (extent(a) + extent(b)) / 2.0 + fontPx * 0.5
+      val steps = fitted.sliding(2).filter(_.size == 2).map(p => p(1).value - p(0).value).toVector
+      steps.foreach(step =>
+        assertEqualsDouble(step, steps.head, 1e-9, clues(lo, hi, width, side, fitted))
+      )
+      fitted
+        .sliding(2)
+        .filter(_.size == 2)
+        .foreach(p => assert(clears(p(0), p(1)), clues(width, side, fitted)))
+      val pairFits = ticks.indices.exists(i => ticks.drop(i + 1).exists(clears(ticks(i), _)))
+      if pairFits then assert(fitted.size >= 2, clues(width, side, fitted))
+      if width == 400 then assertEquals(fitted, ticks)
+  }
+
+  test("axis stride selection matches an exhaustive subset oracle with varying label extents") {
+    val ticks = (0 until 8).map(i => AxisTick.unsafe(i - 4, (i - 4).toString)).toVector
+    for
+      span <- Vector(1.0, 30.0, 70.0, 140.0)
+      extents <- Vector(
+        Vector.fill(8)(20.0),
+        Vector(100.0, 2, 2, 2, 2, 2, 2, 100),
+        Vector(100.0, 100, 2, 2, 2, 100, 100, 100)
+      )
+    do
+      def at(i: Int): Double = i * span / 7
+      def fits(indices: Vector[Int]): Boolean =
+        val steps = indices.sliding(2).filter(_.size == 2).map(p => p(1) - p(0)).toVector
+        steps.distinct.size <= 1 && indices.combinations(2).forall { pair =>
+          at(pair(1)) - at(pair(0)) + 1e-9 >= (extents(pair(0)) + extents(pair(1))) / 2 + 5
+        }
+      val candidates = (1 until (1 << ticks.size))
+        .map { mask =>
+          ticks.indices.filter(i => (mask & (1 << i)) != 0).toVector
+        }
+        .filter(fits)
+      val complete = candidates.filter { indices =>
+        if indices.size < 2 then true
+        else
+          val stride = indices(1) - indices(0)
+          indices.head < stride && indices.last + stride >= ticks.size
+      }
+      val eligible = if complete.exists(_.size >= 2) then complete else candidates
+      val actual = GuideTickSpacing
+        .fitAxis(
+          ticks,
+          t => at(ticks.indexOf(t)),
+          t => extents(ticks.indexOf(t)),
+          5
+        )
+        .map(ticks.indexOf)
+      assert(fits(actual), clues(span, extents, actual))
+      assertEquals(actual.size, eligible.map(_.size).max, clues(span, extents, actual))
+      if eligible.exists(c => c.size == actual.size && c.contains(4)) then
+        assert(actual.contains(4), clues(span, extents, actual))
+  }
+
+  test("axis stride does not append endpoints while colorbar endpoint fitting is unchanged") {
+    val ticks = (0 to 140 by 20).map(v => AxisTick.unsafe(v, v.toString)).toVector
+    assertEquals(
+      GuideTickSpacing
+        .fitAxis(ticks, _.value, t => if t.value >= 100 then 30 else 10, 5)
+        .map(_.value),
+      Vector(0.0, 40, 80, 120)
+    )
+    assertEquals(
+      GuideTickSpacing.fitAxis(ticks, _.value * 0.5, _ => 20, 5).map(_.value),
+      Vector(0.0, 60, 120)
+    )
+    assertEquals(
+      GuideTickSpacing.fit(ticks, _.value * 0.5, _ => 20, 5).map(_.value),
+      Vector(0.0, 60, 140)
+    )
+    assertEquals(GuideTickSpacing.fitAxis(Vector.empty, _.value, _ => 20, 5), Vector.empty)
+    assertEquals(GuideTickSpacing.fitAxis(ticks.take(1), _.value, _ => 20, 5), ticks.take(1))
+  }
+
+  test("axis stride prefers the displayed zero when compiler tick coordinates are normalized") {
+    val ticks = (-80 to 60 by 20).map { value =>
+      AxisTick.unsafe((value + 80) / 140.0, value.toString)
+    }.toVector
+    val fitted = GuideTickSpacing.fitAxis(ticks, _.value * 70, _ => 20, 5)
+    assertEquals(fitted.map(_.label), Vector("-60", "0", "60"))
+  }
+
   test("panel layout exposes a viewport and maps data coordinates into panel space") {
     val viewport = layout.viewport
     val midpoint = layout.dataToPanel(5.0, 0.0).toOption.get

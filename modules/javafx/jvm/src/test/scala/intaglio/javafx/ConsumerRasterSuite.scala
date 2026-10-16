@@ -128,3 +128,56 @@ class ConsumerRasterSuite extends munit.FunSuite:
       for x <- 0 until rendered.getWidth.toInt do
         assertEquals(reader.getArgb(x, row), 0xff000000, clues(width, scale, x))
   }
+
+  test("derived axis thinning keeps a regular stride and two labels whenever a pair fits") {
+    val metrics = JavaFxTextMetrics()
+    val style = TextStyle(None, 10.0)
+    val pxPerPt = 96.0 / 72.0
+    val fontPx = style.fontSizePt * pxPerPt
+    for
+      (lo, hi) <- Vector((0.0, 150.0), (-0.4, 0.4))
+      width <- ((100 to 400 by 20).toVector ++ Vector(250, 300)).distinct
+      side <- Vector(AxisSide.Bottom, AxisSide.Left)
+    do
+      val range = Interval.unsafe(lo, hi)
+      val ticks = Axis.ticks(range).orThrow
+      val panel = PanelLayout.unit(range, range)
+      val policy = LayoutPolicy(
+        referenceDevice = DeviceContext.unsafe(width, width),
+        metrics = metrics
+      )
+      val gp =
+        GraphicParams.unsafe(fontFamily = style.fontFamily, fontSize = Length.pointsUnsafe(10))
+      val spec = GuideSpec.Axis(side, ticks = Some(ticks), labelGp = Some(gp))
+      val fitted = GuideSpec
+        .lowerAxis(spec, panel, policy, Theme.minimal, avoidOverlap = true)
+        .orThrow
+        .spec
+        .asInstanceOf[GuideSpec.Axis]
+        .ticks
+        .get
+      if fitted.size >= 2 then
+        val indices = fitted.map(ticks.indexOf)
+        val stride = indices(1) - indices(0)
+        assert(
+          indices.head < stride && indices.last + stride >= ticks.size,
+          clues(width, side, fitted)
+        )
+      def extent(tick: AxisTick): Double =
+        (if side.isHorizontal then metrics.widthPt(tick.label, style)
+         else metrics.heightPt(style)) * pxPerPt
+      def clears(a: AxisTick, b: AxisTick): Boolean =
+        (range.rescale(b.value) - range.rescale(a.value)) * width + 1e-7 >=
+          (extent(a) + extent(b)) / 2.0 + fontPx * 0.5
+      val steps = fitted.sliding(2).filter(_.size == 2).map(p => p(1).value - p(0).value).toVector
+      steps.foreach(step =>
+        assertEqualsDouble(step, steps.head, 1e-9, clues(lo, hi, width, side, fitted))
+      )
+      fitted
+        .sliding(2)
+        .filter(_.size == 2)
+        .foreach(p => assert(clears(p(0), p(1)), clues(width, side, fitted)))
+      val pairFits = ticks.indices.exists(i => ticks.drop(i + 1).exists(clears(ticks(i), _)))
+      if pairFits then assert(fitted.size >= 2, clues(width, side, fitted))
+      if width == 400 then assertEquals(fitted, ticks)
+  }
