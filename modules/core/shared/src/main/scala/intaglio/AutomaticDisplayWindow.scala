@@ -68,15 +68,16 @@ object AutomaticDisplayWindow:
   ): Either[AutomaticWindowError, AutomaticWindowEstimate] =
     estimateMany(values, Vector(config)).flatMap(_.head)
 
-  /** Several windows from one traversal, one bounded reservoir and one sort. Configurations must
-    * share their sampling domain, sample limit and seed; only their probabilities may differ.
-    * Results preserve request order (including duplicates), and each window retains its own
-    * constant expansion or refusal. With the same ordered input each result equals a separate
-    * [[estimate]] call, including sampled streams. The input is consumed exactly once.
+  /** Several windows from one traversal and one bounded reservoir. Configurations must share their
+    * sampling domain, sample limit and seed; only their probabilities may differ. Results preserve
+    * request order (including duplicates), and each window retains its own constant expansion or
+    * refusal. With the same ordered input each result equals a separate [[estimate]] call,
+    * including sampled streams. The input is consumed exactly once.
     *
     * An empty request or incompatible sampling configurations is refused as a typed error before
     * obtaining the input iterator; otherwise each window succeeds or fails on its own. Sampling
-    * remains O(maxSamples) storage; output costs O(windows).
+    * remains O(maxSamples) storage; output costs O(windows). Requested quantile endpoints are
+    * selected directly from the retained reservoir, rather than sorting every retained value.
     */
   def estimateMany(
       values: IterableOnce[Double],
@@ -117,19 +118,15 @@ object AutomaticDisplayWindow:
     if eligible == 0 then configs.map(_ => Left(AutomaticWindowError.NoEligibleValues))
     else
       val retained = math.min(eligible, sample.length.toLong).toInt
-      // Copy only the retained reservoir into another primitive array. ArrayOps.sorted boxes
-      // the values before delegating to TimSort; quickSort keeps this bounded hot path primitive
-      // on both platforms. The reservoir itself remains unchanged until this point.
-      val sorted = new Array[Double](retained)
-      Array.copy(sample, 0, sorted, 0, retained)
-      scala.util.Sorting.quickSort(sorted)
+      val orderStatistics = selectedOrderStatistics(sample, retained, configs)
       def quantile(probability: Double): Double =
         val position = probability * (retained - 1)
         val index = position.toInt
         val fraction = position - index
-        val next = sorted(math.min(index + 1, retained - 1))
+        val value = orderStatistics(index)
+        val next = orderStatistics(math.min(index + 1, retained - 1))
         // Weighted endpoints avoid overflow in next-current for signed extremes.
-        sorted(index) * (1 - fraction) + next * fraction
+        value * (1 - fraction) + next * fraction
       configs.map { requested =>
         val lower = quantile(requested.lowerProbability)
         val upper = quantile(requested.upperProbability)
@@ -153,3 +150,134 @@ object AutomaticDisplayWindow:
             )
           )
       }
+
+  /** Select only the order statistics requested by the batch. The retained reservoir is copied
+    * before partitioning so Algorithm R's sample remains immutable until all counting completes.
+    * Ranks retain the former sort order of signed zero.
+    */
+  private def selectedOrderStatistics(
+      sample: Array[Double],
+      retained: Int,
+      configs: Vector[AutomaticWindowConfig]
+  ): Int => Double =
+    val requestedRanks = new Array[Int](configs.length * 4)
+    var requestedCount = 0
+    configs.foreach { config =>
+      val probabilities = Array(config.lowerProbability, config.upperProbability)
+      var probabilityIndex = 0
+      while probabilityIndex < probabilities.length do
+        val position = probabilities(probabilityIndex) * (retained - 1)
+        val index = position.toInt
+        requestedRanks(requestedCount) = index
+        requestedRanks(requestedCount + 1) = math.min(index + 1, retained - 1)
+        requestedCount += 2
+        probabilityIndex += 1
+    }
+    scala.util.Sorting.quickSort(requestedRanks)
+    var distinctCount = 0
+    var index = 0
+    while index < requestedCount do
+      if distinctCount == 0 || requestedRanks(index) != requestedRanks(distinctCount - 1) then
+        requestedRanks(distinctCount) = requestedRanks(index)
+        distinctCount += 1
+      index += 1
+
+    val values = new Array[Double](retained)
+    Array.copy(sample, 0, values, 0, retained)
+    val selected = new Array[Double](distinctCount)
+    var partitionWorkRemaining = retained.toLong * (2L * floorLog2(retained) + 1L)
+
+    def swap(left: Int, right: Int): Unit =
+      val value = values(left)
+      values(left) = values(right)
+      values(right) = value
+
+    /** Three-way partition returns the inclusive range equal to its median-of-three pivot. */
+    def partition(left: Int, right: Int): (Int, Int, Double) =
+      val middle = left + (right - left) / 2
+      val first = values(left)
+      val centre = values(middle)
+      val last = values(right)
+      val pivot =
+        if totalCompare(first, centre) <= 0 then
+          if totalCompare(centre, last) <= 0 then centre
+          else if totalCompare(first, last) <= 0 then last
+          else first
+        else if totalCompare(first, last) <= 0 then first
+        else if totalCompare(centre, last) <= 0 then last
+        else centre
+      var less = left
+      var current = left
+      var greater = right
+      while current <= greater do
+        val comparison = totalCompare(values(current), pivot)
+        if comparison < 0 then
+          swap(less, current)
+          less += 1
+          current += 1
+        else if comparison > 0 then
+          swap(current, greater)
+          greater -= 1
+        else current += 1
+      (less, greater, pivot)
+
+    def sortAndSelect(left: Int, right: Int, rankStart: Int, rankEnd: Int): Unit =
+      val length = right - left + 1
+      val fallback = new Array[Double](length)
+      Array.copy(values, left, fallback, 0, length)
+      scala.util.Sorting.quickSort(fallback)
+      var rankIndex = rankStart
+      while rankIndex < rankEnd do
+        selected(rankIndex) = fallback(requestedRanks(rankIndex) - left)
+        rankIndex += 1
+
+    def select(left: Int, right: Int, rankStart: Int, rankEnd: Int, depthRemaining: Int): Unit =
+      if rankStart < rankEnd then
+        val length = right - left + 1
+        if depthRemaining == 0 || partitionWorkRemaining < length then
+          // An adversarial sequence can make median-of-three selection repeatedly choose a
+          // boundary pivot. Sorting only this still-relevant primitive range bounds both work
+          // and stack depth while retaining the same total Double order as the former full sort.
+          sortAndSelect(left, right, rankStart, rankEnd)
+        else
+          partitionWorkRemaining -= length
+          val (equalStart, equalEnd, pivot) = partition(left, right)
+          var equalRankStart = rankStart
+          while equalRankStart < rankEnd && requestedRanks(equalRankStart) < equalStart do
+            equalRankStart += 1
+          var equalRankEnd = equalRankStart
+          while equalRankEnd < rankEnd && requestedRanks(equalRankEnd) <= equalEnd do
+            selected(equalRankEnd) = pivot
+            equalRankEnd += 1
+          select(left, equalStart - 1, rankStart, equalRankStart, depthRemaining - 1)
+          select(equalEnd + 1, right, equalRankEnd, rankEnd, depthRemaining - 1)
+
+    select(0, retained - 1, 0, distinctCount, 2 * floorLog2(retained) + 1)
+    def valueAt(rank: Int): Double =
+      var low = 0
+      var high = distinctCount - 1
+      var found = false
+      var result = 0.0
+      while low <= high && !found do
+        val middle = low + (high - low) / 2
+        val candidate = requestedRanks(middle)
+        if candidate < rank then low = middle + 1
+        else if candidate > rank then high = middle - 1
+        else
+          result = selected(middle)
+          found = true
+      if found then result
+      else throw new IllegalStateException(s"Missing selected order statistic at rank $rank")
+    valueAt
+
+  private def floorLog2(value: Int): Int =
+    31 - java.lang.Integer.numberOfLeadingZeros(value)
+
+  /** Eligible values are finite. Only signed zero needs the full Java ordering; ordinary finite
+    * values use primitive comparisons in the partition hot loop.
+    */
+  private inline def totalCompare(left: Double, right: Double): Int =
+    if left < right then -1
+    else if left > right then 1
+    else if left == 0.0 && right == 0.0 then java.lang.Double.compare(left, right)
+    else 0

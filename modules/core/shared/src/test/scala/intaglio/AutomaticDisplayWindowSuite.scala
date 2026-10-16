@@ -13,6 +13,53 @@ class AutomaticDisplayWindowSuite extends munit.FunSuite:
   ) =
     AutomaticDisplayWindow.estimate(values, config).fold(e => fail(e.message), identity)
 
+  /** Deliberately full-sort reference implementation for selection properties. */
+  private def fullSortOracle(
+      values: Vector[Double],
+      config: AutomaticWindowConfig
+  ): Either[AutomaticWindowError, AutomaticWindowEstimate] =
+    var nonFinite = 0L
+    var excludedZero = 0L
+    val eligible = values.filter { value =>
+      if !value.isFinite then
+        nonFinite += 1
+        false
+      else if value == 0 && config.domain == DisplaySampleDomain.FiniteNonzero then
+        excludedZero += 1
+        false
+      else true
+    }
+    if eligible.isEmpty then Left(AutomaticWindowError.NoEligibleValues)
+    else
+      val sorted = eligible.toArray
+      scala.util.Sorting.quickSort(sorted)
+      def quantile(probability: Double): Double =
+        val position = probability * (sorted.length - 1)
+        val index = position.toInt
+        val fraction = position - index
+        sorted(index) * (1 - fraction) + sorted(math.min(index + 1, sorted.length - 1)) * fraction
+      val lower = quantile(config.lowerProbability)
+      val upper = quantile(config.upperProbability)
+      val constant = lower == upper
+      val delta = if lower == 0 then 0.5 else math.abs(lower) * 0.01
+      val lo = if constant then lower - delta else lower
+      val hi = if constant then upper + delta else upper
+      if !lo.isFinite || !hi.isFinite || !(lo < hi) || !(hi - lo).isFinite then
+        Left(AutomaticWindowError.UnrepresentableWindow(lo, hi))
+      else
+        Right(
+          AutomaticWindowEstimate(
+            DisplayWindow.unsafe(lo, hi),
+            config,
+            values.length.toLong,
+            nonFinite,
+            excludedZero,
+            eligible.length.toLong,
+            eligible.length,
+            constant
+          )
+        )
+
   test("exact quantiles exclude declared zero background without discarding negative values") {
     val values =
       Vector.fill(100)(0.0) ++ Vector(-10.0, -5.0, 5.0, 10.0, Double.NaN, Double.PositiveInfinity)
@@ -56,6 +103,76 @@ class AutomaticDisplayWindowSuite extends munit.FunSuite:
     val reversed = estimate(values.map(-_)).window
     assertEqualsDouble(reversed.lower, -base.upper, 1e-12)
     assertEqualsDouble(reversed.upper, -base.lower, 1e-12)
+  }
+  test("multi-order selection agrees with an independent full-sort oracle") {
+    val probabilities = Vector(
+      (0.0, 1.0),
+      (Double.MinPositiveValue, 0.01),
+      (0.125, 0.875),
+      (0.499999999999, 0.500000000001),
+      (0.99, 1.0)
+    )
+    val randomLike = Vector.tabulate(513) { index =>
+      if index % 23 == 0 then 4.5
+      else (((index * 48271) % 104729) - 52364).toDouble / 17.0
+    }
+    val adversarial = Vector(
+      Double.NegativeInfinity,
+      Double.NaN,
+      Double.PositiveInfinity,
+      -0.0,
+      0.0,
+      -Double.MinPositiveValue,
+      Double.MinPositiveValue,
+      -Double.MaxValue / 8,
+      Double.MaxValue / 8
+    ) ++ Vector.fill(37)(-2.0) ++ Vector.fill(41)(4.5)
+    val duplicate = Vector.fill(73)(-17.25)
+    Vector(DisplaySampleDomain.Finite, DisplaySampleDomain.FiniteNonzero).foreach { domain =>
+      val configs = probabilities.map { (lower, upper) =>
+        AutomaticWindowConfig(lower, upper, domain, maxSamples = 1024, seed = 91L)
+      }
+      Vector(randomLike, adversarial, duplicate).foreach { values =>
+        val expected = configs.map(fullSortOracle(values, _))
+        assertEquals(batch(values, configs), expected)
+      }
+    }
+  }
+  test("selection guard keeps adversarial retained samples exact and stack-bounded") {
+    val size = 65537
+    val config = AutomaticWindowConfig(0.5, 0.98, maxSamples = 131072, seed = 4L)
+    val sorted = Vector.tabulate(size)(_.toDouble)
+    val reverse = sorted.reverse
+    // The first, middle, and last values are repeatedly near the low end, which exhausts the
+    // median-of-three depth guard for the median rank and exercises the primitive fallback.
+    val organPipe = Vector.tabulate(size)(index => math.min(index, size - 1 - index).toDouble)
+    val medianKiller = Vector.tabulate(size) { index =>
+      if index < size / 2 then (index * 2).toDouble
+      else ((size - 1 - index) * 2 + 1).toDouble
+    }
+    Vector(sorted, reverse, organPipe, medianKiller).foreach { values =>
+      assertEquals(batch(values, Vector(config)), Vector(fullSortOracle(values, config)))
+    }
+  }
+  test("selected ranks preserve full-sort signed-zero endpoint bits") {
+    val values = Vector(-0.0, 0.0, -0.0, 0.0, 1.0, -1.0)
+    val configs = Vector(
+      AutomaticWindowConfig(0.0, 0.25),
+      AutomaticWindowConfig(0.25, 0.75),
+      AutomaticWindowConfig(0.75, 1.0)
+    )
+    batch(values, configs).zip(configs.map(fullSortOracle(values, _))).foreach {
+      case (Right(actual), Right(expected)) =>
+        assertEquals(
+          java.lang.Double.doubleToRawLongBits(actual.window.lower),
+          java.lang.Double.doubleToRawLongBits(expected.window.lower)
+        )
+        assertEquals(
+          java.lang.Double.doubleToRawLongBits(actual.window.upper),
+          java.lang.Double.doubleToRawLongBits(expected.window.upper)
+        )
+      case (actual, expected) => fail(s"expected comparable windows, got $actual and $expected")
+    }
   }
   test(
     "reservoir is bounded, deterministic, and admits late input rather than retaining a prefix"
