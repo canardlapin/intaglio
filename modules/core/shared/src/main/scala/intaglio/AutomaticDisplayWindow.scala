@@ -68,11 +68,11 @@ object AutomaticDisplayWindow:
   ): Either[AutomaticWindowError, AutomaticWindowEstimate] =
     estimateMany(values, Vector(config)).flatMap(_.head)
 
-  /** Several windows from one traversal and one bounded reservoir. Configurations must
-    * share their sampling domain, sample limit and seed; only their probabilities may differ.
-    * Results preserve request order (including duplicates), and each window retains its own
-    * constant expansion or refusal. With the same ordered input each result equals a separate
-    * [[estimate]] call, including sampled streams. The input is consumed exactly once.
+  /** Several windows from one traversal and one bounded reservoir. Configurations must share their
+    * sampling domain, sample limit and seed; only their probabilities may differ. Results preserve
+    * request order (including duplicates), and each window retains its own constant expansion or
+    * refusal. With the same ordered input each result equals a separate [[estimate]] call,
+    * including sampled streams. The input is consumed exactly once.
     *
     * An empty request or incompatible sampling configurations is refused as a typed error before
     * obtaining the input iterator; otherwise each window succeeds or fails on its own. Sampling
