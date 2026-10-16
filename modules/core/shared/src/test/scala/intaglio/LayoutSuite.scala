@@ -171,7 +171,7 @@ class LayoutSuite extends munit.FunSuite:
       )
       .fold(e => fail(e.message), identity)
     val group = guide.grob.asInstanceOf[Grob.Group]
-    val swatches = group.children.collect { case rect: Grob.Rect => rect }
+    val ramps = group.children.collect { case image: Grob.Image => image }
     val ticks = group.children
       .collectFirst { case segments: Grob.Segments => segments }
       .getOrElse(fail("missing colorbar ticks"))
@@ -185,17 +185,12 @@ class LayoutSuite extends munit.FunSuite:
       .getOrElse(fail("missing colorbar title"))
 
     assertEquals(group.name, Some(name))
+    assertEquals(ramps.length, 1)
+    assertEquals(ramps.head.name.map(_.value), Some("activation-colorbar-ramp"))
+    assertEquals(ramps.head.interpolation, RasterInterpolation.Smooth)
     assertEquals(
-      swatches.map(_.gp.fill),
-      Vector(Some(Rgba.Black), Some(Rgba.unsafe(128, 128, 128)), Some(Rgba.White))
-    )
-    assertEquals(
-      swatches.map(_.name.map(_.value)),
-      Vector(
-        Some("activation-colorbar-swatch-0"),
-        Some("activation-colorbar-swatch-1"),
-        Some("activation-colorbar-swatch-2")
-      )
+      (0 until 3).map(row => ramps.head.image.pixelUnsafe(0, row)).toVector,
+      Vector(Rgba.White, Rgba.unsafe(128, 128, 128), Rgba.Black).map(Rgba32.fromRgba)
     )
     assertEquals(ticks.segments.length, 3)
     assertEquals(labels.map(_.label), Vector("1", "10", "100"))

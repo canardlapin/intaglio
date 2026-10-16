@@ -9,8 +9,8 @@ package intaglio
 object Srgb:
   /** Decode one stored channel byte to linear light in `[0, 1]`.
     *
-    * `channel` must be an unsigned byte value in `[0, 255]`. This boundary check keeps callers
-    * from accidentally treating an arbitrary integer as a stored sRGB channel.
+    * `channel` must be an unsigned byte value in `[0, 255]`. This boundary check keeps callers from
+    * accidentally treating an arbitrary integer as a stored sRGB channel.
     */
   def toLinear(channel: Int): Double =
     require(channel >= 0 && channel <= 255, "sRGB channel must be in [0, 255]")
@@ -20,9 +20,9 @@ object Srgb:
 
   /** Encode linear light back to a stored channel byte, clamping into gamut and rounding half up.
     *
-    * Finite values in `[0, 1]` are the direct transfer-function domain. Out-of-gamut finite
-    * values clamp to the nearest endpoint; `NaN` maps to zero and infinities to their signed
-    * endpoints, matching the established color conversion policy.
+    * Finite values in `[0, 1]` are the direct transfer-function domain. Out-of-gamut finite values
+    * clamp to the nearest endpoint; `NaN` maps to zero and infinities to their signed endpoints,
+    * matching the established color conversion policy.
     */
   def toChannel(linear: Double): Int =
     val clamped = Oklab.clampUnit(linear)

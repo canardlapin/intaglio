@@ -25,6 +25,10 @@ For layout that matches what JavaFX draws, measure with `JavaFxTextMetrics()`
 advances differ for the same family and size. See
 [Text measurement](../../docs/backends.md#text-measurement).
 
+`JavaFxTextMetrics.resolvedFamily`, `resolvedFontName`, and `resolvedFontStyle` report the
+installed face JavaFX actually selected. This is useful when a requested family has platform-
+specific substitutions; metrics and drawing use the same font-construction helper.
+
 Tests combine the shared renderer conformance contract with a recording
 implementation of the drawing contract, so the full interpreter runs headless
 without starting the JavaFX toolkit. The one behavior that cannot be pinned
@@ -85,3 +89,6 @@ lacks. Compile a `JavaFxInteractionView` from a typed interaction plan, then cal
 and mount its `node`. `sbt javafxExample/run` opens a desktop example.
 Its overlay colours, widths, casings and offsets come from a `JavaFxOverlayStyle` the host can
 replace at run time, and outlines can follow each mark's geometry instead of its bounds.
+
+See the [runtime qualification matrix](../../docs/compatibility/javafx-runtimes.md) for the
+default OpenJFX version, the override property, and the limits of local and CI evidence.

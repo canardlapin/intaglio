@@ -643,13 +643,16 @@ class CanvasRendererSuite extends munit.FunSuite:
   }
 
   test("image execution uploads top-left RGBA bytes and applies placement policy") {
-    val bytes = new Uint8ClampedArray(16)
-    val imageData = js.Dynamic.literal(data = bytes).asInstanceOf[CanvasImageData]
+    var bytes = new Uint8ClampedArray(0)
     var uploaded = false
     var drawn = Vector.empty[Double]
     val offscreenContext = js.Dynamic
       .literal(
-        createImageData = ((_: Int, _: Int) => imageData): js.Function2[Int, Int, CanvasImageData],
+        createImageData = (
+            (width: Int, height: Int) =>
+              bytes = new Uint8ClampedArray(width * height * 4)
+              js.Dynamic.literal(data = bytes).asInstanceOf[CanvasImageData]
+        ): js.Function2[Int, Int, CanvasImageData],
         putImageData = (
             (_: CanvasImageData, _: Double, _: Double) => uploaded = true
         ): js.Function3[CanvasImageData, Double, Double, Unit]
@@ -677,6 +680,8 @@ class CanvasRendererSuite extends munit.FunSuite:
             (_: CanvasImageSource, x: Double, y: Double, width: Double, height: Double) =>
               drawn = Vector(x, y, width, height)
         ): js.Function5[CanvasImageSource, Double, Double, Double, Double, Unit],
+        getTransform =
+          (() => throw new IllegalStateException("legacy context")): js.Function0[js.Dynamic],
         globalAlpha = 1.0,
         imageSmoothingEnabled = true
       )
@@ -689,10 +694,10 @@ class CanvasRendererSuite extends munit.FunSuite:
     CanvasRenderer.draw(program, context)
 
     assert(uploaded)
-    assertEquals(offscreen.width, 2)
-    assertEquals(offscreen.height, 2)
+    assertEquals(offscreen.width, 50)
+    assertEquals(offscreen.height, 40)
     assertEquals(
-      (0 until 8).map(idx => bytes(idx).toInt).toVector,
+      (Vector(0, 1, 2, 3, 100, 101, 102, 103)).map(idx => bytes(idx).toInt),
       Vector(220, 30, 30, 255, 30, 200, 60, 160)
     )
     assertEquals(drawn, Vector(25.0, 20.0, 50.0, 40.0))
@@ -761,7 +766,7 @@ class CanvasRendererSuite extends munit.FunSuite:
     val cold = CanvasRenderer.drawCached(program, context, cache)
     val warm = CanvasRenderer.drawCached(program, context, cache)
 
-    assertEquals(cold, CanvasDrawProfile(1, 0, 1, 24L))
+    assertEquals(cold, CanvasDrawProfile(1, 0, 1, 120L * 80L * 4L))
     assertEquals(warm, CanvasDrawProfile(1, 1, 0, 0L))
     assertEqualsDouble(warm.hitRate, 1.0, 0.0)
     assertEquals(creates, 1)

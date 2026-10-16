@@ -103,20 +103,36 @@ class ScalarMappingSuite extends munit.FunSuite:
     assertEquals(discreteMapping.boundaries.head, -4.0)
     assertEquals(discreteMapping.boundaries.last, 8.0)
     assertNotEquals(linearMapping.canonicalKey, discreteMapping.canonicalKey)
-    assertEquals(discreteMapping.canonicalKey.takeRight("|sampling:Discrete".length), "|sampling:Discrete")
+    assertEquals(
+      discreteMapping.canonicalKey.takeRight("|sampling:Discrete".length),
+      "|sampling:Discrete"
+    )
 
-  test("discrete physical transitions agree with normalized lookup at adjacent representable scalars"):
+  test(
+    "discrete physical transitions agree with normalized lookup at adjacent representable scalars"
+  ):
     val colors = Vector.tabulate(4)(i => Rgba32.unsafe(i, 0, 0))
     val ramp = ScalarRamp.discrete(colors).toOption.get
-    for window <- Vector(DisplayWindow.unsafe(-1, 1), DisplayWindow.unsafe(-4, 8),
-      DisplayWindow.unsafe(1e6, 1e6 + 3), DisplayWindow.unsafe(-1e308, 1e308)) do
+    for window <- Vector(
+        DisplayWindow.unsafe(-1, 1),
+        DisplayWindow.unsafe(-4, 8),
+        DisplayWindow.unsafe(1e6, 1e6 + 3),
+        DisplayWindow.unsafe(-1e308, 1e308)
+      )
+    do
       val mapping = ScalarMapping(ScalarScale.sequential(window, ramp))
       val transitions = mapping.scale.segments.head.boundaries
       for index <- 1 until colors.length do
         val boundary = transitions(index)
-        assertEquals(mapping.color(math.nextAfter(boundary, Double.NegativeInfinity)), colors(index - 1))
+        assertEquals(
+          mapping.color(math.nextAfter(boundary, Double.NegativeInfinity)),
+          colors(index - 1)
+        )
         assertEquals(mapping.color(boundary), colors(index))
-        assertEquals(mapping.color(math.nextAfter(boundary, Double.PositiveInfinity)), colors(index))
+        assertEquals(
+          mapping.color(math.nextAfter(boundary, Double.PositiveInfinity)),
+          colors(index)
+        )
         assert(mapping.boundaries.contains(boundary))
     val centered = ScalarMapping(ScalarScale.sequential(DisplayWindow.unsafe(-1, 1), ramp))
     assertEquals(centered.scale.segments.head.boundaries(1), -0.33333333333333337)

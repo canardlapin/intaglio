@@ -163,8 +163,8 @@ object DisplayOpacity:
 enum DisplayBlendMode:
   case Normal, Additive, Multiply, Screen, PlusLighter
 
-  /** Composite `over` onto `under` in stored sRGB byte space. `Normal`, `Additive`, `Multiply`,
-    * and `Screen` use source-over alpha with a separable channel blend; `PlusLighter` adds encoded
+  /** Composite `over` onto `under` in stored sRGB byte space. `Normal`, `Additive`, `Multiply`, and
+    * `Screen` use source-over alpha with a separable channel blend; `PlusLighter` adds encoded
     * premultiplied channels directly. `Rgba32` deliberately carries display bytes rather than a
     * linear-light color profile.
     */
@@ -208,11 +208,12 @@ enum DisplayBlendMode:
             val source = overByte.toDouble / 255.0
             val blended =
               this match
-                case Normal   => source
-                case Additive => math.min(1.0, backdrop + source)
-                case Multiply => backdrop * source
-                case Screen   => 1.0 - (1.0 - backdrop) * (1.0 - source)
-                case PlusLighter => throw new IllegalStateException("handled before source-over blend")
+                case Normal      => source
+                case Additive    => math.min(1.0, backdrop + source)
+                case Multiply    => backdrop * source
+                case Screen      => 1.0 - (1.0 - backdrop) * (1.0 - source)
+                case PlusLighter =>
+                  throw new IllegalStateException("handled before source-over blend")
             val premultiplied =
               (1.0 - overAlpha) * underAlpha * backdrop +
                 (1.0 - underAlpha) * overAlpha * source +

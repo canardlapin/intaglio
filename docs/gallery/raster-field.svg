@@ -52,38 +52,7 @@ Scale fill (amplitude): kind=continuous, domain=[-0.9964954918038454, 0.99649549
     <text data-name="y-axis-title" fill="#2d3744" stroke="none" font-family="sans-serif" font-weight="400" font-size="13.3333" x="19" y="172.4167" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 19 172.4167)">y</text>
   </g>
   <g data-name="amplitude-colorbar">
-    <rect data-name="amplitude-colorbar-swatch-0" stroke="none" fill="#ebf0fd" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="232.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-1" stroke="none" fill="#e4ebfa" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="227.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-2" stroke="none" fill="#dde6f7" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="222.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-3" stroke="none" fill="#d6e1f4" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="217.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-4" stroke="none" fill="#cfdcf1" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="212.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-5" stroke="none" fill="#c7d7ee" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="207.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-6" stroke="none" fill="#c0d2eb" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="202.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-7" stroke="none" fill="#b9cde8" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="197.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-8" stroke="none" fill="#b2c8e5" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="192.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-9" stroke="none" fill="#aac3e2" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="187.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-10" stroke="none" fill="#a3bedf" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="182.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-11" stroke="none" fill="#9cb9db" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="177.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-12" stroke="none" fill="#95b4d8" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="172.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-13" stroke="none" fill="#8eafd5" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="167.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-14" stroke="none" fill="#86aad2" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="162.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-15" stroke="none" fill="#7fa5cf" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="157.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-16" stroke="none" fill="#789fcc" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="152.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-17" stroke="none" fill="#719ac9" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="147.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-18" stroke="none" fill="#6995c6" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="142.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-19" stroke="none" fill="#6290c3" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="137.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-20" stroke="none" fill="#5b8bc0" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="132.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-21" stroke="none" fill="#5486bc" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="127.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-22" stroke="none" fill="#4d81b9" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="122.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-23" stroke="none" fill="#457cb6" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="117.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-24" stroke="none" fill="#3e77b3" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="112.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-25" stroke="none" fill="#3772b0" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="107.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-26" stroke="none" fill="#306dad" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="102.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-27" stroke="none" fill="#2868aa" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="97.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-28" stroke="none" fill="#2163a7" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="92.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-29" stroke="none" fill="#1a5ea4" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="87.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-30" stroke="none" fill="#1359a1" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="82.0833" width="16" height="5" />
-    <rect data-name="amplitude-colorbar-swatch-31" stroke="none" fill="#0c549e" stroke-width="0" stroke-linecap="butt" stroke-linejoin="miter" x="471.9867" y="77.0833" width="16" height="5" />
+    <image data-name="amplitude-colorbar-ramp" data-pixel-width="1" data-pixel-height="32" x="471.9867" y="77.0833" width="16" height="160" preserveAspectRatio="none" image-rendering="auto" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAgCAYAAADT5RIaAAAAq0lEQVR4AQGgAF//AAxUnv8AE1mh/wAaXqT/ACFjp/8AKGiq/wAwba3/ADdysP8APnez/wBFfLb/AE2Buf8AVIa8/wBbi8D/AGKQw/8AaZXG/wBxmsn/AHifzP8Af6XP/wCGqtL/AI6v1f8AlbTY/wCcudv/AKO+3/8AqsPi/wCyyOX/ALnN6P8AwNLr/wDH1+7/AM/c8f8A1uH0/wDd5vf/AOTr+v8A6/D9/9jiXUFu+ReRAAAAAElFTkSuQmCC" />
     <polyline data-name="amplitude-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="487.9867,197.224 493.32,197.224" />
     <polyline data-name="amplitude-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="487.9867,157.0833 493.32,157.0833" />
     <polyline data-name="amplitude-colorbar-ticks" stroke="#9199a3" fill="none" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter" points="487.9867,116.9427 493.32,116.9427" />

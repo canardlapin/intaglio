@@ -1,5 +1,7 @@
 package intaglio
 
+import scala.util.control.NonFatal
+
 final case class PanelMargins(
     top: ExtentExpr,
     right: ExtentExpr,
@@ -214,11 +216,11 @@ object GuideSpec:
   ): Either[GraphicsError, ResolvedGuide] =
     spec match
       case axis: Axis =>
-        lowerAxis(axis, layout, policy, theme)
+        lowerAxis(axis, layout, policy, theme, avoidOverlap = false)
       case legend: Legend =>
         lowerLegend(legend, legendViewport, theme)
       case colorbar: Colorbar =>
-        lowerColorbar(colorbar, legendViewport, theme)
+        lowerColorbar(colorbar, legendViewport, policy, theme)
 
   /** Apply one measured guide-stack placement while retaining the semantic guide content. The
     * compiler and renderer-neutral plot composition share this operation so collected guides use
@@ -279,11 +281,21 @@ object GuideSpec:
     }
     math.max(0.0, halfBoxPt - strokeHalfPt) / extentPerRadius
 
-  private def lowerAxis(
+  private[intaglio] def lowerAxis(
       spec: Axis,
       layout: PanelLayout,
       policy: LayoutPolicy,
-      theme: Theme
+      theme: Theme,
+      avoidOverlap: Boolean
+  ): Either[GraphicsError, ResolvedGuide] =
+    measuring(lowerAxisUnchecked(spec, layout, policy, theme, avoidOverlap))
+
+  private def lowerAxisUnchecked(
+      spec: Axis,
+      layout: PanelLayout,
+      policy: LayoutPolicy,
+      theme: Theme,
+      avoidOverlap: Boolean
   ): Either[GraphicsError, ResolvedGuide] =
     val range = layout.axisRange(spec.side)
     // The layout solver reserves point-sized strips. Lower defaults in the same
@@ -293,17 +305,40 @@ object GuideSpec:
     val labelOffset = spec.labelOffset.getOrElse(
       ExtentExpr.pointsUnsafe(policy.tickLengthPt + policy.tickLabelGapPt)
     )
-    val titleOffset = ExtentExpr.pointsUnsafe(axisTitleOffsetPt(spec, policy))
     val titleGp = spec.titleGp.getOrElse(theme.axis.title)
     val name = spec.name.orElse(Some(defaultAxisName(spec.side)))
     for
       ticks <- spec.ticks match
         case Some(explicit) => Right(explicit.filter(tick => range.contains(tick.value)))
         case None           => intaglio.Axis.ticks(range, spec.breaks, spec.labeler)
+      titleDistance <- axisTitleOffsetPt(spec.copy(ticks = Some(ticks)), policy, theme)
+      titleOffset = ExtentExpr.pointsUnsafe(titleDistance)
+      fitted <-
+        if !avoidOverlap then Right(ticks)
+        else
+          val device = policy.referenceDevice
+          val resolver = new LengthResolver(device, DeviceFrame.root(device))
+          val span = if spec.side.isHorizontal then resolver.width(layout.frame.size.width)
+          else resolver.height(layout.frame.size.height)
+          val gp = spec.labelGp.getOrElse(theme.axis.text)
+          for
+            length <- span
+            fontPx <- resolver.fontSize(gp.fontSize)
+          yield
+            val pxPerPt = device.pixelsPerInch / 72.0
+            val style = TextStyle(gp.fontFamily, fontPx / pxPerPt, gp.fontWeight)
+            GuideTickSpacing.fit(
+              ticks,
+              tick => range.rescale(tick.value) * length,
+              tick =>
+                if spec.side.isHorizontal then policy.metrics.widthPt(tick.label, style) * pxPerPt
+                else policy.metrics.heightPt(style) * pxPerPt,
+              fontPx * 0.5
+            )
       axis <- intaglio.Axis.make(
         side = spec.side,
         range = range,
-        ticks = ticks,
+        ticks = fitted,
         position = layout.axisPosition(spec.side),
         tickLength = tickLength,
         labelOffset = labelOffset,
@@ -316,17 +351,45 @@ object GuideSpec:
         titleGp = titleGp
       )
       grob <- axis.toGrob(Some(layout.guideViewport))
-    yield ResolvedGuide(spec, grob)
+    yield ResolvedGuide(if avoidOverlap then spec.copy(ticks = Some(fitted)) else spec, grob)
 
-  private def axisTitleOffsetPt(spec: Axis, policy: LayoutPolicy): Double =
-    val tickLabelExtent =
-      if spec.side.isHorizontal then policy.metrics.heightPt(policy.axisTextStyle)
-      else
-        spec.ticks.getOrElse(Vector.empty).foldLeft(0.0) { (width, tick) =>
-          math.max(width, policy.metrics.widthPt(tick.label, policy.axisTextStyle))
-        }
-    policy.tickLengthPt + policy.tickLabelGapPt + tickLabelExtent +
-      policy.axisTitleGapPt + policy.metrics.heightPt(policy.axisTitleTextStyle) / 2.0
+  private def axisTitleOffsetPt(
+      spec: Axis,
+      policy: LayoutPolicy,
+      theme: Theme
+  ): Either[GraphicsError, Double] =
+    val device = policy.referenceDevice
+    val resolver = new LengthResolver(device, DeviceFrame.root(device))
+    val labelGp = spec.labelGp.getOrElse(theme.axis.text)
+    val titleGp = spec.titleGp.getOrElse(theme.axis.title)
+    for
+      labelPx <- resolver.fontSize(labelGp.fontSize)
+      titlePx <- resolver.fontSize(titleGp.fontSize)
+      offset <- measuring {
+        val style =
+          TextStyle(labelGp.fontFamily, labelPx * 72.0 / device.pixelsPerInch, labelGp.fontWeight)
+        val titleStyle =
+          TextStyle(titleGp.fontFamily, titlePx * 72.0 / device.pixelsPerInch, titleGp.fontWeight)
+        val extent = if spec.side.isHorizontal then policy.metrics.heightPt(style)
+        else
+          spec.ticks
+            .getOrElse(Vector.empty)
+            .foldLeft(0.0)((width, tick) =>
+              math.max(width, policy.metrics.widthPt(tick.label, style))
+            )
+        Right(
+          policy.tickLengthPt + policy.tickLabelGapPt + extent + policy.axisTitleGapPt + policy.metrics
+            .heightPt(titleStyle) / 2.0
+        )
+      }
+    yield offset
+
+  private def measuring[A](body: => Either[GraphicsError, A]): Either[GraphicsError, A] =
+    try body
+    catch
+      case NonFatal(error) =>
+        val (kind, detail) = GraphicsError.throwableDetails(error)
+        Left(GraphicsError.LayoutMeasurementFailed(kind, detail))
 
   private def lowerLegend(
       spec: Legend,
@@ -410,98 +473,123 @@ object GuideSpec:
   private def lowerColorbar(
       spec: Colorbar,
       viewport: Option[Viewport],
+      policy: LayoutPolicy,
       theme: Theme
   ): Either[GraphicsError, ResolvedGuide] =
     if spec.colors.isEmpty then Left(GraphicsError.EmptyGeometry("colorbar"))
     else
-      val children = Vector.newBuilder[Grob]
-      val swatchHeight =
-        ExtentExpr.unsafe(LengthExpr.Mul(1.0 / spec.colors.length.toDouble, spec.barHeight.expr))
-      var index = 0
-      while index < spec.colors.length do
-        val y = spec.origin.y + ExtentExpr.unsafe(
-          LengthExpr.Mul(index.toDouble / spec.colors.length.toDouble, spec.barHeight.expr)
+      val device = policy.referenceDevice
+      val root = new LengthResolver(device, DeviceFrame.root(device))
+      for
+        frame <- viewport.fold[Either[GraphicsError, DeviceFrame]](Right(DeviceFrame.root(device)))(
+          root.childFrame
         )
-        val name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-swatch-$index"))
-        children += Grob.rectUnsafe(
-          Point(spec.origin.x, y),
-          Size.fromExtents(spec.barWidth, swatchHeight),
-          anchor = Anchor.BottomLeft,
-          gp =
-            GraphicParams.unsafe(stroke = None, fill = Some(spec.colors(index)), lineWidth = 0.0),
-          name = name
-        )
-        index += 1
+        resolver = new LengthResolver(device, frame)
+        gp = spec.labelGp.getOrElse(theme.legend.text)
+        fontPx <- resolver.fontSize(gp.fontSize)
+        heightPx <- resolver.height(spec.barHeight)
+        style = TextStyle(gp.fontFamily, fontPx * 72.0 / device.pixelsPerInch, gp.fontWeight)
+        visible <- measuring {
+          Right(
+            GuideTickSpacing.fit(
+              spec.ticks.filter(tick => tick.value >= 0.0 && tick.value <= 1.0),
+              tick => tick.value * heightPx,
+              _ => policy.metrics.heightPt(style) * device.pixelsPerInch / 72.0,
+              fontPx * 0.5
+            )
+          )
+        }
+        result <- lowerColorbarMarks(spec, viewport, theme, visible)
+      yield result
 
-      val visibleTicks = spec.ticks.filter(tick => tick.value >= 0.0 && tick.value <= 1.0)
-      val barRight = spec.origin.x + spec.barWidth
-      val tickSegments = visibleTicks.map { tick =>
-        val y = spec.origin.y + ExtentExpr.unsafe(LengthExpr.Mul(tick.value, spec.barHeight.expr))
-        (Point(barRight, y), Point(barRight + spec.tickLength, y))
-      }
-      val tickResult =
-        if tickSegments.isEmpty then Right(())
-        else
-          Grob
-            .segments(
-              tickSegments,
-              gp = spec.tickGp.getOrElse(theme.axis.tick),
-              name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-ticks"))
+  private def lowerColorbarMarks(
+      spec: Colorbar,
+      viewport: Option[Viewport],
+      theme: Theme,
+      visibleTicks: Vector[AxisTick]
+  ): Either[GraphicsError, ResolvedGuide] =
+    val children = Vector.newBuilder[Grob]
+    // A single image has no independently composited swatch edges. Smooth interpolation
+    // keeps the sampled continuous palette continuous even on a short or fractional bar.
+    val strip = RasterImage.tabulate(RasterDimensions.unsafe(1, spec.colors.length)) { (_, row) =>
+      Rgba32.fromRgba(spec.colors(spec.colors.length - 1 - row))
+    }
+    children += Grob.imageUnsafe(
+      strip,
+      spec.origin,
+      Size.fromExtents(spec.barWidth, spec.barHeight),
+      anchor = Anchor.BottomLeft,
+      interpolation = RasterInterpolation.Smooth,
+      name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-ramp"))
+    )
+    val barRight = spec.origin.x + spec.barWidth
+    val tickSegments = visibleTicks.map { tick =>
+      val y = spec.origin.y + ExtentExpr.unsafe(LengthExpr.Mul(tick.value, spec.barHeight.expr))
+      (Point(barRight, y), Point(barRight + spec.tickLength, y))
+    }
+    val tickResult =
+      if tickSegments.isEmpty then Right(())
+      else
+        Grob
+          .segments(
+            tickSegments,
+            gp = spec.tickGp.getOrElse(theme.axis.tick),
+            name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-ticks"))
+          )
+          .map { grob =>
+            children += grob
+            ()
+          }
+
+    tickResult
+      .flatMap { _ =>
+        var labelIndex = 0
+        var labelResult: Either[GraphicsError, Unit] = Right(())
+        while labelIndex < visibleTicks.length && labelResult.isRight do
+          val tick = visibleTicks(labelIndex)
+          val y =
+            spec.origin.y + ExtentExpr.unsafe(LengthExpr.Mul(tick.value, spec.barHeight.expr))
+          labelResult = Grob
+            .text(
+              tick.label,
+              Point(barRight + spec.labelOffset, y),
+              anchor = Anchor(HJust.Left, VJust.Center),
+              gp = spec.labelGp.getOrElse(theme.legend.text),
+              name =
+                spec.name.map(value => GraphicsName.unsafe(s"${value.value}-label-$labelIndex"))
             )
             .map { grob =>
               children += grob
               ()
             }
-
-      tickResult
-        .flatMap { _ =>
-          var labelIndex = 0
-          var labelResult: Either[GraphicsError, Unit] = Right(())
-          while labelIndex < visibleTicks.length && labelResult.isRight do
-            val tick = visibleTicks(labelIndex)
-            val y =
-              spec.origin.y + ExtentExpr.unsafe(LengthExpr.Mul(tick.value, spec.barHeight.expr))
-            labelResult = Grob
+          labelIndex += 1
+        labelResult
+      }
+      .flatMap { _ =>
+        spec.title match
+          case None        => Right(())
+          case Some(title) =>
+            Grob
               .text(
-                tick.label,
-                Point(barRight + spec.labelOffset, y),
-                anchor = Anchor(HJust.Left, VJust.Center),
-                gp = spec.labelGp.getOrElse(theme.legend.text),
-                name =
-                  spec.name.map(value => GraphicsName.unsafe(s"${value.value}-label-$labelIndex"))
+                title,
+                Point(spec.origin.x, spec.origin.y + spec.barHeight + spec.titleOffset),
+                anchor = Anchor(HJust.Left, VJust.Bottom),
+                gp = spec.titleGp.getOrElse(theme.legend.title),
+                name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-title"))
               )
               .map { grob =>
                 children += grob
                 ()
               }
-            labelIndex += 1
-          labelResult
-        }
-        .flatMap { _ =>
-          spec.title match
-            case None        => Right(())
-            case Some(title) =>
-              Grob
-                .text(
-                  title,
-                  Point(spec.origin.x, spec.origin.y + spec.barHeight + spec.titleOffset),
-                  anchor = Anchor(HJust.Left, VJust.Bottom),
-                  gp = spec.titleGp.getOrElse(theme.legend.title),
-                  name = spec.name.map(value => GraphicsName.unsafe(s"${value.value}-title"))
-                )
-                .map { grob =>
-                  children += grob
-                  ()
-                }
-        }
-        .map { _ =>
-          val group = Grob.group(
-            children.result(),
-            viewport = viewport,
-            name = spec.name.orElse(Some(GraphicsName.unsafe("colorbar")))
-          )
-          ResolvedGuide(spec, group)
-        }
+      }
+      .map { _ =>
+        val group = Grob.group(
+          children.result(),
+          viewport = viewport,
+          name = spec.name.orElse(Some(GraphicsName.unsafe("colorbar")))
+        )
+        ResolvedGuide(spec, group)
+      }
 
   private def defaultAxisName(side: AxisSide): GraphicsName =
     val label =
@@ -513,3 +601,27 @@ object GuideSpec:
     GraphicsName.unsafe(label)
 
 final case class ResolvedGuide(spec: GuideSpec, grob: Grob)
+
+/** Greedy measured spacing with stable priorities: endpoints, zero, then remaining ticks. A wide
+  * guide retains its original tick vector exactly. Explicit axis ticks opt out.
+  */
+private[intaglio] object GuideTickSpacing:
+  def fit(
+      ticks: Vector[AxisTick],
+      position: AxisTick => Double,
+      extent: AxisTick => Double,
+      gap: Double
+  ): Vector[AxisTick] =
+    val sorted = ticks.sortBy(position)
+    val priorities = (sorted.headOption.toVector ++ sorted.lastOption.toVector ++
+      sorted.filter(t => t.label.replace('−', '-').toDoubleOption.contains(0.0)) ++ sorted).distinct
+    val chosen = scala.collection.mutable.ArrayBuffer.empty[AxisTick]
+    priorities.foreach { tick =>
+      if chosen.forall(other =>
+          math.abs(position(tick) - position(other)) + 1e-9 >=
+            (extent(tick) + extent(other)) / 2.0 + gap
+        )
+      then chosen += tick
+    }
+    val keep = chosen.toSet
+    ticks.filter(keep.contains)

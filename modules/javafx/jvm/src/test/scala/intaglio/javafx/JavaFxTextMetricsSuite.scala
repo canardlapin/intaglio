@@ -314,6 +314,17 @@ class JavaFxTextMetricsSuite extends munit.FunSuite:
     assert(math.abs(large - 3.0 * small) <= 1.0, clue((small, large)))
   }
 
+  test("resolved face accessors report JavaFX's installed-face mapping") {
+    val family = _root_.javafx.scene.text.Font.getFamilies.asScala.headOption
+    assume(family.nonEmpty, "no JavaFX font family is available on this host")
+    val requested = family.get
+    val resolved = JavaFxTextMetrics.font(Some(requested), 12.0, None)
+
+    assertEquals(metrics.resolvedFamily(Some(requested)), resolved.getFamily)
+    assertEquals(metrics.resolvedFontName(Some(requested)), resolved.getName)
+    assertEquals(metrics.resolvedFontStyle(Some(requested)), resolved.getStyle)
+  }
+
   test("a layout measured in points matches a canvas drawn at another density within 1 px") {
     // Layout measures at 12 pt; at 144 pixels per inch the renderer draws the run at 24 px.
     val label = "Mean response (ms)"

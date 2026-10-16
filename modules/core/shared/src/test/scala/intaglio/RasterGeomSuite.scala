@@ -33,7 +33,12 @@ class RasterGeomSuite extends munit.FunSuite:
         case DeviceElement.Group(_, _, _, children) => marks(children)
         case DeviceElement.Annotated(_, children)   => marks(children)
       }
-      assertEquals(marks(device.elements).count(_.isInstanceOf[DevicePrimitive.Image]), 1)
+      assertEquals(
+        marks(device.elements).collect {
+          case p: DevicePrimitive.Image if p.image == img.image => p
+        }.length,
+        1
+      )
     }
   }
 

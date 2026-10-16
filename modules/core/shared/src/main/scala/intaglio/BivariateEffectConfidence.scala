@@ -44,11 +44,11 @@ enum BivariateConfidencePolicy:
 
 /** Immutable effect-by-confidence display policy.
   *
-  * The default [[BivariateConfidencePolicy.SurfViewJsConfidence]] reproduces the current
-  * SurfViewJS confidence preset's discrete two-dimensional texture lookup. The scalar mapping's
-  * window is its X range; its ramp is deliberately not consulted by that reference preset. The
-  * named [[BivariateConfidencePolicy.ConfidenceAlpha]] alternative uses the scalar mapping's
-  * color and multiplies its stored alpha byte by confidence.
+  * The default [[BivariateConfidencePolicy.SurfViewJsConfidence]] reproduces the current SurfViewJS
+  * confidence preset's discrete two-dimensional texture lookup. The scalar mapping's window is its
+  * X range; its ramp is deliberately not consulted by that reference preset. The named
+  * [[BivariateConfidencePolicy.ConfidenceAlpha]] alternative uses the scalar mapping's color and
+  * multiplies its stored alpha byte by confidence.
   *
   * In both policies non-finite input is transparent black. This is a defensive ScalaFIM boundary:
   * the JavaScript texture lookup has no finite-value guard.
@@ -63,33 +63,37 @@ final case class BivariateEffectConfidenceMapping(
 
   /** Display pixel for one effect/confidence pair. */
   def color(effectValue: Double, confidence: Double): Rgba32 =
-    if !effectValue.isFinite || !confidence.isFinite then
-      transparent
-    else policy match
-      case BivariateConfidencePolicy.SurfViewJsConfidence(textureSize) =>
-        val coordinate = referenceCoordinate(effectValue, confidence, textureSize.value)
-        BivariateEffectConfidenceMapping.confidencePixel(
-          coordinate.effectIndex.toDouble / (textureSize.value - 1).toDouble,
-          coordinate.confidenceIndex.toDouble / (textureSize.value - 1).toDouble
-        )
-      case BivariateConfidencePolicy.ConfidenceAlpha =>
-        if confidence < 0.0 || confidence > 1.0 then transparent
-        else
-          val base = effect.color(effectValue)
-          Rgba32.packUnsafe(
-            base.red,
-            base.green,
-            base.blue,
-            math.round(base.alpha.toDouble * confidence).toInt
+    if !effectValue.isFinite || !confidence.isFinite then transparent
+    else
+      policy match
+        case BivariateConfidencePolicy.SurfViewJsConfidence(textureSize) =>
+          val coordinate = referenceCoordinate(effectValue, confidence, textureSize.value)
+          BivariateEffectConfidenceMapping.confidencePixel(
+            coordinate.effectIndex.toDouble / (textureSize.value - 1).toDouble,
+            coordinate.confidenceIndex.toDouble / (textureSize.value - 1).toDouble
           )
+        case BivariateConfidencePolicy.ConfidenceAlpha =>
+          if confidence < 0.0 || confidence > 1.0 then transparent
+          else
+            val base = effect.color(effectValue)
+            Rgba32.packUnsafe(
+              base.red,
+              base.green,
+              base.blue,
+              math.round(base.alpha.toDouble * confidence).toInt
+            )
 
   /** Discrete texture coordinate used by the reference-compatible policy. */
-  def referenceCoordinate(effectValue: Double, confidence: Double): Option[BivariateTextureCoordinate] =
+  def referenceCoordinate(
+      effectValue: Double,
+      confidence: Double
+  ): Option[BivariateTextureCoordinate] =
     if !effectValue.isFinite || !confidence.isFinite then None
-    else policy match
-      case BivariateConfidencePolicy.SurfViewJsConfidence(textureSize) =>
-        Some(referenceCoordinate(effectValue, confidence, textureSize.value))
-      case BivariateConfidencePolicy.ConfidenceAlpha => None
+    else
+      policy match
+        case BivariateConfidencePolicy.SurfViewJsConfidence(textureSize) =>
+          Some(referenceCoordinate(effectValue, confidence, textureSize.value))
+        case BivariateConfidencePolicy.ConfidenceAlpha => None
 
   private def referenceCoordinate(
       effectValue: Double,
@@ -120,7 +124,10 @@ object BivariateEffectConfidenceMapping:
     * rounds through `Float` before byte packing, matching the reference texture's `Float32Array`
     * storage before it is sampled.
     */
-  private[intaglio] def confidencePixel(effectFraction: Double, confidenceFraction: Double): Rgba32 =
+  private[intaglio] def confidencePixel(
+      effectFraction: Double,
+      confidenceFraction: Double
+  ): Rgba32 =
     val hue = effectFraction * 0.8
     val (red, green, blue) = hsvToRgb(hue, confidenceFraction, 1.0)
     Rgba32.packUnsafe(
@@ -149,9 +156,9 @@ object BivariateEffectConfidenceMapping:
       case _ => (0.0, 0.0, 0.0)
 
 /** Inspectable raster key for [[BivariateEffectConfidenceMapping]]. Rows run from high confidence
-  * at the top to zero confidence at the bottom; columns run from the effect window's lower bound
-  * at the left to its upper bound at the right. Its pixels are always evaluated by [[mapping]], so
-  * a key cannot drift from the surface display policy it documents.
+  * at the top to zero confidence at the bottom; columns run from the effect window's lower bound at
+  * the left to its upper bound at the right. Its pixels are always evaluated by [[mapping]], so a
+  * key cannot drift from the surface display policy it documents.
   */
 final class BivariateEffectConfidenceKey private (
     val mapping: BivariateEffectConfidenceMapping,
@@ -183,7 +190,8 @@ final class BivariateEffectConfidenceKey private (
   lazy val canonicalKey: String =
     def text(value: String): String = s"${value.length}:$value"
     def number(value: Double): String =
-      java.lang.Long.toHexString(java.lang.Double.doubleToLongBits(if value == 0.0 then 0.0 else value))
+      java.lang.Long.toHexString(java.lang.Double.doubleToLongBits(if value == 0.0 then 0.0
+      else value))
     def ticks(values: Vector[AxisTick]): String =
       values.map(tick => s"${number(tick.value)}:${text(tick.label)}").mkString(";")
     s"bivariate-effect-confidence-key-v1|${text(mapping.canonicalKey)}|${text(effectTitle.text)}|${text(confidenceTitle.text)}|${width}x$height|${ticks(effectTicks)}|${ticks(confidenceTicks)}"
@@ -202,20 +210,34 @@ object BivariateEffectConfidenceKey:
     if width < 2 || width > 1024 || height < 2 || height > 1024 then
       Left(BivariateEffectConfidenceError.InvalidKeyResolution(width, height))
     else if effectTicks.isEmpty then Left(BivariateEffectConfidenceError.EmptyTicks("effect"))
-    else if confidenceTicks.isEmpty then Left(BivariateEffectConfidenceError.EmptyTicks("confidence"))
-    else if effectTicks.exists(tick => tick.value < effectWindow.lower || tick.value > effectWindow.upper) then
-      Left(BivariateEffectConfidenceError.InvalidTick("effect", effectTicks.find(tick =>
+    else if confidenceTicks.isEmpty then
+      Left(BivariateEffectConfidenceError.EmptyTicks("confidence"))
+    else if effectTicks.exists(tick =>
         tick.value < effectWindow.lower || tick.value > effectWindow.upper
-      ).get.value))
+      )
+    then
+      Left(
+        BivariateEffectConfidenceError.InvalidTick(
+          "effect",
+          effectTicks
+            .find(tick => tick.value < effectWindow.lower || tick.value > effectWindow.upper)
+            .get
+            .value
+        )
+      )
     else if confidenceTicks.exists(tick => tick.value < 0.0 || tick.value > 1.0) then
-      Left(BivariateEffectConfidenceError.InvalidTick("confidence", confidenceTicks.find(tick =>
-        tick.value < 0.0 || tick.value > 1.0
-      ).get.value))
+      Left(
+        BivariateEffectConfidenceError.InvalidTick(
+          "confidence",
+          confidenceTicks.find(tick => tick.value < 0.0 || tick.value > 1.0).get.value
+        )
+      )
     else
       val dimensions = RasterDimensions.unsafe(width, height)
       val image = RasterImage.tabulate(dimensions): (column, row) =>
         val effectFraction = column.toDouble / (width - 1).toDouble
-        val effectValue = (1.0 - effectFraction) * effectWindow.lower + effectFraction * effectWindow.upper
+        val effectValue =
+          (1.0 - effectFraction) * effectWindow.lower + effectFraction * effectWindow.upper
         val confidence = 1.0 - row.toDouble / (height - 1).toDouble
         mapping.color(effectValue, confidence)
       Right(

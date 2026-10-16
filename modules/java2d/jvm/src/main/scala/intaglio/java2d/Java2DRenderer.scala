@@ -666,6 +666,7 @@ object Java2DRenderer:
     for
       resolved <- plan.deviceScene.left.map(Java2DRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(Java2DRenderError.Graphics(_))
+      _ <- RasterSampling.validate(resolved).left.map(Java2DRenderError.Graphics(_))
     yield Java2DProgram.fromDevice(resolved, plan.context)
 
   def compile(
@@ -967,11 +968,14 @@ object Java2DRenderer:
             case RasterInterpolation.Smooth  => RenderingHints.VALUE_INTERPOLATION_BILINEAR
           copy.setRenderingHint(RenderingHints.KEY_INTERPOLATION, hint)
           copy.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha.toFloat))
-          val source = images.getOrElseUpdate(image, buffered(image))
-          val transform = new AffineTransform()
-          transform.translate(x, y)
-          transform.scale(width / image.width.toDouble, height / image.height.toDouble)
-          copy.drawImage(source, transform, null)
+          RasterSampling.prepare(image, x, y, width, height, interpolation).orThrow.foreach {
+            case (sampled, dx, dy, dw, dh) =>
+              val source = images.getOrElseUpdate(sampled, buffered(sampled))
+              val transform = new AffineTransform()
+              transform.translate(dx, dy)
+              transform.scale(dw / sampled.width.toDouble, dh / sampled.height.toDouble)
+              copy.drawImage(source, transform, null)
+          }
         }
       case Java2DCommand.Save(_) | Java2DCommand.Restore(_) =>
         ()

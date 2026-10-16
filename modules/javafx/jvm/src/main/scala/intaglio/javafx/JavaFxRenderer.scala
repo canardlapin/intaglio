@@ -427,6 +427,7 @@ object JavaFxProgram:
     for
       checked <- DeviceScene.validate(scene).left.map(JavaFxRenderError.Graphics(_))
       _ <- PatternTile.validate(checked).left.map(JavaFxRenderError.Graphics(_))
+      _ <- RasterSampling.validate(checked).left.map(JavaFxRenderError.Graphics(_))
     yield fromDevice(checked, context)
 
   private[javafx] def fromDevice(scene: DeviceScene, context: RenderContext): JavaFxProgram =
@@ -674,6 +675,7 @@ object JavaFxRenderer:
     for
       resolved <- plan.deviceScene.left.map(JavaFxRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(JavaFxRenderError.Graphics(_))
+      _ <- RasterSampling.validate(resolved).left.map(JavaFxRenderError.Graphics(_))
       program = JavaFxProgram.fromDevice(resolved, plan.context)
       _ <- program.commands.foldLeft[Either[JavaFxRenderError, Unit]](Right(())) {
         (result, command) =>
@@ -849,7 +851,9 @@ object JavaFxRenderer:
         withSaved(context) {
           context.setGlobalAlpha(alpha)
           context.setImageSmoothing(interpolation == RasterInterpolation.Smooth)
-          context.drawImage(image, x, y, width, height)
+          RasterSampling.prepare(image, x, y, width, height, interpolation).orThrow.foreach {
+            case (sampled, dx, dy, dw, dh) => context.drawImage(sampled, dx, dy, dw, dh)
+          }
         }
 
   private def drawPointMark(

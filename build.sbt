@@ -139,6 +139,13 @@ lazy val javafxPlatformClassifier: String = {
   if (arch.contains("aarch64") && base != "win") base + "-aarch64" else base
 }
 
+/** OpenJFX version resolved for the JavaFX library and its executable example. The default is the
+  * minimum qualification target, 21.0.5; CI also supplies the current feature runtime explicitly. Keep
+  * this a JVM system property because sbt resolves dependencies while loading the build.
+  */
+lazy val javafxRuntimeVersion: String =
+  sys.props.getOrElse("intaglio.javafx.version", "21.0.5")
+
 /** The JavaFX suites run under headless Monocle, and `openjfx-monocle` 21.0.2 is Java 21 bytecode;
   * no Monocle build for OpenJFX 21 loads on JDK 17. Below 21 the test sources are left out and the
   * test task says so, rather than failing to compile. The modules themselves still build on 17.
@@ -425,8 +432,8 @@ lazy val javafx =
       name := "intaglio-javafx",
       description := "JavaFX renderer for Intaglio scenes (JVM).",
       libraryDependencies ++= Seq(
-        "org.openjfx" % "javafx-base" % "21.0.5" % Provided classifier javafxPlatformClassifier,
-        "org.openjfx" % "javafx-graphics" % "21.0.5" % Provided classifier javafxPlatformClassifier,
+        "org.openjfx" % "javafx-base" % javafxRuntimeVersion % Provided classifier javafxPlatformClassifier,
+        "org.openjfx" % "javafx-graphics" % javafxRuntimeVersion % Provided classifier javafxPlatformClassifier,
         "org.testfx" % "openjfx-monocle" % "21.0.2" % Test
       ),
       Test / fork := true,
@@ -477,8 +484,8 @@ lazy val javafxExample =
       versionPolicyCheck / skip := true,
       versionCheck / skip := true,
       libraryDependencies ++= Seq(
-        "org.openjfx" % "javafx-base" % "21.0.5" classifier javafxPlatformClassifier,
-        "org.openjfx" % "javafx-graphics" % "21.0.5" classifier javafxPlatformClassifier,
+        "org.openjfx" % "javafx-base" % javafxRuntimeVersion classifier javafxPlatformClassifier,
+        "org.openjfx" % "javafx-graphics" % javafxRuntimeVersion classifier javafxPlatformClassifier,
         "org.testfx" % "openjfx-monocle" % "21.0.2" % Test
       ),
       Compile / mainClass := Some("intaglio.javafx.example.InteractiveScatter"),

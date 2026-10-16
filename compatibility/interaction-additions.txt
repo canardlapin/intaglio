@@ -31,6 +31,8 @@ DirectMissingMethodProblem intaglio.CompositionOptions.rowHeights
 DirectMissingMethodProblem intaglio.CompositionOptions.sharedXFrame
 DirectMissingMethodProblem intaglio.CompositionOptions.withRowHeights
 DirectMissingMethodProblem intaglio.CompositionOptions.withSharedXFrame
+DirectMissingMethodProblem intaglio.ContinuousScale.diverging
+DirectMissingMethodProblem intaglio.ContinuousScale.diverging$default$5
 DirectMissingMethodProblem intaglio.DashPattern._2
 DirectMissingMethodProblem intaglio.DashPattern.apply
 DirectMissingMethodProblem intaglio.DashPattern.this
@@ -72,6 +74,14 @@ DirectMissingMethodProblem intaglio.GrobMeta.copy$default$5
 DirectMissingMethodProblem intaglio.GrobMeta.marks
 DirectMissingMethodProblem intaglio.GrobMeta.this
 DirectMissingMethodProblem intaglio.GrobMeta.withMarks
+MissingClassProblem intaglio.GuidePolicy$WithoutAxes
+MissingClassProblem intaglio.GuidePolicy$WithoutAxes$
+MissingFieldProblem intaglio.GuidePolicy.WithoutAxes
+DirectMissingMethodProblem intaglio.GuidePolicy.withoutAxes
+DirectMissingMethodProblem intaglio.GuideSpec.lowerAxis
+MissingClassProblem intaglio.GuideTickSpacing
+MissingClassProblem intaglio.GuideTickSpacing$
+DirectMissingMethodProblem intaglio.Labeler.typographic
 DirectMissingMethodProblem intaglio.Layer.raster
 DirectMissingMethodProblem intaglio.Layer.raster$default$5
 DirectMissingMethodProblem intaglio.Layer.raster$default$6
@@ -80,6 +90,8 @@ DirectMissingMethodProblem intaglio.Layer.raster$default$8
 DirectMissingMethodProblem intaglio.Layer.raster$default$9
 MissingClassProblem intaglio.MarkedPoint
 MissingClassProblem intaglio.MarkedPoint$
+MissingClassProblem intaglio.NearestRasterGrid
+MissingClassProblem intaglio.NearestRasterGrid$
 MissingClassProblem intaglio.PaintLengthUnit
 MissingClassProblem intaglio.PaintLengthUnit$
 DirectMissingMethodProblem intaglio.PanelLayout.viewport
@@ -92,6 +104,8 @@ DirectMissingMethodProblem intaglio.PatternPaint.this
 DirectMissingMethodProblem intaglio.PatternPaint.unit
 DirectMissingMethodProblem intaglio.PatternPaint.withUnit
 DirectMissingMethodProblem intaglio.PatternRecipe.scaled
+DirectMissingMethodProblem intaglio.PlotBuilder.geomHeatmap
+DirectMissingMethodProblem intaglio.PlotBuilder.geomHeatmap$default$6
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$1
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$2
@@ -101,6 +115,7 @@ DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$5
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$6
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$7
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$8
+DirectMissingMethodProblem intaglio.PlotBuilder.geomRaster$default$9
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$3
 DirectMissingMethodProblem intaglio.PlotBuilder.geomRasterByClass$default$4
@@ -113,6 +128,8 @@ MissingClassProblem intaglio.PositionCompanions
 MissingClassProblem intaglio.PositionCompanions$
 MissingClassProblem intaglio.RasterGeom
 MissingClassProblem intaglio.RasterGeom$
+MissingClassProblem intaglio.RasterSampling
+MissingClassProblem intaglio.RasterSampling$
 DirectMissingMethodProblem intaglio.RendererConformance.aspectViewportCase
 DirectMissingMethodProblem intaglio.RendererConformance.casedMarksCase
 DirectMissingMethodProblem intaglio.RendererConformance.casedRasterScene
@@ -146,6 +163,7 @@ DirectMissingMethodProblem intaglio.TrainedPlot.coordinateFlipped
 DirectMissingMethodProblem intaglio.TrainedPlot.copy
 DirectMissingMethodProblem intaglio.TrainedPlot.copy$default$9
 DirectMissingMethodProblem intaglio.TrainedPlot.this
+DirectMissingMethodProblem intaglio.Transform.withLabeler
 DirectMissingMethodProblem intaglio.Viewport._8
 DirectMissingMethodProblem intaglio.Viewport._9
 DirectMissingMethodProblem intaglio.Viewport.aspect

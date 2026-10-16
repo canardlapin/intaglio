@@ -192,6 +192,10 @@ class SvgAnnotationSuite extends munit.FunSuite:
     * accepted so the law is about this change, not that pre-existing divergence.
     *
     * A digest moves only for a deliberate rendering change, named here:
+    *   - `colorbar`, `comparison-heatmap`, `comparison-bin2d`, `comparison-kde2d`, and
+    *     `comparison-filled-contour` moved from baseline 13747a3 when colorbars became one raster
+    *     ramp instead of adjacent swatches. Measured guide fitting now thins labels while fixed
+    *     scales retain true endpoint labels; the focused diagnostic found no other pre-pin change.
     *   - `faceted-plot` moved when a faceted plot stopped drawing its axis title once per rendered
     *     axis and started drawing it once per dimension, centred on the panel block.
     */
@@ -210,7 +214,7 @@ class SvgAnnotationSuite extends munit.FunSuite:
       "ydown-viewport" -> Set("e5789c704d136296"),
       "axes" -> Set("96a8a307ef2ba60d"),
       "legend" -> Set("cce7007e836207fa"),
-      "colorbar" -> Set("eab14bce421ed0e8"),
+      "colorbar" -> Set("d3259fa7515acad1"),
       "scaled-plot" -> Set("183be6bbdd763191", "4315161ef3fde199"),
       "mixed-layer-plot" -> Set("6fce53769e4901a2"),
       // Re-pinned when derived legend keys moved into their key boxes (bd-01M20KHQ11W425M83J49GS0JFH):
@@ -223,11 +227,11 @@ class SvgAnnotationSuite extends munit.FunSuite:
       "comparison-summary" -> Set("7f5bef54e50f201d"),
       "comparison-ribbon" -> Set("ae9957a1f5894cf2"),
       "comparison-tiles" -> Set("26e7333147258988"),
-      "comparison-heatmap" -> Set("9a415be599b3685d", "a7dfbeda15b31b0d"),
-      "comparison-bin2d" -> Set("68b0bed728ed9ea4", "a95e5b5911209ccc"),
-      "comparison-kde2d" -> Set("c7e1736175d0cad9", "44815109bef561b9"),
+      "comparison-heatmap" -> Set("64d6636e82611dd5", "7e6780db5844bae5"),
+      "comparison-bin2d" -> Set("ae5139762b1594c2", "7250c065f80197ea"),
+      "comparison-kde2d" -> Set("e7f620f023ca3769", "ee50557cd8eb0809"),
       "comparison-contour" -> Set("16b773129e554ec8"),
-      "comparison-filled-contour" -> Set("cf3dc9e20cb6d80e"),
+      "comparison-filled-contour" -> Set("6db7e3acb11082fd"),
       "faceted-plot" -> Set("3a940c9fcf7e1a9e"),
       "count-plot" -> Set("98f0d26d360295fd"),
       "band-position-plot" -> Set("5c5d3bd9e1ab68ff"),

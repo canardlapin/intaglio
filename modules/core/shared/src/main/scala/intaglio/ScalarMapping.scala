@@ -102,11 +102,11 @@ enum ScalarRampSampling:
 
   /** Select evenly spaced lookup-table colors without interpolation.
     *
-    * Colors start at their indexed stop positions `i / (N - 1)`, so a stop itself selects its
-    * color and fractions below the next stop retain the preceding color. The comparison is against
-    * the stored IEEE-754 stop values. This deliberately differs from SurfViewJS's
-    * `floor(t * (N - 1))` at rare floating-point boundary products: no epsilon is introduced to
-    * imitate that multiplication-rounding artifact.
+    * Colors start at their indexed stop positions `i / (N - 1)`, so a stop itself selects its color
+    * and fractions below the next stop retain the preceding color. The comparison is against the
+    * stored IEEE-754 stop values. This deliberately differs from SurfViewJS's `floor(t * (N - 1))`
+    * at rare floating-point boundary products: no epsilon is introduced to imitate that
+    * multiplication-rounding artifact.
     */
   case Discrete
 
@@ -162,7 +162,8 @@ object ScalarRamp:
 
   /** Construct a lookup-table ramp whose colors begin at indexed stops `i / (N - 1)`. */
   def discrete(colors: Vector[Rgba32]): Either[ScalarMappingError, ScalarRamp] =
-    if colors.length < 2 then Left(ScalarMappingError.InvalidRamp("at least two colors are required"))
+    if colors.length < 2 then
+      Left(ScalarMappingError.InvalidRamp("at least two colors are required"))
     else
       val last = colors.length - 1
       Right(
@@ -178,13 +179,14 @@ enum ScalarScaleKind:
   case Sequential, Diverging, Split
 
 final case class ScalarRampSegment(window: DisplayWindow, ramp: ScalarRamp):
-  /** Scalar coordinates of the ramp stops. For discrete ramps each entry after
-    * the first is the first representable scalar whose normalized value reaches
-    * that stop. Affine inversion alone can round to the wrong side of a stop.
-    * Entries can coincide when a window has fewer representable values than bins.
+  /** Scalar coordinates of the ramp stops. For discrete ramps each entry after the first is the
+    * first representable scalar whose normalized value reaches that stop. Affine inversion alone
+    * can round to the wrong side of a stop. Entries can coincide when a window has fewer
+    * representable values than bins.
     */
   lazy val boundaries: Vector[Double] = ramp.stops.map: (stop, _) =>
-    if ramp.sampling == ScalarRampSampling.Linear then (1.0 - stop) * window.lower + stop * window.upper
+    if ramp.sampling == ScalarRampSampling.Linear then
+      (1.0 - stop) * window.lower + stop * window.upper
     else if stop == 0.0 then window.lower
     else
       def ordered(value: Double): Long =

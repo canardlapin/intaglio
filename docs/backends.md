@@ -163,7 +163,11 @@ Pick the provider by the backend that draws:
 
 `JavaFxTextMetrics` measures with an off-scene `javafx.scene.text.Text` node, calling the same
 `Font.font` the renderer calls, so family, weight and size resolve to the face JavaFX draws,
-fallback included. Its two TextMetrics measurements are the ones the canvas positions text on: the
+fallback included. `resolvedFamily`, `resolvedFontName`, and `resolvedFontStyle` expose the actual
+mapping when a platform substitutes a face within the requested family. On some macOS releases,
+JavaFX resolves `Helvetica` to `Helvetica Light` even without an explicit weight; inspect the full
+face when that distinction matters. JavaFX's `System` family and Canvas's CSS `system-ui` generic
+request the respective platform UI fonts; they are backend-specific names. Its two TextMetrics measurements are the ones the canvas positions text on: the
 logical advance width and the line box (`ascentPt` plus `descentPt`). Neither is the ink, which
 `inkBounds` reports: glyphs sit inside the advance with side bearings and can overhang it.
 
@@ -287,3 +291,6 @@ Per-backend detail lives beside each module: [SVG](../modules/svg/README.md),
 [Canvas](../modules/canvas/README.md), [Java2D](../modules/java2d/README.md),
 [PDF](../modules/pdf/README.md), [JavaFX](../modules/javafx/README.md),
 [notebook](../modules/notebook/README.md).
+
+For dense scientific grids, fixed fill limits, compact guides, and nearest-neighbour sample coverage,
+see [Scientific heatmaps and compact guides](scientific-heatmaps.md).

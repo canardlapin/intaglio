@@ -54,12 +54,10 @@ final class CanvasTextMetrics(
     context.save()
     try
       val sizePx = style.fontSizePt * pixelsPerPoint
-      context.font =
-        CanvasFont.shorthand(style.fontWeight, sizePx, cssFamily(resolvedFamily(style.fontFamily)))
+      context.font = CanvasFont.shorthand(
+        style.fontWeight,
+        sizePx,
+        CanvasFont.family(resolvedFamily(style.fontFamily))
+      )
       context.measureText(text)
     finally context.restore()
-
-  private def cssFamily(value: String): String =
-    value.toLowerCase match
-      case "serif" | "sans-serif" | "monospace" | "cursive" | "fantasy" | "system-ui" => value
-      case _ => "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""

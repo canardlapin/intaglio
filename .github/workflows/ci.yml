@@ -93,6 +93,41 @@ jobs:
           path: target/golden-failures
           if-no-files-found: ignore
 
+  # Keep JavaFX runtime qualification separate from the full Scala/JDK matrix:
+  # the suite is runtime-sensitive, while all other module courts already run above.
+  javafx-runtime:
+    name: OpenJFX ${{ matrix.javafx }} / JDK ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - javafx: "21.0.5"
+            java: "21"
+          - javafx: "27"
+            java: "25"
+    env:
+      JAVA_OPTS: -Xms1G -Xmx3G -Xss6M -Dfile.encoding=UTF-8
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: sbt
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+      - name: Test the JavaFX library and trace example
+        run: >-
+          sbt -Djava.awt.headless=true -Dsbt.supershell=false
+          -Dintaglio.javafx.version=${{ matrix.javafx }}
+          javafxJVM/test javafxExample/test
+
   # The compatibility gate builds the exact baseline from source in an isolated
   # sandbox, so it runs once on the published Scala line rather than per cell.
   compatibility:

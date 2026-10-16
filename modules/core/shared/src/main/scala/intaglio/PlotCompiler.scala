@@ -13,12 +13,17 @@ enum GuidePolicy:
   case NoGuides
   case Explicit(specs: Vector[GuideSpec])
   case Derived(overrides: Vector[GuideSpec] = Vector.empty, deriveLegends: Boolean = true)
+  case WithoutAxes(policy: GuidePolicy, sides: Set[AxisSide])
+
+  /** Suppress physical axis sides, including their layout strips, while retaining other guides. */
+  def withoutAxes(sides: Set[AxisSide]): GuidePolicy = WithoutAxes(this, sides)
 
   def requiresLayout: Boolean =
     this match
-      case NoGuides        => false
-      case Explicit(specs) => specs.nonEmpty
-      case Derived(_, _)   => true
+      case NoGuides               => false
+      case Explicit(specs)        => specs.nonEmpty
+      case Derived(_, _)          => true
+      case WithoutAxes(policy, _) => policy.requiresLayout
 
 /** Padding applied to compiler-derived panel ranges after scale training and guide derivation.
   * `multiplicative` is a fraction of the trained width; `additive` is in panel-native units.
@@ -827,7 +832,8 @@ object PlotCompiler:
           resolution.frames,
           single.specs,
           layoutPolicy,
-          resolvedOptions.theme
+          resolvedOptions.theme,
+          GuidePhase.adaptiveSides(resolvedOptions.guides)
         )
       )
       labelGrobs <- PhaseClock.timed(PhaseClock.Phase.Lowering)(

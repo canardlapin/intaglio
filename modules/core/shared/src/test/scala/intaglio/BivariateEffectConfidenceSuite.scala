@@ -42,7 +42,8 @@ class BivariateEffectConfidenceSuite extends munit.FunSuite:
     assertEquals(sizeFive.color(0.5, 0.6), Rgba32.unsafe(128, 178, 255))
 
   test("confidence alpha remains an explicit non-reference alternative"):
-    val alphaMapping = BivariateEffectConfidenceMapping(effect, BivariateConfidencePolicy.ConfidenceAlpha)
+    val alphaMapping =
+      BivariateEffectConfidenceMapping(effect, BivariateConfidencePolicy.ConfidenceAlpha)
 
     assertEquals(alphaMapping.color(0.0, 0.5), Rgba32.unsafe(100, 0, 100, 128))
     assertEquals(alphaMapping.color(0.0, -0.01), Rgba32.unsafe(0, 0, 0, 0))
@@ -68,8 +69,14 @@ class BivariateEffectConfidenceSuite extends munit.FunSuite:
     assertEquals(key.effectTicks.map(_.label), Vector("-1", "0", "1"))
     assertEquals(key.confidenceTicks.map(_.label), Vector("low", "high"))
     coordinates.foreach: (column, row) =>
-      assertEquals(key.pixelAt(column, row), mapping.color(key.effectAt(column), key.confidenceAt(row)))
-      assertEquals(key.colorAt(key.effectAt(column), key.confidenceAt(row)), key.pixelAt(column, row))
+      assertEquals(
+        key.pixelAt(column, row),
+        mapping.color(key.effectAt(column), key.confidenceAt(row))
+      )
+      assertEquals(
+        key.colorAt(key.effectAt(column), key.confidenceAt(row)),
+        key.pixelAt(column, row)
+      )
     assertEquals(key.pixelAt(0, 0), Rgba32.unsafe(255, 0, 0))
     assertEquals(key.pixelAt(2, 2), Rgba32.unsafe(255, 255, 255))
 
@@ -103,17 +110,38 @@ class BivariateEffectConfidenceSuite extends munit.FunSuite:
     assertNotEquals(key.canonicalKey, relabeled.canonicalKey)
     assertNotEquals(
       mapping.canonicalKey,
-      BivariateEffectConfidenceMapping(effect.copy(outOfRange = ScalarOutOfRange.Hide), mapping.policy).canonicalKey
+      BivariateEffectConfidenceMapping(
+        effect.copy(outOfRange = ScalarOutOfRange.Hide),
+        mapping.policy
+      ).canonicalKey
     )
 
   test("key construction validates grid and tick domains"):
-    assert(BivariateEffectConfidenceKey
-      .make(mapping, effectTitle, confidenceTitle, effectTicks, confidenceTicks, width = 1)
-      .isLeft)
-    assert(BivariateEffectConfidenceKey
-      .make(mapping, effectTitle, confidenceTitle, Vector(AxisTick.unsafe(2.0, "outside")), confidenceTicks)
-      .isLeft)
-    assert(BivariateEffectConfidenceKey
-      .make(mapping, effectTitle, confidenceTitle, effectTicks, Vector(AxisTick.unsafe(-0.1, "outside")))
-      .isLeft)
+    assert(
+      BivariateEffectConfidenceKey
+        .make(mapping, effectTitle, confidenceTitle, effectTicks, confidenceTicks, width = 1)
+        .isLeft
+    )
+    assert(
+      BivariateEffectConfidenceKey
+        .make(
+          mapping,
+          effectTitle,
+          confidenceTitle,
+          Vector(AxisTick.unsafe(2.0, "outside")),
+          confidenceTicks
+        )
+        .isLeft
+    )
+    assert(
+      BivariateEffectConfidenceKey
+        .make(
+          mapping,
+          effectTitle,
+          confidenceTitle,
+          effectTicks,
+          Vector(AxisTick.unsafe(-0.1, "outside"))
+        )
+        .isLeft
+    )
     assert(BivariateTextureSize.make(1).isLeft)

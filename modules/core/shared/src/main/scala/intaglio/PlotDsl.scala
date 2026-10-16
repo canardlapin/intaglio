@@ -473,6 +473,9 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
     val xy = ev(position)
     addLayer(Right(Layer.segment(xy.x, xy.y, xEnd, yEnd, data, resultMapping, params)))
 
+  /** Draw independently styled rectangles. Dense regular grids can show antialiasing seams at
+    * fractional shared edges; use `geomRaster(scale = Some(...))` for seam-free fixed-scale maps.
+    */
   def geomTile(
       width: Row => Double,
       height: Row => Double,
@@ -484,25 +487,41 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
 
   /** Add a continuous-fill heatmap to a field-native plot. The equality witness makes this
     * operation unavailable to ordinary row plots without introducing a specialized mutable builder
-    * hierarchy.
+    * hierarchy. `scale` supplies a prepared fill mapping and takes precedence over the palette,
+    * name, transform and out-of-bounds convenience arguments. Like `geomTile`, this draws separate
+    * rectangles; dense grids should use `geomRaster` to avoid antialiasing seams.
     */
   def geomHeatmap(
       palette: Palette[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
       name: String = "value",
       transform: Transform = Transform.identity,
       oob: OobPolicy = OobPolicy.Censor,
-      params: GraphicParams = GraphicParams.unsafe(stroke = None)
+      params: GraphicParams = GraphicParams.unsafe(stroke = None),
+      scale: Option[ScaleValue[Double, Rgba]] = None
   )(using fieldRows: Row =:= ScalarCell, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
-    scaleFillContinuous(row => fieldRows(row).value, palette, name, transform, oob)
-      .geomTile(
-        row => fieldRows(row).width,
-        row => fieldRows(row).height,
-        params = Some(params)
-      )
+    val scaled = scale match
+      case Some(value) => encode(Aesthetic.Fill, row => fieldRows(row).value, value)
+      case None => scaleFillContinuous(row => fieldRows(row).value, palette, name, transform, oob)
+    scaled.geomTile(
+      row => fieldRows(row).width,
+      row => fieldRows(row).height,
+      params = Some(params)
+    )
+
+  /** Retains the pre-fixed-scale JVM descriptor. */
+  def geomHeatmap(
+      palette: Palette[Rgba] | ThemePalette.Default.type,
+      name: String,
+      transform: Transform,
+      oob: OobPolicy,
+      params: GraphicParams
+  )(using fieldRows: Row =:= ScalarCell, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
+    geomHeatmap(palette, name, transform, oob, params, None)
 
   /** Draw a regular scalar grid as one image. Masked cells do not train the fill scale; NaN,
     * transform-domain failures and censored values use `missingColor`. The original scalar values
-    * remain available to interaction metadata.
+    * remain available to interaction metadata. `scale` supplies a prepared mapping (including fixed
+    * limits) and takes precedence over palette, name, transform and out-of-bounds arguments.
     */
   def geomRaster(
       palette: Palette[Rgba] | ThemePalette.Default.type = ThemePalette.Default,
@@ -512,15 +531,14 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
       interpolation: RasterInterpolation = RasterInterpolation.Nearest,
       missingColor: Rgba = Rgba.unsafe(0, 0, 0, 0.0),
       missing: ScalarCell => Boolean = _ => false,
-      alpha: Double = 1.0
+      alpha: Double = 1.0,
+      scale: Option[ScaleValue[Double, Rgba]] = None
   )(using fieldRows: Row =:= ScalarCell, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
-    val scaled = scaleFillContinuous(
-      row => if missing(fieldRows(row)) then Double.NaN else fieldRows(row).value,
-      palette,
-      name,
-      transform,
-      oob
-    )
+    val value: Row => Double =
+      row => if missing(fieldRows(row)) then Double.NaN else fieldRows(row).value
+    val scaled = scale match
+      case Some(prepared) => encode(Aesthetic.Fill, value, prepared)
+      case None           => scaleFillContinuous(value, palette, name, transform, oob)
     val xy = ev(position)
     scaled.addLayer(
       GraphicParams.checked(stroke = None, alpha = alpha).map { params =>
@@ -536,6 +554,19 @@ final class PlotBuilder[Row, Position <: PlotPosition[Row]] private[intaglio] (
         )
       }
     )
+
+  /** Retains the original raster JVM descriptor. */
+  def geomRaster(
+      palette: Palette[Rgba] | ThemePalette.Default.type,
+      name: String,
+      transform: Transform,
+      oob: OobPolicy,
+      interpolation: RasterInterpolation,
+      missingColor: Rgba,
+      missing: ScalarCell => Boolean,
+      alpha: Double
+  )(using fieldRows: Row =:= ScalarCell, ev: HasXY[Row, Position]): PlotBuilder[Row, Position] =
+    geomRaster(palette, name, transform, oob, interpolation, missingColor, missing, alpha, None)
 
   /** Draw a regular scalar grid as one image whose colour mapping is chosen per class: `classOf`
     * assigns each cell to one of `classes` by index (a column, a region, a regressor type), and

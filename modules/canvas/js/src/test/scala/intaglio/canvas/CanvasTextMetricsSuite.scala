@@ -54,6 +54,23 @@ class CanvasTextMetricsSuite extends munit.FunSuite:
     assert(probe.fonts.last.endsWith("\"Fallback Sans\""))
   }
 
+  test("Canvas drawing and measurement share CSS family serialization") {
+    Vector("serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui").foreach {
+      family => assertEquals(CanvasFont.family(family), family)
+    }
+    assertEquals(CanvasFont.family("Loaded Sans"), "\"Loaded Sans\"")
+    assertEquals(CanvasFont.family("Studio \\\"Sans\\\""), "\"Studio \\\\\\\"Sans\\\\\\\"\"")
+    assertEquals(CanvasFont.family("Path\\Face"), "\"Path\\\\Face\"")
+
+    val probe = fixture()
+    val metrics = new CanvasTextMetrics(probe.context, familyAvailable = _ => true)
+    metrics.widthPt("face", TextStyle(Some("Loaded Sans"), 12.0))
+    assertEquals(
+      probe.fonts.last,
+      CanvasFont.shorthand(None, 16.0, CanvasFont.family("Loaded Sans"))
+    )
+  }
+
   test("Canvas measurement remains opt-in beside the portable estimate") {
     val probe = fixture(widthFactor = 0.5)
     val metrics = new CanvasTextMetrics(probe.context)

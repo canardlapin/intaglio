@@ -500,7 +500,8 @@ class JavaFxRendererSuite extends munit.FunSuite:
 
     val image = context.drawnImage.getOrElse(fail("no image drawn"))
     val argb = JavaFxRaster.argb(image)
-    assertEquals(argb.take(2).toVector, Vector(0xffdc1e1e, 0xa01ec83c))
+    assertEquals((image.width, image.height), (50, 40))
+    assertEquals(Vector(argb(0), argb(25)), Vector(0xffdc1e1e, 0xa01ec83c))
     assertEquals(context.drawnBounds, Vector(25.0, 20.0, 50.0, 40.0))
     assertEqualsDouble(context.globalAlpha, 0.8, 1e-9)
     assertEquals(context.imageSmoothing, false)

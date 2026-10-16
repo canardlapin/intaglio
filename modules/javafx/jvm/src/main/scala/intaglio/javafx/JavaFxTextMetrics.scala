@@ -24,11 +24,13 @@ import intaglio.{FontWeight, TextMetrics, TextStyle}
   * macOS reports regular advances and outlines for bold), the advance still holds but the drawn
   * strokes extend past [[inkBounds]], by up to 1.7 px at 24 px.
   *
-  * Family, weight and size are honoured; weight resolves to the nearest face JavaFX has, as the
-  * renderer resolves it. `TextStyle` has no posture, and the JavaFX renderer draws no italic, so
-  * neither does this provider. A family JavaFX does not have resolves to JavaFX's default family
-  * here and in the renderer alike, through the same `Font.font` call; [[resolvedFamily]] reports
-  * which family that was.
+  * Family, weight and size are passed to JavaFX, as in the renderer. The selected face follows
+  * JavaFX's platform lookup and can differ from the requested weight. `TextStyle` has no posture,
+  * and the JavaFX renderer draws no italic, so neither does this provider. A family JavaFX does not
+  * have resolves to JavaFX's default family here and in the renderer alike, through the same
+  * `Font.font` call; [[resolvedFamily]] reports which family that was. [[resolvedFontName]] and
+  * [[resolvedFontStyle]] expose the full resolved face, so callers can detect a platform
+  * substitution within a requested family.
   *
   * AWT and JavaFX lay text out independently, and for the same family and size their advances
   * differ: about 2 pt over an 18-character Arial label at 24 pt on macOS, and far more for a
@@ -86,6 +88,19 @@ final class JavaFxTextMetrics private () extends TextMetrics:
   def resolvedFamily(requested: Option[String]): String =
     JavaFxTextMetrics.guarded(JavaFxTextMetrics.font(requested, 12.0, None).getFamily)
 
+  /** Full face name JavaFX resolves for `requested` and `weight`, using the same construction as
+    * drawing and measurement. For example, a platform may substitute a Light or synthesized face
+    * while retaining the requested family name.
+    */
+  def resolvedFontName(requested: Option[String], weight: Option[FontWeight] = None): String =
+    JavaFxTextMetrics.guarded(JavaFxTextMetrics.font(requested, 12.0, weight).getName)
+
+  /** Style JavaFX resolves for `requested` and `weight`; pair with [[resolvedFontName]] when an
+    * installed family has platform-specific face mapping.
+    */
+  def resolvedFontStyle(requested: Option[String], weight: Option[FontWeight] = None): String =
+    JavaFxTextMetrics.guarded(JavaFxTextMetrics.font(requested, 12.0, weight).getStyle)
+
   private def logical(text: String, style: TextStyle): Bounds =
     bounds(text, style, TextBoundsType.LOGICAL)
 
@@ -124,7 +139,8 @@ object JavaFxTextMetrics:
         )
 
   /** One font construction for drawing and measurement, so a family JavaFX does not have resolves
-    * to the same fallback face in both.
+    * to the same fallback face in both. Some platforms resolve even the family-and-size overload to
+    * a Light face; the resolved face accessors expose that substitution.
     */
   private[javafx] def font(family: Option[String], size: Double, weight: Option[FontWeight]): Font =
     (family, weight.map(value => FxFontWeight.findByWeight(value.value))) match

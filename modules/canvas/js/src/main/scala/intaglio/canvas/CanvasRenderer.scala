@@ -371,6 +371,16 @@ object CanvasCasing:
   * mean the layout measured a regular face for text the canvas drew bold.
   */
 private[canvas] object CanvasFont:
+  private val GenericFamilies =
+    Set("serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui")
+
+  /** Serializes one CSS font family. CSS generic families are keywords; supplied face names are
+    * quoted as one family name, including names that contain CSS-significant characters.
+    */
+  def family(value: String): String =
+    if GenericFamilies(value.toLowerCase) then value
+    else "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
   /** CSS orders the shorthand `[style] [variant] [weight] size family`, so the weight precedes the
     * size and is omitted entirely when unset.
     */
@@ -723,6 +733,38 @@ final class CanvasRasterCache private (val capacity: Int):
   private final case class Entry(image: RasterImage, source: CanvasImageSource)
   private val entries = mutable.ArrayBuffer.empty[Entry]
 
+  private final case class Sample(
+      image: RasterImage,
+      bounds: Vector[Double],
+      interpolation: RasterInterpolation,
+      prepared: Option[(RasterImage, Double, Double, Double, Double)]
+  )
+  private val samples = mutable.ArrayBuffer.empty[Sample]
+
+  private[canvas] def prepare(
+      image: RasterImage,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double,
+      interpolation: RasterInterpolation
+  ): Either[GraphicsError, Option[(RasterImage, Double, Double, Double, Double)]] =
+    val bounds = Vector(x, y, width, height)
+    val found = samples.indexWhere(entry =>
+      entry.image.eq(image) && entry.bounds == bounds && entry.interpolation == interpolation
+    )
+    if found >= 0 then
+      val entry = samples.remove(found)
+      samples += entry
+      Right(entry.prepared)
+    else
+      RasterSampling.prepare(image, x, y, width, height, interpolation).map { prepared =>
+        if capacity > 0 then
+          if samples.size >= capacity then samples.remove(0)
+          samples += Sample(image, bounds, interpolation, prepared)
+        prepared
+      }
+
   def size: Int =
     entries.size
 
@@ -870,6 +912,7 @@ object CanvasRenderer:
     for
       resolved <- plan.deviceScene.left.map(CanvasRenderError.Graphics(_))
       _ <- PatternTile.validate(resolved).left.map(CanvasRenderError.Graphics(_))
+      _ <- RasterSampling.validate(resolved).left.map(CanvasRenderError.Graphics(_))
     yield CanvasProgram.fromDevice(resolved, plan.context)
 
   def compile(
@@ -1047,8 +1090,11 @@ object CanvasRenderer:
           val color = paint.fill.getOrElse(CanvasColor.fromRgba(Rgba.Black))
           context.fillStyle = color.css
           context.globalAlpha = paint.opacity * color.alpha
-          context.font =
-            CanvasFont.shorthand(paint.fontWeight, fontSize, canvasFontFamily(fontFamily))
+          context.font = CanvasFont.shorthand(
+            paint.fontWeight,
+            fontSize,
+            CanvasFont.family(fontFamily.getOrElse("sans-serif"))
+          )
           context.textAlign = textAlign(horizontal)
           context.textBaseline = textBaseline(vertical)
           val (drawX, drawY) =
@@ -1066,14 +1112,45 @@ object CanvasRenderer:
         }
         Right(())
       case CanvasCommand.Image(image, x, y, width, height, interpolation, alpha, _) =>
-        val (source, hit) = cache.resolve(image, context)
-        withSaved(context) {
-          context.globalAlpha = alpha
-          context.imageSmoothingEnabled = interpolation == RasterInterpolation.Smooth
-          context.drawImage(source, x, y, width, height)
-        }
-        accumulator.recordImage(hit, image.dimensions.pixelCount.toLong * 4L)
-        Right(())
+        // Native Canvas hosts can scale a fixed plan for CSS size/DPR. Prepare against the actual
+        // positive axis-aligned transform, then invert placement so the resulting draw is 1:1
+        // in backing pixels. Rotation remains the backend's continuous geometry operation.
+        val (sx, sy, tx, ty) = if interpolation == RasterInterpolation.Nearest then
+          rasterTransform(context)
+        else (1.0, 1.0, 0.0, 0.0)
+        cache
+          .prepare(image, x * sx + tx, y * sy + ty, width * sx, height * sy, interpolation)
+          .left
+          .map(CanvasRenderError.Graphics(_))
+          .map { prepared =>
+            prepared.foreach { case (sampled, dx, dy, dw, dh) =>
+              val (source, hit) = cache.resolve(sampled, context)
+              withSaved(context) {
+                context.globalAlpha = alpha
+                context.imageSmoothingEnabled = interpolation == RasterInterpolation.Smooth
+                context.drawImage(source, (dx - tx) / sx, (dy - ty) / sy, dw / sx, dh / sy)
+              }
+              accumulator.recordImage(hit, sampled.dimensions.pixelCount.toLong * 4L)
+            }
+          }
+
+  private def rasterTransform(context: CanvasRenderingContext2D): (Double, Double, Double, Double) =
+    try rasterTransformUnchecked(context)
+    catch case NonFatal(_) => (1.0, 1.0, 0.0, 0.0)
+
+  private def rasterTransformUnchecked(
+      context: CanvasRenderingContext2D
+  ): (Double, Double, Double, Double) =
+    val native = context.asInstanceOf[js.Dynamic]
+    if js.typeOf(native.getTransform) != "function" then (1.0, 1.0, 0.0, 0.0)
+    else
+      val matrix = native.getTransform()
+      val a = matrix.a.asInstanceOf[Double]; val d = matrix.d.asInstanceOf[Double]
+      val e = matrix.e.asInstanceOf[Double]; val f = matrix.f.asInstanceOf[Double]
+      if matrix.b.asInstanceOf[Double] == 0.0 && matrix.c.asInstanceOf[Double] == 0.0 &&
+        a > 0.0 && d > 0.0 && Vector(a, d, e, f).forall(_.isFinite)
+      then (a, d, e, f)
+      else (1.0, 1.0, 0.0, 0.0)
 
   private def drawPointMark(
       point: DevicePoint,
@@ -1317,11 +1394,6 @@ object CanvasRenderer:
       case LineJoin.Miter => "miter"
       case LineJoin.Round => "round"
       case LineJoin.Bevel => "bevel"
-
-  private def canvasFontFamily(value: Option[String]): String =
-    value match
-      case Some(family) => "\"" + family.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-      case None         => "sans-serif"
 
   private def textAlign(value: HJust): String =
     value match

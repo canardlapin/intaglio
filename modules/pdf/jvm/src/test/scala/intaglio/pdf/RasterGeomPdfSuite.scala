@@ -12,7 +12,7 @@ class RasterGeomPdfSuite extends munit.FunSuite:
       RegularGridAxis.cellCenteredUnsafe(0, 2, 2),
       Vector(0, 1, 2, 3, 4, 5).map(_.toDouble)
     )
-    val trained = plot(field).geomRaster(alpha = 0.6).resolve.orThrow
+    val trained = plot(field).geomRaster(alpha = 0.6).guides(GuidePolicy.NoGuides).resolve.orThrow
     val source = trained.layers.head.grobs.head.asInstanceOf[Grob.Image].image
     val input =
       getClass.getResourceAsStream("/org/apache/pdfbox/resources/ttf/LiberationSans-Regular.ttf")

@@ -1273,7 +1273,7 @@ object RendererConformance:
         layout
       )
       .map { guide =>
-        val swatch = GraphicsName.unsafe("conformance-colorbar-swatch-0")
+        val swatch = GraphicsName.unsafe("conformance-colorbar-ramp")
         val ticks = GraphicsName.unsafe("conformance-colorbar-ticks")
         val title = GraphicsName.unsafe("conformance-colorbar-title")
         ConformanceCase(
@@ -1282,7 +1282,7 @@ object RendererConformance:
           Scene(Vector(guide.grob)),
           Vector(name, swatch, ticks, title),
           requirements = Vector(
-            RenderRequirement.Primitive(swatch, RenderPrimitiveKind.Rectangle),
+            RenderRequirement.Primitive(swatch, RenderPrimitiveKind.Image),
             RenderRequirement.Primitive(ticks, RenderPrimitiveKind.Polyline),
             RenderRequirement.Primitive(title, RenderPrimitiveKind.Text)
           )

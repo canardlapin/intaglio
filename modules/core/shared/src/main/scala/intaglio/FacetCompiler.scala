@@ -402,6 +402,8 @@ private[intaglio] object FacetCompiler:
           deriveLegends = false
         )
 
+      case GuidePolicy.WithoutAxes(base, sides) => axisPolicy(base).withoutAxes(sides)
+
   private def representativeAxes(
       specs: Vector[GuideSpec],
       policy: LayoutPolicy
@@ -609,12 +611,15 @@ private[intaglio] object FacetCompiler:
       }
       var specIndex = 0
       while specIndex < specs.length && result.isRight do
-        result = GuideSpec
-          .lower(specs(specIndex), panel.layout, None, policy, options.theme)
-          .map { guide =>
-            out += guide
-            ()
-          }
+        val spec = specs(specIndex)
+        val lowered =
+          if GuidePhase.adaptiveSides(options.guides).contains(spec.side) then
+            GuideSpec.lowerAxis(spec, panel.layout, policy, options.theme, avoidOverlap = true)
+          else GuideSpec.lower(spec, panel.layout, None, policy, options.theme)
+        result = lowered.map { guide =>
+          out += guide
+          ()
+        }
         specIndex += 1
       panelIndex += 1
     result.map(_ => out.result())

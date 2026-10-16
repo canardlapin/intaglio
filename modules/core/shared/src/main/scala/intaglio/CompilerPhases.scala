@@ -2955,6 +2955,12 @@ private[intaglio] object GuidePhase:
               labels
             )
 
+      case GuidePolicy.WithoutAxes(base, hidden) =>
+        specs(base, coord, plotScales, ranges, relativeLegend, labels).map(_.filter {
+          case axis: GuideSpec.Axis => !hidden.contains(axis.side)
+          case _                    => true
+        })
+
   private def derived(
       coord: Coord,
       plotScales: PlotScaleRegistry,
@@ -3234,17 +3240,44 @@ private[intaglio] object GuidePhase:
       if colors.length != samples.length then Right(None)
       else
         // A colorbar always shows the whole domain.
-        scaledTicks(scale, Interval.unsafe(0.0, 1.0)).map { ticks =>
-          Some(
-            GuideSpec.Colorbar(
-              title = Some(scale.name.value),
-              colors = colors,
-              ticks = ticks,
-              name = Some(GraphicsName.unsafe(s"${scale.name.value}-colorbar"))
+        scaledTicks(scale, Interval.unsafe(0.0, 1.0)).flatMap { pretty =>
+          val endpoints = if scale.training == ScaleTraining.Fixed then
+            val values = Vector(scale.domain.lower, scale.domain.upper)
+            val labels = scale.transform.labeler(values)
+            if labels.length != values.length then
+              Left(GraphicsError.AxisLabelCountMismatch(values.length, labels.length))
+            else
+              values
+                .zip(labels)
+                .foldLeft[Either[GraphicsError, Vector[AxisTick]]](Right(Vector.empty)) {
+                  case (result, (value, label)) =>
+                    for
+                      ticks <- result
+                      transformed <- scale.transform.transform(value)
+                      tick <- AxisTick(scale.transformedDomain.rescale(transformed), label)
+                    yield ticks :+ tick
+                }
+          else Right(Vector.empty[AxisTick])
+          endpoints.map { ends =>
+            val ticks =
+              (pretty ++ ends).groupBy(_.value).values.map(_.last).toVector.sortBy(_.value)
+            Some(
+              GuideSpec.Colorbar(
+                title = Some(scale.name.value),
+                colors = colors,
+                ticks = ticks,
+                name = Some(GraphicsName.unsafe(s"${scale.name.value}-colorbar"))
+              )
             )
-          )
+          }
         }
     }
+
+  def adaptiveSides(policy: GuidePolicy): Set[AxisSide] = policy match
+    case GuidePolicy.Derived(overrides, _) =>
+      AxisSide.values.toSet -- overrides.collect { case axis: GuideSpec.Axis => axis.side }
+    case GuidePolicy.WithoutAxes(base, sides) => adaptiveSides(base) -- sides
+    case _                                    => Set.empty
 
   def lower(
       layout: Option[PanelLayout],
@@ -3252,6 +3285,16 @@ private[intaglio] object GuidePhase:
       specs: Vector[GuideSpec],
       policy: LayoutPolicy = LayoutPolicy(),
       theme: Theme = Theme.default
+  ): Either[GraphicsError, Vector[ResolvedGuide]] =
+    lower(layout, frames, specs, policy, theme, Set.empty)
+
+  def lower(
+      layout: Option[PanelLayout],
+      frames: Option[PlotFrames],
+      specs: Vector[GuideSpec],
+      policy: LayoutPolicy,
+      theme: Theme,
+      adaptiveAxes: Set[AxisSide]
   ): Either[GraphicsError, Vector[ResolvedGuide]] =
     if specs.isEmpty then Right(Vector.empty)
     else
@@ -3280,7 +3323,11 @@ private[intaglio] object GuidePhase:
           while idx < specs.length && result.isRight do
             val spec = specs(idx)
             val placed = placements.get(idx).fold(spec)(GuideSpec.place(spec, _))
-            result = GuideSpec.lower(placed, panel, legendViewport, policy, theme).map { guide =>
+            val lowered = placed match
+              case axis: GuideSpec.Axis if adaptiveAxes.contains(axis.side) =>
+                GuideSpec.lowerAxis(axis, panel, policy, theme, avoidOverlap = true)
+              case _ => GuideSpec.lower(placed, panel, legendViewport, policy, theme)
+            result = lowered.map { guide =>
               out += guide
               ()
             }

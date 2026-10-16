@@ -1,9 +1,1 @@
-{
-  "schema_version": 1,
-  "store_id": "st-01M1AZ9FQN18AFABJX0VN00B6X",
-  "created_at": "2026-08-31T03:54:58.165141Z",
-  "default_ttl_s": {
-    "claim": 1800,
-    "reservation": 3600
-  }
-}
+{"schema_version":1,"store_id":"st-01M1AZ9FQN18AFABJX0VN00B6X","created_at":"2026-08-31T03:54:58.165141Z","default_ttl_s":{"claim":1800,"reservation":3600},"authority":{"version":2,"genesis_hash":"fc9ae1199efb294c83fe4b39651763ea3ce69b5ebcd65c7013c1bec141de940e"}}

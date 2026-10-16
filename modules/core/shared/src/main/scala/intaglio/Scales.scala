@@ -498,6 +498,12 @@ object Labeler:
   val default: Labeler =
     values => values.map(formatValue)
 
+  /** Typeset numeric labels, including exponent signs, with U+2212 MINUS SIGN. `default` retains
+    * the ASCII representation used by machine-readable scene numbers.
+    */
+  val typographic: Labeler =
+    values => default(values).map(_.replace('-', '−'))
+
   private def formatValue(value: Double): String =
     if !value.isFinite then value.toString
     else
@@ -551,6 +557,9 @@ final case class Transform private (
     breaks: Breaks,
     labeler: Labeler
 ):
+  /** Change guide labels without rebuilding the numeric transform. */
+  def withLabeler(value: Labeler): Transform = copy(labeler = value)
+
   def transform(value: Double): Either[GraphicsError, Double] =
     if !domain.contains(value) then Left(GraphicsError.TransformOutsideDomain(name.value, value))
     else evaluate("forward", value, forward)
@@ -1125,10 +1134,27 @@ object ContinuousScale:
       name: String,
       limit: Double,
       palette: DivergingPalette = DivergingPalette.BlueRust,
-      oob: OobPolicy = OobPolicy.Censor
+      oob: OobPolicy = OobPolicy.Censor,
+      labeler: Labeler = Labeler.default
   ): Either[GraphicsError, ContinuousScale[Rgba]] =
     if !limit.isFinite || limit <= 0.0 then Left(GraphicsError.InvalidInterval(-limit, limit))
-    else fixed(name, Vector(-limit, limit), palette.unitPalette, Transform.identity, oob)
+    else
+      fixed(
+        name,
+        Vector(-limit, limit),
+        palette.unitPalette,
+        Transform.identity.withLabeler(labeler),
+        oob
+      )
+
+  /** Retains the pre-labeler JVM descriptor. */
+  def diverging(
+      name: String,
+      limit: Double,
+      palette: DivergingPalette,
+      oob: OobPolicy
+  ): Either[GraphicsError, ContinuousScale[Rgba]] =
+    diverging(name, limit, palette, oob, Labeler.default)
 
   private def trainDomains(
       values: IterableOnce[Double],
