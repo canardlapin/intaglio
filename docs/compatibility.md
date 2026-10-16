@@ -138,6 +138,64 @@ review still rejects unreviewed additions and legacy removals; backward MiMa and
 TASTy checks receive no new exclusions. This review does not cover additions that
 exist only on other integration branches.
 
+### Scalar sampling and effect-confidence additions
+
+The scalar/display additions through `13747a3` have an exact forward-only review in
+`interaction-additions.txt`, against the unchanged `0.5.0` baseline:
+
+- `ScalarRampSampling`, `ScalarRamp.sampling` and the distinct `ScalarRamp.discrete` factory
+  add opt-in lookup-table sampling. `make`, `linear` and `fromRamp` retain linear interpolation.
+  The original one-argument JVM constructor is retained as a bridge to linear sampling; a Scala
+  default argument on the new two-argument constructor alone cannot preserve that descriptor.
+  Constructors remain Scala-private, with checked public factories. The forward record for
+  `ScalarRamp.this` covers the added two-argument constructor only; backward findings are not
+  filtered. `ScalarRampSegment.boundaries` adds inspectable scalar transition coordinates without
+  changing its constructor, fields or extractor.
+- `DisplayBlendMode.PlusLighter` appends a case and preserves all existing case ordinals and blend
+  behavior. Callers with exhaustive source matches must handle the additional case when recompiling.
+  Accepting that addition does not promise source compatibility for arbitrary exhaustive matches.
+- `BivariateEffectConfidenceMapping`, `BivariateEffectConfidenceKey`, their error and policy types,
+  `BivariateTextureCoordinate` and the checked opaque `BivariateTextureSize` are new names, rather
+  than overloads or replacements of existing scalar plotting APIs. Their companion factories,
+  defaults and extension method are reviewed with the new classes. The package facade and texture
+  size companion in the record are compiler-emitted owners of the opaque type.
+
+The JVM descriptor regression invokes the original constructor directly and checks its linear
+color interpolation. Shared JVM/JS suites cover linear and discrete sampling, existing blend-mode
+ordinals, and the new confidence policy/key APIs. The following public example compiles and runs
+in the documentation court, alongside the existing plotting examples:
+
+```scala mdoc
+import intaglio.*
+
+val compatibilityBlue = Rgba32.unsafe(0, 0, 200)
+val compatibilityRed = Rgba32.unsafe(200, 0, 0)
+val compatibilityLinear = ScalarRamp.make(Vector(
+  0.0 -> compatibilityBlue, 1.0 -> compatibilityRed
+)).toOption.get
+val compatibilityDiscrete = ScalarRamp.discrete(
+  Vector(compatibilityBlue, compatibilityRed)
+).toOption.get
+assert(compatibilityLinear.sampling == ScalarRampSampling.Linear)
+assert(compatibilityDiscrete.sampling == ScalarRampSampling.Discrete)
+
+val compatibilityEffect = ScalarMapping(ScalarScale.sequential(
+  DisplayWindow.unsafe(-1, 1), compatibilityLinear
+))
+val compatibilityConfidence = BivariateEffectConfidenceMapping(
+  compatibilityEffect,
+  BivariateConfidencePolicy.SurfViewJsConfidence(BivariateTextureSize.unsafe(3))
+)
+assert(compatibilityConfidence.referenceCoordinate(0, 0.5) ==
+  Some(BivariateTextureCoordinate(1, 1)))
+assert(DisplayBlendMode.Normal.ordinal == 0)
+assert(DisplayBlendMode.PlusLighter.ordinal == 4)
+```
+
+The baseline, backward MiMa and TASTy filters are unchanged. The existing negative calibration
+still rejects a removed legacy method and unreviewed additions; reviewed entries must match real
+forward findings, so stale entries also fail the gate.
+
 ### The baseline is compiler-bound
 
 The baseline is built from source, not downloaded, so both sides of the comparison are compiled ---

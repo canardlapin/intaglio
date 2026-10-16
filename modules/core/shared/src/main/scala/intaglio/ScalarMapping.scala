@@ -115,6 +115,10 @@ final class ScalarRamp private (
     val stops: Vector[(Double, Rgba32)],
     val sampling: ScalarRampSampling = ScalarRampSampling.Linear
 ):
+  // Preserve the original JVM descriptor; a default parameter does not create this overload.
+  private def this(stops: Vector[(Double, Rgba32)]) =
+    this(stops, ScalarRampSampling.Linear)
+
   def colorAt(fraction: Double): Rgba32 =
     require(fraction.isFinite, "ramp fraction must be finite")
     sampling match
