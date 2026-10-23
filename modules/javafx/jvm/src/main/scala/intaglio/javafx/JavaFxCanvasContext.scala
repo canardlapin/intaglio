@@ -210,7 +210,8 @@ final class JavaFxCanvasContext(context: GraphicsContext, val cacheByteLimit: Lo
       case None =>
         val value = writable(image)
         // The key retains the packed source pixels as well as the native ARGB image.
-        val bytes = 256L + image.dimensions.pixelCount.toLong * 8L
+        val bytes = 256L + image.dimensions.pixelCount.toLong * 4L +
+          value.getWidth.toLong * value.getHeight.toLong * 4L
         val key = Left(image)
         if retain(key, bytes) then images.put(image, (value, key))
         value
@@ -227,16 +228,31 @@ final class JavaFxCanvasContext(context: GraphicsContext, val cacheByteLimit: Lo
 
   private def writable(image: RasterImage): WritableImage =
     JavaFxCanvasContext.validateRaster(image).orThrow
-    val output = new WritableImage(image.width, image.height)
+    // A one-texel axis is constant. Duplicate it in native storage without
+    // changing the continuous image or source-cell identity. Reused thin native
+    // textures can otherwise paint invalid edge colours on the software path.
+    val width = math.max(2, image.width)
+    val height = math.max(2, image.height)
+    val packed = JavaFxRaster.argb(image)
+    val pixels =
+      if width == image.width && height == image.height then packed
+      else
+        Array.tabulate(width * height)(i =>
+          packed(
+            (if image.height == 1 then 0 else i / width) * image.width +
+              (if image.width == 1 then 0 else i % width)
+          )
+        )
+    val output = new WritableImage(width, height)
     output.getPixelWriter.setPixels(
       0,
       0,
-      image.width,
-      image.height,
+      width,
+      height,
       PixelFormat.getIntArgbInstance,
-      JavaFxRaster.argb(image),
+      pixels,
       0,
-      image.width
+      width
     )
     output
 
