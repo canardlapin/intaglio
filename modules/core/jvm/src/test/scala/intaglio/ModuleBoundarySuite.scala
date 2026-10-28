@@ -13,11 +13,26 @@ class ModuleBoundarySuite extends munit.FunSuite:
     Vector("core", "interaction", "laws", "svg", "canvas", "java2d", "pdf", "javafx")
 
   private lazy val root: Path =
-    var candidate = Path.of(sys.props("user.dir")).toAbsolutePath.normalize
+    // A source consumer's non-forked tests share its user.dir. The suite's own
+    // class location belongs to Intaglio, even when sbt was launched elsewhere.
+    val location = Path.of(getClass.getProtectionDomain.getCodeSource.getLocation.toURI)
+    var candidate = location.toAbsolutePath.normalize
     while candidate != null && !Files.isRegularFile(candidate.resolve("build.sbt")) do
       candidate = candidate.getParent
-    if candidate == null then fail("could not locate the repository root from user.dir")
+    if candidate == null then
+      fail("could not locate the owning source repository from the test class location")
     candidate
+
+  test("the boundary source root owns this suite independently of the consumer working directory") {
+    assert(
+      Files.isRegularFile(
+        root.resolve(
+          "modules/core/jvm/src/test/scala/intaglio/ModuleBoundarySuite.scala"
+        )
+      )
+    )
+    assert(Files.readString(root.resolve("build.sbt")).contains("name := \"intaglio-core\""))
+  }
 
   test("production packages stay under the intaglio namespace") {
     val violations = productionSources.flatMap { path =>

@@ -51,11 +51,18 @@ smoothing plus grob-level alpha.
 Images and pattern tiles share a least-recently-used cache with a default
 64 MiB budget. `new JavaFxCanvasContext(graphics, cacheByteLimit)` selects a
 non-negative byte budget; zero disables retention. `cachedResourceBytes` and
-`cachedResourceCount` expose current accounting. Raster entries count eight
-bytes per pixel (packed source plus native ARGB), pattern entries four, with a
-256-byte allowance per entry. Toolkit objects, pending Canvas commands, and
+`cachedResourceCount` expose current accounting. Raster entries count four
+bytes per source pixel plus four per native pixel, pattern entries four per
+native pixel, with a 256-byte allowance per entry. Toolkit objects, pending Canvas commands, and
 driver textures are outside this accounting. Resources larger than the budget
 are drawn without being cached.
+
+Native storage duplicates a one-pixel axis to two identical pixels. Repeated
+draws of cached thin JavaFX images can otherwise paint colors outside the source
+palette on the software pipeline. The original raster, scene coordinates and
+source-cell identities stay unchanged. Native filtering at the edge need not be
+pixel-identical to an unexpanded JavaFX image. This is a temporary runtime
+workaround with an explicit [qualification and removal condition](../../docs/verification/javafx-gradient-edge-2026-10-23.md).
 
 Call `release()` (or the compatible `clearCaches()`) on the FX application
 thread after balanced drawing when detaching a controller. It drops cached
