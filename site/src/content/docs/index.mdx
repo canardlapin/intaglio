@@ -1,0 +1,149 @@
+---
+title: Intaglio
+description: A grammar of graphics for Scala 3 on the JVM and Scala.js. Describe a plot in terms of your own case classes and render the same compiled scene as SVG, PNG, PDF, Canvas, or JavaFX.
+template: splash
+hero:
+  tagline: A grammar of graphics for Scala 3, on the JVM and Scala.js. Describe a plot in terms of your own case classes, compile it once, and draw the same picture as SVG, PNG, PDF, Canvas, or JavaFX.
+  image:
+    file: ../../assets/generated/hero-plate.svg
+    alt: A composed figure from the Intaglio gallery, two aligned plots sharing one legend
+  actions:
+    - text: Start the tutorial
+      link: tutorial/first-plot/
+      icon: right-arrow
+    - text: How it works
+      link: start/how-it-works/
+      variant: secondary
+    - text: Browse the gallery
+      link: gallery/
+      variant: minimal
+---
+
+import { Aside, Card, CardGrid, Code, LinkCard } from '@astrojs/starlight/components';
+import snippets from '../../generated/snippets.json';
+import plates from '../../generated/plates.json';
+
+export const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+## Your case class in, a plot out
+
+Each aesthetic is a function of your own row type, so the compiler checks the field names. Nothing is
+looked up by string. This program draws the plate shown with it. Both come from
+[the first tutorial](tutorial/first-plot/), where the documentation build compiles the code and
+renders the image.
+
+<div class="intaglio-pair">
+	<Code code={snippets['first-plot']} lang="scala" title="FirstPlot.scala" wrap />
+	<img
+		class="intaglio-plate"
+		src={`${base}/docs-images/gallery/first-plot.svg`}
+		alt="Signal over time: two channels plotted as points joined by lines, with a colour legend"
+		width="560"
+		height="360"
+	/>
+</div>
+
+## One plate, many impressions
+
+In intaglio printmaking, an image is cut into a copper plate, and every print pulled from the plate is
+the same. Here the plate is a `Scene`: an immutable tree of graphical primitives that contains no
+renderer types. Every backend draws that one scene, and all of them run the same conformance tests.
+
+<CardGrid>
+	<Card title="SVG" icon="document">
+		Markup as a `String`, byte-identical on the JVM and Scala.js with the default text metrics. A mark can carry its own title,
+		description, CSS class, and `data-*` attributes.
+	</Card>
+	<Card title="PNG and Java2D" icon="seti:image">
+		A `BufferedImage` or PNG bytes on the JVM, or drawing into a `Graphics2D` that you own.
+	</Card>
+	<Card title="PDF" icon="open-book">
+		A vector page through Apache PDFBox, with the fonts you supply embedded and subset.
+	</Card>
+	<Card title="Canvas" icon="laptop">
+		Draws into a browser `CanvasRenderingContext2D` under Scala.js.
+	</Card>
+	<Card title="JavaFX" icon="seti:java">
+		Draws into a JavaFX canvas. OpenJFX is a `Provided` dependency, so your application supplies it.
+	</Card>
+	<Card title="Notebooks" icon="puzzle">
+		Jupyter MIME bundles built on the SVG renderer, with a plain-text fallback.
+	</Card>
+</CardGrid>
+
+Each backend is a separate artifact, so a portable library that depends on `intaglio-core` never
+pulls in a desktop toolkit or a PDF library. [Backends](guides/backends/) compares what each one
+can and cannot express.
+
+## What the compiler and the types catch
+
+<div class="intaglio-three">
+<CardGrid>
+	<Card title="Missing positions are compile errors">
+		`geomPoint()` cannot be called until both `x` and `y` are mapped. The builder's type records which
+		positions are mapped.
+	</Card>
+	<Card title="Failures are values">
+		Building, compiling, and rendering return `Either`. Every error type extends `IntaglioError`, so one
+		`flatMap` chain carries the compiler's and the renderer's failures together.
+	</Card>
+	<Card title="Dropped rows are reported">
+		A row that cannot be drawn, such as one with a `NaN` position, appears in `droppedRows` with a typed
+		reason. It is never discarded silently.
+	</Card>
+</CardGrid>
+</div>
+
+## The gallery
+
+Every plate below is rendered by the code printed beside it in the [gallery](gallery/). The
+documentation build renders each plate again and fails if the image differs from the checked-in file.
+
+<div class="intaglio-wall">
+	{plates.map((p) => (
+		<a href={p.href}>
+			<img class="intaglio-plate" src={p.src} alt={p.title} width="560" height="360" loading="lazy" />
+			<span>{p.title}</span>
+		</a>
+	))}
+</div>
+
+## Status
+
+<Aside type="caution" title="Pre-release development software">
+	APIs, semantics, and package boundaries may change. No stable support or binary-compatibility
+	promise should be inferred. Intaglio is not yet published to Maven Central; build it from source.
+</Aside>
+
+Intaglio is 0.1 development software with no published release. It is built and tested with Scala
+3.3.8 (the LTS) and 3.9.0, on JDK 17, 21, and 25, for the JVM and Scala.js. The JavaFX tests need
+JDK 21 or later. To use it now, publish the artifacts to your local repository:
+
+```sh
+git clone https://github.com/canardlapin/intaglio.git
+cd intaglio
+sbt publishLocal
+```
+
+sbt prints the version it published, which is derived from the Git commit. Depend on the core and
+one backend with that version. `%%%` resolves the JVM or Scala.js artifact and needs the Scala.js
+sbt plugin; a JVM-only build can use `%%`.
+
+```scala
+libraryDependencies ++= Seq(
+  "io.github.canardlapin" %%% "intaglio-core" % "<version>",
+  "io.github.canardlapin" %%% "intaglio-svg" % "<version>"
+)
+```
+
+Before 1.0, a `0.y.0` release may break the public API and a `0.y.z` release may not. The
+[compatibility policy](contracts/compatibility/) defines what counts as breaking.
+
+## Where to go next
+
+<CardGrid>
+	<LinkCard title="Tutorial" description="Seven short chapters, from a case class to a saved PDF." href="tutorial/first-plot/" />
+	<LinkCard title="Guides" description="Backends, accessibility, interaction, fonts, heatmaps, and performance." href="guides/backends/" />
+	<LinkCard title="Extending Intaglio" description="Write your own scale, stat, geom, coordinate system, or backend, and test it with the law kit." href="extending/scales/" />
+	<LinkCard title="Design decisions" description="Why the API is shaped this way, one decision record at a time." href="decisions/" />
+</CardGrid>

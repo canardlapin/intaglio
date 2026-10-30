@@ -6,6 +6,9 @@ the code shown beside it. A guide here cannot claim an API that does not exist.
 
 ## Learn it
 
+New to Intaglio? [How Intaglio works](how-it-works.md) follows one plot from your rows to SVG and
+names the pieces the rest of these pages use.
+
 A task-shaped path. Read them in order the first time; each one stands alone
 afterwards.
 

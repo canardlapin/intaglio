@@ -1,0 +1,220 @@
+/* Intaglio's site theme: ink, copper, and paper.
+ *
+ * Starlight's dark palette is the :root default and the light palette lives under
+ * [data-theme='light']. The gallery plates are drawn for a light ground, so in both
+ * themes they sit on a paper mat, like an impression pulled from the plate.
+ */
+
+:root {
+	--sl-font: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--sl-font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+	--intaglio-display: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
+
+	--intaglio-paper: #fbf8f1;
+	--intaglio-paper-edge: #e4dccb;
+	--intaglio-copper: #a5582a;
+	--intaglio-ink: #1f2a37;
+
+	/* Dark: ink ground, copper accent. */
+	--sl-color-accent-low: #3a2216;
+	--sl-color-accent: #c8723f;
+	--sl-color-accent-high: #f2c3a2;
+	--sl-color-white: #f4f1ea;
+	--sl-color-gray-1: #e2ddd3;
+	--sl-color-gray-2: #c4bdb0;
+	--sl-color-gray-3: #968f84;
+	--sl-color-gray-4: #5f5a52;
+	--sl-color-gray-5: #3d3934;
+	--sl-color-gray-6: #26241f;
+	--sl-color-black: #171614;
+
+	--intaglio-mat-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+:root[data-theme='light'] {
+	/* Light: paper ground, ink text, copper accent. */
+	--sl-color-accent-low: #f3e2d4;
+	--sl-color-accent: #a5582a;
+	--sl-color-accent-high: #5c2e14;
+	--sl-color-white: #1d1b17;
+	--sl-color-gray-1: #2f2c27;
+	--sl-color-gray-2: #48443d;
+	--sl-color-gray-3: #6d675d;
+	--sl-color-gray-4: #9a9386;
+	--sl-color-gray-5: #cdc5b6;
+	--sl-color-gray-6: #ece5d6;
+	--sl-color-gray-7: #f6f1e6;
+	--sl-color-black: #fbf8f1;
+
+	--intaglio-mat-shadow: 0 1px 2px rgb(60 40 20 / 0.08), 0 8px 24px rgb(60 40 20 / 0.08);
+}
+
+/* Display type for titles and section headings. */
+h1#_top,
+.sl-markdown-content :is(h1, h2, h3),
+.hero h1 {
+	font-family: var(--intaglio-display);
+	font-optical-sizing: auto;
+	font-weight: 560;
+	letter-spacing: -0.01em;
+}
+
+.sl-markdown-content h2 {
+	margin-top: 2.5rem;
+}
+
+/* One accent for every card icon, instead of Starlight's rotating colours. */
+.sl-markdown-content .card-grid > .card:nth-child(n) {
+	--sl-card-border: var(--sl-color-accent);
+	--sl-card-bg: var(--sl-color-accent-low);
+}
+
+/* Images from docs/ are SVG plates and diagrams drawn on a light ground. */
+.sl-markdown-content img[src*='/docs-images/gallery/'],
+.intaglio-plate {
+	display: block;
+	width: 100%;
+	max-width: 46rem;
+	height: auto;
+	box-sizing: border-box;
+	padding: clamp(0.5rem, 2vw, 1rem);
+	background: var(--intaglio-paper);
+	border: 1px solid var(--intaglio-paper-edge);
+	border-radius: 0.5rem;
+	box-shadow: var(--intaglio-mat-shadow);
+}
+
+.sl-markdown-content img[src*='/docs-images/assets/'] {
+	display: block;
+	width: 100%;
+	height: auto;
+	border-radius: 0.6rem;
+	box-shadow: var(--intaglio-mat-shadow);
+}
+
+/* Tables in the guides are dense reference tables; keep them readable on narrow screens. */
+.sl-markdown-content table {
+	display: block;
+	overflow-x: auto;
+	font-size: var(--sl-text-sm);
+}
+
+/* ---- Landing page ---------------------------------------------------------------- */
+
+@media (min-width: 50rem) {
+	.hero {
+		grid-template-columns: 1fr 1fr;
+	}
+
+	.hero > img {
+		width: 100%;
+	}
+}
+
+.hero {
+	padding-block: clamp(2rem, 6vw, 4.5rem) clamp(1.5rem, 4vw, 3rem);
+}
+
+.hero h1 {
+	font-size: clamp(2.6rem, 7vw, 4.25rem);
+	font-weight: 600;
+}
+
+.hero .tagline {
+	font-size: clamp(1.05rem, 2vw, 1.25rem);
+	color: var(--sl-color-gray-2);
+	max-width: 34rem;
+}
+
+.hero img {
+	padding: 0.9rem;
+	background: var(--intaglio-paper);
+	border: 1px solid var(--intaglio-paper-edge);
+	border-radius: 0.6rem;
+	box-shadow: var(--intaglio-mat-shadow);
+	transform: rotate(-1.2deg);
+}
+
+.intaglio-three .card-grid {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 50rem) {
+	.intaglio-three .card-grid {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+.intaglio-pair {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 1.25rem;
+	align-items: center;
+	margin-block: 1.5rem 0.5rem;
+}
+
+@media (min-width: 64rem) {
+	.intaglio-three .card-grid {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 50rem) {
+	.intaglio-three .card-grid {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+.intaglio-pair {
+		grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+	}
+}
+
+.intaglio-pair > * {
+	margin: 0 !important;
+}
+
+.intaglio-wall {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 14.5rem), 1fr));
+	gap: 1rem;
+	margin-top: 1.25rem;
+}
+
+.intaglio-wall a {
+	display: block;
+	text-decoration: none;
+	color: var(--sl-color-gray-2);
+	font-size: var(--sl-text-sm);
+}
+
+.intaglio-wall a .intaglio-plate {
+	padding: 0.4rem;
+	transition:
+		transform 160ms ease,
+		box-shadow 160ms ease;
+}
+
+.intaglio-wall a:hover .intaglio-plate,
+.intaglio-wall a:focus-visible .intaglio-plate {
+	transform: translateY(-2px);
+	box-shadow:
+		0 0 0 2px var(--sl-color-accent),
+		var(--intaglio-mat-shadow);
+}
+
+.intaglio-wall span {
+	display: block;
+	margin-top: 0.45rem;
+}
+
+.intaglio-wall a:hover span {
+	color: var(--sl-color-white);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.hero img,
+	.intaglio-wall a .intaglio-plate {
+		transform: none !important;
+		transition: none;
+	}
+}

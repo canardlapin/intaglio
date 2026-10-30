@@ -19,8 +19,12 @@ object Gallery:
   val width: Int = 560
   val height: Int = 360
 
-  /** Render `program` to `docs/gallery/<name>.svg` and return the markdown that shows it. */
-  def plate(name: String, program: Either[IntaglioError, Scene]): String =
+  /** Render `program` to `docs/gallery/<name>.svg` and return the markdown that shows it.
+    *
+    * `docsRoot` is the path from the calling page back to `docs/`: `""` for a page in `docs/`
+    * itself, `"../"` for one in a subdirectory such as `docs/tutorial/`.
+    */
+  def plate(name: String, program: Either[IntaglioError, Scene], docsRoot: String = ""): String =
     val options = SvgOptions
       .unsafe(width = width, height = height)
     val svg =
@@ -30,8 +34,12 @@ object Gallery:
     val target = directory.resolve(s"$name.svg")
     Files.createDirectories(directory)
     Files.write(target, svg.getBytes("UTF-8"))
-    s"![$name](gallery/$name.svg)"
+    s"![$name](${docsRoot}gallery/$name.svg)"
 
   /** The same, for a program that stops at a `PlotProgram`. */
-  def plot[Row](name: String, program: Either[IntaglioError, PlotProgram[Row]]): String =
-    plate(name, program.flatMap(_.scene.left.map(identity[IntaglioError])))
+  def plot[Row](
+      name: String,
+      program: Either[IntaglioError, PlotProgram[Row]],
+      docsRoot: String = ""
+  ): String =
+    plate(name, program.flatMap(_.scene.left.map(identity[IntaglioError])), docsRoot)

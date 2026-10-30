@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="360" viewBox="0 0 560 360" id="intaglio-plot" role="img" aria-labelledby="intaglio-plot-title" aria-describedby="intaglio-plot-description">
+  <title id="intaglio-plot-title">Signal over time</title>
+  <desc id="intaglio-plot-description">Plot intaglio-plot: 2 layers, 16 resolved marks, 1 scale.
+Layer 0 (intaglio-plot-layer-0): geom=point, stat=identity, input=8, resolved=8, dropped=0.
+Layer 1 (intaglio-plot-layer-1): geom=line, stat=identity, input=8, resolved=8, dropped=0.
+Scale color (channel): kind=discrete, domain=ordered [left, right].</desc>
+  <g data-name="plot-panel" clip-path="url(#clip-0)">
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="83.9443" cy="234.5455" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="205.2953" cy="132.706" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="326.6463" cy="46.5341" r="5.3333" />
+    <circle stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="447.9973" cy="85.7031" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="83.9443" cy="297.2159" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="205.2953" cy="250.2131" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="326.6463" cy="148.3736" r="5.3333" />
+    <circle stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="447.9973" cy="101.3707" r="5.3333" />
+    <polyline stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="83.9443,234.5455 205.2953,132.706 326.6463,46.5341 447.9973,85.7031" />
+    <polyline stroke="#e69f00" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="83.9443,297.2159 205.2953,250.2131 326.6463,148.3736 447.9973,101.3707" />
+  </g>
+  <g data-name="x-axis">
+    <polyline data-name="x-axis-baseline" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="65.7417,309.75 466.2,309.75" />
+    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="83.9443,309.75 83.9443,315.0833" />
+    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="144.6198,309.75 144.6198,315.0833" />
+    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="205.2953,309.75 205.2953,315.0833" />
+    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="265.9708,309.75 265.9708,315.0833" />
+    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="326.6463,309.75 326.6463,315.0833" />
+    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="387.3218,309.75 387.3218,315.0833" />
+    <polyline data-name="x-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="447.9973,309.75 447.9973,315.0833" />
+    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="83.9443" y="320.4167" text-anchor="middle" dominant-baseline="text-before-edge">0</text>
+    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="144.6198" y="320.4167" text-anchor="middle" dominant-baseline="text-before-edge">0.5</text>
+    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="205.2953" y="320.4167" text-anchor="middle" dominant-baseline="text-before-edge">1</text>
+    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="265.9708" y="320.4167" text-anchor="middle" dominant-baseline="text-before-edge">1.5</text>
+    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="326.6463" y="320.4167" text-anchor="middle" dominant-baseline="text-before-edge">2</text>
+    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="387.3218" y="320.4167" text-anchor="middle" dominant-baseline="text-before-edge">2.5</text>
+    <text data-name="x-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="447.9973" y="320.4167" text-anchor="middle" dominant-baseline="text-before-edge">3</text>
+    <text data-name="x-axis-title" fill="#000000" stroke="none" font-size="14.6667" x="265.9708" y="354.25" text-anchor="middle" dominant-baseline="middle">Minute</text>
+  </g>
+  <g data-name="y-axis">
+    <polyline data-name="y-axis-baseline" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="65.7417,309.75 65.7417,34" />
+    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="65.7417,265.8807 60.4083,265.8807" />
+    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="65.7417,187.5426 60.4083,187.5426" />
+    <polyline data-name="y-axis-ticks" stroke="#000000" fill="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" points="65.7417,109.2045 60.4083,109.2045" />
+    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="55.075" y="265.8807" text-anchor="end" dominant-baseline="middle">1</text>
+    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="55.075" y="187.5426" text-anchor="end" dominant-baseline="middle">1.5</text>
+    <text data-name="y-axis-label" fill="#000000" stroke="none" font-size="13.3333" x="55.075" y="109.2045" text-anchor="end" dominant-baseline="middle">2</text>
+    <text data-name="y-axis-title" fill="#000000" stroke="none" font-size="14.6667" x="13.1083" y="171.875" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 13.1083 171.875)">Signal</text>
+  </g>
+  <g data-name="channel-legend">
+    <text data-name="channel-legend-title" fill="#000000" stroke="none" font-size="13.3333" x="492.5333" y="42" text-anchor="start" dominant-baseline="text-before-edge">channel</text>
+    <circle data-name="channel-legend-entry-0-key" stroke="#000000" fill="#000000" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="492.5333" cy="72.3333" r="6.1667" />
+    <text data-name="channel-legend-entry-0-label" fill="#000000" stroke="none" font-size="13.3333" x="505.8667" y="72.3333" text-anchor="start" dominant-baseline="middle">left</text>
+    <circle data-name="channel-legend-entry-1-key" stroke="#e69f00" fill="#e69f00" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" cx="492.5333" cy="94.3333" r="6.1667" />
+    <text data-name="channel-legend-entry-1-label" fill="#000000" stroke="none" font-size="13.3333" x="505.8667" y="94.3333" text-anchor="start" dominant-baseline="middle">right</text>
+  </g>
+  <g data-name="plot-title">
+    <text data-name="plot-title" fill="#000000" stroke="none" font-size="21.3333" x="65.7417" y="20" text-anchor="start" dominant-baseline="middle">Signal over time</text>
+  </g>
+  <defs>
+    <clipPath id="clip-0">
+      <rect x="65.7417" y="34" width="400.4583" height="275.75" />
+    </clipPath>
+  </defs>
+</svg>

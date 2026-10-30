@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="290" viewBox="0 0 880 290" role="img" aria-labelledby="pipeline-title pipeline-desc">
+  <title id="pipeline-title">From rows to rendered output</title>
+  <desc id="pipeline-desc">Your rows become a plot program through build. The program compiles to one renderer-neutral Scene. Each backend renders that same Scene: SVG, PNG through Java2D, PDF, Canvas on Scala.js, and JavaFX.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6573" />
+    </marker>
+  </defs>
+  <rect x="0.5" y="0.5" width="879" height="289" rx="10" fill="#fbf8f1" stroke="#e4dccb" />
+
+  <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">
+    <!-- Rows -->
+    <rect x="24" y="95" width="150" height="90" rx="8" fill="#ffffff" stroke="#9aa3ae" />
+    <text x="99" y="134" font-size="16" font-weight="600" fill="#1f2a37">Your rows</text>
+    <text x="99" y="156" font-size="11.5" font-family="ui-monospace, 'SFMono-Regular', Menlo, monospace" fill="#5b6573">Vector[Reading]</text>
+
+    <!-- Program -->
+    <rect x="234" y="95" width="170" height="90" rx="8" fill="#ffffff" stroke="#9aa3ae" />
+    <text x="319" y="134" font-size="16" font-weight="600" fill="#1f2a37">Plot program</text>
+    <text x="319" y="156" font-size="11.5" font-family="ui-monospace, 'SFMono-Regular', Menlo, monospace" fill="#5b6573">PlotProgram[Reading]</text>
+
+    <!-- Scene: the plate -->
+    <rect x="444" y="95" width="150" height="90" rx="8" fill="#f6e9dc" stroke="#a5582a" stroke-width="2" />
+    <text x="519" y="134" font-size="16" font-weight="600" fill="#1f2a37">Scene</text>
+    <text x="519" y="156" font-size="11.5" font-family="ui-monospace, 'SFMono-Regular', Menlo, monospace" fill="#7a3f1c">the plate</text>
+
+    <!-- Edges -->
+    <g stroke="#5b6573" stroke-width="1.4" fill="none">
+      <line x1="174" y1="140" x2="232" y2="140" marker-end="url(#arrow)" />
+      <line x1="404" y1="140" x2="442" y2="140" marker-end="url(#arrow)" />
+      <line x1="594" y1="140" x2="640" y2="140" />
+      <path d="M640 140 C 672 140, 668 62, 698 62" marker-end="url(#arrow)" />
+      <path d="M640 140 C 672 140, 668 106, 698 106" marker-end="url(#arrow)" />
+      <line x1="640" y1="140" x2="698" y2="150" marker-end="url(#arrow)" />
+      <path d="M640 140 C 672 140, 668 194, 698 194" marker-end="url(#arrow)" />
+      <path d="M640 140 C 672 140, 668 238, 698 238" marker-end="url(#arrow)" />
+    </g>
+    <g font-size="11.5" font-family="ui-monospace, 'SFMono-Regular', Menlo, monospace" fill="#1f2a37">
+      <text x="203" y="131">build</text>
+      <text x="424" y="131">scene</text>
+      <text x="617" y="131">render</text>
+    </g>
+
+    <!-- Impressions -->
+    <g font-size="13" fill="#1f2a37">
+      <rect x="700" y="44" width="156" height="36" rx="18" fill="#ffffff" stroke="#9aa3ae" />
+      <text x="778" y="67">SVG</text>
+      <rect x="700" y="88" width="156" height="36" rx="18" fill="#ffffff" stroke="#9aa3ae" />
+      <text x="778" y="111">PNG · Java2D</text>
+      <rect x="700" y="132" width="156" height="36" rx="18" fill="#ffffff" stroke="#9aa3ae" />
+      <text x="778" y="155">PDF</text>
+      <rect x="700" y="176" width="156" height="36" rx="18" fill="#ffffff" stroke="#9aa3ae" />
+      <text x="778" y="199">Canvas · Scala.js</text>
+      <rect x="700" y="220" width="156" height="36" rx="18" fill="#ffffff" stroke="#9aa3ae" />
+      <text x="778" y="243">JavaFX</text>
+    </g>
+
+    <!-- Captions -->
+    <g font-size="12" fill="#5b6573">
+      <text x="99" y="212">aesthetics are</text>
+      <text x="99" y="228">functions of a row</text>
+      <text x="319" y="212">checked before it runs;</text>
+      <text x="319" y="228">errors are values</text>
+      <text x="519" y="212">one immutable tree,</text>
+      <text x="519" y="228">no backend types in it</text>
+      <text x="778" y="30">impressions</text>
+    </g>
+  </g>
+</svg>

@@ -23,6 +23,7 @@ Both cross-compile to the JVM and Scala.js, which is why they take `%%%`. The
 `plot` takes any `IterableOnce[Row]` and keeps the row type. There is no data frame, no column
 registry, and no string-keyed column lookup: an aesthetic is a Scala function from your row.
 
+<!-- site:snippet first-plot -->
 ```scala mdoc:silent
 import intaglio.*
 
@@ -43,6 +44,7 @@ val readings: Vector[Reading] =
 
 ## Build the program
 
+<!-- site:snippet first-plot -->
 ```scala mdoc:silent
 val program =
   plot(readings)
@@ -80,6 +82,7 @@ program.map(_.plot.layers.map(_.geom))
 position adjustment, geom lowering, layout, guides. The result is a `Scene` — an immutable tree of
 renderer-neutral grobs with no SVG, Java2D, or Canvas value anywhere in it.
 
+<!-- site:snippet first-plot -->
 ```scala mdoc:silent
 val scene: Either[GraphicsError, Scene] = program.flatMap(_.scene)
 ```
@@ -93,6 +96,7 @@ program.flatMap(_.resolve).map(_.trainedScales.map(_.aesthetic))
 
 ## Render and write it
 
+<!-- site:snippet first-plot -->
 ```scala mdoc:silent
 import intaglio.svg.*
 
@@ -104,7 +108,14 @@ The two `Either`s carry different error enums — `GraphicsError` from the compi
 `SvgRenderError` from the backend — and both extend `IntaglioError`. That shared root is what lets
 one `flatMap` chain compile-then-render without a hand-written error union.
 
-`SvgDocument.value` is the markup. The document also reports the target it was serialized for:
+`SvgDocument.value` is the markup. Rendered at the 560 by 360 pixels used for every plate in these
+guides, the program draws this:
+
+```scala mdoc:passthrough
+println(intaglio.docs.Gallery.plot("first-plot", program, docsRoot = "../"))
+```
+
+The document itself reports the target it was serialized for, here the 640 by 480 default:
 
 ```scala mdoc
 document.map(svg => (svg.width, svg.height, svg.pixelsPerInch, svg.deviceScale))

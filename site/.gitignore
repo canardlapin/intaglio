@@ -1,0 +1,11 @@
+# Astro
+dist/
+.astro/
+node_modules/
+
+# Written by scripts/sync-docs.mjs from the mdoc output of docs/. Edit docs/, not these.
+src/content/docs/*
+!src/content/docs/index.mdx
+src/generated/
+src/assets/generated/
+public/docs-images/
