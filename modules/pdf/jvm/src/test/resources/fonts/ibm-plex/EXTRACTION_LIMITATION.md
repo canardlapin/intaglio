@@ -1,7 +1,8 @@
 # PDF tracked-text extraction boundary
 
 `PdfTrackingFixture` writes the actual mixed-bidi PDF through `PdfRenderer`.
-Run `verify-poppler-mixed-bidi.py <fixture.pdf>` to inspect it with `pdftotext`
+Run `python3 tools/check-pdf-tracking.py <fixture.pdf>` from the repository root
+to inspect it with `pdftotext`
 resolved on `PATH`; the script fails explicitly if the tool is absent. Poppler
 24.12.0 emitted `A Δ RLE א PDF é` (U+202B/U+202C wrap the Hebrew run), which
 is the expected directional-formatting projection of logical `A Δאé`, not a
