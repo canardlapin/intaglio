@@ -10,6 +10,27 @@ class CasingPickingSuite extends munit.FunSuite:
   private val cased =
     ordinary.withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(6)))
 
+  test("decorative segment underlays do not inherit a named group's picking region") {
+    def compile(params: GraphicParams) =
+      val segment = ok(
+        Grob.segments(
+          Vector(Point.npcUnsafe(0.1, 0.5) -> Point.npcUnsafe(0.9, 0.5)),
+          gp = params
+        )
+      )
+      val scene =
+        Scene(Vector(Grob.group(Vector(segment), name = Some(GraphicsName.unsafe("route")))))
+      ok(NamedPicking.compile(scene, context))
+    val plain = compile(ordinary)
+    val decorated = compile(cased)
+    var hits = 0
+    for x <- 0 to 200 by 2; y <- 40 to 60 do
+      val expected = ok(plain.hits(DevicePoint(x, y)))
+      hits += expected.size
+      assertEquals(ok(decorated.hits(DevicePoint(x, y))), expected, clue((x, y)))
+    assert(hits > 0)
+  }
+
   test("line and segment casing preserve picking hits, target count and legend entries") {
     for segment <- Vector(false, true) do
       def build(params: GraphicParams) =

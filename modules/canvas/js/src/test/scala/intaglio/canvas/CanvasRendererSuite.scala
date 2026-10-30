@@ -617,6 +617,46 @@ class CanvasRendererSuite extends munit.FunSuite:
     )
   }
 
+  test("unsupported native tracking is typed and restores the Canvas state") {
+    given CanvasRasterFactory with
+      def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource =
+        js.Dynamic.literal().asInstanceOf[CanvasImageSource]
+
+    var saves = 0
+    var restores = 0
+    var fills = 0
+    val context = js.Dynamic
+      .literal(
+        save = (() => saves += 1): js.Function0[Unit],
+        restore = (() => restores += 1): js.Function0[Unit],
+        fillText = ((_: String, _: Double, _: Double) => fills += 1): js.Function3[
+          String,
+          Double,
+          Double,
+          Unit
+        ],
+        fillStyle = "",
+        globalAlpha = 1.0,
+        font = "",
+        textAlign = "",
+        textBaseline = ""
+      )
+      .asInstanceOf[CanvasRenderingContext2D]
+    val tracked = Grob.textUnsafe(
+      "x\u0301 α",
+      Point.npcUnsafe(0.5, 0.5),
+      gp = GraphicParams.unsafe().withLetterSpacing(LetterSpacing.pointsUnsafe(1.5))
+    )
+    val program =
+      CanvasRenderer.compile(Scene(Vector(tracked))).fold(error => fail(error.message), identity)
+
+    assertEquals(
+      CanvasRenderer.drawChecked(program, context).left.toOption,
+      Some(CanvasRenderError.UnsupportedLetterSpacing)
+    )
+    assertEquals((saves, restores, fills), (1, 1, 0))
+  }
+
   test("oversized raster patterns fail at the typed compile boundary") {
     val recipe = PatternRecipe
       .parallelRules(RuleOrientation.Vertical, PatternTile.MaxAxisPixels.toDouble + 1.0, 1.0)
@@ -786,8 +826,9 @@ class CanvasRendererSuite extends munit.FunSuite:
       .literal(
         save = (() => ()): js.Function0[Unit],
         restore = (() => ()): js.Function0[Unit],
-        drawImage = ((_: CanvasImageSource, _: Double, _: Double, _: Double, _: Double) => ()):
-          js.Function5[CanvasImageSource, Double, Double, Double, Double, Unit]
+        drawImage = (
+            (_: CanvasImageSource, _: Double, _: Double, _: Double, _: Double) => ()
+        ): js.Function5[CanvasImageSource, Double, Double, Double, Double, Unit]
       )
       .asInstanceOf[CanvasRenderingContext2D]
     for dimensions <- Vector(RasterDimensions.unsafe(3, 2), RasterDimensions.unsafe(3, 40000)) do

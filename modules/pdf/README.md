@@ -51,6 +51,13 @@ back. During export every used font is loaded in embedded-subset mode; malformed
 data and missing Unicode glyphs produce a typed `PdfRenderError` instead of
 host-dependent substitution.
 
+Use `catalog.textMetrics` for layout measured from the same registered font
+bytes. Nonzero [letter spacing](../../docs/letter-spacing.md) shapes Unicode
+runs before positioning embedded glyphs and preserves the logical string in
+`/ActualText`. Combining sequences and contextual-script words remain intact.
+Text extraction from bidirectional runs depends on the reader; the linked guide
+records the PDFBox limitation and the independent Poppler check.
+
 ## Vector and raster contract
 
 The renderer emits these as native PDF vector operations:

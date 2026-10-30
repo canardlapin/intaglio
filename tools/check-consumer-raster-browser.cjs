@@ -86,6 +86,24 @@ async function main() {
           assert.ok(Math.abs(result.measured-result.expectedWidth)<1e-7,`${family}: measurement matches drawing`);
           report.runs.push({kind:'font',scale,family,...result});
         }
+        for (const label of ['A', 'α − μ', 'x\u0301x', 'x\u0301\u0323x', 'שלום', 'ab(אבג)12', 'السلام', 'क्षि', '漢字', '👩‍🔬X']) {
+          for (const spacing of [2, -0.5]) for (const alignment of ['left','center','right']) {
+            const result = await page.evaluate(({label,spacing,scale,alignment}) => {
+              const c=document.querySelector('#probe');
+              const measured=ConsumerRasterProbe.tracking(c,label,spacing,scale,alignment);
+              const ref=document.createElement('canvas');ref.width=c.width;ref.height=c.height;
+              const ctx=ref.getContext('2d');ctx.scale(scale,scale);ctx.font='32px "Arial"';
+              ctx.letterSpacing=`${spacing}px`;ctx.textAlign=alignment;ctx.textBaseline='middle';
+              ctx.fillText(label,300,60);
+              const expected=ctx.getImageData(0,0,c.width,c.height).data;
+              const actual=c.getContext('2d').getImageData(0,0,c.width,c.height).data;
+              return {measured,expectedWidth:ctx.measureText(label).width,equal:expected.every((v,i)=>v===actual[i])};
+            }, {label,spacing,scale,alignment});
+            assert.equal(result.equal,true,`Unicode tracking drawing: ${label}/${spacing}/${alignment}/${scale}`);
+            assert.ok(Math.abs(result.measured-result.expectedWidth)<1e-7,`Unicode tracking metrics: ${label}`);
+            report.runs.push({kind:'unicode-tracking',label,spacing,scale,alignment,...result});
+          }
+        }
         await page.evaluate(() => {
           document.body.style.cssText='margin:16px;background:white;display:flex;gap:16px;font:14px sans-serif';
           for(const hidden of [false,true]) {

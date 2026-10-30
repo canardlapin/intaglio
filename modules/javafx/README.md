@@ -34,23 +34,24 @@ and weight. This reaches static fonts registered under separate families, includ
 Medium (`Medm`) and SemiBold (`SmBld`). Conventional weight suffixes are recognized; italic and
 condensed variants are not substituted. If no matching face exists, JavaFX's normal family lookup
 remains the fallback. Load application fonts with `Font.loadFont` before drawing; the shared lookup
-refreshes when new face names appear. Registering actual faces also makes measurement use their
+also probes conventional full names after registration, because JavaFX may cache its global face
+inventory. Registering actual faces also makes measurement use their
 advances instead of the regular face's advances.
 
-Tests combine the shared renderer conformance contract with a recording
-implementation of the drawing contract, so the full interpreter runs headless
-without starting the JavaFX toolkit. The one behavior that cannot be pinned
-headless is font sizing: resolved pixel sizes are passed to `Font.font`, which
-on desktop treats size as pixel-equivalent; if text renders visibly larger
-than the Java2D backend at the same device size, that assumption is the place
-to look. The backend owns JavaFX-specific stroke,
+Tests combine the shared renderer conformance contract and a recording context
+with native headless JavaFX tests of font selection, metrics, anchors, and rendered
+pixels. The backend owns JavaFX-specific stroke,
 dash, font, text-anchor, clipping, transform, and alpha behavior; it contains
 no plot, scale, guide, or layout semantics.
 
-JavaFX applications that want installed-font-aware layout can also depend on
-`intaglio-java2d` and inject `Java2DTextMetrics()` into `LayoutPolicy`. Font
-measurement is a caller-selected JVM capability; the JavaFX renderer itself
-does not change the deterministic shared `TextMetrics.estimate` default.
+For nonzero [letter spacing](../../docs/letter-spacing.md), native `TextFlow`
+shapes and orders safe Unicode units before positioning them. Drawing snapshots
+that paragraph onto the Canvas at its current scale, preserving registered fonts
+and color glyphs. Snapshots are limited to 4096 pixels per axis; metrics require
+no snapshot. Custom contexts must implement `fillTrackedText` and
+`measureTrackedText` to support this capability. Font measurement remains a
+caller-selected capability; the renderer does not change the shared
+`TextMetrics.estimate` default.
 
 Shared raster images are converted per adapter into cached ARGB
 `WritableImage` values and drawn with explicit nearest-neighbor or bilinear

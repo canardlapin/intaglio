@@ -91,7 +91,13 @@ final case class Theme(
       plotTitleFontWeight = plotText.title.fontWeight,
       plotSubtitleFontWeight = plotText.subtitle.fontWeight,
       legendFontWeight = legend.text.fontWeight,
-      legendTitleFontWeight = legend.title.fontWeight
+      legendTitleFontWeight = legend.title.fontWeight,
+      axisLetterSpacingPt = pointSpacing(axis.text, base.referenceDevice),
+      axisTitleLetterSpacingPt = pointSpacing(axis.title, base.referenceDevice),
+      plotTitleLetterSpacingPt = pointSpacing(plotText.title, base.referenceDevice),
+      plotSubtitleLetterSpacingPt = pointSpacing(plotText.subtitle, base.referenceDevice),
+      legendLetterSpacingPt = pointSpacing(legend.text, base.referenceDevice),
+      legendTitleLetterSpacingPt = pointSpacing(legend.title, base.referenceDevice)
     )
 
   private def requirePointFont(label: String, gp: GraphicParams): Unit =
@@ -102,6 +108,12 @@ final case class Theme(
 
   private def pointFont(gp: GraphicParams): Double =
     gp.fontSize.value
+
+  private def pointSpacing(gp: GraphicParams, device: DeviceContext): Double =
+    gp.letterSpacing.fold(0.0) {
+      case LetterSpacing(value, StrokeUnit.Point)       => value
+      case LetterSpacing(value, StrokeUnit.DevicePixel) => value * 72.0 / device.pixelsPerInch
+    }
 
 object Theme:
   private def text(sizePt: Double): GraphicParams =

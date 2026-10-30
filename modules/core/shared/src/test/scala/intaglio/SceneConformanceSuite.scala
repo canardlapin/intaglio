@@ -129,6 +129,9 @@ class SceneConformanceSuite extends munit.FunSuite:
               actualFontSize == fontSizePx && actualFontFamily == fontFamily && gp.alpha == alpha &&
               gp.fontWeight == fontWeight
             case _ => false
+        case RenderRequirement.LetterSpacing(name, spacingPx) =>
+          primitiveName(primitive).contains(name) &&
+          primitiveParams(primitive).flatMap(_.letterSpacing).exists(_.value == spacingPx)
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           primitive match
             case DevicePrimitive.Image(
@@ -272,6 +275,20 @@ class SceneConformanceSuite extends munit.FunSuite:
     assertEquals(
       RendererConformance.targetContext().deviceContext,
       RendererConformance.targetDevice
+    )
+    val unicodeTracking =
+      RendererConformance.unicodeLetterSpacingCase.fold(e => fail(e.message), identity)
+    val sourceSpacing = unicodeTracking.scene.grobs.collectFirst { case value: Grob.Text =>
+      value.gp.letterSpacing
+    }
+    assertEquals(sourceSpacing, Some(Some(LetterSpacing.pointsUnsafe(1.5))))
+    assert(
+      unicodeTracking.requirements.contains(
+        RenderRequirement.LetterSpacing(
+          GraphicsName.unsafe("conformance-unicode-letter-spacing"),
+          spacingPx = 2.0
+        )
+      )
     )
   }
 

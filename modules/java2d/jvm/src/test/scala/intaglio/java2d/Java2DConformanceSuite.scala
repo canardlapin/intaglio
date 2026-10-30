@@ -80,6 +80,12 @@ class Java2DConformanceSuite extends munit.FunSuite:
               paint.opacity == alpha && paint.fontWeight == fontWeight
             case _ => false
           }
+        case RenderRequirement.LetterSpacing(name, spacingPx) =>
+          out.commands.exists {
+            case Java2DCommand.Text(_, _, _, _, _, _, _, _, paint, commandName) =>
+              commandName.contains(name) && paint.letterSpacingPx == spacingPx
+            case _ => false
+          }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           out.commands.exists {
             case Java2DCommand.Image(

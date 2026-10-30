@@ -614,6 +614,11 @@ object SvgRenderer:
         line(out, indent, s"<g$nameAttr$clipAttr$rotateAttr>")
         children.foreach(writeElement(_, out, indent + 1, clips, patterns, plates, marks))
         line(out, indent, "</g>")
+      case DeviceElement.Annotated(meta, children)
+          if meta.data.contains(DeviceScene.paintOnlyAttribute -> "true") =>
+        line(out, indent, """<g pointer-events="none">""")
+        children.foreach(writeElement(_, out, indent + 1, clips, patterns, plates, marks))
+        line(out, indent, "</g>")
       case DeviceElement.Annotated(meta, children) =>
         val classAttr =
           meta.cssClass.map(value => s""" class="${escapeAttr(value.value)}"""").getOrElse("")
@@ -721,14 +726,29 @@ object SvgRenderer:
           if rotationDegrees == 0.0 then ""
           else s""" transform="rotate(${format(rotationDegrees)} ${format(x)} ${format(y)})""""
         gp.textPlate.foreach { plate =>
+          val tracking = gp.letterSpacing.fold(0.0)(_.value)
+          // SVG viewers own shaping and end bearings. Expand embedded-font ink bounds by a
+          // conservative tracking envelope; do not reuse the untracked plate unchanged.
+          val trackingEnvelope = if tracking == 0 then 0.0
+          else math.abs(tracking) * math.max(0, TextClusters.boundaries(label).size - 1)
           val measured = plates
             .face(fontFamily, gp.fontWeight)
             .flatMap(embeddedPlateBox(_, label, x, y, horizontal, vertical, fontSizePx))
           val box = measured match
             case Some((left, top, right, bottom)) =>
-              plate.around(left, top, right - left, bottom - top)
+              plate.around(
+                left - trackingEnvelope,
+                top,
+                right - left + 2 * trackingEnvelope,
+                bottom - top
+              )
             case None =>
-              val style = TextStyle(fontFamily, fontSizePx / plates.pixelsPerPoint, gp.fontWeight)
+              val style = TextStyle(
+                fontFamily,
+                fontSizePx / plates.pixelsPerPoint,
+                gp.fontWeight,
+                tracking / plates.pixelsPerPoint
+              )
               val width = plates.metrics.widthPt(label, style) * plates.pixelsPerPoint
               val height = plates.metrics.heightPt(style) * plates.pixelsPerPoint
               val left = horizontal match
@@ -1003,6 +1023,9 @@ object SvgRenderer:
     attrs.append(""" stroke="none"""")
     fontFamily.foreach(family => attrs.append(s""" font-family="${escapeAttr(family)}""""))
     gp.fontWeight.foreach(weight => attrs.append(s""" font-weight="${weight.value}""""))
+    gp.letterSpacing.filter(_.value != 0.0).foreach { spacing =>
+      attrs.append(s""" letter-spacing="${format(spacing.value)}"""")
+    }
     attrs.append(s""" font-size="${format(fontSizePx)}"""")
     if gp.alpha != 1.0 then attrs.append(s""" opacity="${format(gp.alpha)}"""")
     attrs.result()

@@ -4,7 +4,7 @@ import java.awt.{Font, GraphicsEnvironment}
 import java.awt.font.FontRenderContext
 import java.awt.image.BufferedImage
 import java.util.Locale
-import intaglio.{FontRegistry, TextMetrics, TextStyle}
+import intaglio.{FontRegistry, TextMetrics, TextStyle, TrackedGlyphs}
 
 /** Opt-in Java2D font measurement for [[intaglio.LayoutPolicy]]. Missing requested families resolve
   * to `fallbackFamily`; if that family is unavailable, Java's logical `SansSerif` family is used.
@@ -21,7 +21,8 @@ final class Java2DTextMetrics private (
     heightPt(TextStyle(None, fontSizePt))
 
   override def widthPt(text: String, style: TextStyle): Double =
-    font(style).getStringBounds(text, renderContext).getWidth
+    if style.letterSpacingPt == 0 then font(style).getStringBounds(text, renderContext).getWidth
+    else TrackedGlyphs.layout(text, font(style), renderContext, style.letterSpacingPt).advance
 
   override def heightPt(style: TextStyle): Double =
     font(style).getLineMetrics("Mg", renderContext).getHeight.toDouble

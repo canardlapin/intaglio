@@ -194,8 +194,65 @@ final case class Java2DPaint(
     fillPattern: Option[PatternPaint] = None,
     fontWeight: Option[FontWeight] = None,
     casing: Option[Java2DCasing] = None,
-    textPlate: Option[TextPlate] = None
+    textPlate: Option[TextPlate] = None,
+    letterSpacingPx: Double = 0.0
 ):
+  /** Retains the text-plate-era descriptor. */
+  def this(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[Java2DCasing],
+      textPlate: Option[TextPlate]
+  ) = this(
+    stroke,
+    fill,
+    lineWidth,
+    dash,
+    lineCap,
+    lineJoin,
+    opacity,
+    fillPattern,
+    fontWeight,
+    casing,
+    textPlate,
+    0.0
+  )
+
+  /** Retains the text-plate-era copy descriptor. */
+  def copy(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[Java2DCasing],
+      textPlate: Option[TextPlate]
+  ): Java2DPaint = new Java2DPaint(
+    stroke,
+    fill,
+    lineWidth,
+    dash,
+    lineCap,
+    lineJoin,
+    opacity,
+    fillPattern,
+    fontWeight,
+    casing,
+    textPlate,
+    letterSpacingPx
+  )
+
   /** Binary bridge for the casing-era constructor descriptor. */
   def this(
       stroke: Option[Java2DColor],
@@ -312,6 +369,34 @@ final case class Java2DPaint(
     )
 
 object Java2DPaint:
+  /** Retains the text-plate-era factory descriptor. */
+  def apply(
+      stroke: Option[Java2DColor],
+      fill: Option[Java2DColor],
+      lineWidth: Double,
+      dash: Java2DLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[Java2DCasing],
+      textPlate: Option[TextPlate]
+  ): Java2DPaint = new Java2DPaint(
+    stroke,
+    fill,
+    lineWidth,
+    dash,
+    lineCap,
+    lineJoin,
+    opacity,
+    fillPattern,
+    fontWeight,
+    casing,
+    textPlate,
+    0.0
+  )
+
   /** Binary bridge for the former seven-field case-class apply descriptor. */
   def apply(
       stroke: Option[Java2DColor],
@@ -403,7 +488,8 @@ object Java2DPaint:
       None,
       gp.fontWeight,
       None,
-      gp.textPlate
+      gp.textPlate,
+      gp.letterSpacing.fold(0.0)(_.value)
     )
 
 final case class Java2DCasing(
@@ -918,7 +1004,11 @@ object Java2DRenderer:
           renderingHints.configure(copy)
           val font = fontResolver.resolve(fontFamily, fontSize, paint.fontWeight)
           copy.setFont(font)
-          val bounds = font.getStringBounds(label, copy.getFontRenderContext)
+          val tracked = Option.when(paint.letterSpacingPx != 0)(
+            TrackedGlyphs.layout(label, font, copy.getFontRenderContext, paint.letterSpacingPx)
+          )
+          val bounds =
+            tracked.fold(font.getStringBounds(label, copy.getFontRenderContext))(_.logicalBounds)
           val drawX = horizontal match
             case HJust.Left   => x
             case HJust.Center => x - bounds.getWidth / 2.0
@@ -932,7 +1022,8 @@ object Java2DRenderer:
           // bounds in the plate. Italics and combining marks can overhang the advance box.
           paint.textPlate.foreach { plate =>
             val plateBounds =
-              if label.isEmpty then bounds
+              if tracked.isDefined then tracked.get.bounds
+              else if label.isEmpty then bounds
               else
                 bounds.createUnion(new TextLayout(label, font, copy.getFontRenderContext).getBounds)
             val box = plate.around(
@@ -959,7 +1050,10 @@ object Java2DRenderer:
           }
           val color = paint.fill.getOrElse(Java2DColor.fromRgba(Rgba.Black))
           copy.setColor(color.awt(paint.opacity))
-          copy.drawString(label, drawX.toFloat, baseline.toFloat)
+          tracked match
+            case None       => copy.drawString(label, drawX.toFloat, baseline.toFloat)
+            case Some(plan) =>
+              plan.runs.foreach(copy.drawGlyphVector(_, drawX.toFloat, baseline.toFloat))
         }
       case Java2DCommand.Image(image, x, y, width, height, interpolation, alpha, _) =>
         withCopy(graphics) { copy =>

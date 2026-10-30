@@ -582,6 +582,9 @@ object Picking:
               Region.rectangle(Box(c.x, c.y, c.x + c.width, c.y + c.height)).transform(next)
             )
             walk(children, current, next, allClips, groupName.orElse(name))
+          case DeviceElement.Annotated(meta, _)
+              if meta.data.contains(DeviceScene.paintOnlyAttribute -> "true") =>
+            ()
           case DeviceElement.Annotated(meta, children) =>
             meta.data.collect {
               case (key, value) if key == InteractionCompiler.targetAttribute => value
@@ -911,7 +914,11 @@ object Picking:
             // The weight has to travel with the family and size: bold is wider, so a hit box
             // measured at the regular advance would be narrower than the glyphs a reader is
             // clicking on.
-            val style = TextStyle(family, fontSize / pixelsPerPoint, gp.fontWeight)
+            val spacingPt = gp.letterSpacing.fold(0.0) {
+              case LetterSpacing(value, StrokeUnit.Point)       => value
+              case LetterSpacing(value, StrokeUnit.DevicePixel) => value / pixelsPerPoint
+            }
+            val style = TextStyle(family, fontSize / pixelsPerPoint, gp.fontWeight, spacingPt)
             val width = context.textMetrics.widthPt(label, style) * pixelsPerPoint
             val height = context.textMetrics.heightPt(style) * pixelsPerPoint
             if !numbers(width, height) || width < 0 || height <= 0 then

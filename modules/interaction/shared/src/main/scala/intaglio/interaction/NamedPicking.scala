@@ -293,6 +293,9 @@ object NamedPicking:
               Region.rectangle(Box(c.x, c.y, c.x + c.width, c.y + c.height)).transform(next)
             )
             walk(children, name.orElse(current), next, allClips, marks)
+          case DeviceElement.Annotated(meta, _)
+              if meta.data.contains(DeviceScene.paintOnlyAttribute -> "true") =>
+            ()
           case DeviceElement.Annotated(meta, children) =>
             walk(
               children,

@@ -59,5 +59,26 @@ final class CanvasTextMetrics(
         sizePx,
         CanvasFont.family(resolvedFamily(style.fontFamily))
       )
+      CanvasTracking
+        .configure(context, style.letterSpacingPt * pixelsPerPoint)
+        .fold(
+          error => throw new UnsupportedOperationException(error.message),
+          identity
+        )
       context.measureText(text)
     finally context.restore()
+
+/** Use the browser's shaping-aware implementation in both measurement and drawing. Older contexts
+  * must reject requested tracking rather than silently dropping a geometry channel.
+  */
+private[canvas] object CanvasTracking:
+  def configure(
+      context: CanvasRenderingContext2D,
+      spacing: Double
+  ): Either[CanvasRenderError, Unit] =
+    val native = context.asInstanceOf[js.Dynamic]
+    if js.isUndefined(native.selectDynamic("letterSpacing")) then
+      if spacing == 0.0 then Right(()) else Left(CanvasRenderError.UnsupportedLetterSpacing)
+    else
+      native.updateDynamic("letterSpacing")(s"${spacing}px")
+      Right(())

@@ -84,8 +84,65 @@ final case class JavaFxPaint(
     fillPattern: Option[PatternPaint] = None,
     fontWeight: Option[FontWeight] = None,
     casing: Option[JavaFxCasing] = None,
-    textPlate: Option[TextPlate] = None
+    textPlate: Option[TextPlate] = None,
+    letterSpacingPx: Double = 0.0
 ):
+  /** Retains the text-plate-era descriptor. */
+  def this(
+      stroke: Option[JavaFxColor],
+      fill: Option[JavaFxColor],
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[JavaFxCasing],
+      textPlate: Option[TextPlate]
+  ) = this(
+    stroke,
+    fill,
+    lineWidth,
+    dash,
+    lineCap,
+    lineJoin,
+    opacity,
+    fillPattern,
+    fontWeight,
+    casing,
+    textPlate,
+    0.0
+  )
+
+  /** Retains the text-plate-era copy descriptor. */
+  def copy(
+      stroke: Option[JavaFxColor],
+      fill: Option[JavaFxColor],
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[JavaFxCasing],
+      textPlate: Option[TextPlate]
+  ): JavaFxPaint = new JavaFxPaint(
+    stroke,
+    fill,
+    lineWidth,
+    dash,
+    lineCap,
+    lineJoin,
+    opacity,
+    fillPattern,
+    fontWeight,
+    casing,
+    textPlate,
+    letterSpacingPx
+  )
+
   /** Binary bridge for the casing-era constructor descriptor. */
   def this(
       stroke: Option[JavaFxColor],
@@ -202,6 +259,34 @@ final case class JavaFxPaint(
     )
 
 object JavaFxPaint:
+  /** Retains the text-plate-era factory descriptor. */
+  def apply(
+      stroke: Option[JavaFxColor],
+      fill: Option[JavaFxColor],
+      lineWidth: Double,
+      dash: JavaFxLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[JavaFxCasing],
+      textPlate: Option[TextPlate]
+  ): JavaFxPaint = new JavaFxPaint(
+    stroke,
+    fill,
+    lineWidth,
+    dash,
+    lineCap,
+    lineJoin,
+    opacity,
+    fillPattern,
+    fontWeight,
+    casing,
+    textPlate,
+    0.0
+  )
+
   /** Binary bridge for the former seven-field case-class apply descriptor. */
   def apply(
       stroke: Option[JavaFxColor],
@@ -293,7 +378,8 @@ object JavaFxPaint:
       None,
       gp.fontWeight,
       None,
-      gp.textPlate
+      gp.textPlate,
+      gp.letterSpacing.fold(0.0)(_.value)
     )
 
 final case class JavaFxCasing(
@@ -616,6 +702,35 @@ trait JavaFxGraphicsContext:
   def setTextAlign(horizontal: HJust): Unit
   def setTextBaseline(vertical: VJust): Unit
   def fillText(label: String, x: Double, y: Double): Unit
+
+  /** Contexts must explicitly implement tracking; it cannot be silently dropped. */
+  def fillTrackedText(
+      label: String,
+      x: Double,
+      y: Double,
+      family: Option[String],
+      size: Double,
+      weight: Option[FontWeight],
+      spacing: Double,
+      horizontal: HJust,
+      vertical: VJust
+  ): Unit =
+    throw new UnsupportedOperationException(
+      "This JavaFX context does not support Unicode letter spacing"
+    )
+
+  def measureTrackedText(
+      label: String,
+      family: Option[String],
+      size: Double,
+      weight: Option[FontWeight],
+      spacing: Double,
+      horizontal: HJust,
+      vertical: VJust
+  ): JavaFxTextBox =
+    throw new UnsupportedOperationException(
+      "This JavaFX context cannot measure Unicode letter spacing"
+    )
   def setGlobalAlpha(alpha: Double): Unit
   def setImageSmoothing(enabled: Boolean): Unit
   def drawImage(image: RasterImage, x: Double, y: Double, width: Double, height: Double): Unit
@@ -825,9 +940,20 @@ object JavaFxRenderer:
               context.rotateDegrees(rotation)
               (0.0, 0.0)
           paint.textPlate.foreach { plate =>
-            val box = context
-              .measureText(label, fontFamily, fontSize, paint.fontWeight, horizontal, vertical)
-              .getOrElse(estimatedTextBox(label, fontSize, horizontal, vertical))
+            val box = if paint.letterSpacingPx != 0 then
+              context.measureTrackedText(
+                label,
+                fontFamily,
+                fontSize,
+                paint.fontWeight,
+                paint.letterSpacingPx,
+                horizontal,
+                vertical
+              )
+            else
+              context
+                .measureText(label, fontFamily, fontSize, paint.fontWeight, horizontal, vertical)
+                .getOrElse(estimatedTextBox(label, fontSize, horizontal, vertical))
             val placed = plate.around(drawX + box.left, drawY + box.top, box.width, box.height)
             context.setFill(JavaFxColor.fromRgba(plate.fill).combined(paint.opacity))
             context.beginPath()
@@ -845,7 +971,19 @@ object JavaFxRenderer:
             context.fillPath()
             context.setFill(color.combined(paint.opacity))
           }
-          context.fillText(label, drawX, drawY)
+          if paint.letterSpacingPx == 0 then context.fillText(label, drawX, drawY)
+          else
+            context.fillTrackedText(
+              label,
+              drawX,
+              drawY,
+              fontFamily,
+              fontSize,
+              paint.fontWeight,
+              paint.letterSpacingPx,
+              horizontal,
+              vertical
+            )
         }
       case JavaFxCommand.Image(image, x, y, width, height, interpolation, alpha, _) =>
         withSaved(context) {

@@ -17,3 +17,7 @@ DirectMissingMethodProblem intaglio.java2d.Java2DPaint.copy$default$10
 DirectMissingMethodProblem intaglio.java2d.Java2DPaint.copy$default$11
 DirectMissingMethodProblem intaglio.java2d.Java2DPaint.textPlate
 DirectMissingMethodProblem intaglio.java2d.Java2DPaint.this
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint.<init>$default$12
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint._12
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint.copy$default$12
+DirectMissingMethodProblem intaglio.java2d.Java2DPaint.letterSpacingPx

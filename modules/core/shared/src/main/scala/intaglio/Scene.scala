@@ -611,7 +611,8 @@ final case class GraphicParams private (
     lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel,
     fontWeight: Option[FontWeight] = None,
     casing: Option[StrokeCasing] = None,
-    textPlate: Option[TextPlate] = None
+    textPlate: Option[TextPlate] = None,
+    letterSpacing: Option[LetterSpacing] = None
 ):
   /** Retains the casing-era constructor descriptor while adding a text plate. */
   private[intaglio] def this(
@@ -643,6 +644,7 @@ final case class GraphicParams private (
       lineWidthUnit,
       fontWeight,
       casing,
+      None,
       None
     )
 
@@ -672,6 +674,8 @@ final case class GraphicParams private (
       fontSize,
       fillPattern,
       lineWidthUnit,
+      None,
+      None,
       None,
       None
     )
@@ -704,6 +708,8 @@ final case class GraphicParams private (
       fillPattern,
       lineWidthUnit,
       fontWeight,
+      None,
+      None,
       None
     )
 
@@ -734,6 +740,8 @@ final case class GraphicParams private (
       None,
       StrokeUnit.DevicePixel,
       None,
+      None,
+      None,
       None
     )
 
@@ -762,6 +770,8 @@ final case class GraphicParams private (
       fontSize,
       fillPattern,
       StrokeUnit.DevicePixel,
+      None,
+      None,
       None,
       None
     )
@@ -833,6 +843,14 @@ final case class GraphicParams private (
   def withoutTextPlate: GraphicParams =
     copy(textPlate = None)
 
+  /** Set signed tracking for text primitives. Non-text primitives ignore it. */
+  def withLetterSpacing(value: LetterSpacing): GraphicParams =
+    copy(letterSpacing = Some(value))
+
+  /** Draw text with its face's ordinary advances. */
+  def withoutLetterSpacing: GraphicParams =
+    copy(letterSpacing = None)
+
   private[intaglio] def withResolvedPaintLengths(
       resolvedLineType: LineType,
       resolvedPattern: Option[PatternPaint]
@@ -859,7 +877,8 @@ object GraphicParams:
       fontFamily: Option[String] = None,
       fontSize: Length = Length.pointsUnsafe(12.0),
       lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel,
-      fontWeight: Option[FontWeight] = None
+      fontWeight: Option[FontWeight] = None,
+      letterSpacing: Option[LetterSpacing] = None
   ): Either[GraphicsError, GraphicParams] =
     if !lineWidth.isFinite || lineWidth < 0.0 then Left(GraphicsError.InvalidLineWidth(lineWidth))
     else if !alpha.isFinite || alpha < 0.0 || alpha > 1.0 then
@@ -879,7 +898,9 @@ object GraphicParams:
           None,
           lineWidthUnit,
           fontWeight,
-          None
+          None,
+          None,
+          letterSpacing
         )
       )
 
@@ -894,7 +915,8 @@ object GraphicParams:
       fontFamily: Option[String] = None,
       fontSize: Length = Length.pointsUnsafe(12.0),
       lineWidthUnit: StrokeUnit = StrokeUnit.DevicePixel,
-      fontWeight: Option[FontWeight] = None
+      fontWeight: Option[FontWeight] = None,
+      letterSpacing: Option[LetterSpacing] = None
   ): GraphicParams =
     checked(
       stroke,
@@ -907,8 +929,67 @@ object GraphicParams:
       fontFamily,
       fontSize,
       lineWidthUnit,
-      fontWeight
+      fontWeight,
+      letterSpacing
     ).orThrow
+
+  /** Binary bridge for the factory descriptor before letter spacing was added. */
+  def checked(
+      stroke: Option[Rgba],
+      fill: Option[Rgba],
+      lineWidth: Double,
+      lineType: LineType,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      alpha: Double,
+      fontFamily: Option[String],
+      fontSize: Length,
+      lineWidthUnit: StrokeUnit,
+      fontWeight: Option[FontWeight]
+  ): Either[GraphicsError, GraphicParams] =
+    checked(
+      stroke,
+      fill,
+      lineWidth,
+      lineType,
+      lineCap,
+      lineJoin,
+      alpha,
+      fontFamily,
+      fontSize,
+      lineWidthUnit,
+      fontWeight,
+      None
+    )
+
+  /** Binary bridge for the factory descriptor before letter spacing was added. */
+  def unsafe(
+      stroke: Option[Rgba],
+      fill: Option[Rgba],
+      lineWidth: Double,
+      lineType: LineType,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      alpha: Double,
+      fontFamily: Option[String],
+      fontSize: Length,
+      lineWidthUnit: StrokeUnit,
+      fontWeight: Option[FontWeight]
+  ): GraphicParams =
+    unsafe(
+      stroke,
+      fill,
+      lineWidth,
+      lineType,
+      lineCap,
+      lineJoin,
+      alpha,
+      fontFamily,
+      fontSize,
+      lineWidthUnit,
+      fontWeight,
+      None
+    )
 
 /** The data-coordinate contract retained by a viewport after plot compilation. Plain scenes use
   * [[native]], while compiled continuous position scales retain their raw and transformed domains

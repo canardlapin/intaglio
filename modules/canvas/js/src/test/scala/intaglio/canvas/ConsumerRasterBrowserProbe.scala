@@ -227,6 +227,39 @@ object ConsumerRasterBrowserProbe:
     new CanvasTextMetrics(context).widthPt("Hamburgefonstiv", TextStyle(Some(family), 24)) * 96 / 72
 
   @JSExport
+  def tracking(
+      canvas: js.Dynamic,
+      label: String,
+      spacing: Double,
+      scale: Int,
+      alignment: String
+  ): Double =
+    canvas.width = 600 * scale; canvas.height = 120 * scale
+    val context = canvas.getContext("2d").asInstanceOf[CanvasRenderingContext2D]
+    context.asInstanceOf[js.Dynamic].scale(scale, scale)
+    val horizontal = alignment match
+      case "center" => HJust.Center
+      case "right"  => HJust.Right
+      case _        => HJust.Left
+    val params = GraphicParams
+      .unsafe(
+        stroke = None,
+        fill = Some(Rgba.Black),
+        fontFamily = Some("Arial"),
+        fontSize = Length.pointsUnsafe(24)
+      )
+      .withLetterSpacing(LetterSpacing.devicePixelsUnsafe(spacing))
+    val text = Grob.textUnsafe(
+      label,
+      Point.npcUnsafe(0.5, 0.5),
+      anchor = Anchor(horizontal, VJust.Center),
+      gp = params
+    )
+    CanvasRenderer.render(Scene(Vector(text)), context, CanvasOptions.unsafe(600, 120)).orThrow
+    new CanvasTextMetrics(context)
+      .widthPt(label, TextStyle(Some("Arial"), 24, letterSpacingPt = spacing * 72 / 96)) * 96 / 72
+
+  @JSExport
   def guides(canvas: js.Dynamic, hidden: Boolean): Unit =
     canvas.width = 360; canvas.height = 260
     val context = canvas.getContext("2d").asInstanceOf[CanvasRenderingContext2D]
