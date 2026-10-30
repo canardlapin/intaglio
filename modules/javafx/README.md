@@ -29,6 +29,14 @@ advances differ for the same family and size. See
 installed face JavaFX actually selected. This is useful when a requested family has platform-
 specific substitutions; metrics and drawing use the same font-construction helper.
 
+For an explicit weight, the helper first looks for a registered full face name with that family
+and weight. This reaches static fonts registered under separate families, including IBM Plex Sans
+Medium (`Medm`) and SemiBold (`SmBld`). Conventional weight suffixes are recognized; italic and
+condensed variants are not substituted. If no matching face exists, JavaFX's normal family lookup
+remains the fallback. Load application fonts with `Font.loadFont` before drawing; the shared lookup
+refreshes when new face names appear. Registering actual faces also makes measurement use their
+advances instead of the regular face's advances.
+
 Tests combine the shared renderer conformance contract with a recording
 implementation of the drawing contract, so the full interpreter runs headless
 without starting the JavaFX toolkit. The one behavior that cannot be pinned

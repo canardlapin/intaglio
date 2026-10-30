@@ -1212,8 +1212,90 @@ object DeviceScene:
             )
             ()
         idx += 1
-      result.map(_ => out.result())
+      result.map { _ =>
+        val marks = out.result()
+        if gp.casing.nonEmpty && gp.stroke.nonEmpty && gp.lineWidth > 0 then
+          casedSegmentRuns(
+            marks.collect { case line: DevicePrimitive.Polyline => line },
+            gp,
+            segments.name
+          )
+        else marks
+      }
     }
+
+  /** Join unambiguous endpoint chains before stroking, so round caps and translucent casing do not
+    * accumulate at every original segment boundary. Branches remain separate runs; every underlay
+    * is emitted before any ink. Uncased segments keep their original independent strokes.
+    */
+  private def casedSegmentRuns(
+      segments: Vector[DevicePrimitive.Polyline],
+      gp: GraphicParams,
+      name: Option[GraphicsName]
+  ): Vector[DevicePrimitive] =
+    val adjacency = scala.collection.mutable.HashMap.empty[DevicePoint, Vector[Int]]
+    segments.zipWithIndex.foreach { case (segment, index) =>
+      segment.points.foreach { point =>
+        adjacency.update(point, adjacency.getOrElse(point, Vector.empty) :+ index)
+      }
+    }
+    val visited = Array.fill(segments.size)(false)
+    val runs = Vector.newBuilder[(Vector[DevicePoint], Boolean)]
+    def walk(start: DevicePoint, first: Int): Unit =
+      val points = Vector.newBuilder[DevicePoint]
+      points += start
+      var at = start
+      var edge = first
+      var closed = false
+      while edge >= 0 do
+        visited(edge) = true
+        val ends = segments(edge).points
+        val next = if ends.head == at then ends.last else ends.head
+        points += next
+        if next == start && next != at then
+          closed = true
+          edge = -1
+        else if adjacency(next).size == 2 then
+          edge = adjacency(next).find(index => !visited(index)).getOrElse(-1)
+        else edge = -1
+        at = next
+      val values = points.result()
+      runs += ((if closed then values.dropRight(1) else values, closed))
+    // Start at endpoints and junctions first, then consume the remaining closed loops.
+    segments.indices.foreach { index =>
+      if !visited(index) then
+        segments(index).points
+          .find(point => adjacency(point).size != 2)
+          .foreach(start => walk(start, index))
+    }
+    segments.indices.foreach { index =>
+      if !visited(index) then walk(segments(index).points.head, index)
+    }
+    val casing = gp.casing.get
+    val width = casing.width match
+      case CasingWidth.Absolute(value) => value.value
+      case CasingWidth.Relative(value) => gp.lineWidth * value
+    val underlay = GraphicParams.unsafe(
+      stroke = Some(casing.color),
+      lineWidth = width,
+      lineType = casing.lineType,
+      lineCap = gp.lineCap,
+      lineJoin = gp.lineJoin,
+      alpha = gp.alpha * casing.alpha
+    )
+    val ink = GraphicParams.unsafe(
+      stroke = gp.stroke,
+      lineWidth = gp.lineWidth,
+      lineType = gp.lineType,
+      lineCap = gp.lineCap,
+      lineJoin = gp.lineJoin,
+      alpha = gp.alpha
+    )
+    val paths = runs.result()
+    paths.map { case (points, closed) =>
+      DevicePrimitive.Polyline(points, closed, underlay, None)
+    } ++
+      paths.map { case (points, closed) => DevicePrimitive.Polyline(points, closed, ink, name) }
 
   private def rectMark(
       rect: Grob.Rect,

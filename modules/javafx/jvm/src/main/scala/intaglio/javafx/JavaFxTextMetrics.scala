@@ -24,11 +24,12 @@ import intaglio.{FontWeight, TextMetrics, TextStyle}
   * macOS reports regular advances and outlines for bold), the advance still holds but the drawn
   * strokes extend past [[inkBounds]], by up to 1.7 px at 24 px.
   *
-  * Family, weight and size are passed to JavaFX, as in the renderer. The selected face follows
-  * JavaFX's platform lookup and can differ from the requested weight. `TextStyle` has no posture,
-  * and the JavaFX renderer draws no italic, so neither does this provider. A family JavaFX does not
-  * have resolves to JavaFX's default family here and in the renderer alike, through the same
-  * `Font.font` call; [[resolvedFamily]] reports which family that was. [[resolvedFontName]] and
+  * Explicit weights first select a registered full face name with a conventional weight suffix,
+  * including static Medium/SemiBold faces registered as separate families. Otherwise the selected
+  * face follows JavaFX's platform lookup and can differ from the requested weight. `TextStyle` has
+  * no posture, and the JavaFX renderer draws no italic, so neither does this provider. A family
+  * JavaFX does not have resolves to JavaFX's default family here and in the renderer alike, through
+  * the same resolver; [[resolvedFamily]] reports the unweighted family. [[resolvedFontName]] and
   * [[resolvedFontStyle]] expose the full resolved face, so callers can detect a platform
   * substitution within a requested family.
   *
@@ -144,7 +145,8 @@ object JavaFxTextMetrics:
     */
   private[javafx] def font(family: Option[String], size: Double, weight: Option[FontWeight]): Font =
     (family, weight.map(value => FxFontWeight.findByWeight(value.value))) match
-      case (Some(name), Some(face)) => Font.font(name, face, size)
-      case (Some(name), None)       => Font.font(name, size)
-      case (None, Some(face))       => Font.font(null, face, size)
-      case (None, None)             => Font.font(size)
+      case (Some(name), Some(face)) =>
+        JavaFxFontFaces.resolve(name, face, size).getOrElse(Font.font(name, face, size))
+      case (Some(name), None) => Font.font(name, size)
+      case (None, Some(face)) => Font.font(null, face, size)
+      case (None, None)       => Font.font(size)

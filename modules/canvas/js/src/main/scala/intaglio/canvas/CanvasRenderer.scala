@@ -673,10 +673,29 @@ trait CanvasRenderingContext2D extends js.Object:
       width: Double,
       height: Double
   ): Unit = js.native
+  def drawImage(
+      image: CanvasImageSource,
+      sourceX: Double,
+      sourceY: Double,
+      sourceWidth: Double,
+      sourceHeight: Double,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double
+  ): Unit = js.native
   def createPattern(image: CanvasImageSource, repetition: String): CanvasPattern = js.native
 
 trait CanvasRasterFactory:
   def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource
+
+  /** Optional native scratch storage. Existing custom factories retain CPU sampling. */
+  def createSurface(
+      width: Int,
+      height: Int,
+      target: CanvasRenderingContext2D
+  ): Option[CanvasElement] =
+    None
 
 object CanvasRasterFactory:
   private[canvas] lazy val nativeLittleEndian: Boolean =
@@ -715,10 +734,18 @@ object CanvasRasterFactory:
       ((packed >>> 24) & 0x000000ff)
 
   given browser: CanvasRasterFactory with
-    override def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource =
+    override def createSurface(
+        width: Int,
+        height: Int,
+        target: CanvasRenderingContext2D
+    ): Option[CanvasElement] =
       val canvas = target.canvas.ownerDocument.createElement("canvas").asInstanceOf[CanvasElement]
-      canvas.width = image.width
-      canvas.height = image.height
+      canvas.width = width
+      canvas.height = height
+      Some(canvas)
+
+    override def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource =
+      val canvas = createSurface(image.width, image.height, target).get
       val imageContext = canvas.getContext("2d")
       val imageData = imageContext.createImageData(image.width, image.height)
       writeRgbaBytes(image, imageData.data, nativeLittleEndian)
@@ -735,35 +762,103 @@ final class CanvasRasterCache private (val capacity: Int):
 
   private final case class Sample(
       image: RasterImage,
-      bounds: Vector[Double],
-      interpolation: RasterInterpolation,
-      prepared: Option[(RasterImage, Double, Double, Double, Double)]
+      grid: NearestRasterGrid,
+      prepared: Either[RasterImage, CanvasImageSource]
   )
   private val samples = mutable.ArrayBuffer.empty[Sample]
 
-  private[canvas] def prepare(
+  private[canvas] def nearest(
       image: RasterImage,
-      x: Double,
-      y: Double,
-      width: Double,
-      height: Double,
-      interpolation: RasterInterpolation
-  ): Either[GraphicsError, Option[(RasterImage, Double, Double, Double, Double)]] =
-    val bounds = Vector(x, y, width, height)
-    val found = samples.indexWhere(entry =>
-      entry.image.eq(image) && entry.bounds == bounds && entry.interpolation == interpolation
-    )
-    if found >= 0 then
+      grid: NearestRasterGrid,
+      context: CanvasRenderingContext2D
+  )(using factory: CanvasRasterFactory): (CanvasImageSource, Boolean, Long) =
+    def uploaded(value: RasterImage): (CanvasImageSource, Boolean, Long) =
+      val (source, hit) = resolve(value, context)
+      (source, hit, value.dimensions.pixelCount.toLong * 4)
+    val found = samples.indexWhere(entry => entry.image.eq(image) && entry.grid == grid)
+    val boundedSource = image.width <= RasterSampling.MaxPreparedDimension &&
+      image.height <= RasterSampling.MaxPreparedDimension
+    if boundedSource && grid.x == grid.left.toDouble && grid.y == grid.top.toDouble &&
+      grid.width % image.width == 0.0 && grid.height % image.height == 0.0
+    then uploaded(image)
+    else if found >= 0 then
       val entry = samples.remove(found)
       samples += entry
-      Right(entry.prepared)
+      entry.prepared match
+        case Left(sampled) => uploaded(sampled)
+        case Right(source) =>
+          val (_, hit, bytes) = uploaded(image)
+          (source, hit, bytes)
     else
-      RasterSampling.prepare(image, x, y, width, height, interpolation).map { prepared =>
-        if capacity > 0 then
-          if samples.size >= capacity then samples.remove(0)
-          samples += Sample(image, bounds, interpolation, prepared)
-        prepared
+      val native = if boundedSource then
+        for
+          output <- factory.createSurface(grid.right - grid.left, grid.bottom - grid.top, context)
+          intermediate <- factory.createSurface(grid.right - grid.left, image.height, context)
+        yield
+          val (source, hit, _) = uploaded(image)
+          (resample(source, grid, output, intermediate), hit)
+      else None
+      val prepared = native.map(_._1).toRight {
+        // The caller checked bounds and nonempty coverage. Oversized sources and factories
+        // without scratch surfaces retain the previous bounded-output upload path.
+        RasterSampling
+          .prepare(image, grid.x, grid.y, grid.width, grid.height, RasterInterpolation.Nearest)
+          .orThrow
+          .get
+          ._1
       }
+      if capacity > 0 then
+        if samples.size >= capacity then samples.remove(0)
+        samples += Sample(image, grid, prepared)
+      prepared match
+        case Left(sampled) => uploaded(sampled)
+        case Right(source) => (source, native.get._2, image.dimensions.pixelCount.toLong * 4)
+
+  /** Group equal source indices along an axis. Work is linear in the two axis lengths, never in the
+    * destination pixel count. Deriving runs from the public mapping also preserves its exact
+    * floating-point tie rule.
+    */
+  private def runs(start: Int, end: Int, sample: Int => Option[Int]): Vector[(Int, Int, Int)] =
+    val out = Vector.newBuilder[(Int, Int, Int)]
+    var at = start
+    while at < end do
+      val source = sample(at).get
+      val begin = at
+      at += 1
+      while at < end && sample(at).contains(source) do at += 1
+      out += ((source, begin - start, at - begin))
+    out.result()
+
+  private def resample(
+      source: CanvasImageSource,
+      grid: NearestRasterGrid,
+      output: CanvasElement,
+      intermediate: CanvasElement
+  ): CanvasImageSource =
+    val width = grid.right - grid.left
+    val destination = output.getContext("2d")
+    destination.imageSmoothingEnabled = false
+    val columns = runs(grid.left, grid.right, grid.sourceColumn)
+    val rows = runs(grid.top, grid.bottom, grid.sourceRow)
+    val strip = intermediate.getContext("2d")
+    strip.imageSmoothingEnabled = false
+    columns.foreach { case (column, offset, length) =>
+      strip.drawImage(
+        source,
+        column,
+        0,
+        1,
+        grid.source.height,
+        offset,
+        0,
+        length,
+        grid.source.height
+      )
+    }
+    rows.foreach { case (row, offset, length) =>
+      destination.drawImage(intermediate, 0, row, width, 1, 0, offset, width, length)
+    }
+    output
 
   def size: Int =
     entries.size
@@ -1118,21 +1213,49 @@ object CanvasRenderer:
         val (sx, sy, tx, ty) = if interpolation == RasterInterpolation.Nearest then
           rasterTransform(context)
         else (1.0, 1.0, 0.0, 0.0)
-        cache
-          .prepare(image, x * sx + tx, y * sy + ty, width * sx, height * sy, interpolation)
-          .left
-          .map(CanvasRenderError.Graphics(_))
-          .map { prepared =>
-            prepared.foreach { case (sampled, dx, dy, dw, dh) =>
-              val (source, hit) = cache.resolve(sampled, context)
-              withSaved(context) {
-                context.globalAlpha = alpha
-                context.imageSmoothingEnabled = interpolation == RasterInterpolation.Smooth
-                context.drawImage(source, (dx - tx) / sx, (dy - ty) / sy, dw / sx, dh / sy)
-              }
-              accumulator.recordImage(hit, sampled.dimensions.pixelCount.toLong * 4L)
-            }
+        def draw(
+            source: CanvasImageSource,
+            hit: Boolean,
+            dx: Double,
+            dy: Double,
+            dw: Double,
+            dh: Double,
+            uploadedBytes: Long
+        ): Unit =
+          withSaved(context) {
+            context.globalAlpha = alpha
+            context.imageSmoothingEnabled = interpolation == RasterInterpolation.Smooth
+            context.drawImage(source, (dx - tx) / sx, (dy - ty) / sy, dw / sx, dh / sy)
           }
+          accumulator.recordImage(hit, uploadedBytes)
+        if interpolation == RasterInterpolation.Smooth then
+          val (source, hit) = cache.resolve(image, context)
+          draw(source, hit, x, y, width, height, image.dimensions.pixelCount.toLong * 4L)
+          Right(())
+        else
+          RasterSampling
+            .nearestGrid(image.dimensions, x * sx + tx, y * sy + ty, width * sx, height * sy)
+            .left
+            .map(CanvasRenderError.Graphics(_))
+            .flatMap { grid =>
+              val dw = grid.right.toLong - grid.left.toLong
+              val dh = grid.bottom.toLong - grid.top.toLong
+              if dw > RasterSampling.MaxPreparedDimension || dh > RasterSampling.MaxPreparedDimension
+              then
+                Left(
+                  CanvasRenderError.Graphics(
+                    GraphicsError.InvalidRasterDimensions(
+                      dw.min(Int.MaxValue).toInt,
+                      dh.min(Int.MaxValue).toInt
+                    )
+                  )
+                )
+              else if dw == 0 || dh == 0 then Right(())
+              else
+                val (source, hit, bytes) = cache.nearest(image, grid, context)
+                draw(source, hit, grid.left, grid.top, dw.toDouble, dh.toDouble, bytes)
+                Right(())
+            }
 
   private def rasterTransform(context: CanvasRenderingContext2D): (Double, Double, Double, Double) =
     try rasterTransformUnchecked(context)
