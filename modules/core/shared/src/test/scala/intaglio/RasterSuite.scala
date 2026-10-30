@@ -81,6 +81,25 @@ class RasterSuite extends munit.FunSuite:
     )
   }
 
+  test("image cache keys retain value equality, including unequal pixels with colliding hashes") {
+    val dimensions = RasterDimensions.unsafe(2, 1)
+    def image(a: Int, b: Int): RasterImage =
+      RasterImage.unsafeFromOwnedPackedArray(dimensions, Array(a, b))
+    val first = image(0, 31)
+    val same = image(0, 31)
+    val collision = image(1, 0)
+    assertEquals(first.hashCode, collision.hashCode)
+    assert(first.equals(first))
+    assert(first.equals(same))
+    assert(!first.equals(collision))
+    assert(!first.equals(null))
+    assert(!first.equals("image"))
+    val cache = scala.collection.mutable.HashMap(first -> "cached")
+    assertEquals(cache.get(first), Some("cached"))
+    assertEquals(cache.get(same), Some("cached"))
+    assertEquals(cache.get(collision), None)
+  }
+
   test("RGBA colors quantize alpha to the nearest raster byte") {
     val image = RasterImage
       .fromRgba(

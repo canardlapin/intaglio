@@ -111,7 +111,8 @@ final class RasterImage private (
   override def equals(other: Any): Boolean =
     other match
       case that: RasterImage =>
-        if dimensions != that.dimensions || data.length != that.data.length then false
+        if this eq that then true
+        else if dimensions != that.dimensions || valueHash != that.valueHash then false
         else
           var idx = 0
           var equal = true
