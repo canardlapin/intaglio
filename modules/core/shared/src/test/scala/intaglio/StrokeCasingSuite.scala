@@ -47,6 +47,43 @@ class StrokeCasingSuite extends munit.FunSuite:
     .unsafe(stroke = Some(Rgba.Black), lineWidth = 2)
     .withCasing(StrokeCasing.unsafe(Rgba.White, CasingWidth.relativeUnsafe(3)))
 
+  test("cased segments stitch reversed and shuffled chains before painting underlay then ink") {
+    val points = Vector.tabulate(21)(i => Point.npcUnsafe(0.1 + i * 0.04, 0.5))
+    val edges = points.zip(points.tail)
+    val shuffled = edges.zipWithIndex.reverse.map { case ((a, b), i) =>
+      if i % 2 == 0 then (b, a) else (a, b)
+    }
+    val name = Some(GraphicsName.unsafe("contour"))
+    val marks = lowered(Grob.segments(shuffled, gp = casedPoint, name = name).orThrow)
+    assertEquals(marks.size, 2)
+    val lines = marks.map(_.asInstanceOf[DevicePrimitive.Polyline])
+    assertEquals(lines.map(_.points.size), Vector(21, 21))
+    assertEquals(lines.head.points, lines.last.points)
+    assertEquals(lines.map(_.gp.lineWidth), Vector(6.0, 2.0))
+    assertEquals(lines.map(_.name), Vector(None, name))
+    assert(lines.forall(_.gp.casing.isEmpty))
+    assertEquals(lowered(Grob.segments(shuffled, gp = casedPoint.withoutCasing).orThrow).size, 20)
+  }
+
+  test("cased loops close without filling and branches retain every edge") {
+    val a = Point.npcUnsafe(0.1, 0.1)
+    val b = Point.npcUnsafe(0.8, 0.1)
+    val c = Point.npcUnsafe(0.8, 0.8)
+    val d = Point.npcUnsafe(0.1, 0.8)
+    val loop = Vector(a -> b, c -> b, c -> d, a -> d)
+    val closed = lowered(Grob.segments(loop, gp = casedPoint).orThrow)
+      .map(_.asInstanceOf[DevicePrimitive.Polyline])
+    assert(closed.forall(_.closed))
+    assert(closed.forall(_.points.size == 4))
+    assert(closed.forall(_.gp.fill.isEmpty))
+    val branches = lowered(Grob.segments(Vector(a -> b, b -> c, b -> d), gp = casedPoint).orThrow)
+      .map(_.asInstanceOf[DevicePrimitive.Polyline])
+    assertEquals(branches.size, 6)
+    assertEquals(branches.take(3).map(_.gp.lineWidth), Vector.fill(3)(6.0))
+    assertEquals(branches.drop(3).map(_.gp.lineWidth), Vector.fill(3)(2.0))
+    assertEquals(branches.drop(3).map(_.points.size - 1).sum, 3)
+  }
+
   test("a cased single cross lowers to one batch so both bars share one underlay") {
     val at = Vector(Point.npcUnsafe(0.3, 0.3), Point.npcUnsafe(0.7, 0.7))
     val name = Some(GraphicsName.unsafe("crosses"))
