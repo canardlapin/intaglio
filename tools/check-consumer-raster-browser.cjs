@@ -22,6 +22,27 @@ async function main() {
         page.on('pageerror', error => errors.push(String(error)));
         await page.goto(pathToFileURL(html).href);
         await page.waitForFunction(() => typeof ConsumerRasterProbe !== 'undefined');
+        if (scale === 1) {
+          for (const args of [
+            [7, 5, 0.3, 0.49, 23.7, 19.2], [11, 3, 3.5, 2.5, 9.1, 14.2],
+            [1, 31, 0.1, 0.2, 300.4, 4.3], [31, 1, 0.4, 0.3, 4.2, 200.1],
+            [3, 5, 0.6, 0.6, 0.1, 0.1], [2, 2, 1, 1, 20, 20],
+            [3, 4101, 0.2, 0.1, 13.7, 19.3], [17, 9, -3.4, -2.1, 18.8, 12.7]
+          ]) {
+            const result = await page.evaluate(args => ConsumerRasterProbe.exact(document.querySelector('#probe'), ...args), args);
+            assert.equal(result.mismatches, 0, `nearest reference equality: ${args}`);
+            const empty = args[4] === 0.1;
+            assert.equal(result.coldBytes, empty ? 0 : args[0] * args[1] * 4);
+            assert.equal(result.resizeBytes, empty ? args[0] * args[1] * 4 : 0);
+            report.runs.push({kind: 'nearest-exact', args, ...result});
+          }
+          report.resizeBenchmarks = [];
+          for (const size of [500, 2000]) for (const legacy of [true, false]) {
+            const result = await page.evaluate(({size, legacy}) => ConsumerRasterProbe.resizeBenchmark(document.querySelector('#probe'), size, legacy, 30), {size, legacy});
+            report.resizeBenchmarks.push({size, legacy, ...result});
+            if (!legacy) assert.equal(result.uploadedBytesPerFrame, 0);
+          }
+        }
         for (const mode of ['nearest','scaledHost']) for (const [x, width] of [[49.96,286.25],[0.49,301],[3.3,150.2],[49.96,79.01],[41.7,287.3],[10,602]]) {
           const pixels = await page.evaluate(({x,width,scale,mode}) => {
             const c = document.querySelector('#probe');

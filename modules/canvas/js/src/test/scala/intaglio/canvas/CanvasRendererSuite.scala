@@ -694,10 +694,10 @@ class CanvasRendererSuite extends munit.FunSuite:
     CanvasRenderer.draw(program, context)
 
     assert(uploaded)
-    assertEquals(offscreen.width, 50)
-    assertEquals(offscreen.height, 40)
+    assertEquals(offscreen.width, 2)
+    assertEquals(offscreen.height, 2)
     assertEquals(
-      (Vector(0, 1, 2, 3, 100, 101, 102, 103)).map(idx => bytes(idx).toInt),
+      (0 until 8).map(idx => bytes(idx).toInt).toVector,
       Vector(220, 30, 30, 255, 30, 200, 60, 160)
     )
     assertEquals(drawn, Vector(25.0, 20.0, 50.0, 40.0))
@@ -766,8 +766,10 @@ class CanvasRendererSuite extends munit.FunSuite:
     val cold = CanvasRenderer.drawCached(program, context, cache)
     val warm = CanvasRenderer.drawCached(program, context, cache)
 
-    assertEquals(cold, CanvasDrawProfile(1, 0, 1, 120L * 80L * 4L))
+    assertEquals(cold, CanvasDrawProfile(1, 0, 1, 3L * 2L * 4L))
     assertEquals(warm, CanvasDrawProfile(1, 1, 0, 0L))
+    val resized = CanvasRenderer.compile(scene, CanvasOptions.unsafe(126, 84)).orThrow
+    assertEquals(CanvasRenderer.drawCached(resized, context, cache), CanvasDrawProfile(1, 1, 0, 0L))
     assertEqualsDouble(warm.hitRate, 1.0, 0.0)
     assertEquals(creates, 1)
     assertEquals(cache.size, 1)

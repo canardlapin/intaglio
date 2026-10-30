@@ -46,8 +46,8 @@ sign for numbers and exponents; `Labeler.default` retains ASCII labels for compa
 
 ## Nearest-neighbour sample coverage
 
-Canvas, JavaFX and Java2D prepare nearest-neighbour images as one output pixel per physical device
-pixel. A device column `p` is covered when its centre `p + 0.5` lies in the original image's
+Canvas, JavaFX and Java2D use the same nearest-neighbour rule in physical device pixels.
+A device column `p` is covered when its centre `p + 0.5` lies in the original image's
 half-open interval `[x, x + width)`. Its source column is
 `floor((p + 0.5 - x) / width * sourceWidth)`. Rows use the same top-down rule. The output rectangle
 has integer edges, so opaque images have no partial-alpha outer edges. This rule applies to
@@ -69,3 +69,9 @@ For a Canvas host that deliberately scales a fixed plan, apply that transform to
 before calling `nearestGrid` to describe its actual backing pixels.
 Smooth interpolation retains the backend's image scaler and does not promise discrete sample
 identity.
+
+Canvas uploads each source image once while it remains in `CanvasRasterCache`. It realizes the
+mapping with two passes of integer-aligned strip blits, and retains the resulting native canvas
+for repeated draws at the same geometry. Resizing or panning an unchanged image does not upload
+its pixels again. Tall sources are processed in bands so intermediate canvases also stay within
+the 4096-pixel bound. JavaFX and Java2D retain the CPU-prepared image path.

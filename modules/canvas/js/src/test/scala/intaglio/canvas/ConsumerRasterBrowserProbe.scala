@@ -10,6 +10,112 @@ import CanvasRasterFactory.given
 object ConsumerRasterBrowserProbe:
   def main(args: Array[String]): Unit = ()
 
+  private def imageProgram(
+      image: RasterImage,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double,
+      interpolation: RasterInterpolation = RasterInterpolation.Nearest
+  ): CanvasProgram =
+    CanvasProgram.fromDevice(
+      DeviceScene(
+        2108,
+        2108,
+        Vector(
+          DeviceElement.Mark(
+            DevicePrimitive.Image(image, x, y, width, height, interpolation, 1.0, None)
+          )
+        )
+      ),
+      RenderContext.unsafe(2108, 2108)
+    )
+
+  @JSExport
+  def exact(
+      canvas: js.Dynamic,
+      sourceWidth: Int,
+      sourceHeight: Int,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double
+  ): js.Dynamic =
+    canvas.width = math.max(8, math.ceil(x + width + 3).toInt)
+    canvas.height = math.max(8, math.ceil(y + height + 3).toInt)
+    val ctx = canvas.getContext("2d").asInstanceOf[CanvasRenderingContext2D]
+    val source = RasterImage.tabulate(RasterDimensions.unsafe(sourceWidth, sourceHeight)) {
+      (c, r) =>
+        Rgba32.unsafe(
+          (c * 67 + r * 13) % 256,
+          (c * 11 + r * 97) % 256,
+          (c * 31 + r * 41) % 256,
+          Vector(0, 64, 128, 192, 255)((c + r) % 5)
+        )
+    }
+    val cache = CanvasRasterCache.empty(1)
+    val cold = CanvasRenderer.drawCached(imageProgram(source, x, y, width, height), ctx, cache)
+    val expected = canvas.ownerDocument.createElement("canvas")
+    expected.width = canvas.width; expected.height = canvas.height
+    val reference = expected.getContext("2d").asInstanceOf[CanvasRenderingContext2D]
+    RasterSampling
+      .prepare(source, x, y, width, height, RasterInterpolation.Nearest)
+      .orThrow
+      .foreach { case (sampled, dx, dy, dw, dh) =>
+        reference.imageSmoothingEnabled = false
+        reference.drawImage(summon[CanvasRasterFactory].create(sampled, reference), dx, dy, dw, dh)
+      }
+    val actualBytes = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data
+    val expectedBytes =
+      expected.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data
+    var mismatches = 0
+    var i = 0
+    while i < actualBytes.length.asInstanceOf[Int] do
+      if actualBytes.selectDynamic(i.toString).asInstanceOf[Int] !=
+          expectedBytes.selectDynamic(i.toString).asInstanceOf[Int]
+      then mismatches += 1
+      i += 1
+    val resized = CanvasRenderer.drawCached(
+      imageProgram(source, x + 0.2, y + 0.1, width + 1, height + 1),
+      ctx,
+      cache
+    )
+    js.Dynamic.literal(
+      mismatches = mismatches,
+      coldBytes = cold.uploadedBytes.toDouble,
+      resizeBytes = resized.uploadedBytes.toDouble
+    )
+
+  @JSExport
+  def resizeBenchmark(canvas: js.Dynamic, size: Int, legacy: Boolean, iterations: Int): js.Dynamic =
+    canvas.width = size + 8; canvas.height = size + 8
+    val context = canvas.getContext("2d").asInstanceOf[CanvasRenderingContext2D]
+    val image = RasterImage.tabulate(RasterDimensions.unsafe(256, 256)) { (c, r) =>
+      Rgba32.unsafe(c, r, (c + r) % 256)
+    }
+    val cache = CanvasRasterCache.empty(1)
+    def frame(i: Int): Long =
+      val width = size + 0.2 + (i % 2)
+      val height = size + 0.1 + (i % 2)
+      val program = if legacy then
+        val (sampled, x, y, w, h) = RasterSampling
+          .prepare(image, 0.3, 0.4, width, height, RasterInterpolation.Nearest)
+          .orThrow
+          .get
+        imageProgram(sampled, x, y, w, h)
+      else imageProgram(image, 0.3, 0.4, width, height)
+      CanvasRenderer.drawCached(program, context, cache).uploadedBytes
+    (0 until 4).foreach(frame)
+    val start = js.Dynamic.global.performance.now().asInstanceOf[Double]
+    var bytes = 0L
+    (0 until iterations).foreach(i => bytes += frame(i))
+    val elapsed = js.Dynamic.global.performance.now().asInstanceOf[Double] - start
+    js.Dynamic.literal(
+      millisecondsPerFrame = elapsed / iterations,
+      uploadedBytesPerFrame = bytes.toDouble / iterations,
+      iterations = iterations
+    )
+
   @JSExport
   def nearest(canvas: js.Dynamic, x: Double, width: Double, scale: Double): Unit =
     val w = (700 * scale).toInt; val h = (20 * scale).toInt

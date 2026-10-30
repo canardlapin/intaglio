@@ -673,6 +673,17 @@ trait CanvasRenderingContext2D extends js.Object:
       width: Double,
       height: Double
   ): Unit = js.native
+  def drawImage(
+      image: CanvasImageSource,
+      sourceX: Double,
+      sourceY: Double,
+      sourceWidth: Double,
+      sourceHeight: Double,
+      x: Double,
+      y: Double,
+      width: Double,
+      height: Double
+  ): Unit = js.native
   def createPattern(image: CanvasImageSource, repetition: String): CanvasPattern = js.native
 
 trait CanvasRasterFactory:
@@ -735,35 +746,82 @@ final class CanvasRasterCache private (val capacity: Int):
 
   private final case class Sample(
       image: RasterImage,
-      bounds: Vector[Double],
-      interpolation: RasterInterpolation,
-      prepared: Option[(RasterImage, Double, Double, Double, Double)]
+      grid: NearestRasterGrid,
+      source: CanvasImageSource
   )
   private val samples = mutable.ArrayBuffer.empty[Sample]
 
-  private[canvas] def prepare(
+  private[canvas] def nearest(
       image: RasterImage,
-      x: Double,
-      y: Double,
-      width: Double,
-      height: Double,
-      interpolation: RasterInterpolation
-  ): Either[GraphicsError, Option[(RasterImage, Double, Double, Double, Double)]] =
-    val bounds = Vector(x, y, width, height)
-    val found = samples.indexWhere(entry =>
-      entry.image.eq(image) && entry.bounds == bounds && entry.interpolation == interpolation
-    )
-    if found >= 0 then
+      grid: NearestRasterGrid,
+      context: CanvasRenderingContext2D
+  )(using factory: CanvasRasterFactory): (CanvasImageSource, Boolean) =
+    val (source, hit) = resolve(image, context)
+    val found = samples.indexWhere(entry => entry.image.eq(image) && entry.grid == grid)
+    if grid.x == grid.left.toDouble && grid.y == grid.top.toDouble &&
+      grid.width % image.width == 0.0 && grid.height % image.height == 0.0
+    then source -> hit
+    else if found >= 0 then
       val entry = samples.remove(found)
       samples += entry
-      Right(entry.prepared)
+      entry.source -> hit
     else
-      RasterSampling.prepare(image, x, y, width, height, interpolation).map { prepared =>
-        if capacity > 0 then
-          if samples.size >= capacity then samples.remove(0)
-          samples += Sample(image, bounds, interpolation, prepared)
-        prepared
+      val prepared = resample(source, grid, context)
+      if capacity > 0 then
+        if samples.size >= capacity then samples.remove(0)
+        samples += Sample(image, grid, prepared)
+      prepared -> hit
+
+  /** Group equal source indices along an axis. Work is linear in the two axis lengths, never in the
+    * destination pixel count. Deriving runs from the public mapping also preserves its exact
+    * floating-point tie rule.
+    */
+  private def runs(start: Int, end: Int, sample: Int => Option[Int]): Vector[(Int, Int, Int)] =
+    val out = Vector.newBuilder[(Int, Int, Int)]
+    var at = start
+    while at < end do
+      val source = sample(at).get
+      val begin = at
+      at += 1
+      while at < end && sample(at).contains(source) do at += 1
+      out += ((source, begin - start, at - begin))
+    out.result()
+
+  private def resample(
+      source: CanvasImageSource,
+      grid: NearestRasterGrid,
+      target: CanvasRenderingContext2D
+  ): CanvasImageSource =
+    def canvas(width: Int, height: Int): CanvasElement =
+      val value = target.canvas.ownerDocument.createElement("canvas").asInstanceOf[CanvasElement]
+      value.width = width
+      value.height = height
+      value
+    val width = grid.right - grid.left
+    val height = grid.bottom - grid.top
+    val output = canvas(width, height)
+    val destination = output.getContext("2d")
+    destination.imageSmoothingEnabled = false
+    val columns = runs(grid.left, grid.right, grid.sourceColumn)
+    val rows = runs(grid.top, grid.bottom, grid.sourceRow)
+    val limit = RasterSampling.MaxPreparedDimension
+    // Tile tall source images so neither intermediate dimension exceeds the destination bound.
+    // A normal image uses one band and sourceWidth + sourceHeight strip blits.
+    val intermediate = canvas(width, 1)
+    rows.groupBy(_._1 / limit).toVector.sortBy(_._1).foreach { case (band, selectedRows) =>
+      val sourceTop = band * limit
+      val bandHeight = math.min(limit, grid.source.height - sourceTop)
+      intermediate.height = bandHeight
+      val strip = intermediate.getContext("2d")
+      strip.imageSmoothingEnabled = false
+      columns.foreach { case (column, offset, length) =>
+        strip.drawImage(source, column, sourceTop, 1, bandHeight, offset, 0, length, bandHeight)
       }
+      selectedRows.foreach { case (row, offset, length) =>
+        destination.drawImage(intermediate, 0, row - sourceTop, width, 1, 0, offset, width, length)
+      }
+    }
+    output
 
   def size: Int =
     entries.size
@@ -1118,21 +1176,48 @@ object CanvasRenderer:
         val (sx, sy, tx, ty) = if interpolation == RasterInterpolation.Nearest then
           rasterTransform(context)
         else (1.0, 1.0, 0.0, 0.0)
-        cache
-          .prepare(image, x * sx + tx, y * sy + ty, width * sx, height * sy, interpolation)
-          .left
-          .map(CanvasRenderError.Graphics(_))
-          .map { prepared =>
-            prepared.foreach { case (sampled, dx, dy, dw, dh) =>
-              val (source, hit) = cache.resolve(sampled, context)
-              withSaved(context) {
-                context.globalAlpha = alpha
-                context.imageSmoothingEnabled = interpolation == RasterInterpolation.Smooth
-                context.drawImage(source, (dx - tx) / sx, (dy - ty) / sy, dw / sx, dh / sy)
-              }
-              accumulator.recordImage(hit, sampled.dimensions.pixelCount.toLong * 4L)
-            }
+        def draw(
+            source: CanvasImageSource,
+            hit: Boolean,
+            dx: Double,
+            dy: Double,
+            dw: Double,
+            dh: Double
+        ): Unit =
+          withSaved(context) {
+            context.globalAlpha = alpha
+            context.imageSmoothingEnabled = interpolation == RasterInterpolation.Smooth
+            context.drawImage(source, (dx - tx) / sx, (dy - ty) / sy, dw / sx, dh / sy)
           }
+          accumulator.recordImage(hit, image.dimensions.pixelCount.toLong * 4L)
+        if interpolation == RasterInterpolation.Smooth then
+          val (source, hit) = cache.resolve(image, context)
+          draw(source, hit, x, y, width, height)
+          Right(())
+        else
+          RasterSampling
+            .nearestGrid(image.dimensions, x * sx + tx, y * sy + ty, width * sx, height * sy)
+            .left
+            .map(CanvasRenderError.Graphics(_))
+            .flatMap { grid =>
+              val dw = grid.right.toLong - grid.left.toLong
+              val dh = grid.bottom.toLong - grid.top.toLong
+              if dw > RasterSampling.MaxPreparedDimension || dh > RasterSampling.MaxPreparedDimension
+              then
+                Left(
+                  CanvasRenderError.Graphics(
+                    GraphicsError.InvalidRasterDimensions(
+                      dw.min(Int.MaxValue).toInt,
+                      dh.min(Int.MaxValue).toInt
+                    )
+                  )
+                )
+              else if dw == 0 || dh == 0 then Right(())
+              else
+                val (source, hit) = cache.nearest(image, grid, context)
+                draw(source, hit, grid.left, grid.top, dw.toDouble, dh.toDouble)
+                Right(())
+            }
 
   private def rasterTransform(context: CanvasRenderingContext2D): (Double, Double, Double, Double) =
     try rasterTransformUnchecked(context)
