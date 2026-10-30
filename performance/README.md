@@ -62,4 +62,4 @@ deliberately **not** asserted in CI — everything in the paragraph above about 
 still applies. A deterministic `TimingWorkloadSuite` keeps the workload definitions compiling and
 structurally honest (panel counts, retained-row counts, picking target counts) without asserting
 any elapsed time. The headline observations are summarized in
-[docs/limits.md](../docs/limits.md#measured-time-the-non-gating-receipt).
+[docs/limits.md](../docs/limits.md#what-large-plots-cost).

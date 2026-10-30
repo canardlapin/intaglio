@@ -154,17 +154,7 @@ h1#_top,
 }
 
 @media (min-width: 64rem) {
-	.intaglio-three .card-grid {
-	grid-template-columns: minmax(0, 1fr);
-}
-
-@media (min-width: 50rem) {
-	.intaglio-three .card-grid {
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-	}
-}
-
-.intaglio-pair {
+	.intaglio-pair {
 		grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
 	}
 }
@@ -217,4 +207,14 @@ h1#_top,
 		transform: none !important;
 		transition: none;
 	}
+}
+
+/* JetBrains Mono's ligatures turn identifiers such as `<layer-id>-datum-<i>` into arrows. */
+.sl-markdown-content code {
+	font-variant-ligatures: none;
+}
+
+/* Long identifiers in table cells may break rather than push the table wider than the page. */
+.sl-markdown-content td code {
+	overflow-wrap: anywhere;
 }

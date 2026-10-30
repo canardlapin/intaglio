@@ -1,34 +1,272 @@
 # Performance and limits
 
-Intaglio's CI does not fail on elapsed time. What CI gates is a receipt: a set of deterministic
-work and output-cardinality measurements that are reproduced identically on the JVM and Scala.js,
-and a small set of hard constructor limits. Alongside that, the repository publishes a second,
-non-gating receipt of measured elapsed time and allocation on named hardware
-([`performance/timings/v1.tsv`](../performance/timings/v1.tsv), summarized
-[below](#measured-time-the-non-gating-receipt)), so capacity planning no longer starts from zero.
-This page says exactly what is measured, what is bounded, and what is not bounded at all.
+This page answers three questions about large or unusual plots. How much time and memory does
+Intaglio spend on them? Which inputs does it refuse, and with what error? And what does it leave
+unbounded, so that the size of the job is yours to manage? A final section explains how the
+repository's tests guard these properties.
 
-## Why not wall-clock
+None of the times on this page is a promise. They were measured on one machine, and hosted CI never
+fails a build because something ran slowly. What CI does check is described under
+[How CI guards performance](#how-ci-guards-performance). The browser widgets have separate timing
+budgets, run on named hardware; [browser performance](performance.md) describes them.
 
-From [`performance/README.md`](../performance/README.md):
+## Making a large plot cheaper
 
-> This module runs representative Intaglio workloads on both the JVM and Scala.js. It deliberately
-> does not fail CI on elapsed time: shared runners, JIT warm-up, garbage collection, and
-> hosted-runner contention make wall-clock thresholds noisy. Instead, the gates measure stable work
-> and output cardinality that tracks the severe regressions this repository needs to stop
+Three choices make the largest differences in the measurements below. Each is explained later on
+this page.
 
-and, on refreshing a baseline:
+1. Compile with `PlotCompilerOptions.lean`. The lean options retain no resolved row per mark,
+   and they let a point layer be drawn as one batch instead of one object per point. The DSL's
+   `resolve` uses the rich options unless you ask otherwise.
+2. Do not recompile when only the size changes. Train the plot once with `PlotCompiler.train`
+   and place it at each new size with `PlotCompiler.place`, or pass a `PlotCompileCache` to
+   `resolve`. Note that `train` defaults to the lean options.
+3. Share facet scales when the panels can share them. Free scales train every panel separately;
+   in the measurements below they take about 70 percent more time and nearly twice the memory.
 
-> Use a profiler or a proper benchmark runner for exploratory wall-clock work; do not convert timing
-> observations into hosted-CI pass/fail assertions.
+For workloads larger than those measured here, measure on your own hardware with a benchmark runner.
 
-Take that at face value when planning your own capacity work. The
-[measured-time receipt](#measured-time-the-non-gating-receipt) tells you what one named machine
-observed; it does not tell you how many marks per second *your* machine will draw.
+## What large plots cost
 
-## The receipt
+The figures in this section come from
+[`performance/timings/v1.tsv`](../performance/timings/v1.tsv), which a harness writes when run by
+hand:
 
-`performance/baselines/v1.tsv`, verbatim:
+```sh
+sbt "performanceJVM/Test/runMain intaglio.performance.TimingHarness"
+```
+
+The recorded run is from 8 September 2026, on an Apple M3 Max with OpenJDK 25, single-threaded.
+Each workload ran 4 times to warm up and 12 times for measurement, and the table gives the median.
+The source was commit `38e8c62` with uncommitted changes. Another processor, JVM, or heap size will
+give other numbers.
+
+| Workload | What it does | Median time | Allocated |
+| --- | --- | ---: | ---: |
+| `facet-grid-30` | compiles a 6 × 5 facet grid with shared scales under lean provenance: 20 line-and-ribbon series per panel, 24,000 rows | 182 ms | 307 MB |
+| `facet-grid-30-rich` | the same plot under rich provenance | 170 ms | 310 MB |
+| `facet-free-scales` | the same plot with free scales | 308 ms | 593 MB |
+| `facet-grid-sparse` | the same grid with 15 of its 30 panels empty, 12,000 rows | 81 ms | 154 MB |
+| `resize-only` | resolves the unchanged plot at five sizes | 807 ms | 1,534 MB |
+| `train-once` | trains the plot once, for later placement | 190 ms | 307 MB |
+| `resize-place` | places the trained plot at the same five sizes | 4.3 ms | 1.1 MB |
+| `resize-cached` | resolves at the five sizes through a warm `PlotCompileCache` | 0.07 ms | 0.2 MB |
+| `pick-compile` | builds the picking index for a 20,000-mark faceted plot | 65 ms | 100 MB |
+| `pick-hits` | one `hits` query against that index | 31 µs | |
+| `pick-nearest` | one `nearest` query | 32 µs | |
+| `pick-select` | one 150 × 300 px rectangle `select` over dense data | 43 ms | |
+
+### Resizing without recompiling
+
+Resolving a plot runs every phase of the compiler: mapping, statistics, scale training, row
+resolution, layout, and lowering. Only layout and lowering depend on the output size. When a window
+is resized over unchanged data, the first four phases repeat work whose result cannot have changed.
+That is why five resizes through `resolve` cost 807 ms, about 160 ms each.
+
+`PlotCompiler.train` runs the data-dependent phases once, and `PlotCompiler.place` runs layout and
+lowering for one `RenderContext`. Given the same options, `resolve(plot, context, options)` is
+exactly `train` followed by `place`, and `TrainPlaceSuite` checks that both routes produce equal scenes. Placing the trained
+plot at the same five sizes costs 4.3 ms in total, and the receipt's phase timings record no
+mapping, statistics, scale training, or row resolution during placement.
+
+If your code cannot be arranged around `train` and `place`, pass a `PlotCompileCache` to
+`resolve`. With a warm cache each resolve is a lookup, and the five resizes cost 0.07 ms. The cache
+is never on unless you construct one:
+
+- `PlotCompileCache.Disabled` is the default everywhere, and it is exactly the uncached path.
+- `PlotCompileCache.bounded()` memoizes compilation, which is safe because compiling is a pure
+  function of its inputs. It can be passed to `PlotCompiler.resolve`, `train`, or `place`, or to
+  `PlotProgram.resolve`.
+- A plot holds your functions, and functions cannot be compared for equality, so the cache keys on
+  the plot and the options by reference. A newly built plot is therefore a miss even when it
+  describes the same picture. A `RenderContext` is keyed by its dimensions and resolution, so
+  returning to an earlier size hits even through a new context; its text metrics and font registry
+  are compared by reference.
+- A cache is mutable and not thread-safe. Give each rendering thread its own.
+- Errors are never cached.
+- `profile` reports hits, misses, and evictions, so a cache that never hits can be seen.
+
+### Facet grids
+
+With shared scales (`FacetScales.Shared`), the compiler resolves each panel's rows once and builds
+the scale registry and the axis specifications once for the whole grid. With free scales each panel
+trains its own scales, so the same grid costs 308 ms instead of 182 ms. `FacetSharedScalesSuite`
+checks, panel by panel, that the shared-scale route agrees with the general per-panel route.
+
+An empty panel costs no compile work. The grid with half of its 30 cells empty costs 81 ms, about
+half as much as the full grid, although each empty cell still draws its panel and strip.
+
+### Rich provenance costs memory
+
+Under the rich options, the 30-panel grid keeps 48,000 resolved rows after compiling, one per datum
+per layer. Under the lean options it keeps none. For this line-and-ribbon workload the elapsed times
+are about the same: the rich median is 170 ms and the lean median is 182 ms, and the ranges of the
+twelve runs overlap.
+
+The default depends on the entry point. `PlotBuilder.resolve`, which the DSL calls, and
+`PlotCompiler.resolve` default to rich; `PlotCompiler.compile` and `PlotCompiler.train` default to
+lean. A faceted plot
+resolved through the DSL therefore retains its rows unless you pass other compiler options, for
+example `PlotCompilerOptions.lean` or a `provenance` of `ProvenancePolicy.None`.
+
+### Hover picking
+
+`Picking.compile` builds a uniform spatial grid over the bounds of the hit targets. A query then
+evaluates exact geometry only for the targets in the grid cells it touches, and returns the same
+result as a scan of every target. The index costs 65 ms to build for 20,000 marks, once; after
+that, a `hits` or `nearest` query costs about 30 µs. A rectangle `select` over dense data still
+costs about 43 ms, because such a rectangle really does intersect hundreds of targets.
+
+## Large point layers are batched
+
+Drawn naively, a point layer allocates one scene object (a grob), one device primitive, and one
+retained row for every mark. The batch representation avoids all three. In the scene, the layer
+becomes one `Grob.PointBatch`; after lowering, it becomes one `DevicePrimitive.PointBatch`. Both
+store the positions as a `Vector` and each style property as a `BatchColumn`, which is either one
+`Constant` or `Values` with one entry per mark.
+
+Whether a layer is batched does not depend on how many rows it has. Three conditions decide it: the
+geom is exactly `Geom.Point`, the lowering is `StatLowering.Geom`, and the compiler's `provenance`
+is anything other than `ProvenancePolicy.Full`. A one-row point layer is batched under the lean
+options, and a 20,000-row point layer is not batched under the rich options.
+
+```scala mdoc:silent
+import intaglio.*
+
+final case class Mark(x: Double, y: Double)
+
+val marks = Vector.tabulate(2000)(i => Mark(i.toDouble, (i % 97).toDouble))
+
+val leanPlot =
+  plot(marks).aes(_.x, _.y).geomPoint().compilerOptions(PlotCompilerOptions.lean).resolve
+
+val richPlot =
+  plot(marks).aes(_.x, _.y).geomPoint().compilerOptions(PlotCompilerOptions.rich).resolve
+```
+
+Under the lean options the 2,000 points form one grob; under the rich options they form 2,000.
+
+```scala mdoc
+(leanPlot.map(_.layers.head.grobs.length), richPlot.map(_.layers.head.grobs.length))
+```
+
+The lean layer keeps none of its resolved rows, and the rich layer keeps all of them.
+
+```scala mdoc
+(leanPlot.map(_.layers.head.rows.length), richPlot.map(_.layers.head.rows.length))
+```
+
+Batching gives up two things:
+
+- Identity for each mark. A batch is one grob with at most one `GraphicsName`. You cannot
+  address or wrap an individual mark, for example with `Grob.annotated(child, meta)` for each datum.
+- Inspection of each row. Batching is triggered by the provenance policy, and the same policy
+  empties `rows`, `statFrame.rows`, and `droppedRows`.
+
+It keeps the geometry, the style, and the accessibility information. The batch's points and its
+radii, shapes, and `GraphicParams` for each index equal what the unbatched path produces. The same
+`SceneSemantics` is carried through, and the datum IDs are a `DatumIdSeries` whose `valueAt(i)`
+computes `<layer-id>-datum-<i>` when asked, instead of retaining one `String` per mark.
+
+Batching does not make SVG output smaller. The SVG backend writes one `<circle>` element for each
+mark in a batch, so the saving is in the compiler, the scene, and the device representation, not in
+the document.
+
+`ProvenancePolicy` has five cases, ordered from least to most retained: `None`, `CountOnly`,
+`Representative`, `SourceIndices`, and `Full`. Each case publishes a `ProvenanceRetentionCost` that
+names how its retention grows with the data. The four cases below `Full` all batch point marks.
+
+## Inputs Intaglio rejects
+
+Each limit below is checked when a value is constructed or when a scene crosses a render boundary.
+A value outside the limit produces a typed error, not an exception. Errors are cases of
+`GraphicsError` unless the table names `PdfRenderError`.
+
+| Limit, and where it is checked | Value | Error |
+|---|---|---|
+| Pattern tile axis: raster backends only (`PatternTile.MaxAxisPixels`, internal). SVG and PDF draw vector patterns. | spacing of at most 1024 device pixels | `InvalidPatternParameter` |
+| Break output size: `Breaks.MaximumOutputSize` | at most 10,000 values | `BreakOutputLimitExceeded` |
+| Break iteration: `Breaks` | a fixed internal cap | `BreakIterationLimitExceeded` |
+| Device coordinate: `DeviceScene` lowering | finite, with magnitude at most 1.0e13 | `InvalidDeviceValue` |
+| Calendar year: `CalendarDate` | −9999 to 9999 | `InvalidCalendarDate` |
+| PDF page side: `PdfRenderer` | at most 14,400 points (200 inches) | `PdfRenderError.InvalidPageSize` |
+| Raster dimensions: `RasterDimensions` | the PNG-encoded size must fit in an `Int` | `InvalidRasterDimensions` |
+| Discrete palette: `DiscretePalette.validateDomain` | no more levels than the palette has colours, under `PaletteOverflowPolicy.Reject` | `DiscretePaletteOverflow` |
+| Dash pattern: `DashPattern` | at most 32 segments, at least one above zero | `InvalidDashPattern` |
+| Font weight: `FontWeight` | 100 to 900 | `InvalidFontWeight` |
+| PDF font faces: `PdfFontCatalog` | one face per family and weight | `PdfRenderError.DuplicateFontFace` or `PdfRenderError.MissingFontWeight` |
+
+Four of these limits need more explanation than a table cell allows.
+
+The raster limit is a formula, not a pixel count. `RasterDimensions` computes
+`scanlineBytes = pixels * 4 + height`, adds five bytes for each stored deflate block of 65,535 bytes
+plus a constant, and rejects any image whose encoded size would exceed `Int.MaxValue`. The block
+framing is the PNG encoder's own, so the constructor rejects exactly the images the encoder could not
+write.
+
+The PDF font limit is the one most likely to surprise. Most backends can approximate a weight they lack: AWT and JavaFX use the nearest
+face, and a browser synthesizes one. A PDF embeds its font programs, and PDFBox will not synthesize a
+bold face from an embedded subset. A document that draws at a weight no registered face provides is
+therefore a `MissingFontWeight` error, rather than a document that silently renders the text in the
+regular weight. Register every weight you use.
+
+The dash limit exists because `java.awt.BasicStroke` throws on an all-zero dash array. Intaglio refuses such a
+pattern at construction, so that a pattern three backends would draw is not one that Java2D rejects
+at render time. Dash segments, like a fill pattern's spacing, line width, and radius, are measured in
+layout pixels of 1/96 inch by default: one device pixel at 96 ppi and two at 192 ppi, so dashes and
+hatches keep their physical size at 2x and in export. `PaintLengthUnit.Point` and `Millimetre` are
+the other physical units, and `PaintLengthUnit.DevicePixel` requests literal device pixels. See
+[dash and hatch units](style-aesthetics.md#dash-and-hatch-units).
+
+The palette limit is the one most people meet. The default theme's discrete palette holds six colours, and the default
+overflow policy is `Reject`, so a seventh level is a typed error rather than a reused colour.
+`PaletteOverflowPolicy.Cycle` wraps around instead. `DiscretePalette.okabeIto` holds eight and also
+rejects overflow. Every prefix of it clears the CIE76 colour-difference floor of 10 that
+`ColorSeparation.SeriesFloor` names, but the seventh and eighth colours clear it by only about one
+unit. Beyond about six series, faceting or direct labelling will separate the series better than a
+longer palette. The default theme's palette is the first six Okabe–Ito colours, so it clears the
+floor. A palette you choose that falls below the floor is reported as
+`AccessibilityDiagnostic.IndistinguishablePalette`.
+[Accessible plots](accessibility.md#colour-vision-deficiency) gives the figures for each prefix.
+
+## What Intaglio does not limit
+
+A missing limit can be mistaken for a promise that any size will work, so the absences are listed
+here.
+
+- **Scene size.** No limit applies to the number of elements in a scene or the size of an SVG
+  document. `SvgRenderError` has five cases, `InvalidDocumentSize`, `InvalidXmlCharacter`,
+  `DuplicateDataKey`, `InvalidIdPrefix`, and `Graphics`, and none of them guards element count or
+  byte size. The
+  `svg/mark_elements` and `svg/bytes` ceilings in the [deterministic receipt](#the-deterministic-receipt)
+  are CI checks on one workload, not runtime limits.
+- **Row count.** The repository documents no maximum number of rows.
+- **Streaming.** A `Scene` is a fully built immutable tree, and `DeviceScene.fromScene` walks all of
+  it. Compilation can be split at the size boundary, as described under
+  [Resizing without recompiling](#resizing-without-recompiling), but rendering cannot be streamed.
+
+## How CI guards performance
+
+### Why CI does not measure time
+
+[`performance/README.md`](../performance/README.md) gives the reason:
+
+> It deliberately does not fail CI on elapsed time: shared runners, JIT warm-up, garbage collection,
+> and hosted-runner contention make wall-clock thresholds noisy. Instead, the gates measure stable
+> work and output cardinality that tracks the severe regressions this repository needs to stop
+
+The same README asks that exploratory timing be done with a profiler or a benchmark runner, and that
+timing observations never become pass/fail assertions in hosted CI. The timings receipt above follows
+that rule: it is produced by hand and checked by no test.
+
+### The deterministic receipt
+
+What CI does check is [`performance/baselines/v1.tsv`](../performance/baselines/v1.tsv), a receipt
+of work and output counts that must come out identically on the JVM and Scala.js. Each row names a
+workload, a metric, the value recorded at the named source commit, and the ceiling CI enforces.
+
+<details>
+<summary>The receipt, verbatim</summary>
 
 ```text
 # Intaglio deterministic performance receipt
@@ -54,296 +292,62 @@ svg	mark_elements	10000	10000	Point batches serialize exactly one SVG element pe
 svg	bytes	1336945	1671182	A 25 percent ceiling guards large-scatter serialization growth
 ```
 
-`recorded` is the value observed at the named source SHA. `high_severity_limit` is the reviewed CI
-ceiling. Every row where the two are equal is asserted for **exact** equality; the two byte counts
-allow 25 percent growth so a formatting change does not masquerade as a performance failure.
+</details>
 
-The shared workload and baseline definitions live in
-`modules/performance/shared/src/test/scala/intaglio/performance/`, and a JVM test parses this TSV and
-asserts full structural equality — header, order, values, and rationale strings — against those
-definitions. The receipt and the code cannot drift.
-
-## What each workload actually does
+Where the recorded value equals the ceiling, CI requires that exact value. The two byte counts,
+`raster/svg_bytes` and `svg/bytes`, may grow by 25 percent, so that a change in formatting is not
+reported as a performance failure. The workloads and baselines are defined in
+`modules/performance/shared/src/test/scala/intaglio/performance/`, and a JVM test parses the TSV and
+requires it to match those definitions in full: header, order, values, and rationale text. The file
+and the code therefore cannot disagree.
 
 | Workload | Input | Compiled as |
 |---|---|---|
-| `scatter` | 20,000 rows, `Geom.Point` | `PlotCompilerOptions.lean`, lowered to a `DeviceContext` of 800 × 600 |
-| `raster` | one 256 × 256 checkerboard `RasterImage`, nearest interpolation | one image grob, rendered to SVG at 512 × 512 |
-| `dodge` / `stack` | 10,000 rows = 500 categories × 20 groups, mixed signs, `Geom.Bar` | `PlotCompilerOptions.rich` with `Position.Dodge()` / `Position.Stack()` |
-| `discrete_lookup` | an 8,192-level ordered `DiscreteDomain` | 8,192 hits plus 1,024 misses through `indexOf` |
+| `scatter` | 20,000 rows, `Geom.Point` | `PlotCompilerOptions.lean`, lowered to an 800 × 600 `DeviceContext` |
+| `raster` | one 256 × 256 checkerboard `RasterImage`, nearest-neighbour interpolation | one image grob, rendered to SVG at 512 × 512 |
+| `dodge` / `stack` | 10,000 rows (500 categories × 20 groups), mixed signs, `Geom.Bar` | `PlotCompilerOptions.rich` with `Position.Dodge()` or `Position.Stack()` |
+| `discrete_lookup` | an ordered `DiscreteDomain` of 8,192 levels | 8,192 hits and 1,024 misses through `indexOf` |
 | `histogram` | 50,000 samples, 256 bins | `ProvenancePolicy.CountOnly` |
-| `svg` | 10,000 marks in one hand-built `Grob.pointBatch`, 200 × 50 | serialized at 800 × 600 |
+| `svg` | 10,000 marks in one hand-built `Grob.pointBatch` of 200 × 50 | serialized at 800 × 600 |
 
-Two of those metrics are strategy assertions rather than counts. `histogram/slow_path_penalty` is
-`0` only when generated bins resolve through arithmetic lookup *and* explicit breaks resolve through
-binary search; any other combination scores `1`. `discrete_lookup/identity_calls` counts identity
-derivations after the domain has been built, so `9216` is exactly one derivation per `indexOf` —
-proof that lookup does not re-derive per level.
+Two metrics check a strategy rather than count work. `histogram/slow_path_penalty` is `0` only when
+generated bins are found by arithmetic and explicit breaks by binary search; any other combination
+scores `1`. `discrete_lookup/identity_calls` counts the identities derived after the domain is built,
+so a value of 9,216 means one derivation for each `indexOf` call: a lookup does not derive anything
+again for each level.
 
-`svg/mark_elements = 10000` is the load-bearing one for expectations: **batching does not reduce
-output cardinality.** The SVG backend unrolls a point batch into one `<circle>` per mark. The saving
-is in the compiler, the scene, and the device IR, not in the document.
+### Fuzz and golden tests
 
-## Measured time: the non-gating receipt
+`FuzzRegressionSuite` runs 256 fixed seeds on both the JVM and Scala.js, with no clock and no
+platform randomness. Its cases mix ordinary values with special doubles (`NaN`, both infinities,
+`±Double.MaxValue`, `±0.0`, `Double.MIN_VALUE`, and `±1.0`) at the public construction and callback
+boundaries. The suite fails if any non-fatal exception escapes: a checked boundary must return a
+typed error. A throwing `Transform` must surface as `TransformEvaluationFailed`, a throwing custom
+`Breaks` as `BreakGenerationFailed`, a throwing `TextMetrics` as `LayoutMeasurementFailed`, and a
+throwing or rejecting `RowMapping` as a typed drop reason. Every built-in break run is also checked
+against `Breaks.MaximumOutputSize`. The cases fall into five categories: `scene`, `mapping`,
+`transform`, `breaks`, and `layout`. A failure names its category and seed, and
+the seed alone reproduces the case. The `unsafe` convenience methods throw by design and are not
+fuzzed.
 
-The deterministic receipt above records work and cardinality, not time. A second receipt,
-[`performance/timings/v1.tsv`](../performance/timings/v1.tsv), records elapsed time and allocation
-for interactive-rate workloads — many-panel trellises, repeated device-size changes over unchanged
-data, and dense hover picking. It is produced manually by
-`sbt "performanceJVM/Test/runMain intaglio.performance.TimingHarness"` on named hardware
-(currently an Apple M3 Max, JVM 25), reports run counts with min/median/max rather than a single
-run, and is deliberately **not** a CI gate, for exactly the reasons quoted above. Treat the numbers
-as one machine's honest observation, not a promise.
-
-What the receipt (2026-09-08, 12 measured runs after 4 warm-ups) establishes:
-
-- **A 30-panel faceted compile** (6 × 5 grid, 20 ribbon+line series per panel, 24,000 rows, shared
-  scales, lean provenance) takes ~169 ms median and allocates ~359 MB. The first recording measured
-  ~287 ms and ~688 MB; the difference is the shared-scale fast path, which resolves each panel's
-  rows exactly once instead of once globally plus once per panel, and computes the scale registry
-  and axis specs once instead of per panel (`FacetScales.Shared` makes the per-panel merge a no-op,
-  so the general per-panel path — still used for free scales — is provably redundant there;
-  `FacetSharedScalesSuite` verifies the two paths panel by panel against each other). Free-scale
-  facets are unchanged at ~307 ms because they genuinely need per-panel training.
-- **A resize through `resolve` recompiles everything; through `train`/`place` it recompiles almost
-  nothing.** Re-resolving that unchanged plot at five successive `RenderContext` sizes costs
-  ~1.2 s and ~3.4 GB of allocation — ~240 ms and ~690 MB per resize in which not one datum
-  changed. Training once with `PlotCompiler.train` and placing the trained value at the same five
-  sizes (`resize-place`) costs ~4 ms and ~1.1 MB total — roughly 1 ms per resize, over two orders
-  of magnitude faster — and the phase clock records no mapping, statistics, scale training, or row
-  resolution during placement. The scenes are identical to full recompiles (`TrainPlaceSuite`
-  asserts equality). A caller who cannot restructure onto `train`/`place` can pass a
-  `PlotCompileCache` to plain `resolve`: the same five-size sweep with a warm cache
-  (`resize-cached`) costs ~0.07 ms and ~0.2 MB, because every resolve is a lookup and the phase
-  clock records no compile phases at all.
-- **Hover picking is indexed and tracks local density, not mark count.** On a 20,000-mark faceted
-  plot, one `hits` query costs ~24 µs median and one `nearest` query ~45 µs: `Picking.compile`
-  builds a uniform spatial grid over target bounds (raising plan compile from ~21 ms to ~53 ms,
-  paid once) and queries evaluate exact geometry only on the grid's candidate set, with results
-  identical to a full scan. Before the index the same queries cost ~6.4 ms and ~5.7 ms each with
-  ~9.5 MB allocated per query. A 150 × 300 px rectangle `select` over dense data still costs
-  ~42 ms (down from ~460 ms) because it genuinely intersects hundreds of targets.
-- **Rich provenance is a retention cost, not (here) a time cost.** The same trellis compiled rich
-  retains 48,000 resolved rows (one per datum per layer) against lean's zero, at statistically
-  indistinguishable elapsed time for this line/ribbon workload. The DSL's `PlotBuilder.resolve`
-  defaults to rich; `PlotCompiler.compile` defaults to lean (see [The batch IR](#the-batch-ir)).
-  A consumer who reaches a faceted plot through the DSL therefore pays the retention without
-  asking; the receipt's `facet-grid-30-rich` row is where that cost is visible, and
-  `ProvenancePolicy.None` in the compiler options is the one-line escape.
-- **Empty grid cells now cost what their data costs.** The same grid with half its cells empty
-  (12,000 rows, 15 occupied of 30 panels) costs ~79 ms and ~180 MB — about half the dense grid,
-  i.e. proportional to the occupied cells, where it previously cost ~171 ms and ~341 MB because
-  every declared cell paid per-panel scale training, a per-panel range scan, and its own guide
-  specification. Empty cells still render a panel and a strip; they no longer buy compile work.
-
-The resize and picking figures are the after-numbers for the interactive-rate work tracked in the
-issue log (the before-numbers are quoted inline); the per-phase split exists precisely so the
-data/device pipeline split can prove that a resize does no statistical work.
-
-## The batch IR
-
-The batch IR exists to stop a large point layer from allocating one grob, one device primitive, and
-one retained row per mark. Two types implement it: `Grob.PointBatch` in the scene and
-`DevicePrimitive.PointBatch` after lowering. Both store positions as a `Vector` and style as
-`BatchColumn`, which is either one `Constant` or one `Values` entry per mark — so a uniform style
-column collapses to a single value, and a varying one is still explicit about its cardinality.
-
-There is **no row-count threshold.** Batching triggers on three conditions: the geom is exactly
-`Geom.Point`, the lowering is `StatLowering.Geom`, and the compiler's `provenance` is anything other
-than `ProvenancePolicy.Full`. A one-row point layer batches under `lean`; a 20,000-row point layer
-does not batch under `rich`.
-
-```scala mdoc:silent
-import intaglio.*
-
-final case class Mark(x: Double, y: Double)
-
-val marks = Vector.tabulate(2000)(i => Mark(i.toDouble, (i % 97).toDouble))
-
-val leanPlot =
-  plot(marks).aes(_.x, _.y).geomPoint().compilerOptions(PlotCompilerOptions.lean).resolve
-
-val richPlot =
-  plot(marks).aes(_.x, _.y).geomPoint().compilerOptions(PlotCompilerOptions.rich).resolve
-```
-
-```scala mdoc
-(leanPlot.map(_.layers.head.grobs.length), richPlot.map(_.layers.head.grobs.length))
-```
-
-```scala mdoc
-(leanPlot.map(_.layers.head.rows.length), richPlot.map(_.layers.head.rows.length))
-```
-
-What batching costs you, exactly:
-
-- **Per-mark grob identity.** A batched layer is one grob with one optional `GraphicsName` for the
-  whole batch. Anything that addresses or wraps an individual mark — `Grob.annotated(child, meta)`
-  per datum, for instance — is not available.
-- **Per-row inspection.** Because the trigger is the provenance policy, `rows`, `statFrame.rows`, and
-  `droppedRows` are emptied in the same step.
-
-What it preserves: exact geometry and style. The batch's points and its per-index radii, shapes, and
-`GraphicParams` equal what the unbatched path would have produced. Accessibility survives too — the
-same `SceneSemantics` travels through, and datum IDs are a `DatumIdSeries` whose `valueAt(i)` returns
-`<layer-id>-datum-<i>` on demand rather than one retained `String` per mark.
-
-`ProvenancePolicy` is a five-point scale — `None`, `CountOnly`, `Representative`, `SourceIndices`,
-`Full` — and each case publishes a `ProvenanceRetentionCost` naming its asymptotic growth. All four
-non-`Full` policies batch point marks. Note the asymmetric defaults in the compiler:
-`PlotCompiler.compile` defaults to `lean`, `PlotCompiler.resolve` defaults to `rich`.
-
-## Hard limits
-
-These are enforced at construction or at a render boundary, and each produces a typed error.
-
-| Limit | Value | Where | Failure |
-|---|---|---|---|
-| Pattern tile axis | spacing ≤ **1024** device pixels | raster pattern lowering (`PatternTile.MaxAxisPixels`, internal) | `GraphicsError.InvalidPatternParameter` — raster backends only; SVG and PDF emit vector patterns and do not apply it |
-| Break output size | ≤ **10,000** values | `Breaks.MaximumOutputSize` | `GraphicsError.BreakOutputLimitExceeded` |
-| Break iteration | a deterministic internal cap | `Breaks` | `GraphicsError.BreakIterationLimitExceeded` |
-| Device coordinate magnitude | \|value\| ≤ **1.0e13**, finite | `DeviceScene` lowering | `GraphicsError.InvalidDeviceValue` |
-| Calendar year | **−9999** to **9999** | `CalendarDate` | checked constructor |
-| PDF page side | ≤ **14400** points (200 inches) | `PdfRenderer` | `PdfRenderError.InvalidPageSize` |
-| Raster dimensions | the PNG-encoded size must fit in an `Int` | `RasterDimensions` | `GraphicsError.InvalidRasterDimensions` |
-| Discrete palette capacity | the palette's own length | `DiscretePalette.validateDomain` | `GraphicsError.DiscretePaletteOverflow` under `PaletteOverflowPolicy.Reject` |
-| Dash pattern segments | **32**, at least one above zero | `DashPattern` | `GraphicsError.InvalidDashPattern` |
-| Font weight | **100** to **900** | `FontWeight` | `GraphicsError.InvalidFontWeight` |
-| PDF font faces | one per (family, weight) | `PdfFontCatalog` | `PdfRenderError.DuplicateFontFace`, `MissingFontWeight` |
-
-The raster limit is a formula rather than a fixed pixel count. `RasterDimensions` computes
-`scanlineBytes = pixels * 4 + height`, adds five bytes per 65,535-byte stored deflate block plus a
-constant, and rejects anything whose encoded size would exceed `Int.MaxValue`. The block framing
-comes from the PNG encoder, so the constructor rejects exactly the images the encoder could not
-produce.
-
-The PDF limit is the sharpest of these. Every other backend can approximate a weight it does not
-have — AWT and JavaFX fall back to the nearest face, a browser synthesizes one. PDF embeds font
-programs, and PDFBox will not synthesize a bold face for an embedded subset, so a document that
-draws at a weight no registered face carries is a `MissingFontWeight` rather than a document that
-silently reads as regular. Register the faces you use.
-
-The dash limit has a reason beyond tidiness: `java.awt.BasicStroke` throws on an all-zero dash
-array, so a pattern that three backends would draw and Java2D would reject is refused at
-construction instead. Dash segments, and a fill pattern's spacing, line width and radius, are
-layout pixels (1/96 inch) by default: one device pixel at 96 ppi, two at 192, so a dash and a
-hatch keep their physical size at 2x and in export. `PaintLengthUnit.Point` and `Millimetre` are
-the other physical units; `PaintLengthUnit.DevicePixel` is the explicit opt-in to the old literal
-device pixel. See [style aesthetics](style-aesthetics.md#dash-and-hatch-units).
-
-The palette limit has one number most people meet: the default theme's discrete palette holds
-**six** colours, and the default overflow policy is `Reject`. A seventh level is a typed error, not a
-reused colour. `PaletteOverflowPolicy.Cycle` wraps instead.
-
-`DiscretePalette.okabeIto` holds **eight** and also rejects. Its capacity is not the interesting
-number: every prefix clears the CIE76 floor of 10 that `ColorSeparation.SeriesFloor` names, but the
-seventh and eighth clear it by about a unit rather than by a margin, so past about **six** series
-the honest move is faceting or direct labelling rather than a longer palette. The default theme
-palette falls below that floor from **three** series on, and the compiler now says so through
-`AccessibilityDiagnostic.IndistinguishablePalette`.
-[Accessible plots](accessibility.md#colour-vision-deficiency) has the per-prefix figures.
-
-## What is not limited
-
-Stated plainly, because absence is easy to mistake for a promise:
-
-- **There is no cap on scene element count.** `SvgRenderError` has four cases —
-  `InvalidDocumentSize`, `InvalidXmlCharacter`, `DuplicateDataKey`, and `Graphics` — and none of them
-  is an element-count or byte-size guard. The `svg/mark_elements` and `svg/bytes` rows above are CI
-  receipt ceilings, not runtime limits; the renderer will emit a larger document.
-- **There is no documented maximum row count** and no "does not scale beyond N" statement anywhere in
-  the repository.
-- **There is no streaming render path.** A `Scene` is a fully materialized immutable tree, and
-  `DeviceScene.fromScene` walks all of it. There *is* an incremental compile path: the pipeline is
-  split at the data/device seam, so `PlotCompiler.train` runs the data-dependent phases once and
-  `PlotCompiler.place` re-runs only layout and lowering per `RenderContext`.
-  `resolve(plot, context, options)` is exactly the composition of the two, and the resize saving is
-  quantified in [Measured time](#measured-time-the-non-gating-receipt).
-- **Caching of compiled plots is opt-in and caller-owned.** Compilation is pure, so the same inputs
-  give the same output; `PlotCompileCache.bounded()` memoizes that purity when you pass it to
-  `PlotCompiler.resolve`/`train`/`place` or `PlotProgram.resolve`. Keys are plot and options
-  *reference* identity (plot values carry user functions, so structural equality is undecidable)
-  plus context value; `profile` reports hits, misses, and evictions so a cache that never hits is
-  visible; `PlotCompileCache.Disabled` is the default everywhere and is exactly the uncached path.
-  Nothing is ever cached behind your back, and a cache you never construct costs nothing.
-
-If you are plotting enough marks that any of these matter, the honest advice is: measure it on your
-own target with a real benchmark runner, use `PlotCompilerOptions.lean`, and prefer point layers so
-the batch IR applies.
-
-## The deterministic fuzz court
-
-`FuzzRegressionSuite` lives in core's shared test sources, so it runs on both the JVM and Scala.js
-under `testAll`. It has no wall-clock and no platform randomness.
-
-- **256 fixed seeds**, generated in closed form from a SplitMix64 constant — the same 256 on every
-  platform and every run.
-- **Five categories**: `scene`, `mapping`, `transform`, `breaks`, `layout`. Each drives public
-  construction and callback boundaries with a mixture of ordinary values and the ten special doubles
-  (`NaN`, both infinities, `±Double.MaxValue`, `±0.0`, `Double.MIN_VALUE`, `±1.0`).
-- **The property is that nothing leaks.** Every case runs inside a wrapper that fails the suite if a
-  non-fatal exception escapes, so the assertion is that a checked boundary returns a typed error
-  rather than throwing. Break generation is additionally asserted against
-  `Breaks.MaximumOutputSize`, and throwing user callbacks must surface as typed errors: a
-  `Transform` as `TransformEvaluationFailed`, a custom `Breaks` as `BreakGenerationFailed`, a
-  `TextMetrics` as `LayoutMeasurementFailed`. A throwing or rejecting `RowMapping` must resolve to a
-  typed drop reason rather than an escaping exception.
-- **Replay is by seed.** A failure message names its category and its exact seed; reconstructing the
-  generator from that seed reproduces the case.
-
-`unsafe` convenience methods are explicit throwing boundaries and are deliberately not fuzz targets.
-
-The law kit has its own seed court: `SeededLaw.defaultSeeds` in `intaglio-laws` is 16 fixed seeds
-including `Long.MinValue` and `Long.MaxValue`, and every counterexample carries `seed=<value>` in its
+The law kit uses fixed seeds too: `SeededLaw.defaultSeeds` in `intaglio-laws` holds 16, including
+`Long.MinValue` and `Long.MaxValue`, and every counterexample records `seed=<value>` in its
 `LawFailure` detail.
 
-## The golden court
-
-Two JVM suites pin rendered rasters. Both are perceptual, not exact: they permit small JDK
-glyph-rasterizer differences while failing on geometry, clipping, pattern, and colour regressions.
-
-**`GoldenRegressionSuite`** pins one 360 × 240 PNG of the conformance scene — a panel rect, a
-cross-hatched rect, a polyline, a four-shape point batch, and a title.
-
-| Region | Changed-pixel fraction | Mean channel error |
-|---|---|---|
-| full image | 0.02 | 0.5 |
-| geometry (rows 48 and below, excluding the text band) | 0.001 | 0.03 |
-
-Both metrics are dimensionless. The fraction is changed pixels over compared pixels; the mean channel
-error is mean absolute per-channel difference in 0–255 ARGB units, averaged over all four channels —
-so `0.03` is three hundredths of one 8-bit level.
-
-Three things make that reproducible: the font is Liberation Sans bytes loaded from a test-scoped
-artifact and installed with `Java2DFontResolver.fixed`, so the host font environment is irrelevant;
-both antialiasing hints are disabled; and the background is opaque white. A mutation test blackens a
-20 × 20 block and asserts the geometry threshold rejects it.
-
-**`FeatureVisualRegressionSuite`** pins five 640 × 480 PNGs covering temporal zoom, style aesthetics,
-grouped ECDF, type-7 quantile summary, and aligned composition. It uses the same font and export
-settings, the same full-image threshold, and a per-case panel rectangle with a tighter threshold —
-except `style-aesthetics`, which is deliberately relaxed to the full-image threshold. It additionally
-requires each fixture to render more than 2,000 non-white pixels and all five signatures to differ.
-
-A failure writes `expected.png`, `actual.png`, and `difference.png` under
-`target/golden-failures/java2d/` (and `.../features/<case>/` for the second suite), with matching
-pixels rendered as faint grey and differing pixels as solid red.
-
-**Tests never rewrite their own oracle.** Updating a golden runs a separate main class that refuses
-unless given `--accept` and prints the new SHA-256, driven by `tools/update-java2d-goldens.sh` and
-`tools/update-feature-visual-goldens.sh`. The intended order is: render the paired Intaglio/ggplot2
-gallery, review it at native size, then accept. Details are in the
-[visual regression guide](visual-regression.md) and the
-[recent-feature visual QA page](visual-qa/recent-features.md).
+Two JVM suites, `GoldenRegressionSuite` and `FeatureVisualRegressionSuite`, compare rendered PNGs
+against committed images with perceptual thresholds that tolerate small differences in glyph
+rasterization but fail on changes to geometry, clipping, patterns, or colour. Tests never rewrite
+their own reference images. The [visual regression guide](visual-regression.md) gives the
+thresholds, the fixed fonts, and the review procedure for accepting a new image.
 
 ## Running the gates
 
 ```sh
-sbt "performanceJVM/test" "performanceJS/test"   # the receipt, both platforms
-sbt testAll                                      # everything, including the fuzz and golden courts
-tools/check-docs.sh                              # compile every documented example, re-render the gallery
+sbt "performanceJVM/test" "performanceJS/test"   # the deterministic receipt, on both platforms
+sbt testAll                                      # every suite, including the fuzz and golden tests
+tools/check-docs.sh                              # compiles every documented example and re-renders the gallery
 ```
 
-To refresh a performance baseline: first work out *why* the deterministic metric changed. Then update
-the shared baseline definition and the TSV in one commit, record the production source SHA, and rerun
-both platforms.
+To refresh a performance baseline, first find out why the deterministic metric changed. Then update
+the shared baseline definition and the TSV in one commit, record the production source commit, and
+run both platforms again, together with `scalafmtCheckAll`.
