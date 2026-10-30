@@ -24,19 +24,68 @@ resolves #14; independently antialiased `geomTile` rectangles retain that limita
   sources beyond native canvas dimension limits as missing cases. The follow-up
   preserves CPU sampling for factories without scratch-surface support and for
   source axes above 4096; three additional browser cases and a unit regression
-  were added. Those follow-up checks remain pending.
+  were added. On 30 October the combined browser probe passed all 173 cases:
+  53 raster/font regressions and 120 Unicode tracking comparisons.
 - **#30:** cased segments sharing unambiguous endpoints are stitched into runs and
   loops. All run casings precede all ink. Branches remain separate runs; uncased
   segments preserve independent-stroke behavior. Shared regressions passed 6
   tests on each of JVM and Scala.js. Java2D and JavaFX each passed a native test
   comparing all pixels of 20 joined segments with one polyline, for opaque and
-  half-transparent casing. SVG tests were added but the initial run was stopped
-  before they finished because disk space fell below the authorized limit.
+  half-transparent casing. The later SVG regression passed on JVM and Scala.js.
 - **#32:** an explicit JavaFX font weight first selects a registered full face
   name with a matching conventional weight suffix, then falls back to JavaFX
   family lookup. Both drawing and measurement use this resolver. Tests load
   pinned IBM Plex Regular/Medium/SemiBold TTFs and compare selected faces and
-  advances with direct native-font measurements. Verification is pending CI.
+  advances with direct native-font measurements. Both native face tests passed
+  locally after a follow-up repaired JavaFX's stale global font inventory by
+  also probing conventional full names after registration.
+
+## Unicode follow-up, 30 October 2026
+
+PR #33 was merged upstream as `28e764cb8d24c2a95dc6de17b2412d0c92d5e15d`
+while the Unicode work was in progress. Its CI failed on cased-segment picking,
+font registration, and additive compatibility. This follow-up repairs those
+three failures. The follow-up starts from that merge commit; no unrelated
+upstream source change needed integration.
+
+For **#3**, signed `LetterSpacing` now reaches text styles, theme layout,
+device lowering, measurement, picking, and all five renderers. Zero retains
+the original route. The Unicode 17 boundary implementation passes all 766
+official grapheme cases on JVM and Scala.js. Combining marks, variation
+selectors, and emoji ZWJ sequences remain together; contextual-script words
+remain intact under the conservative JVM shaping policy.
+
+Focused local evidence includes four independent AWT glyph-positioning tests,
+seven native JavaFX tracking tests, eight shared style/validation tests, SVG
+tracking and conformance tests, and 18 Canvas renderer/conformance tests. The
+120 browser Unicode cases compare all output pixels and native measurements
+across ten labels, two spacing values, three anchors, and DPR 1/2.
+
+PDF tests distinguish logical `/ActualText`, embedded glyphs, visible rendering,
+and reader-specific extraction. PDFBox 3.0.8 reordered a mixed Hebrew fixture;
+that adverse result is retained in the documented reader limitation. Poppler
+recovered every original character in order, adding directional controls around
+the Hebrew run. `tools/check-pdf-tracking.py` reproduces the exact observed output.
+See [letter spacing](../letter-spacing.md) for the shaping policy, native end
+bearings, JavaFX snapshot ceiling, and reader limitations.
+
+The browser audit found one pre-existing automation browser before and after;
+the regression probe closed its own browser and left that process untouched.
+
+The completed local module suites passed 2,518 tests: core JVM/JS (748/737),
+shared JVM shaping (4), interaction JVM/JS (246/238), laws JVM/JS (46/46),
+SVG JVM/JS (113/107), Java2D (45), PDF (24), JavaFX (139), and Canvas (25).
+Documentation compilation covered 80 files with zero errors; the generated
+gallery remained unchanged and all relative links resolved. These runs exposed
+and repaired decorative casing picking, SVG pointer handling, stale conformance
+fixture registration, and older assertions about the segment command structure.
+
+The exact-baseline compatibility gate passed against
+`3f3db55c92a49cf06489fd72c0e94e7383738314` (`0.5.0`): backward JVM binary,
+reviewed additive forward findings with negative calibration, and TASTy checks
+for every existing JVM/Scala.js artifact. No new backward or TASTy exclusions
+were added. `scalafmtCheckAll` also passed. Hosted matrix results remain a
+separate qualification gate for the follow-up PR.
 
 ## Canvas resize measurement
 

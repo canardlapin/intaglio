@@ -100,6 +100,10 @@ final class PdfFontCatalog private (
     private val indexed: Map[(String, Int), PdfFont],
     val families: Vector[String]
 ):
+  /** Measurements backed by the exact immutable face bytes this catalog supplies to the renderer.
+    */
+  lazy val textMetrics: TextMetrics = new PdfTextMetrics(this)
+
   /** The face for a family at a weight.
     *
     * An unset weight means whatever the family was registered as, which keeps a catalog that never

@@ -37,11 +37,18 @@ class StrokeCasingSuite extends munit.FunSuite:
   }
 
   private def lowered(grob: Grob): Vector[DevicePrimitive] =
-    DeviceScene
-      .fromScene(Scene(Vector(grob)), RenderContext.unsafe(width = 100, height = 100))
-      .orThrow
-      .elements
-      .collect { case DeviceElement.Mark(primitive) => primitive }
+    def primitives(elements: Vector[DeviceElement]): Vector[DevicePrimitive] =
+      elements.flatMap {
+        case DeviceElement.Mark(primitive)          => Vector(primitive)
+        case DeviceElement.Annotated(_, children)   => primitives(children)
+        case DeviceElement.Group(_, _, _, children) => primitives(children)
+      }
+    primitives(
+      DeviceScene
+        .fromScene(Scene(Vector(grob)), RenderContext.unsafe(width = 100, height = 100))
+        .orThrow
+        .elements
+    )
 
   private val casedPoint = GraphicParams
     .unsafe(stroke = Some(Rgba.Black), lineWidth = 2)

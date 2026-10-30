@@ -20,7 +20,11 @@ trait TextMetrics:
     * advance.
     */
   def widthPt(text: String, style: TextStyle): Double =
-    widthPt(text, style.fontSizePt)
+    if style.letterSpacingPt != 0.0 then
+      throw UnsupportedOperationException(
+        "TextMetrics provider does not support nonzero letter spacing"
+      )
+    else widthPt(text, style.fontSizePt)
 
   def heightPt(style: TextStyle): Double =
     heightPt(style.fontSizePt)
@@ -28,18 +32,53 @@ trait TextMetrics:
 final case class TextStyle(
     fontFamily: Option[String],
     fontSizePt: Double,
-    fontWeight: Option[FontWeight] = None
+    fontWeight: Option[FontWeight] = None,
+    letterSpacingPt: Double = 0.0
 ):
   require(fontSizePt > 0.0 && fontSizePt.isFinite, "`fontSizePt` must be finite and > 0")
+  require(letterSpacingPt.isFinite, "`letterSpacingPt` must be finite")
+
+  /** Binary bridge for the constructor descriptor before letter spacing was added. */
+  def this(fontFamily: Option[String], fontSizePt: Double, fontWeight: Option[FontWeight]) =
+    this(fontFamily, fontSizePt, fontWeight, 0.0)
+
+  /** Binary bridge for the case-class copy descriptor before letter spacing was added. */
+  def copy(
+      fontFamily: Option[String],
+      fontSizePt: Double,
+      fontWeight: Option[FontWeight]
+  ): TextStyle =
+    new TextStyle(fontFamily, fontSizePt, fontWeight, letterSpacingPt)
+
+object TextStyle:
+  override def toString: String = "TextStyle"
+
+  /** Binary bridge for the case-class apply descriptor before letter spacing was added. */
+  def apply(
+      fontFamily: Option[String],
+      fontSizePt: Double,
+      fontWeight: Option[FontWeight]
+  ): TextStyle =
+    new TextStyle(fontFamily, fontSizePt, fontWeight, 0.0)
 
 object TextMetrics:
   /** Conservative portable estimator: wide-glyph average advance and a standard line height, so
-    * allocated regions err toward whitespace rather than overlap.
+    * allocated regions err toward whitespace rather than overlap. Its tracking increment is per
+    * [[TextTracking]] unit, not per code point, so combining marks and protected-script words do
+    * not fabricate extra gaps.
     */
   val estimate: TextMetrics =
     new TextMetrics:
       override def widthPt(text: String, fontSizePt: Double): Double =
         text.length.toDouble * fontSizePt * 0.62
+
+      override def widthPt(text: String, style: TextStyle): Double =
+        if style.letterSpacingPt == 0 then widthPt(text, style.fontSizePt)
+        else
+          widthPt(text, style.fontSizePt) + math.max(
+            0,
+            TextTracking.unitCount(text) - 1
+          ) * style.letterSpacingPt
 
       override def heightPt(fontSizePt: Double): Double =
         fontSizePt * 1.25
@@ -84,7 +123,13 @@ final case class LayoutPolicy(
     plotTitleFontWeight: Option[FontWeight] = None,
     plotSubtitleFontWeight: Option[FontWeight] = None,
     legendFontWeight: Option[FontWeight] = None,
-    legendTitleFontWeight: Option[FontWeight] = None
+    legendTitleFontWeight: Option[FontWeight] = None,
+    axisLetterSpacingPt: Double = 0.0,
+    axisTitleLetterSpacingPt: Double = 0.0,
+    plotTitleLetterSpacingPt: Double = 0.0,
+    plotSubtitleLetterSpacingPt: Double = 0.0,
+    legendLetterSpacingPt: Double = 0.0,
+    legendTitleLetterSpacingPt: Double = 0.0
 ):
   require(outerMarginPt >= 0.0 && outerMarginPt.isFinite, "`outerMarginPt` must be finite and >= 0")
   require(tickLengthPt >= 0.0 && tickLengthPt.isFinite, "`tickLengthPt` must be finite and >= 0")
@@ -154,17 +199,296 @@ final case class LayoutPolicy(
   )
   require(panelGapPt >= 0.0 && panelGapPt.isFinite, "`panelGapPt` must be finite and >= 0")
   require(facetStripPt > 0.0 && facetStripPt.isFinite, "`facetStripPt` must be finite and > 0")
+  require(axisLetterSpacingPt.isFinite, "`axisLetterSpacingPt` must be finite")
+  require(axisTitleLetterSpacingPt.isFinite, "`axisTitleLetterSpacingPt` must be finite")
+  require(plotTitleLetterSpacingPt.isFinite, "`plotTitleLetterSpacingPt` must be finite")
+  require(plotSubtitleLetterSpacingPt.isFinite, "`plotSubtitleLetterSpacingPt` must be finite")
+  require(legendLetterSpacingPt.isFinite, "`legendLetterSpacingPt` must be finite")
+  require(legendTitleLetterSpacingPt.isFinite, "`legendTitleLetterSpacingPt` must be finite")
 
-  def axisTextStyle: TextStyle = TextStyle(axisFontFamily, axisFontPt, axisFontWeight)
+  /** Binary bridge for the constructor descriptor before role letter spacing was added. */
+  def this(
+      metrics: TextMetrics,
+      referenceDevice: DeviceContext,
+      outerMarginPt: Double,
+      tickLengthPt: Double,
+      tickLabelGapPt: Double,
+      axisFontPt: Double,
+      axisTitleFontPt: Double,
+      axisTitleGapPt: Double,
+      plotTitleFontPt: Double,
+      plotSubtitleFontPt: Double,
+      plotLabelGapPt: Double,
+      legendFontPt: Double,
+      legendKeyPt: Double,
+      legendGapPt: Double,
+      legendPaddingPt: Double,
+      legendRowGapPt: Double,
+      legendTitleGapPt: Double,
+      guideStackGapPt: Double,
+      colorbarWidthPt: Double,
+      colorbarHeightPt: Double,
+      colorbarTickLengthPt: Double,
+      colorbarLabelGapPt: Double,
+      panelGapPt: Double,
+      facetStripPt: Double,
+      axisFontFamily: Option[String],
+      axisTitleFontFamily: Option[String],
+      plotTitleFontFamily: Option[String],
+      plotSubtitleFontFamily: Option[String],
+      legendFontFamily: Option[String],
+      legendTitleFontPt: Double,
+      legendTitleFontFamily: Option[String],
+      axisFontWeight: Option[FontWeight],
+      axisTitleFontWeight: Option[FontWeight],
+      plotTitleFontWeight: Option[FontWeight],
+      plotSubtitleFontWeight: Option[FontWeight],
+      legendFontWeight: Option[FontWeight],
+      legendTitleFontWeight: Option[FontWeight]
+  ) =
+    this(
+      metrics,
+      referenceDevice,
+      outerMarginPt,
+      tickLengthPt,
+      tickLabelGapPt,
+      axisFontPt,
+      axisTitleFontPt,
+      axisTitleGapPt,
+      plotTitleFontPt,
+      plotSubtitleFontPt,
+      plotLabelGapPt,
+      legendFontPt,
+      legendKeyPt,
+      legendGapPt,
+      legendPaddingPt,
+      legendRowGapPt,
+      legendTitleGapPt,
+      guideStackGapPt,
+      colorbarWidthPt,
+      colorbarHeightPt,
+      colorbarTickLengthPt,
+      colorbarLabelGapPt,
+      panelGapPt,
+      facetStripPt,
+      axisFontFamily,
+      axisTitleFontFamily,
+      plotTitleFontFamily,
+      plotSubtitleFontFamily,
+      legendFontFamily,
+      legendTitleFontPt,
+      legendTitleFontFamily,
+      axisFontWeight,
+      axisTitleFontWeight,
+      plotTitleFontWeight,
+      plotSubtitleFontWeight,
+      legendFontWeight,
+      legendTitleFontWeight,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    )
+
+  /** Binary bridge for the case-class copy descriptor before role letter spacing was added. */
+  def copy(
+      metrics: TextMetrics,
+      referenceDevice: DeviceContext,
+      outerMarginPt: Double,
+      tickLengthPt: Double,
+      tickLabelGapPt: Double,
+      axisFontPt: Double,
+      axisTitleFontPt: Double,
+      axisTitleGapPt: Double,
+      plotTitleFontPt: Double,
+      plotSubtitleFontPt: Double,
+      plotLabelGapPt: Double,
+      legendFontPt: Double,
+      legendKeyPt: Double,
+      legendGapPt: Double,
+      legendPaddingPt: Double,
+      legendRowGapPt: Double,
+      legendTitleGapPt: Double,
+      guideStackGapPt: Double,
+      colorbarWidthPt: Double,
+      colorbarHeightPt: Double,
+      colorbarTickLengthPt: Double,
+      colorbarLabelGapPt: Double,
+      panelGapPt: Double,
+      facetStripPt: Double,
+      axisFontFamily: Option[String],
+      axisTitleFontFamily: Option[String],
+      plotTitleFontFamily: Option[String],
+      plotSubtitleFontFamily: Option[String],
+      legendFontFamily: Option[String],
+      legendTitleFontPt: Double,
+      legendTitleFontFamily: Option[String],
+      axisFontWeight: Option[FontWeight],
+      axisTitleFontWeight: Option[FontWeight],
+      plotTitleFontWeight: Option[FontWeight],
+      plotSubtitleFontWeight: Option[FontWeight],
+      legendFontWeight: Option[FontWeight],
+      legendTitleFontWeight: Option[FontWeight]
+  ): LayoutPolicy =
+    new LayoutPolicy(
+      metrics,
+      referenceDevice,
+      outerMarginPt,
+      tickLengthPt,
+      tickLabelGapPt,
+      axisFontPt,
+      axisTitleFontPt,
+      axisTitleGapPt,
+      plotTitleFontPt,
+      plotSubtitleFontPt,
+      plotLabelGapPt,
+      legendFontPt,
+      legendKeyPt,
+      legendGapPt,
+      legendPaddingPt,
+      legendRowGapPt,
+      legendTitleGapPt,
+      guideStackGapPt,
+      colorbarWidthPt,
+      colorbarHeightPt,
+      colorbarTickLengthPt,
+      colorbarLabelGapPt,
+      panelGapPt,
+      facetStripPt,
+      axisFontFamily,
+      axisTitleFontFamily,
+      plotTitleFontFamily,
+      plotSubtitleFontFamily,
+      legendFontFamily,
+      legendTitleFontPt,
+      legendTitleFontFamily,
+      axisFontWeight,
+      axisTitleFontWeight,
+      plotTitleFontWeight,
+      plotSubtitleFontWeight,
+      legendFontWeight,
+      legendTitleFontWeight,
+      axisLetterSpacingPt,
+      axisTitleLetterSpacingPt,
+      plotTitleLetterSpacingPt,
+      plotSubtitleLetterSpacingPt,
+      legendLetterSpacingPt,
+      legendTitleLetterSpacingPt
+    )
+
+  def axisTextStyle: TextStyle =
+    TextStyle(axisFontFamily, axisFontPt, axisFontWeight, axisLetterSpacingPt)
   def axisTitleTextStyle: TextStyle =
-    TextStyle(axisTitleFontFamily, axisTitleFontPt, axisTitleFontWeight)
+    TextStyle(axisTitleFontFamily, axisTitleFontPt, axisTitleFontWeight, axisTitleLetterSpacingPt)
   def plotTitleTextStyle: TextStyle =
-    TextStyle(plotTitleFontFamily, plotTitleFontPt, plotTitleFontWeight)
+    TextStyle(plotTitleFontFamily, plotTitleFontPt, plotTitleFontWeight, plotTitleLetterSpacingPt)
   def plotSubtitleTextStyle: TextStyle =
-    TextStyle(plotSubtitleFontFamily, plotSubtitleFontPt, plotSubtitleFontWeight)
-  def legendTextStyle: TextStyle = TextStyle(legendFontFamily, legendFontPt, legendFontWeight)
+    TextStyle(
+      plotSubtitleFontFamily,
+      plotSubtitleFontPt,
+      plotSubtitleFontWeight,
+      plotSubtitleLetterSpacingPt
+    )
+  def legendTextStyle: TextStyle =
+    TextStyle(legendFontFamily, legendFontPt, legendFontWeight, legendLetterSpacingPt)
   def legendTitleTextStyle: TextStyle =
-    TextStyle(legendTitleFontFamily, legendTitleFontPt, legendTitleFontWeight)
+    TextStyle(
+      legendTitleFontFamily,
+      legendTitleFontPt,
+      legendTitleFontWeight,
+      legendTitleLetterSpacingPt
+    )
+
+object LayoutPolicy:
+  override def toString: String = "LayoutPolicy"
+
+  /** Binary bridge for the case-class apply descriptor before role letter spacing was added. */
+  def apply(
+      metrics: TextMetrics,
+      referenceDevice: DeviceContext,
+      outerMarginPt: Double,
+      tickLengthPt: Double,
+      tickLabelGapPt: Double,
+      axisFontPt: Double,
+      axisTitleFontPt: Double,
+      axisTitleGapPt: Double,
+      plotTitleFontPt: Double,
+      plotSubtitleFontPt: Double,
+      plotLabelGapPt: Double,
+      legendFontPt: Double,
+      legendKeyPt: Double,
+      legendGapPt: Double,
+      legendPaddingPt: Double,
+      legendRowGapPt: Double,
+      legendTitleGapPt: Double,
+      guideStackGapPt: Double,
+      colorbarWidthPt: Double,
+      colorbarHeightPt: Double,
+      colorbarTickLengthPt: Double,
+      colorbarLabelGapPt: Double,
+      panelGapPt: Double,
+      facetStripPt: Double,
+      axisFontFamily: Option[String],
+      axisTitleFontFamily: Option[String],
+      plotTitleFontFamily: Option[String],
+      plotSubtitleFontFamily: Option[String],
+      legendFontFamily: Option[String],
+      legendTitleFontPt: Double,
+      legendTitleFontFamily: Option[String],
+      axisFontWeight: Option[FontWeight],
+      axisTitleFontWeight: Option[FontWeight],
+      plotTitleFontWeight: Option[FontWeight],
+      plotSubtitleFontWeight: Option[FontWeight],
+      legendFontWeight: Option[FontWeight],
+      legendTitleFontWeight: Option[FontWeight]
+  ): LayoutPolicy =
+    new LayoutPolicy(
+      metrics,
+      referenceDevice,
+      outerMarginPt,
+      tickLengthPt,
+      tickLabelGapPt,
+      axisFontPt,
+      axisTitleFontPt,
+      axisTitleGapPt,
+      plotTitleFontPt,
+      plotSubtitleFontPt,
+      plotLabelGapPt,
+      legendFontPt,
+      legendKeyPt,
+      legendGapPt,
+      legendPaddingPt,
+      legendRowGapPt,
+      legendTitleGapPt,
+      guideStackGapPt,
+      colorbarWidthPt,
+      colorbarHeightPt,
+      colorbarTickLengthPt,
+      colorbarLabelGapPt,
+      panelGapPt,
+      facetStripPt,
+      axisFontFamily,
+      axisTitleFontFamily,
+      plotTitleFontFamily,
+      plotSubtitleFontFamily,
+      legendFontFamily,
+      legendTitleFontPt,
+      legendTitleFontFamily,
+      axisFontWeight,
+      axisTitleFontWeight,
+      plotTitleFontWeight,
+      plotSubtitleFontWeight,
+      legendFontWeight,
+      legendTitleFontWeight,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    )
 
 /** Stable names for solver-allocated regions. */
 object PlotRegion:

@@ -190,10 +190,14 @@ class SvgRendererSuite extends munit.FunSuite:
 
     val svg = render(Scene(Vector(segment)), SvgOptions.unsafe(width = 100, height = 100))
     val casing =
-      """<polyline stroke="#ffffff" stroke-opacity="0.8" fill="none" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter" opacity="0.5" pointer-events="none" points="0,100 100,0" />"""
+      """<polyline stroke="#ffffff" stroke-opacity="0.8" fill="none" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter" opacity="0.5" points="0,100 100,0" />"""
     val stroke =
       """<polyline data-name="route" stroke="#1450b4" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" stroke-dasharray="6 4" points="0,100 100,0" />"""
     assert(svg.indexOf(casing) >= 0)
+    val decoration = svg.indexOf("""<g pointer-events="none">""")
+    assert(decoration >= 0 && decoration < svg.indexOf(casing))
+    assert(svg.indexOf("</g>", decoration) > svg.indexOf(casing))
+    assert(svg.indexOf("</g>", decoration) < svg.indexOf(stroke))
     assert(svg.indexOf(stroke) > svg.indexOf(casing))
     assertEquals(occurrences(svg, "data-name=\"route\""), 1)
   }

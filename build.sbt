@@ -229,6 +229,27 @@ lazy val core =
 lazy val coreJS = core.js
 lazy val coreJVM = core.jvm
 
+/** JVM-only native text shaping shared by the AWT-backed renderers. Keeping this separate from
+  * core preserves the latter's Scala.js portability while avoiding duplicated shaping policy.
+  */
+lazy val jvmText =
+  crossProject(JVMPlatform)
+    .crossType(CrossType.Full)
+    .in(file("modules/jvm-text"))
+    .dependsOn(core)
+    .settings(commonSettings)
+    .settings(
+      name := "intaglio-jvm-text",
+      description := "Internal JVM-native text shaping support shared by Intaglio renderers.",
+      // This new artifact has no historical baseline yet.
+      mimaPreviousArtifacts := Set.empty,
+      tastyMiMaPreviousArtifacts := Set.empty,
+      versionPolicyCheck / skip := true,
+      versionCheck / skip := true
+    )
+
+lazy val jvmTextJVM = jvmText.jvm
+
 lazy val interaction =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Full)
@@ -381,7 +402,7 @@ lazy val java2d =
   crossProject(JVMPlatform)
     .crossType(CrossType.Full)
     .in(file("modules/java2d"))
-    .dependsOn(core)
+    .dependsOn(core, jvmText)
     .settings(commonSettings)
     .settings(additiveCompatibilitySettings("java2d-additions.txt"))
     .settings(
@@ -407,7 +428,7 @@ lazy val pdf =
   crossProject(JVMPlatform)
     .crossType(CrossType.Full)
     .in(file("modules/pdf"))
-    .dependsOn(core)
+    .dependsOn(core, jvmText)
     .settings(commonSettings)
     .settings(
       name := "intaglio-pdf",
@@ -418,6 +439,7 @@ lazy val pdf =
       Test / fork := true,
       Test / javaOptions += "-Djava.awt.headless=true"
     )
+    .settings(additiveCompatibilitySettings("pdf-additions.txt"))
 
 lazy val pdfJVM = pdf.jvm
 
@@ -541,6 +563,7 @@ lazy val root =
     .aggregate(
       coreJS,
       coreJVM,
+      jvmTextJVM,
       interactionJS,
       interactionJVM,
       lawsJS,
@@ -568,17 +591,17 @@ addCommandAlias(
 
 addCommandAlias(
   "compileAll",
-  ";coreJVM/compile;coreJS/compile;interactionJVM/compile;interactionJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;browserJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile;javafxExample/compile"
+  ";coreJVM/compile;coreJS/compile;jvmTextJVM/compile;interactionJVM/compile;interactionJS/compile;lawsJVM/compile;lawsJS/compile;svgJVM/compile;svgJS/compile;notebookJVM/compile;performanceJVM/compile;performanceJS/compile;canvasJS/compile;browserJS/compile;java2dJVM/compile;pdfJVM/compile;javafxJVM/compile;javafxExample/compile"
 )
 
 addCommandAlias(
   "testAll",
-  ";coreJVM/test;coreJS/test;interactionJVM/test;interactionJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;browserJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test;javafxExample/test"
+  ";coreJVM/test;coreJS/test;jvmTextJVM/test;interactionJVM/test;interactionJS/test;lawsJVM/test;lawsJS/test;svgJVM/test;svgJS/test;notebookJVM/test;performanceJVM/test;performanceJS/test;canvasJS/test;browserJS/test;java2dJVM/test;pdfJVM/test;javafxJVM/test;javafxExample/test"
 )
 
 addCommandAlias(
   "compatibilityCheck",
-  ";coreJVM/interactionCompatibilityCheck;lawsJVM/interactionCompatibilityCheck;svgJVM/interactionCompatibilityCheck;java2dJVM/interactionCompatibilityCheck;javafxJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;browserJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
+  ";coreJVM/interactionCompatibilityCheck;lawsJVM/interactionCompatibilityCheck;svgJVM/interactionCompatibilityCheck;java2dJVM/interactionCompatibilityCheck;javafxJVM/interactionCompatibilityCheck;pdfJVM/interactionCompatibilityCheck;versionPolicyCheck;coreJVM/tastyMiMaReportIssues;coreJS/tastyMiMaReportIssues;lawsJVM/tastyMiMaReportIssues;lawsJS/tastyMiMaReportIssues;svgJVM/tastyMiMaReportIssues;svgJS/tastyMiMaReportIssues;notebookJVM/tastyMiMaReportIssues;canvasJS/tastyMiMaReportIssues;browserJS/tastyMiMaReportIssues;java2dJVM/tastyMiMaReportIssues;pdfJVM/tastyMiMaReportIssues;javafxJVM/tastyMiMaReportIssues"
 )
 
 addCommandAlias(

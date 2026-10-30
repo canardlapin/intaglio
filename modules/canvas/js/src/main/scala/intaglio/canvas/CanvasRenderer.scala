@@ -81,6 +81,7 @@ enum CanvasRenderError extends IntaglioError:
   case InvalidCanvasSize(width: Int, height: Int)
   case InvalidRasterCacheCapacity(value: Int)
   case PatternResourceFailure(detail: String)
+  case UnsupportedLetterSpacing
   case Graphics(error: GraphicsError)
 
   def message: String =
@@ -91,6 +92,8 @@ enum CanvasRenderError extends IntaglioError:
         s"Canvas raster cache capacity must be non-negative; got $value"
       case PatternResourceFailure(detail) =>
         s"Canvas pattern resource failed: $detail"
+      case UnsupportedLetterSpacing =>
+        "This Canvas context does not support Unicode letter spacing"
       case Graphics(error) =>
         error.message
 
@@ -132,8 +135,65 @@ final case class CanvasPaint(
     fillPattern: Option[PatternPaint] = None,
     fontWeight: Option[FontWeight] = None,
     casing: Option[CanvasCasing] = None,
-    textPlate: Option[TextPlate] = None
+    textPlate: Option[TextPlate] = None,
+    letterSpacingPx: Double = 0.0
 ):
+  /** Retains the text-plate-era descriptor. */
+  def this(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[CanvasCasing],
+      textPlate: Option[TextPlate]
+  ) = this(
+    stroke,
+    fill,
+    lineWidth,
+    dash,
+    lineCap,
+    lineJoin,
+    opacity,
+    fillPattern,
+    fontWeight,
+    casing,
+    textPlate,
+    0.0
+  )
+
+  /** Retains the text-plate-era copy descriptor. */
+  def copy(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[CanvasCasing],
+      textPlate: Option[TextPlate]
+  ): CanvasPaint = new CanvasPaint(
+    stroke,
+    fill,
+    lineWidth,
+    dash,
+    lineCap,
+    lineJoin,
+    opacity,
+    fillPattern,
+    fontWeight,
+    casing,
+    textPlate,
+    letterSpacingPx
+  )
+
   /** Binary bridge for the casing-era constructor descriptor. */
   def this(
       stroke: Option[CanvasColor],
@@ -250,6 +310,34 @@ final case class CanvasPaint(
     )
 
 object CanvasPaint:
+  /** Retains the text-plate-era factory descriptor. */
+  def apply(
+      stroke: Option[CanvasColor],
+      fill: Option[CanvasColor],
+      lineWidth: Double,
+      dash: CanvasLineDash,
+      lineCap: LineCap,
+      lineJoin: LineJoin,
+      opacity: Double,
+      fillPattern: Option[PatternPaint],
+      fontWeight: Option[FontWeight],
+      casing: Option[CanvasCasing],
+      textPlate: Option[TextPlate]
+  ): CanvasPaint = new CanvasPaint(
+    stroke,
+    fill,
+    lineWidth,
+    dash,
+    lineCap,
+    lineJoin,
+    opacity,
+    fillPattern,
+    fontWeight,
+    casing,
+    textPlate,
+    0.0
+  )
+
   /** Binary bridge for the former seven-field case-class apply descriptor. */
   def apply(
       stroke: Option[CanvasColor],
@@ -341,7 +429,8 @@ object CanvasPaint:
       None,
       gp.fontWeight,
       None,
-      gp.textPlate
+      gp.textPlate,
+      gp.letterSpacing.fold(0.0)(_.value)
     )
 
 final case class CanvasCasing(
@@ -1181,7 +1270,7 @@ object CanvasRenderer:
             paint,
             _
           ) =>
-        withSaved(context) {
+        withSavedEither(context) {
           val color = paint.fill.getOrElse(CanvasColor.fromRgba(Rgba.Black))
           context.fillStyle = color.css
           context.globalAlpha = paint.opacity * color.alpha
@@ -1191,21 +1280,22 @@ object CanvasRenderer:
             CanvasFont.family(fontFamily.getOrElse("sans-serif"))
           )
           context.textAlign = textAlign(horizontal)
-          context.textBaseline = textBaseline(vertical)
-          val (drawX, drawY) =
-            if rotation == 0.0 then (x, y)
-            else
-              context.translate(x, y)
-              context.rotate(rotation * math.Pi / 180.0)
-              (0.0, 0.0)
-          paint.textPlate.foreach { plate =>
-            drawPlate(context, plate, label, drawX, drawY, horizontal, paint.opacity)
-            context.fillStyle = color.css
-            context.globalAlpha = paint.opacity * color.alpha
+          CanvasTracking.configure(context, paint.letterSpacingPx).map { _ =>
+            context.textBaseline = textBaseline(vertical)
+            val (drawX, drawY) =
+              if rotation == 0.0 then (x, y)
+              else
+                context.translate(x, y)
+                context.rotate(rotation * math.Pi / 180.0)
+                (0.0, 0.0)
+            paint.textPlate.foreach { plate =>
+              drawPlate(context, plate, label, drawX, drawY, horizontal, paint.opacity)
+              context.fillStyle = color.css
+              context.globalAlpha = paint.opacity * color.alpha
+            }
+            context.fillText(label, drawX, drawY)
           }
-          context.fillText(label, drawX, drawY)
         }
-        Right(())
       case CanvasCommand.Image(image, x, y, width, height, interpolation, alpha, _) =>
         // Native Canvas hosts can scale a fixed plan for CSS size/DPR. Prepare against the actual
         // positive axis-aligned transform, then invert placement so the resulting draw is 1:1

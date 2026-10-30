@@ -256,6 +256,34 @@ final class JavaFxCanvasContext(context: GraphicsContext, val cacheByteLimit: Lo
     )
     output
 
+  override def fillTrackedText(
+      label: String,
+      x: Double,
+      y: Double,
+      family: Option[String],
+      size: Double,
+      weight: Option[FontWeight],
+      spacing: Double,
+      horizontal: HJust,
+      vertical: VJust
+  ): Unit =
+    JavaFxTrackedText
+      .layout(label, family, size, weight, spacing, context.getFill)
+      .draw(context, x, y, horizontal, vertical)
+
+  override def measureTrackedText(
+      label: String,
+      family: Option[String],
+      size: Double,
+      weight: Option[FontWeight],
+      spacing: Double,
+      horizontal: HJust,
+      vertical: VJust
+  ): JavaFxTextBox =
+    JavaFxTrackedText
+      .layout(label, family, size, weight, spacing)
+      .anchoredBounds(horizontal, vertical)
+
   /** Measures with JavaFX's own text layout in the face `Font.font` resolves (a fallback face when
     * the family is not installed), using the same vertical origin `fillText` uses.
     */

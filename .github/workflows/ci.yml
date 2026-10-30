@@ -41,7 +41,7 @@ jobs:
         run: tools/check-docs.sh
 
   # Every supported Scala line on every supported JDK, for the JVM and for
-  # Scala.js. `testAll` names all thirteen modules explicitly, so a cell that
+  # Scala.js. `testAll` names every module explicitly, so a cell that
   # passes has compiled every backend and run its unit, law, conformance,
   # differential, fuzz, golden, and performance-gate suites.
   test:

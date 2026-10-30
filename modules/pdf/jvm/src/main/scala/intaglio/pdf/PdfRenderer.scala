@@ -1,9 +1,14 @@
 package intaglio.pdf
 
+import java.awt.Font
+import java.awt.font.FontRenderContext
 import java.awt.geom.{AffineTransform, Rectangle2D}
 import java.awt.image.BufferedImage
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.security.MessageDigest
+import java.nio.charset.StandardCharsets
+import java.util.HashSet
+import scala.annotation.nowarn
 import scala.collection.mutable
 import scala.util.control.NonFatal
 import org.apache.pdfbox.pdmodel.{
@@ -14,7 +19,8 @@ import org.apache.pdfbox.pdmodel.{
   PDResources
 }
 import org.apache.pdfbox.pdmodel.common.PDRectangle
-import org.apache.pdfbox.cos.{COSArray, COSString}
+import org.apache.pdfbox.cos.{COSArray, COSDictionary, COSName, COSString}
+import org.apache.pdfbox.pdmodel.documentinterchange.markedcontent.PDPropertyList
 import org.apache.pdfbox.pdmodel.font.PDType0Font
 import org.apache.pdfbox.pdmodel.graphics.color.{PDColor, PDPattern}
 import org.apache.pdfbox.pdmodel.graphics.image.{LosslessFactory, PDImageXObject}
@@ -378,6 +384,11 @@ object PdfRenderer:
               gp.alpha,
               gp.fontWeight
             )
+            gp.letterSpacing
+              .filter(_.value != 0.0)
+              .foreach(spacing =>
+                emittedRequirements += RenderRequirement.LetterSpacing(value, spacing.value)
+              )
           }
         case DevicePrimitive.Image(
               image,
@@ -577,7 +588,50 @@ object PdfRenderer:
           )
         )
       val font = fonts((PdfFontCatalog.normalize(supplied.family), supplied.weight.value))
-      validateGlyphs(label, supplied.family, font)
+      if gp.letterSpacing.forall(_.value == 0.0) then
+        drawNativeText(
+          label,
+          textX,
+          textY,
+          horizontal,
+          vertical,
+          rotationDegrees,
+          fontSizePx,
+          supplied.family,
+          font,
+          gp
+        )
+      else
+        drawTrackedText(
+          label,
+          textX,
+          textY,
+          horizontal,
+          vertical,
+          rotationDegrees,
+          fontSizePx,
+          supplied,
+          font,
+          gp.letterSpacing.get.value,
+          gp
+        )
+
+    /** Historical Unicode/CMap text path. It stays intact for zero tracking so existing embedded
+      * subset output, extraction, and byte-level determinism retain their established contract.
+      */
+    private def drawNativeText(
+        label: String,
+        textX: Double,
+        textY: Double,
+        horizontal: HJust,
+        vertical: VJust,
+        rotationDegrees: Double,
+        fontSizePx: Double,
+        family: String,
+        font: PDType0Font,
+        gp: GraphicParams
+    ): Unit =
+      validateGlyphs(label, family, font)
       val size = px(fontSizePx)
       val width = font.getStringWidth(label) / 1000.0f * size
       val descriptor = font.getFontDescriptor
@@ -649,6 +703,152 @@ object PdfRenderer:
         stream.showText(label)
         stream.endText()
       }
+
+    /** Emits shaped glyph IDs at their individual positions. PDFBox's public text APIs encode
+      * Unicode through its CMap, which cannot represent the substitutions and reordering in an
+      * already-shaped AWT run. The raw `Tj` operand is therefore deliberately isolated here.
+      */
+    private def drawTrackedText(
+        label: String,
+        textX: Double,
+        textY: Double,
+        horizontal: HJust,
+        vertical: VJust,
+        rotationDegrees: Double,
+        fontSizePx: Double,
+        supplied: PdfFont,
+        font: PDType0Font,
+        spacingPx: Double,
+        gp: GraphicParams
+    ): Unit =
+      val fontSizePoints = px(fontSizePx)
+      val awt = awtFont(supplied, fontSizePoints)
+      validateTrackedGlyphs(label, supplied.family, awt)
+      val plan = TrackedGlyphs.layout(
+        label,
+        awt,
+        new FontRenderContext(null, true, true),
+        px(spacingPx).toDouble
+      )
+      val width = plan.advance.toFloat
+      val ascent = plan.ascent.toFloat
+      val descent = plan.descent.toFloat
+      val offsetX = horizontal match
+        case HJust.Left   => 0.0f
+        case HJust.Center => -width / 2.0f
+        case HJust.Right  => -width
+      val offsetY = vertical match
+        case VJust.Top    => -ascent
+        case VJust.Center => -(ascent + descent) / 2.0f
+        case VJust.Bottom => -descent
+      val radians = -math.toRadians(rotationDegrees)
+      val cosine = math.cos(radians).toFloat
+      val sine = math.sin(radians).toFloat
+      val anchorX = x(textX)
+      val anchorY = y(textY)
+      val baselineX = anchorX + cosine * offsetX - sine * offsetY
+      val baselineY = anchorY + sine * offsetX + cosine * offsetY
+      val color = gp.fill.orElse(gp.stroke).getOrElse(Rgba.Black)
+
+      gp.textPlate.foreach { plate =>
+        val inPoints = plate.copy(
+          padding = StrokeWidth.devicePixelsUnsafe(px(plate.padding.value).toDouble),
+          cornerRadius = StrokeWidth.devicePixelsUnsafe(px(plate.cornerRadius.value).toDouble)
+        )
+        val bounds = plan.bounds
+        // AWT's baseline coordinates are y-down; PDF text coordinates are y-up.
+        val left = offsetX + bounds.getMinX.toFloat
+        val bottom = offsetY - bounds.getMaxY.toFloat
+        val right = offsetX + bounds.getMaxX.toFloat
+        val top = offsetY - bounds.getMinY.toFloat
+        val box = inPoints.around(left, bottom, right - left, top - bottom)
+        withGraphics {
+          stream.transform(new Matrix(cosine, sine, -sine, cosine, anchorX, anchorY))
+          setNonStrokingColor(plate.fill)
+          setAlpha(1.0, plate.fill.alpha * gp.alpha)
+          if box.cornerRadius == 0.0 then
+            stream.addRect(box.x.toFloat, box.y.toFloat, box.width.toFloat, box.height.toFloat)
+          else
+            appendRoundedRect(
+              stream,
+              box.x.toFloat,
+              box.y.toFloat,
+              box.width.toFloat,
+              box.height.toFloat,
+              box.cornerRadius.toFloat
+            )
+          stream.fill()
+        }
+      }
+
+      val glyphIds = new HashSet[Integer]()
+      plan.runs.foreach { run =>
+        var index = 0
+        while index < run.getNumGlyphs do
+          val glyph = run.getGlyphCode(index)
+          if glyph != 65535 then glyphIds.add(glyph)
+          index += 1
+      }
+      font.addGlyphsToSubset(glyphIds)
+      withGraphics {
+        setNonStrokingColor(color)
+        setAlpha(1.0, color.alpha * gp.alpha)
+        stream.beginMarkedContent(COSName.getPDFName("Span"), actualText(label))
+        try
+          stream.beginText()
+          stream.setFont(font, fontSizePoints)
+          plan.runs.foreach { run =>
+            var index = 0
+            while index < run.getNumGlyphs do
+              val glyph = run.getGlyphCode(index)
+              if glyph != 65535 then
+                val position = run.getGlyphPosition(index)
+                val glyphX = offsetX + position.getX.toFloat
+                // The tracked plan has paragraph coordinates; its y value is in AWT's y-down frame.
+                val glyphY = offsetY - position.getY.toFloat
+                val originX = anchorX + cosine * glyphX - sine * glyphY
+                val originY = anchorY + sine * glyphX + cosine * glyphY
+                stream.setTextMatrix(new Matrix(cosine, sine, -sine, cosine, originX, originY))
+                showGlyph(font, glyph)
+              index += 1
+          }
+          stream.endText()
+        finally stream.endMarkedContent()
+      }
+
+    private def awtFont(supplied: PdfFont, size: Float): Font =
+      val input = supplied.inputStream
+      try Font.createFont(Font.TRUETYPE_FONT, input).deriveFont(size)
+      catch
+        case NonFatal(error) =>
+          abort(PdfRenderError.FontLoadFailed(supplied.family, PdfMessages.details(error)))
+      finally input.close()
+
+    private def validateTrackedGlyphs(label: String, family: String, font: Font): Unit =
+      var offset = 0
+      while offset < label.length do
+        val codePoint = label.codePointAt(offset)
+        if !defaultIgnorable(codePoint) && !font.canDisplay(codePoint) then
+          abort(PdfRenderError.UnsupportedGlyph(family, codePoint))
+        offset += Character.charCount(codePoint)
+
+    private def defaultIgnorable(codePoint: Int): Boolean =
+      Character.getType(codePoint) == Character.FORMAT ||
+        (codePoint >= 0xfe00 && codePoint <= 0xfe0f) ||
+        (codePoint >= 0xe0100 && codePoint <= 0xe01ef)
+
+    private def actualText(label: String): PDPropertyList =
+      val encoded = label.getBytes(StandardCharsets.UTF_16BE)
+      val bytes = Array[Byte](0xfe.toByte, 0xff.toByte) ++ encoded
+      val properties = new COSDictionary()
+      properties.setItem(COSName.ACTUAL_TEXT, new COSString(bytes))
+      PDPropertyList.create(properties)
+
+    @nowarn("cat=deprecation")
+    private def showGlyph(font: PDType0Font, glyph: Int): Unit =
+      val bytes = font.encodeGlyphId(glyph)
+      val hex = bytes.iterator.map(value => f"${value & 0xff}%02X").mkString
+      stream.appendRawCommands(s"<$hex> Tj\n")
 
     /** The ink of a run as `showText` draws it, in thousandths of an em from the run's origin, y
       * up: each glyph's outline bounds from the embedded face, offset by the advance of the glyphs

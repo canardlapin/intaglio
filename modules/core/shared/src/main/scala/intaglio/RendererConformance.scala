@@ -43,6 +43,7 @@ enum RenderRequirement:
       alpha: Double,
       fontWeight: Option[FontWeight] = None
   )
+  case LetterSpacing(name: GraphicsName, spacingPx: Double)
   case Image(
       name: GraphicsName,
       dimensions: RasterDimensions,
@@ -64,6 +65,8 @@ enum RenderRequirement:
         s"text '${name.value}' with anchor=($horizontal,$vertical) and rotated=$rotated"
       case TextStyle(name, color, fontSizePx, fontFamily, alpha, fontWeight) =>
         s"text style '${name.value}' with color=$color, fontSizePx=$fontSizePx, fontFamily=$fontFamily, alpha=$alpha, fontWeight=${fontWeight.map(_.value)}"
+      case LetterSpacing(name, spacingPx) =>
+        s"text '${name.value}' with letterSpacingPx=$spacingPx"
       case Image(name, dimensions, interpolation, alpha) =>
         s"image '${name.value}' with ${dimensions.width}x${dimensions.height} pixels, interpolation=$interpolation, alpha=$alpha"
 
@@ -191,6 +194,7 @@ object RendererConformance:
       roundedRect <- roundedRectCase
       patternFills <- patternFillCase
       text <- textCase
+      unicodeLetterSpacing <- unicodeLetterSpacingCase
       image <- imageCase
       clipped <- clippedViewportCase
       rotated <- rotatedViewportCase
@@ -246,6 +250,7 @@ object RendererConformance:
       roundedRect,
       patternFills,
       text,
+      unicodeLetterSpacing,
       image,
       clipped,
       rotated,
@@ -902,6 +907,33 @@ object RendererConformance:
               fontFamily = Some("Conformance Sans"),
               alpha = 0.65
             )
+          )
+        )
+      }
+
+  /** Tracking is a physical paint property. The combining-mark label makes a backend prove it did
+    * not replace text with per-code-point drawing while resolving 1.5 pt to 2 px at 96 ppi.
+    */
+  def unicodeLetterSpacingCase: Either[GraphicsError, ConformanceCase] =
+    val name = GraphicsName.unsafe("conformance-unicode-letter-spacing")
+    Grob
+      .text(
+        "x\u0301 α",
+        Point.npcUnsafe(0.5, 0.5),
+        gp = GraphicParams
+          .unsafe(stroke = None, fill = Some(Rgba.Black), fontSize = Length.pointsUnsafe(12.0))
+          .withLetterSpacing(LetterSpacing.pointsUnsafe(1.5)),
+        name = Some(name)
+      )
+      .map { grob =>
+        ConformanceCase(
+          GraphicsName.unsafe("unicode-letter-spacing"),
+          ConformanceGroup.Primitive,
+          Scene(Vector(grob)),
+          Vector(name),
+          Vector(
+            RenderRequirement.Primitive(name, RenderPrimitiveKind.Text),
+            RenderRequirement.LetterSpacing(name, spacingPx = 2.0)
           )
         )
       }

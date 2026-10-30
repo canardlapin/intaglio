@@ -155,6 +155,12 @@ sealed trait GuideSpec:
   def name: Option[GraphicsName]
 
 object GuideSpec:
+  private def letterSpacingPt(gp: GraphicParams, device: DeviceContext): Double =
+    gp.letterSpacing.fold(0.0) {
+      case LetterSpacing(value, StrokeUnit.Point)       => value
+      case LetterSpacing(value, StrokeUnit.DevicePixel) => value * 72.0 / device.pixelsPerInch
+    }
+
   final case class Axis(
       side: AxisSide,
       breaks: Breaks = Breaks.default,
@@ -326,7 +332,8 @@ object GuideSpec:
             fontPx <- resolver.fontSize(gp.fontSize)
           yield
             val pxPerPt = device.pixelsPerInch / 72.0
-            val style = TextStyle(gp.fontFamily, fontPx / pxPerPt, gp.fontWeight)
+            val style =
+              TextStyle(gp.fontFamily, fontPx / pxPerPt, gp.fontWeight, letterSpacingPt(gp, device))
             GuideTickSpacing.fitAxis(
               ticks,
               tick => range.rescale(tick.value) * length,
@@ -367,9 +374,19 @@ object GuideSpec:
       titlePx <- resolver.fontSize(titleGp.fontSize)
       offset <- measuring {
         val style =
-          TextStyle(labelGp.fontFamily, labelPx * 72.0 / device.pixelsPerInch, labelGp.fontWeight)
+          TextStyle(
+            labelGp.fontFamily,
+            labelPx * 72.0 / device.pixelsPerInch,
+            labelGp.fontWeight,
+            letterSpacingPt(labelGp, device)
+          )
         val titleStyle =
-          TextStyle(titleGp.fontFamily, titlePx * 72.0 / device.pixelsPerInch, titleGp.fontWeight)
+          TextStyle(
+            titleGp.fontFamily,
+            titlePx * 72.0 / device.pixelsPerInch,
+            titleGp.fontWeight,
+            letterSpacingPt(titleGp, device)
+          )
         val extent = if spec.side.isHorizontal then policy.metrics.heightPt(style)
         else
           spec.ticks
@@ -488,7 +505,12 @@ object GuideSpec:
         gp = spec.labelGp.getOrElse(theme.legend.text)
         fontPx <- resolver.fontSize(gp.fontSize)
         heightPx <- resolver.height(spec.barHeight)
-        style = TextStyle(gp.fontFamily, fontPx * 72.0 / device.pixelsPerInch, gp.fontWeight)
+        style = TextStyle(
+          gp.fontFamily,
+          fontPx * 72.0 / device.pixelsPerInch,
+          gp.fontWeight,
+          letterSpacingPt(gp, device)
+        )
         visible <- measuring {
           Right(
             GuideTickSpacing.fit(

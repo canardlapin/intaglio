@@ -120,13 +120,17 @@ Layout has to know how wide a tick label is before any backend runs. The portabl
 `TextMetrics.estimate`, which is deterministic and identical on the JVM and Scala.js — that is what
 makes byte-identical cross-platform output possible.
 
-Three backends offer platform providers, and all are opt-in:
+Backends offer opt-in metrics providers:
 
 ```scala
 LayoutPolicy(metrics = Java2DTextMetrics())          // JVM, installed AWT fonts
 LayoutPolicy(metrics = JavaFxTextMetrics())          // JVM, JavaFX's own text layout
 LayoutPolicy(metrics = CanvasTextMetrics(context))   // browser, measureText
+LayoutPolicy(metrics = pdfFontCatalog.textMetrics)   // JVM, exact embedded PDF font bytes
 ```
+
+For Unicode tracking, use [letter spacing](letter-spacing.md); the measurement provider must honor
+the same spacing as the drawing backend.
 
 Installed fonts never affect shared output implicitly. `Java2DTextMetrics` also exposes a matching
 `fontRegistry`, so layout and rendering resolve the same families:

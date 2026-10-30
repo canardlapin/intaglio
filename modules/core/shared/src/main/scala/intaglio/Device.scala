@@ -136,6 +136,16 @@ final class LengthResolver(
       case StrokeUnit.Point       => gp.lineWidth * device.pixelsPerInch / 72.0
     for
       lineWidth <- DeviceValue.checked("line width", pixels)
+      letterSpacing <- gp.letterSpacing match
+        case None        => Right(None)
+        case Some(value) =>
+          val spacingPixels = value.unit match
+            case StrokeUnit.DevicePixel => value.value
+            case StrokeUnit.Point       => value.value * device.pixelsPerInch / 72.0
+          DeviceValue
+            .checked("letter spacing", spacingPixels)
+            .flatMap(LetterSpacing.devicePixels)
+            .map(Some(_))
       casing <- gp.casing match
         case None        => Right(None)
         case Some(value) =>
@@ -169,7 +179,8 @@ final class LengthResolver(
         .withStrokeWidth(StrokeWidth.devicePixelsUnsafe(lineWidth))
         .withResolvedCasing(casing)
         .withResolvedPaintLengths(line, pattern)
-      plate.fold(resolved)(resolved.withTextPlate)
+      val withPlate = plate.fold(resolved)(resolved.withTextPlate)
+      letterSpacing.fold(withPlate)(withPlate.withLetterSpacing)
 
   private def strokeLength(field: String, value: StrokeWidth): Either[GraphicsError, StrokeWidth] =
     val pixels = value.unit match
@@ -561,6 +572,9 @@ final case class DeviceScene(
     new DeviceScene(width, height, elements, semantics, frames)
 
 object DeviceScene:
+  /** Lowered decorative underlays render normally but do not create interaction geometry. */
+  private[intaglio] val paintOnlyAttribute: DataKey = DataKey.unsafe("intaglio-paint-only")
+
   /** Binary-compatible constructor from before resolved viewport frames. */
   def apply(
       width: Double,
@@ -734,7 +748,7 @@ object DeviceScene:
             "rectangle corner radius" -> cornerRadius
           )
         ).flatMap(_ => validateFillGraphicParams(gp))
-      case DevicePrimitive.TextRun(_, x, y, _, _, rotationDegrees, fontSizePx, _, _, _) =>
+      case DevicePrimitive.TextRun(label, x, y, _, _, rotationDegrees, fontSizePx, _, gp, _) =>
         validateNumbers(
           Vector(
             "text x" -> x,
@@ -742,7 +756,10 @@ object DeviceScene:
             "rotation" -> rotationDegrees,
             "font size" -> fontSizePx
           )
-        )
+        ).flatMap { _ =>
+          if gp.letterSpacing.exists(_.value != 0.0) then TextTracking.validate(label)
+          else Right(())
+        }
       case DevicePrimitive.Image(_, x, y, width, height, _, alpha, _) =>
         validateNumbers(
           Vector(
@@ -1009,6 +1026,18 @@ object DeviceScene:
           rotatedAncestor,
           namedAncestors
         )
+      case segments: Grob.Segments
+          if segments.gp.casing.nonEmpty && segments.gp.stroke.nonEmpty &&
+            segments.gp.lineWidth > 0 =>
+        marks(segments, LengthResolver(device, frame, fontRegistry, lineHeightPt)).map { values =>
+          val (underlays, ink) = values.splitAt(values.size / 2)
+          Vector(
+            DeviceElement.Annotated(
+              GrobMeta(data = Vector(paintOnlyAttribute -> "true")),
+              underlays.map(DeviceElement.Mark(_))
+            )
+          ) ++ ink.map(DeviceElement.Mark(_))
+        }
       case other =>
         marks(other, LengthResolver(device, frame, fontRegistry, lineHeightPt))
           .map(_.map(DeviceElement.Mark(_)))
@@ -1061,6 +1090,9 @@ object DeviceScene:
           y <- resolver.y(text.at.y)
           fontPx <- resolver.fontSize(text.gp.fontSize)
           gp <- resolver.graphicParams(text.gp)
+          _ <-
+            if gp.letterSpacing.exists(_.value != 0) then TextTracking.validate(text.label)
+            else Right(())
         yield
           val fontFamily = resolver.fontFamily(text.gp.fontFamily)
           Vector(

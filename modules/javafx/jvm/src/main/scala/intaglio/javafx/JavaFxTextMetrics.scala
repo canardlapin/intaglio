@@ -1,6 +1,6 @@
 package intaglio.javafx
 
-import javafx.geometry.{Bounds, VPos}
+import javafx.geometry.{BoundingBox, Bounds, VPos}
 import javafx.scene.text.{Font, FontWeight as FxFontWeight, Text, TextBoundsType}
 import intaglio.{FontWeight, TextMetrics, TextStyle}
 
@@ -16,6 +16,10 @@ import intaglio.{FontWeight, TextMetrics, TextStyle}
   *     italic or accented glyph can overhang it. [[inkBounds]] reports the ink.
   *   - `heightPt` is the logical line box, [[ascentPt]] plus [[descentPt]], which `fillText`
   *     positions on for top, centre and bottom baselines. It does not depend on the text.
+  *
+  * Nonzero letter spacing uses the same native TextFlow paragraph layout as the renderer, including
+  * its safe Unicode shaping units. Width includes the requested gaps; vertical metrics remain
+  * properties of the face. Measuring does not create the renderer's paragraph snapshot.
   *
   * Headless tests draw runs with [[JavaFxRenderer]] and read the ink at sub-pixel precision: left-
   * against right-justified, the ink moves by `widthPt`, and top- against bottom-justified by
@@ -64,22 +68,31 @@ final class JavaFxTextMetrics private () extends TextMetrics:
     logical(text, style).getWidth
 
   override def heightPt(style: TextStyle): Double =
-    val line = logical(JavaFxTextMetrics.LineProbe, style)
-    line.getMaxY - line.getMinY
+    if style.letterSpacingPt != 0 then trackedLine(style).height
+    else
+      val line = logical(JavaFxTextMetrics.LineProbe, style)
+      line.getMaxY - line.getMinY
 
   /** Distance from the top of the logical line box to the baseline. */
   def ascentPt(style: TextStyle): Double =
-    -logical(JavaFxTextMetrics.LineProbe, style).getMinY
+    if style.letterSpacingPt != 0 then trackedLine(style).ascent
+    else -logical(JavaFxTextMetrics.LineProbe, style).getMinY
 
   /** Distance from the baseline to the bottom of the logical line box. */
   def descentPt(style: TextStyle): Double =
-    logical(JavaFxTextMetrics.LineProbe, style).getMaxY
+    if style.letterSpacingPt != 0 then
+      val line = trackedLine(style)
+      line.height - line.ascent
+    else logical(JavaFxTextMetrics.LineProbe, style).getMaxY
 
   /** The ink: the visual bounds of the glyphs JavaFX draws for `text`, relative to the left end of
     * its baseline (`top` is negative above the baseline). A run with no visible glyphs, such as an
     * empty or all-space label, has an empty box at the origin.
     */
   def inkBounds(text: String, style: TextStyle): JavaFxTextBox =
+    if style.letterSpacingPt != 0 then
+      val plan = tracked(text, style)
+      return plan.ink.fold(JavaFxTextBox(0, 0, 0, 0))(box => box.copy(top = box.top - plan.ascent))
     val visual = bounds(text, style, TextBoundsType.VISUAL)
     if text.isEmpty || visual.isEmpty || visual.getWidth <= 0.0 || visual.getHeight <= 0.0 then
       JavaFxTextBox(0.0, 0.0, 0.0, 0.0)
@@ -107,14 +120,30 @@ final class JavaFxTextMetrics private () extends TextMetrics:
 
   private def bounds(text: String, style: TextStyle, kind: TextBoundsType): Bounds =
     JavaFxTextMetrics.guarded {
-      JavaFxTextMetrics.lock.synchronized {
-        val node = new Text(text)
-        node.setFont(JavaFxTextMetrics.font(style.fontFamily, style.fontSizePt, style.fontWeight))
-        node.setTextOrigin(VPos.BASELINE)
-        node.setBoundsType(kind)
-        node.getLayoutBounds
-      }
+      if style.letterSpacingPt != 0 then
+        val plan = tracked(text, style)
+        new BoundingBox(0, -plan.ascent, plan.advance, plan.height)
+      else
+        JavaFxTextMetrics.lock.synchronized {
+          val node = new Text(text)
+          node.setFont(JavaFxTextMetrics.font(style.fontFamily, style.fontSizePt, style.fontWeight))
+          node.setTextOrigin(VPos.BASELINE)
+          node.setBoundsType(kind)
+          node.getLayoutBounds
+        }
     }
+
+  private def tracked(text: String, style: TextStyle): JavaFxTrackedText =
+    JavaFxTrackedText.layout(
+      text,
+      style.fontFamily,
+      style.fontSizePt,
+      style.fontWeight,
+      style.letterSpacingPt
+    )
+
+  private def trackedLine(style: TextStyle): JavaFxTrackedText =
+    tracked(JavaFxTextMetrics.LineProbe, style.copy(letterSpacingPt = 0.0))
 
 object JavaFxTextMetrics:
   /** A JavaFX-backed provider. Construction touches no JavaFX state; the first measurement does. */

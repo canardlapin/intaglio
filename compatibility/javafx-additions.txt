@@ -97,3 +97,15 @@ MissingClassProblem intaglio.javafx.OverlayOutline
 MissingClassProblem intaglio.javafx.OverlayOutline$
 MissingClassProblem intaglio.javafx.OverlayStroke
 MissingClassProblem intaglio.javafx.OverlayStroke$
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.fillTrackedText
+DirectMissingMethodProblem intaglio.javafx.JavaFxCanvasContext.measureTrackedText
+DirectMissingMethodProblem intaglio.javafx.JavaFxGraphicsContext.fillTrackedText
+DirectMissingMethodProblem intaglio.javafx.JavaFxGraphicsContext.measureTrackedText
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.<init>$default$12
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint._12
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.copy$default$12
+DirectMissingMethodProblem intaglio.javafx.JavaFxPaint.letterSpacingPx
+MissingClassProblem intaglio.javafx.JavaFxFontFaces
+MissingClassProblem intaglio.javafx.JavaFxFontFaces$
+MissingClassProblem intaglio.javafx.JavaFxTrackedText
+MissingClassProblem intaglio.javafx.JavaFxTrackedText$

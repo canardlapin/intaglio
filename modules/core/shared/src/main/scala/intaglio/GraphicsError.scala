@@ -153,6 +153,7 @@ enum GraphicsError extends IntaglioError:
   case InvalidDeviceResolution(pixelsPerInch: Double)
   case InvalidDeviceValue(field: String, value: Double)
   case UnresolvableLength(description: String)
+  case InvalidTextTracking(description: String)
   case LayoutOverflow(region: String)
   case LayoutMeasurementFailed(exceptionType: String, detail: String)
   case InvalidRangeExpansion(multiplicative: Double, additive: Double, zeroWidth: Double)
@@ -377,6 +378,8 @@ enum GraphicsError extends IntaglioError:
         s"device $field must be finite with magnitude <= 1e13: $value"
       case UnresolvableLength(description) =>
         s"length cannot be resolved to device pixels: $description"
+      case InvalidTextTracking(description) =>
+        s"text cannot be letter-spaced: $description"
       case LayoutOverflow(region) =>
         s"plot layout leaves no room for the $region"
       case LayoutMeasurementFailed(exceptionType, detail) =>

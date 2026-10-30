@@ -80,6 +80,10 @@ class SvgConformanceSuite extends munit.FunSuite:
             fontFamily.forall(family => line.contains(s""" font-family="$family"""")) &&
             hasOpacity(line, alpha) && hasFontWeight(line, fontWeight)
           }
+        case RenderRequirement.LetterSpacing(name, spacingPx) =>
+          namedLines(out, name).exists { line =>
+            line.startsWith("<text") && line.contains(s""" letter-spacing="${number(spacingPx)}""")
+          }
         case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
           namedLines(out, name).exists { line =>
             val rendering = interpolation match

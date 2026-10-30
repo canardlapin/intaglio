@@ -4,13 +4,13 @@ import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
 /** Guards the boundary that keeps Intaglio self-contained and portable: every production package
-  * lives under `intaglio`, the core stays platform-neutral, and each backend's Intaglio project
-  * dependency is only the core. These are the properties that let the library be consumed a module
-  * at a time — a portable consumer must never acquire a platform renderer or toolkit transitively.
+  * lives under `intaglio`, the core stays platform-neutral, and backends depend only on core plus
+  * their explicitly allowed shared support modules. These properties allow consumption a module at
+  * a time — a portable consumer must never acquire a platform renderer or toolkit transitively.
   */
 class ModuleBoundarySuite extends munit.FunSuite:
   private val modules =
-    Vector("core", "interaction", "laws", "svg", "canvas", "java2d", "pdf", "javafx")
+    Vector("core", "jvm-text", "interaction", "laws", "svg", "canvas", "java2d", "pdf", "javafx")
 
   private lazy val root: Path =
     // A source consumer's non-forked tests share its user.dir. The suite's own
@@ -69,13 +69,15 @@ class ModuleBoundarySuite extends munit.FunSuite:
     assertEquals(violations, Vector.empty)
   }
 
-  test(
-    "core is dependency-free; only the JavaFX interaction host also depends on shared interaction"
-  ) {
+  test("core is dependency-free; backend dependencies are deliberate") {
     val build = Files.readString(root.resolve("build.sbt"))
     val coreBlock = projectBlock(build, "core", "coreJS")
     assertEquals(dependencies(coreBlock), Vector.empty)
     assert(coreBlock.contains("crossProject(JSPlatform, JVMPlatform)"))
+
+    val jvmTextBlock = projectBlock(build, "jvmText", "jvmTextJVM")
+    assertEquals(dependencies(jvmTextBlock), Vector("core"))
+    assert(jvmTextBlock.contains("crossProject(JVMPlatform)"))
 
     val backends = Vector(
       ("svg", "svgJS", "crossProject(JSPlatform, JVMPlatform)"),
@@ -86,7 +88,10 @@ class ModuleBoundarySuite extends munit.FunSuite:
     )
     backends.foreach { case (name, end, platform) =>
       val block = projectBlock(build, name, end)
-      val expected = if name == "javafx" then Vector("core", "interaction") else Vector("core")
+      val expected = name match
+        case "javafx"         => Vector("core", "interaction")
+        case "java2d" | "pdf" => Vector("core", "jvmText")
+        case _                => Vector("core")
       assertEquals(dependencies(block), expected, clues(name))
       assert(block.contains(platform), clues(name, platform))
     }
@@ -128,6 +133,7 @@ class ModuleBoundarySuite extends munit.FunSuite:
       ("laws", "lawsJS"),
       ("svg", "svgJS"),
       ("canvas", "canvasJS"),
+      ("jvmText", "jvmTextJVM"),
       ("java2d", "java2dJVM"),
       ("pdf", "pdfJVM")
     ).foreach { case (name, end) =>

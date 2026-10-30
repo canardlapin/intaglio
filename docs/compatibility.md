@@ -265,7 +265,33 @@ baseline. [`svg-additions.txt`](../compatibility/svg-additions.txt) is its recor
 
 Each record lists exactly the forward-MiMa findings of its module against the pinned baseline:
 `interaction-additions.txt` (core), `laws-additions.txt`, `svg-additions.txt`,
-`java2d-additions.txt` and `javafx-additions.txt`. When several branches add API at once, regenerate
+`java2d-additions.txt`, `javafx-additions.txt`, and `pdf-additions.txt`. When several branches add API at once, regenerate
 the records from one gate run on the integrated head rather than merging hand-written lines; the
 check fails on a stale entry as well as on a missing one, and every finding must be one of the three
 addition-only kinds. Backward MiMa and TASTy checks still have no exclusions.
+
+### Unicode letter-spacing additions
+
+`LetterSpacing` is a signed, unit-bearing value. The optional `GraphicParams`
+field, `TextStyle.letterSpacingPt`, six `LayoutPolicy` text-role values, and
+backend paint values default to zero or absence. Existing constructor, factory,
+and copy descriptors are retained as bridges; legacy copies retain the receiver's
+spacing. The named `withLetterSpacing` and `withoutLetterSpacing` methods avoid
+overloading unrelated width channels. The existing style-aware `TextMetrics`
+method now rejects unsupported nonzero spacing, while zero keeps its old route.
+
+The JavaFX context's two new tracking methods have concrete defaults that reject
+the capability; existing implementations still compile and ordinary text still
+uses the old methods. `PdfFontCatalog.textMetrics` adds a provider tied to its
+registered font bytes. New validation errors and the letter-spacing conformance
+case are additive enum cases; downstream exhaustive matches must handle them.
+
+The records include exact forward findings for these APIs and their generated
+members, plus package-scoped Unicode helpers. `TextStyle` and `LayoutPolicy`
+retain their companion `toString` methods as well as constructor/copy bridges.
+Native AWT shaping lives in the new `intaglio-jvm-text` implementation module,
+shared by Java2D and PDF; portable core remains platform-neutral. This new module
+has no historical artifact baseline. The PDF record uses the
+same artifact validation and negative calibration as the other modules. No
+backward or TASTy exclusions are introduced for this feature. See
+[letter spacing](letter-spacing.md) for native-engine and Unicode scope limits.

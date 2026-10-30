@@ -103,6 +103,9 @@ object ExternalDeviceHarness extends RendererHarness[DeviceScene]:
             actualFontSize == fontSizePx && actualFontFamily == fontFamily && gp.alpha == alpha &&
             gp.fontWeight == fontWeight
           case _ => false
+      case RenderRequirement.LetterSpacing(name, spacingPx) =>
+        primitiveName(primitive).contains(name) &&
+        primitiveParams(primitive).flatMap(_.letterSpacing).exists(_.value == spacingPx)
       case RenderRequirement.Image(name, dimensions, interpolation, alpha) =>
         primitive match
           case DevicePrimitive.Image(

@@ -29,13 +29,16 @@ private[javafx] object JavaFxFontFaces:
 
   def resolve(family: String, weight: FontWeight, size: Double): Option[Font] = synchronized {
     val available = Font.getFontNames
-    // Font.loadFont adds application faces. Refresh when registration changes the inventory;
-    // cache names, not Font objects, so replaced programs and requested sizes remain current.
+    // Some JavaFX versions cache this inventory before later Font.loadFont registrations.
+    // Keep it as a spelling index, but also probe conventional full names directly below.
     if available.size != knownCount then
       names = available.asScala.toVector.sorted.reverse.map(name => key(name) -> name).toMap
       knownCount = available.size
     suffixes(weight.getWeight).iterator
-      .flatMap(suffix => names.get(key(family) + suffix))
+      .flatMap { suffix =>
+        names.get(key(family) + suffix).iterator ++
+          Iterator(s"$family $suffix".trim, s"$family-$suffix", family + suffix)
+      }
       .map(name => name -> new Font(name, size))
-      .collectFirst { case (name, font) if font.getName == name => font }
+      .collectFirst { case (name, font) if key(font.getName) == key(name) => font }
   }

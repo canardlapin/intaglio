@@ -22,7 +22,7 @@ class Java2DRendererSuite extends munit.FunSuite:
     assert((image.getRGB(50, 22) >>> 24) > 0, "beveled join remains painted")
   }
 
-  test("casing lowers once with device width and leaves the named line as one command") {
+  test("cased segments lower to an unnamed underlay followed by one named ink command") {
     val gp = GraphicParams
       .unsafe(stroke = Some(Rgba.unsafe(25, 90, 200)), lineWidth = 2.0, lineType = LineType.Dashed)
       .withCasing(
@@ -44,14 +44,21 @@ class Java2DRendererSuite extends munit.FunSuite:
       .compile(Scene(Vector(line)), Java2DOptions.unsafe(width = 100, height = 60))
       .fold(error => fail(error.message), identity)
 
-    assertEquals(program.commands.length, 1)
-    program.commands.head match
-      case Java2DCommand.Polyline(_, false, paint, name) =>
+    program.commands match
+      case Vector(
+            Java2DCommand.Polyline(underlayPoints, false, underlay, None),
+            Java2DCommand.Polyline(points, false, paint, name)
+          ) =>
+        assertEquals(underlayPoints, points)
+        assertEquals(underlay.lineWidth, 6.0)
+        assertEquals(underlay.dash, Java2DLineDash.Solid)
+        assertEquals(underlay.opacity, 0.6)
+        assertEquals(underlay.casing, None)
         assertEquals(name.map(_.value), Some("cased-route"))
-        assertEquals(paint.casing.map(_.lineWidth), Some(6.0))
-        assertEquals(paint.casing.map(_.dash), Some(Java2DLineDash.Solid))
+        assertEquals(paint.lineWidth, 2.0)
+        assertEquals(paint.casing, None)
         assertEquals(paint.dash, Java2DLineDash.Pattern(Vector(6.0f, 4.0f)))
-      case other => fail(s"expected cased polyline, found $other")
+      case other => fail(s"expected decorative underlay and named ink, found $other")
   }
 
   test("program compilation is deterministic and preserves draw order") {
