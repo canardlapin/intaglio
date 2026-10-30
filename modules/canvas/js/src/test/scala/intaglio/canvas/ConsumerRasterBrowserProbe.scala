@@ -39,11 +39,30 @@ object ConsumerRasterBrowserProbe:
       x: Double,
       y: Double,
       width: Double,
-      height: Double
+      height: Double,
+      offscreen: Boolean = false
   ): js.Dynamic =
     canvas.width = math.max(8, math.ceil(x + width + 3).toInt)
     canvas.height = math.max(8, math.ceil(y + height + 3).toInt)
-    val ctx = canvas.getContext("2d").asInstanceOf[CanvasRenderingContext2D]
+    val target = if offscreen then
+      js.Dynamic.newInstance(js.Dynamic.global.OffscreenCanvas)(canvas.width, canvas.height)
+    else canvas
+    given CanvasRasterFactory = if offscreen then
+      new CanvasRasterFactory:
+        def create(image: RasterImage, context: CanvasRenderingContext2D): CanvasImageSource =
+          val surface =
+            js.Dynamic.newInstance(js.Dynamic.global.OffscreenCanvas)(image.width, image.height)
+          val native = surface.getContext("2d").asInstanceOf[CanvasRenderingContext2D]
+          val data = native.createImageData(image.width, image.height)
+          CanvasRasterFactory.writeRgbaBytes(
+            image,
+            data.data,
+            CanvasRasterFactory.nativeLittleEndian
+          )
+          native.putImageData(data, 0, 0)
+          surface.asInstanceOf[CanvasImageSource]
+    else CanvasRasterFactory.browser
+    val ctx = target.getContext("2d").asInstanceOf[CanvasRenderingContext2D]
     val source = RasterImage.tabulate(RasterDimensions.unsafe(sourceWidth, sourceHeight)) {
       (c, r) =>
         Rgba32.unsafe(
@@ -65,7 +84,7 @@ object ConsumerRasterBrowserProbe:
         reference.imageSmoothingEnabled = false
         reference.drawImage(summon[CanvasRasterFactory].create(sampled, reference), dx, dy, dw, dh)
       }
-    val actualBytes = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data
+    val actualBytes = target.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data
     val expectedBytes =
       expected.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data
     var mismatches = 0

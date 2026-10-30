@@ -20,6 +20,11 @@ resolves #14; independently antialiased `geomTile` rectangles retain that limita
   sources, empty coverage, transparency, and a source taller than 4096 pixels.
   Eight cases compared every output byte against `RasterSampling.prepare`.
   `CanvasRendererSuite` passed 14 tests.
+  A subsequent independent review identified custom OffscreenCanvas factories and
+  sources beyond native canvas dimension limits as missing cases. The follow-up
+  preserves CPU sampling for factories without scratch-surface support and for
+  source axes above 4096; three additional browser cases and a unit regression
+  were added. Those follow-up checks remain pending.
 - **#30:** cased segments sharing unambiguous endpoints are stitched into runs and
   loops. All run casings precede all ink. Branches remain separate runs; uncased
   segments preserve independent-stroke behavior. Shared regressions passed 6

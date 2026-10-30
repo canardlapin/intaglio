@@ -27,13 +27,17 @@ async function main() {
             [7, 5, 0.3, 0.49, 23.7, 19.2], [11, 3, 3.5, 2.5, 9.1, 14.2],
             [1, 31, 0.1, 0.2, 300.4, 4.3], [31, 1, 0.4, 0.3, 4.2, 200.1],
             [3, 5, 0.6, 0.6, 0.1, 0.1], [2, 2, 1, 1, 20, 20],
-            [3, 4101, 0.2, 0.1, 13.7, 19.3], [17, 9, -3.4, -2.1, 18.8, 12.7]
+            [3, 4101, 0.2, 0.1, 13.7, 19.3], [17, 9, -3.4, -2.1, 18.8, 12.7],
+            [3, 40000, 0.2, 0.1, 13.7, 19.3], [40000, 3, 0.2, 0.1, 19.3, 13.7],
+            [7, 5, 0.3, 0.49, 23.7, 19.2, true]
           ]) {
             const result = await page.evaluate(args => ConsumerRasterProbe.exact(document.querySelector('#probe'), ...args), args);
             assert.equal(result.mismatches, 0, `nearest reference equality: ${args}`);
             const empty = args[4] === 0.1;
-            assert.equal(result.coldBytes, empty ? 0 : args[0] * args[1] * 4);
-            assert.equal(result.resizeBytes, empty ? args[0] * args[1] * 4 : 0);
+            const fallback = args[0] > 4096 || args[1] > 4096 || args[6] === true;
+            const preparedBytes = (x,y,w,h) => (Math.ceil(x+w-0.5)-Math.ceil(x-0.5)) * (Math.ceil(y+h-0.5)-Math.ceil(y-0.5)) * 4;
+            assert.equal(result.coldBytes, empty ? 0 : fallback ? preparedBytes(...args.slice(2,6)) : args[0] * args[1] * 4);
+            assert.equal(result.resizeBytes, fallback ? preparedBytes(args[2]+0.2,args[3]+0.1,args[4]+1,args[5]+1) : empty ? args[0] * args[1] * 4 : 0);
             report.runs.push({kind: 'nearest-exact', args, ...result});
           }
           report.resizeBenchmarks = [];

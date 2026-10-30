@@ -776,6 +776,35 @@ class CanvasRendererSuite extends munit.FunSuite:
     assert(CanvasRasterCache.make(-1).isLeft)
   }
 
+  test("custom factories without scratch surfaces retain bounded fractional CPU sampling") {
+    val uploaded = ArrayBuffer.empty[RasterDimensions]
+    given CanvasRasterFactory with
+      def create(image: RasterImage, target: CanvasRenderingContext2D): CanvasImageSource =
+        uploaded += image.dimensions
+        js.Dynamic.literal().asInstanceOf[CanvasImageSource]
+    val context = js.Dynamic
+      .literal(
+        save = (() => ()): js.Function0[Unit],
+        restore = (() => ()): js.Function0[Unit],
+        drawImage = ((_: CanvasImageSource, _: Double, _: Double, _: Double, _: Double) => ()):
+          js.Function5[CanvasImageSource, Double, Double, Double, Double, Unit]
+      )
+      .asInstanceOf[CanvasRenderingContext2D]
+    for dimensions <- Vector(RasterDimensions.unsafe(3, 2), RasterDimensions.unsafe(3, 40000)) do
+      val source = RasterImage.solid(dimensions, Rgba32.unsafe(10, 20, 30))
+      val primitive =
+        DevicePrimitive.Image(source, 0.3, 0.2, 13.7, 19.3, RasterInterpolation.Nearest, 1, None)
+      val program = CanvasProgram.fromDevice(
+        DeviceScene(30, 30, Vector(DeviceElement.Mark(primitive))),
+        RenderContext.unsafe(30, 30)
+      )
+      val cache = CanvasRasterCache.empty(1)
+      val cold = CanvasRenderer.drawCached(program, context, cache)
+      assertEquals(uploaded.last, RasterDimensions.unsafe(14, 19))
+      assertEquals(cold.uploadedBytes, 14L * 19L * 4L)
+      assertEquals(CanvasRenderer.drawCached(program, context, cache).uploadedBytes, 0L)
+  }
+
   test("pre-pattern Canvas case-class apply and copy descriptors remain callable") {
     val legacyPaintApply: (
         Option[CanvasColor],

@@ -73,5 +73,9 @@ identity.
 Canvas uploads each source image once while it remains in `CanvasRasterCache`. It realizes the
 mapping with two passes of integer-aligned strip blits, and retains the resulting native canvas
 for repeated draws at the same geometry. Resizing or panning an unchanged image does not upload
-its pixels again. Tall sources are processed in bands so intermediate canvases also stay within
-the 4096-pixel bound. JavaFX and Java2D retain the CPU-prepared image path.
+its pixels again. Sources exceeding 4096 pixels on either axis retain the bounded CPU-prepared
+upload path, so a very tall or wide source does not exceed a browser's native canvas limit.
+Custom `CanvasRasterFactory` implementations can opt into strip blits by implementing
+`createSurface`; otherwise they retain CPU sampling, including in OffscreenCanvas environments.
+`CanvasDrawProfile` counts actual raster uploads and upload reuse; scratch allocations and blits
+are not uploaded bytes. JavaFX and Java2D retain the CPU-prepared image path.
